@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CashbookExpenses } from "./cashbook-expenses";
 import { PurchasesInventory } from "./purchases-inventory";
 import { CustomersCredit } from "./customers-credit";
 import { NetworkStatus } from "./network-status";
@@ -327,6 +328,7 @@ function BusinessWorkspace(props: {
         <nav className="nav-stack" aria-label="Primary navigation">
           <a className="nav-item active" href="#dashboard">Overview</a>
           <a className="nav-item" href="#sell">Sell</a>
+          <a className="nav-item" href="#cashbook">Cashbook & expenses</a>
           <a className="nav-item" href="#customers">Customers & credit</a>
           <a className="nav-item" href="#purchases">Purchases & inventory</a>
           <a className="nav-item" href="#catalog">Catalog & units</a>
@@ -367,6 +369,7 @@ function BusinessWorkspace(props: {
 
         <PurchasesInventory businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} role={context.membership.role} catalog={props.catalog} />
 
+        <CashbookExpenses businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} role={context.membership.role} />
         <CustomersCredit
           businessId={context.business.id}
           branchId={branchId}

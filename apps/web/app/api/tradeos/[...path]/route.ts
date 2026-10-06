@@ -11,6 +11,9 @@ const exactAllowedPaths = new Set([
   "v1/suppliers",
   "v1/inventory",
   "v1/purchases",
+  "v1/cashbook",
+  "v1/expenses",
+  "v1/expense-categories",
 ]);
 const businessContextPattern = /^v1\/businesses\/[0-9a-f-]{36}\/context$/i;
 const saleDetailPattern = /^v1\/sales\/[0-9a-f-]{36}$/i;
@@ -39,6 +42,7 @@ async function forwardAllowed(request: NextRequest, context: Context) {
     !saleDetailPattern.test(normalized) &&
     !/^v1\/purchases\/[0-9a-f-]{36}$/i.test(normalized) &&
     !customerDetailPattern.test(normalized) &&
+    !/^v1\/expense-categories\/[0-9a-f-]{36}$/i.test(normalized) &&
     !/^v1\/suppliers\/[0-9a-f-]{36}$/i.test(normalized)
   ) {
     return NextResponse.json({ error: "ROUTE_NOT_ALLOWED", message: "This TradeOS web route is not exposed." }, { status: 404 });

@@ -93,6 +93,11 @@ export function enqueueMutation(mutation: PendingMutation): void {
   }
 }
 
+export function getPendingMutations(): PendingMutation[] {
+  if (typeof window === "undefined") return [];
+  return readJson<PendingMutation[]>(pendingKey, []);
+}
+
 export function getQueueState(): QueueState {
   if (typeof window === "undefined") return { pending: 0, blocked: 0, failed: 0 };
   const pending = readJson<PendingMutation[]>(pendingKey, []);

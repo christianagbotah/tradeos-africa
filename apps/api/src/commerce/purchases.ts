@@ -1,3 +1,4 @@
+import { recordCashbookEntry, isCashMethod } from "./cashbook.js";
 import { adjustValuation, signedMinor, addSignedMinor, safeMinor, proportionalMinor, quantityUnits } from "./valuation.js";
 import { UnitConverter } from "@tradeos/domain";
 import type { DatabaseClient, DatabasePool } from "../db.js";
@@ -153,6 +154,7 @@ export async function applyPurchaseReceiveMutation(
        VALUES ($1,$2,$3,$4,$5,$6,'PURCHASE',$7,$8,$9,$10)`,
       [context.businessId,context.branchId,payload.supplierId,currencyCode,totalMinor,payload.settlementMethod,purchaseId,payload.receivedByStaffId,context.clientMutationId,context.occurredAt]);
     }
+    if (totalMinor > 0 && isCashMethod(payload.settlementMethod)) await recordCashbookEntry(client,{...context,currencyCode,method:payload.settlementMethod,amountDeltaMinor:-totalMinor,entryType:"PURCHASE_PAYMENT",sourceType:"PURCHASE",sourceId:purchaseId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`purchase:${purchaseId}`});
     await writeEvents(client, context, payload, purchaseId, totalMinor);
     return { purchaseId, status: "RECEIVED", totalMinor, lineCount: payload.lines.length, idempotentReplay: false };
   });
@@ -266,6 +268,7 @@ export async function applySupplierPaymentMutation(pool: DatabasePool, context: 
   if (outstanding <= 0 || payload.amountMinor > outstanding) throw new PurchaseMutationError("Payment exceeds positive supplier payable", "SUPPLIER_OVERPAYMENT");
   const result = await client.query<{id:string}>(`INSERT INTO supplier_payable_ledger (business_id,branch_id,supplier_id,currency_code,balance_delta_minor,method,source_type,source_id,actor_staff_id,client_mutation_id,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,'PAYMENT',gen_random_uuid(),$7,$8,$9) RETURNING id`,[context.businessId,context.branchId,payload.supplierId,branch.rows[0].currency_code,-payload.amountMinor,payload.method,payload.paidByStaffId,context.clientMutationId,context.occurredAt]);
   const paymentId = result.rows[0]!.id;
+  await recordCashbookEntry(client,{...context,currencyCode:branch.rows[0].currency_code,method:payload.method,amountDeltaMinor:-payload.amountMinor,entryType:"SUPPLIER_PAYMENT",sourceType:"SUPPLIER_PAYMENT",sourceId:paymentId,actorStaffId:payload.paidByStaffId,idempotencyKey:`supplier-payment:${paymentId}`});
   const eventPayload = JSON.stringify({supplierId:payload.supplierId,amountMinor:payload.amountMinor,method:payload.method});
   await client.query(`INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at) VALUES ($1,$2,$3,'SUPPLIER_PAYMENT_CREATED','SUPPLIER_PAYMENT',$4,$5,$6::jsonb,$7)`,[context.businessId,context.branchId,payload.paidByStaffId,paymentId,context.clientMutationId,eventPayload,context.occurredAt]);
   await client.query(`INSERT INTO outbox_events (business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at) VALUES ($1,$2,'SUPPLIER',$3,'SUPPLIER_PAYMENT_CREATED',$4::jsonb,$5)`,[context.businessId,context.branchId,payload.supplierId,eventPayload,context.occurredAt]);
