@@ -3,6 +3,7 @@ import type { ClientMutation, SyncPushRequest } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authenticateAccessToken, AuthError, type AuthContext } from "./auth/security.js";
+import { registerBusinessRoutes } from "./businesses.js";
 import { registerCatalogRoutes } from "./catalog.js";
 import type { DatabasePool } from "./db.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
@@ -25,6 +26,7 @@ export function buildApp(pool: DatabasePool) {
 
   registerAuthRoutes(app, pool);
   registerOnboardingRoutes(app, pool);
+  registerBusinessRoutes(app, pool);
   registerCatalogRoutes(app, pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
