@@ -11,6 +11,21 @@ permissions:
 jobs:
   domain:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: tradeos_ci
+          POSTGRES_USER: tradeos
+          POSTGRES_PASSWORD: tradeos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tradeos -d tradeos_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,6 +40,11 @@ jobs:
 
       - name: Install
         run: pnpm install --no-frozen-lockfile
+
+      - name: Validate PostgreSQL migrations
+        env:
+          PGPASSWORD: tradeos
+        run: psql -h localhost -U tradeos -d tradeos_ci -v ON_ERROR_STOP=1 -f packages/db/migrations/0001_core.sql
 
       - name: Typecheck
         run: pnpm typecheck
