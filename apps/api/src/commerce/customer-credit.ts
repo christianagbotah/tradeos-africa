@@ -1,3 +1,4 @@
+import { recordCashbookEntry } from "./cashbook.js";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 
@@ -97,6 +98,7 @@ export async function applyCustomerPaymentMutation(
       occurredAt: context.occurredAt,
     });
 
+    await recordCashbookEntry(client,{...context,currencyCode:customer.currency_code,method:payload.method,amountDeltaMinor:payload.amountMinor,entryType:"CUSTOMER_PAYMENT",sourceType:"CUSTOMER_PAYMENT",sourceId:paymentId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`customer-payment:${paymentId}`});
     const balanceMinor = await getCustomerBalance(client, context.businessId, customer.id);
     await writeCustomerPaymentEvents(client, context, payload, paymentId, balanceMinor);
 

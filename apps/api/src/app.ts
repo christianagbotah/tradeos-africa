@@ -1,3 +1,4 @@
+import { registerCashbookRoutes } from "./cashbook.js";
 import { registerSupplierInventoryRoutes } from "./suppliers-inventory.js";
 import Fastify from "fastify";
 import type { ClientMutation, SyncPushRequest } from "@tradeos/contracts";
@@ -17,6 +18,8 @@ const RETURN_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CAS
 const CUSTOMER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
 const PURCHASE_RECEIVE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"];
 const SUPPLIER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
+const EXPENSE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
+const CASHBOOK_ADJUSTMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 
 export function buildApp(pool: DatabasePool) {
   const app = Fastify({ logger: true });
@@ -37,6 +40,7 @@ export function buildApp(pool: DatabasePool) {
   registerCustomerRoutes(app, pool);
   registerSalesReadRoutes(app, pool);
   registerSupplierInventoryRoutes(app, pool);
+  registerCashbookRoutes(app, pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
     try {
@@ -109,6 +113,10 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
   }
   const payload = mutation.payload as Record<string, unknown>;
 
+  if (["EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE"].includes(mutation.mutationType)) {
+    const { actorStaffId: _ignored, ...rest } = payload;
+    return {...rest,actorStaffId:access.staffId};
+  }
   if (mutation.mutationType === "SALE_CREATE") {
     const { cashierStaffId: _ignored, ...rest } = payload;
     return { ...rest, cashierStaffId: access.staffId };
@@ -143,6 +151,8 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
 
 function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
   switch (mutation.mutationType) {
+    case "EXPENSE_CREATE": return EXPENSE_ROLES;
+    case "CASHBOOK_ADJUSTMENT_CREATE": return CASHBOOK_ADJUSTMENT_ROLES;
     case "SALE_CREATE":
       return SALE_ROLES;
     case "RETURN_CREATE":

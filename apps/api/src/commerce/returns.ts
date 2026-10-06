@@ -1,3 +1,4 @@
+import { recordCashbookEntry, isCashMethod } from "./cashbook.js";
 import { adjustValuation } from "./valuation.js";
 import { money, planSaleReturn, SaleReturnError, type RefundMethod, type ReturnDisposition, type SaleLineSnapshot } from "@tradeos/domain";
 import type { DatabaseClient, DatabasePool } from "../db.js";
@@ -226,6 +227,8 @@ export async function applyReturnMutation(
       );
     }
 
+    const refunds = await client.query<{id:string;method:string;amount_minor:string}>(`SELECT id,method,amount_minor FROM refund_transactions WHERE return_case_id=$1 AND status='SUCCEEDED'`, [returnCaseId]);
+    for (const refund of refunds.rows) if (isCashMethod(refund.method)) await recordCashbookEntry(client,{...context,currencyCode:sale.currency_code,method:refund.method,amountDeltaMinor:-Number(refund.amount_minor),entryType:"SALE_REFUND",sourceType:"REFUND_TRANSACTION",sourceId:refund.id,actorStaffId:payload.initiatedByStaffId,idempotencyKey:`refund:${refund.id}`});
     if (customerCreditRefundMinor > 0 && sale.customer_id) {
       await recordCustomerAccountEntry(client, {
         businessId: context.businessId,
