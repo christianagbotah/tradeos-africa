@@ -37,6 +37,7 @@ async function forwardAllowed(request: NextRequest, context: Context) {
     !exactAllowedPaths.has(normalized) &&
     !businessContextPattern.test(normalized) &&
     !saleDetailPattern.test(normalized) &&
+    !/^v1\/purchases\/[0-9a-f-]{36}$/i.test(normalized) &&
     !customerDetailPattern.test(normalized) &&
     !/^v1\/suppliers\/[0-9a-f-]{36}$/i.test(normalized)
   ) {

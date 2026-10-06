@@ -3,6 +3,24 @@ import type { DatabaseClient } from "../db.js";
 type Context = { businessId: string; branchId: string };
 export type ValuationLocation = "AVAILABLE" | "QUARANTINE" | "DAMAGED" | "WASTE";
 
+export function signedMinor(value: number): number {
+  if (!Number.isSafeInteger(value)) throw new Error("Invalid or unsafe signed minor-unit amount");
+  return value;
+}
+export function addSignedMinor(left: number, right: number): number {
+  const result = BigInt(signedMinor(left)) + BigInt(signedMinor(right));
+  return signedMinor(Number(result));
+}
+export function quantityFromUnits(value: bigint): number { return Number(value) / 1e8; }
+export function proportionalQuantity(total: number, numerator: bigint, denominator: bigint): bigint {
+  if (denominator <= 0n) throw new Error("Invalid quantity denominator");
+  return (quantityUnits(total) * numerator + denominator / 2n) / denominator;
+}
+export function cumulativeMinor(total: number, numerator: bigint, denominator: bigint): number {
+  if (denominator <= 0n) throw new Error("Invalid cost denominator");
+  return safeMinor(Number((BigInt(safeMinor(total)) * numerator + denominator / 2n) / denominator));
+}
+
 export function safeMinor(value: number): number {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error("Invalid or unsafe minor-unit amount");
   return value;
@@ -60,8 +78,10 @@ export async function adjustValuation(
   );
   const row = result.rows[0];
   if (!row) throw new Error("Inventory valuation row could not be loaded");
-  const quantity = Number(row.quantity) + quantityDelta;
-  const value = Number(row.value_minor) + valueDelta;
+  const quantityScaled = quantityUnits(Number(row.quantity)) + (quantityDelta < 0 ? -quantityUnits(-quantityDelta) : quantityUnits(quantityDelta));
+  if (quantityScaled < 0n) throw new Error("Invalid valuation quantity");
+  const quantity = quantityFromUnits(quantityScaled);
+  const value = addSignedMinor(Number(row.value_minor), valueDelta);
   if (!Number.isFinite(quantity) || quantity < -Number.EPSILON) throw new Error("Invalid valuation quantity");
   if (!Number.isSafeInteger(value) || value < 0) throw new Error("Invalid valuation amount");
   await client.query(
@@ -76,25 +96,26 @@ export async function consumeValuation(
   context: Context,
   itemId: string,
   quantity: number,
+  location: ValuationLocation = "AVAILABLE",
 ): Promise<number> {
   quantityUnits(quantity);
-  await ensureValuationRow(client, context, itemId, "AVAILABLE");
+  await ensureValuationRow(client, context, itemId, location);
   const result = await client.query<{ quantity: string; value_minor: string }>(
     `SELECT quantity,value_minor FROM inventory_valuations
-     WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND location_type='AVAILABLE' FOR UPDATE`,
-    [context.businessId, context.branchId, itemId],
+     WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND location_type=$4 FOR UPDATE`,
+    [context.businessId, context.branchId, itemId, location],
   );
   const row = result.rows[0];
-  if (!row) throw new Error("Available valuation row could not be loaded");
+  if (!row) throw new Error("Inventory valuation row could not be loaded");
   const available = Number(row.quantity);
   const currentValue = safeMinor(Number(row.value_minor));
-  if (available + Number.EPSILON < quantity) throw new Error("Inventory valuation is below the requested stock quantity");
+  if (quantityUnits(available) < quantityUnits(quantity)) throw new Error("Inventory valuation is below the requested stock quantity");
   if (available <= 0 || quantity === 0) return 0;
   const cost = proportionalMinor(currentValue, quantity, available);
   await client.query(
-    `UPDATE inventory_valuations SET quantity=$4,value_minor=$5
-     WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND location_type='AVAILABLE'`,
-    [context.businessId, context.branchId, itemId, Math.max(0, available - quantity), currentValue - cost],
+    `UPDATE inventory_valuations SET quantity=$5,value_minor=$6
+     WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND location_type=$4`,
+    [context.businessId, context.branchId, itemId, location, quantityFromUnits(quantityUnits(available) - quantityUnits(quantity)), currentValue - cost],
   );
   return cost;
 }

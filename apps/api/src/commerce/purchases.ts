@@ -1,4 +1,4 @@
-import { adjustValuation, safeMinor, proportionalMinor, quantityUnits } from "./valuation.js";
+import { adjustValuation, signedMinor, addSignedMinor, safeMinor, proportionalMinor, quantityUnits } from "./valuation.js";
 import { UnitConverter } from "@tradeos/domain";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
@@ -85,6 +85,14 @@ export async function applyPurchaseReceiveMutation(
     );
     if (!supplier.rows[0]) throw new PurchaseMutationError("Supplier is not active for this business", "SUPPLIER_NOT_FOUND");
 
+    const purchaseItemIds = [...new Set(payload.lines.map((line) => line.itemId))].sort();
+    if (purchaseItemIds.length > 0) {
+      await client.query(
+        `SELECT id FROM catalog_items WHERE business_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE`,
+        [context.businessId, purchaseItemIds],
+      );
+    }
+
     const purchaseInsert = await client.query<{ id: string }>(
       `INSERT INTO purchases (
          business_id,branch_id,supplier_id,received_by_staff_id,status,currency_code,
@@ -139,7 +147,7 @@ export async function applyPurchaseReceiveMutation(
     await client.query(`UPDATE purchases SET total_minor=$2 WHERE id=$1`, [purchaseId, totalMinor]);
     if (payload.settlementMethod === "SUPPLIER_CREDIT" && totalMinor > 0) {
       const balance = await client.query<{balance:string}>(`SELECT COALESCE(SUM(balance_delta_minor),0) AS balance FROM supplier_payable_ledger WHERE business_id=$1 AND supplier_id=$2 AND currency_code=$3`,[context.businessId,payload.supplierId,currencyCode]);
-      safeMinor(safeMinor(Number(balance.rows[0]?.balance ?? 0)) + totalMinor);
+      addSignedMinor(signedMinor(Number(balance.rows[0]?.balance ?? 0)), totalMinor);
       await client.query(
       `INSERT INTO supplier_payable_ledger (business_id,branch_id,supplier_id,currency_code,balance_delta_minor,method,source_type,source_id,actor_staff_id,client_mutation_id,occurred_at)
        VALUES ($1,$2,$3,$4,$5,$6,'PURCHASE',$7,$8,$9,$10)`,
@@ -254,13 +262,13 @@ export async function applySupplierPaymentMutation(pool: DatabasePool, context: 
    return {paymentId:prior.rows[0].id,idempotentReplay:true};
   }
   const balance = await client.query<{balance:string}>(`SELECT COALESCE(SUM(balance_delta_minor),0) AS balance FROM supplier_payable_ledger WHERE business_id=$1 AND supplier_id=$2 AND currency_code=$3`,[context.businessId,payload.supplierId,branch.rows[0].currency_code]);
-  const outstanding = safeMinor(Number(balance.rows[0]?.balance ?? 0));
-  if (payload.amountMinor > outstanding) throw new PurchaseMutationError("Payment exceeds positive supplier payable", "SUPPLIER_OVERPAYMENT");
+  const outstanding = signedMinor(Number(balance.rows[0]?.balance ?? 0));
+  if (outstanding <= 0 || payload.amountMinor > outstanding) throw new PurchaseMutationError("Payment exceeds positive supplier payable", "SUPPLIER_OVERPAYMENT");
   const result = await client.query<{id:string}>(`INSERT INTO supplier_payable_ledger (business_id,branch_id,supplier_id,currency_code,balance_delta_minor,method,source_type,source_id,actor_staff_id,client_mutation_id,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,'PAYMENT',gen_random_uuid(),$7,$8,$9) RETURNING id`,[context.businessId,context.branchId,payload.supplierId,branch.rows[0].currency_code,-payload.amountMinor,payload.method,payload.paidByStaffId,context.clientMutationId,context.occurredAt]);
   const paymentId = result.rows[0]!.id;
   const eventPayload = JSON.stringify({supplierId:payload.supplierId,amountMinor:payload.amountMinor,method:payload.method});
   await client.query(`INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at) VALUES ($1,$2,$3,'SUPPLIER_PAYMENT_CREATED','SUPPLIER_PAYMENT',$4,$5,$6::jsonb,$7)`,[context.businessId,context.branchId,payload.paidByStaffId,paymentId,context.clientMutationId,eventPayload,context.occurredAt]);
   await client.query(`INSERT INTO outbox_events (business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at) VALUES ($1,$2,'SUPPLIER',$3,'SUPPLIER_PAYMENT_CREATED',$4::jsonb,$5)`,[context.businessId,context.branchId,payload.supplierId,eventPayload,context.occurredAt]);
-  return {paymentId,balanceMinor:outstanding-payload.amountMinor,idempotentReplay:false};
+  return {paymentId,balanceMinor:addSignedMinor(outstanding,-payload.amountMinor),idempotentReplay:false};
  });
 }
