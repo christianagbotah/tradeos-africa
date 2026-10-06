@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { mutationAppliedEvent } from "../lib/offline-sync";
+import type { CashForecastResponse } from "@tradeos/contracts";
+import { CashForecastPanel } from "./cash-forecast";
 
 type Flow = {
   grossRevenueMinor: number; returnsRevenueMinor: number; netRevenueMinor: number;
@@ -79,10 +81,13 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
   const [allBranches, setAllBranches] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
   const [aging, setAging] = useState<CreditAging | null>(null);
+  const [forecast, setForecast] = useState<CashForecastResponse | null>(null);
+  const [forecastOfflineCached, setForecastOfflineCached] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const canRead = allowedRoles.includes(role);
   const cacheKey = useMemo(() => `tradeos.report.v2:${businessId}:${allBranches ? "all" : branchId}:${fromDate}:${toDate}`, [businessId, branchId, allBranches, fromDate, toDate]);
+  const forecastCacheKey = useMemo(() => `tradeos.cash-forecast.v1:${businessId}:${allBranches ? "all" : branchId}:30`, [businessId, branchId, allBranches]);
   const money = (minor: number) => `${currencyCode === "GHS" ? "₵" : currencyCode} ${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const healthValue = (value: number, unit: string) => {
     if (unit === "MINOR") return money(value);
@@ -98,10 +103,19 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
     setMessage("");
     setAging(null);
     let cachedReport: Report | null = null;
+    let cachedForecast: CashForecastResponse | null = null;
     try { const cached = localStorage.getItem(cacheKey); if (cached) cachedReport = JSON.parse(cached) as Report; } catch { /* optional cache */ }
+    try { const cached = localStorage.getItem(forecastCacheKey); if (cached) cachedForecast = JSON.parse(cached) as CashForecastResponse; } catch { /* optional cache */ }
     setReport(cachedReport);
+    setForecast(cachedForecast);
+    setForecastOfflineCached(false);
     const load = async () => {
-      if (!navigator.onLine) { setBusy(false); setMessage(cachedReport ? "Offline: showing the saved report for this exact period and scope." : "Offline: no saved report exists for this period and scope yet."); return; }
+      if (!navigator.onLine) {
+        setBusy(false);
+        setForecastOfflineCached(Boolean(cachedForecast));
+        setMessage(cachedReport || cachedForecast ? "Offline: showing saved server data for this scope." : "Offline: no saved report or cash forecast exists for this scope yet.");
+        return;
+      }
       if (fromDate > toDate) { setMessage("Start date must not be after end date."); return; }
       setBusy(true);
       try {
@@ -110,15 +124,21 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
         if (!allBranches) query.set("branchId", branchId);
         const agingQuery = new URLSearchParams({ businessId });
         if (!allBranches) agingQuery.set("branchId", branchId);
-        const [next,nextAging] = await Promise.all([
+        const forecastQuery = new URLSearchParams({ businessId, days: "30" });
+        if (!allBranches) forecastQuery.set("branchId", branchId);
+        const [next,nextAging,nextForecast] = await Promise.all([
           clientApi<Report>(`/api/tradeos/v1/reports/financial-summary?${query}`),
           clientApi<CreditAging>(`/api/tradeos/v1/reports/credit-aging?${agingQuery}`),
+          clientApi<CashForecastResponse>(`/api/tradeos/v1/reports/cash-forecast?${forecastQuery}`),
         ]);
         if (!alive) return;
         setReport(next);
         setAging(nextAging);
+        setForecast(nextForecast);
+        setForecastOfflineCached(false);
         setMessage("");
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* optional cache */ }
+        try { localStorage.setItem(forecastCacheKey, JSON.stringify(nextForecast)); } catch { /* optional cache */ }
       } catch (error) { if (alive) setMessage(messageFrom(error)); }
       finally { if (alive) setBusy(false); }
     };
@@ -130,7 +150,7 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
     window.addEventListener("online", refresh);
     window.addEventListener(mutationAppliedEvent, refresh);
     return () => { alive = false; window.removeEventListener("online", refresh); window.removeEventListener(mutationAppliedEvent, refresh); };
-  }, [businessId, branchId, fromDate, toDate, allBranches, canRead, cacheKey, businessTimezone, branchTimezone]);
+  }, [businessId, branchId, fromDate, toDate, allBranches, canRead, cacheKey, forecastCacheKey, businessTimezone, branchTimezone]);
 
   if (!canRead) return null;
   const f = report?.flow;
@@ -178,6 +198,8 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
 
           <div>{report.health.insights.map((item) => <div className={`insight ${item.severity === "CRITICAL" || item.severity === "WARNING" ? "important" : ""}`} key={item.code}><strong>{item.severity.replaceAll("_", " ")} · {item.title}</strong><p>{item.message}</p>{item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${healthValue(row.value, row.unit)}`).join(" · ")}</p> : null}<p><b>Next:</b> {item.action}</p></div>)}</div>
         </div>
+
+        {forecast ? <CashForecastPanel forecast={forecast} money={money} offlineCached={forecastOfflineCached} /> : <div className="working-capital-panel"><p>{busy ? "Calculating the 30-day cash forecast…" : "No saved cash forecast is available yet."}</p></div>}
 
         <div className="metrics-grid">
           <article className="metric-card"><span>Net revenue</span><strong>{money(f.netRevenueMinor)}</strong><small>{percentage(report.comparison.netRevenueChangePercent)} vs previous period</small></article>

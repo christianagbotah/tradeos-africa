@@ -246,3 +246,13 @@ a { color: inherit; text-decoration: none; }
   .payment-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); }
   .payment-actions .checkout-button { grid-column: 1 / -1; }
 }
+
+/* CFO cash forecast */
+.forecast-badges { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.forecast-generated { margin: -4px 0 12px; color: var(--muted); font-size: 12px; }
+.forecast-explanation { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); }
+.forecast-explanation p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.forecast-explanation ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.forecast-overdue { display: block; margin-top: 3px; color: var(--warning); font-size: 10px; white-space: nowrap; }
+.forecast-negative { background: #fff7ed; }
+.forecast-negative td:last-child { color: var(--warning); }

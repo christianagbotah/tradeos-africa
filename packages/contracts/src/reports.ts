@@ -141,3 +141,58 @@ export interface FinancialSummaryReport {
   topItems: ItemPerformanceRow[];
   health: BusinessHealthSummary;
 }
+
+export type CashForecastBaselineMethod = "WEEKDAY_MEDIAN" | "OVERALL_MEDIAN" | "NONE";
+
+export interface CashForecastDay {
+  date: string;
+  openingCashMinor: number;
+  contractualInflowsMinor: number;
+  overdueContractualInflowsMinor: number;
+  contractualOutflowsMinor: number;
+  overdueContractualOutflowsMinor: number;
+  baselineInflowsMinor: number;
+  baselineOutflowsMinor: number;
+  netMovementMinor: number;
+  closingCashMinor: number;
+  customerObligationCount: number;
+  supplierObligationCount: number;
+  baselineMethod: CashForecastBaselineMethod;
+}
+
+export interface CashForecastSummary {
+  openingCashMinor: number;
+  projectedClosingCashMinor: number;
+  lowestProjectedCashMinor: number;
+  lowestProjectedCashDate: string;
+  firstNegativeCashDate: string | null;
+  totalContractualInflowsMinor: number;
+  totalContractualOutflowsMinor: number;
+  totalBaselineInflowsMinor: number;
+  totalBaselineOutflowsMinor: number;
+  overdueReceivablesMinor: number;
+  overduePayablesMinor: number;
+}
+
+export interface CashForecastConfidence {
+  level: "HIGH" | "MEDIUM" | "LOW";
+  historyDaysAvailable: number;
+  sameWeekdayCoverageDays: number;
+  openCustomerObligationCount: number;
+  openSupplierObligationCount: number;
+  contractualInflowsMinor: number;
+  contractualOutflowsMinor: number;
+  assumptions: string[];
+}
+
+export interface CashForecastResponse {
+  generatedAt: string;
+  businessId: string;
+  branchId: string | null;
+  timezone: string;
+  currencyCode: string;
+  horizonDays: number;
+  summary: CashForecastSummary;
+  confidence: CashForecastConfidence;
+  days: CashForecastDay[];
+}
