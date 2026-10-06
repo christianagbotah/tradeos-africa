@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { NetworkStatus } from "./network-status";
 import { QuickSale, type QuickSaleItem } from "./quick-sale";
+import { SalesAndReturns } from "./sales-returns";
 import {
   getActiveBusinessId,
   getOrCreateClientId,
@@ -362,10 +363,11 @@ function BusinessWorkspace(props: {
 
         <CatalogStarter businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} onCreated={props.onCatalogChanged} />
 
-        <section className="panel real-return-card" id="returns">
-          <div className="panel-heading"><div><p className="eyebrow">Protected workflow</p><h2>Returns & refunds</h2></div><span className="workflow-badge">Engine active</span></div>
-          <p>The transaction engine already supports full and partial returns, refund-only cases, restock, quarantine, discard and pending external-payment reversals. The next UI slice will add real sale lookup so this screen never relies on a sample receipt.</p>
-        </section>
+        <SalesAndReturns
+          businessId={context.business.id}
+          branchId={branchId}
+          currencyCode={context.business.currencyCode}
+        />
       </section>
     </main>
   );

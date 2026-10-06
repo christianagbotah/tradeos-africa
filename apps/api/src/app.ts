@@ -1,12 +1,13 @@
 import Fastify from "fastify";
 import type { ClientMutation, SyncPushRequest } from "@tradeos/contracts";
-import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
+import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authenticateAccessToken, AuthError, type AuthContext } from "./auth/security.js";
 import { registerBusinessRoutes } from "./businesses.js";
 import { registerCatalogRoutes } from "./catalog.js";
 import type { DatabasePool } from "./db.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
+import { registerSalesReadRoutes } from "./sales-read.js";
 import { ingestSyncBatch, SyncRequestError } from "./sync.js";
 
 const SALE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "STAFF"];
@@ -28,12 +29,13 @@ export function buildApp(pool: DatabasePool) {
   registerOnboardingRoutes(app, pool);
   registerBusinessRoutes(app, pool);
   registerCatalogRoutes(app, pool);
+  registerSalesReadRoutes(app, pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
-      await authorizeSyncBatch(pool, auth, request.body);
-      return await ingestSyncBatch(pool, request.body);
+      const authorized = await authorizeAndEnrichSyncBatch(pool, auth, request.body);
+      return await ingestSyncBatch(pool, authorized);
     } catch (error) {
       if (error instanceof AuthError) {
         return reply.code(error.statusCode).send({ error: error.code, message: error.message });
@@ -55,10 +57,16 @@ export function buildApp(pool: DatabasePool) {
   return app;
 }
 
-async function authorizeSyncBatch(pool: DatabasePool, auth: AuthContext, body: SyncPushRequest): Promise<void> {
+async function authorizeAndEnrichSyncBatch(
+  pool: DatabasePool,
+  auth: AuthContext,
+  body: SyncPushRequest,
+): Promise<SyncPushRequest> {
   if (!Array.isArray(body?.mutations)) throw new SyncRequestError("mutations must be an array");
 
-  const authorized = new Set<string>();
+  const accessCache = new Map<string, BusinessAccess>();
+  const mutations: ClientMutation[] = [];
+
   for (const mutation of body.mutations) {
     if (mutation.clientId !== auth.deviceKey) {
       throw new AuthError("Sync clientId does not match the authenticated device", 403, "DEVICE_MISMATCH");
@@ -66,10 +74,49 @@ async function authorizeSyncBatch(pool: DatabasePool, auth: AuthContext, body: S
 
     const roles = rolesForMutation(mutation);
     const authorizationKey = `${mutation.businessId}:${roles.join(",")}`;
-    if (authorized.has(authorizationKey)) continue;
-    await requireBusinessRole(pool, auth, mutation.businessId, roles);
-    authorized.add(authorizationKey);
+    let access = accessCache.get(authorizationKey);
+    if (!access) {
+      access = await requireBusinessRole(pool, auth, mutation.businessId, roles);
+      accessCache.set(authorizationKey, access);
+    }
+    if (!access.staffId) {
+      throw new AuthError(
+        "Your business membership is not linked to an active staff actor",
+        403,
+        "STAFF_ACTOR_REQUIRED",
+      );
+    }
+
+    mutations.push({
+      ...mutation,
+      payload: authoritativeActorPayload(mutation, access),
+    });
   }
+
+  return { ...body, mutations };
+}
+
+function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAccess): unknown {
+  if (typeof mutation.payload !== "object" || mutation.payload === null || Array.isArray(mutation.payload)) {
+    return mutation.payload;
+  }
+  const payload = mutation.payload as Record<string, unknown>;
+
+  if (mutation.mutationType === "SALE_CREATE") {
+    const { cashierStaffId: _ignored, ...rest } = payload;
+    return { ...rest, cashierStaffId: access.staffId };
+  }
+
+  if (mutation.mutationType === "RETURN_CREATE" || mutation.mutationType === "REFUND_CREATE") {
+    const { initiatedByStaffId: _ignoredInitiator, approvedByStaffId: _ignoredApprover, ...rest } = payload;
+    return {
+      ...rest,
+      initiatedByStaffId: access.staffId,
+      ...(["OWNER", "ADMIN", "MANAGER"].includes(access.role) ? { approvedByStaffId: access.staffId } : {}),
+    };
+  }
+
+  return payload;
 }
 
 function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {

@@ -62,6 +62,32 @@ describe("planSaleReturn", () => {
     expect(plan.discardedCostTotal.minor).toBe(600);
   });
 
+  it("supports a product refund when the customer keeps the item", () => {
+    const plan = planSaleReturn([productLine()], {
+      idempotencyKey: "refund-only-001",
+      reason: "Goodwill refund without physical return",
+      refundMethod: "CASH",
+      lines: [{ saleLineId: "line-1", quantity: 1, disposition: "NOT_RETURNED" }],
+    });
+
+    expect(plan.refundTotal.minor).toBe(1150);
+    expect(plan.lines[0]?.inventoryEffect).toBeUndefined();
+    expect(plan.cogsReversalTotal.minor).toBe(0);
+    expect(plan.discardedCostTotal.minor).toBe(0);
+  });
+
+  it("supports a refund-only non-stock product without requiring a stock unit", () => {
+    const plan = planSaleReturn([productLine({ stockUnitId: undefined })], {
+      idempotencyKey: "refund-only-nonstock",
+      reason: "Price adjustment",
+      refundMethod: "CUSTOMER_CREDIT",
+      lines: [{ saleLineId: "line-1", quantity: 1, disposition: "NOT_RETURNED" }],
+    });
+
+    expect(plan.refundTotal.minor).toBe(1150);
+    expect(plan.lines[0]?.inventoryEffect).toBeUndefined();
+  });
+
   it("supports a service refund without stock return", () => {
     const service: SaleLineSnapshot = {
       id: "service-1",
