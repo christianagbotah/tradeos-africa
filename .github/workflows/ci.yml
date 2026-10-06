@@ -54,3 +54,36 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Smoke test API sync idempotency
+        env:
+          PGPASSWORD: tradeos
+          DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci
+        run: |
+          set -euo pipefail
+          BUSINESS_ID="00000000-0000-4000-8000-000000000001"
+          psql -h 127.0.0.1 -U tradeos -d tradeos_ci -v ON_ERROR_STOP=1 -c "INSERT INTO businesses (id, name, business_type) VALUES ('$BUSINESS_ID', 'CI Demo', 'RETAIL')"
+
+          PORT=4010 pnpm --filter @tradeos/api start >/tmp/tradeos-api.log 2>&1 &
+          API_PID=$!
+          trap 'kill $API_PID 2>/dev/null || true' EXIT
+
+          ready=0
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4010/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/tradeos-api.log
+            exit 1
+          fi
+
+          BODY='{"mutations":[{"clientId":"ci-client","clientMutationId":"ci-mutation-1","businessId":"00000000-0000-4000-8000-000000000001","mutationType":"SALE_CREATE","occurredAt":"2026-10-06T00:00:00.000Z","payload":{"lines":[]}}]}'
+          curl -fsS -H 'content-type: application/json' -d "$BODY" http://127.0.0.1:4010/v1/sync
+          curl -fsS -H 'content-type: application/json' -d "$BODY" http://127.0.0.1:4010/v1/sync
+
+          COUNT=$(psql -h 127.0.0.1 -U tradeos -d tradeos_ci -tAc "SELECT count(*) FROM sync_mutations WHERE business_id = '$BUSINESS_ID' AND client_id = 'ci-client' AND client_mutation_id = 'ci-mutation-1'")
+          test "$COUNT" = "1"
