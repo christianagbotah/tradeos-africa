@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { planConsumption } from "../src/index.js";
 
 describe("planConsumption", () => {
-  it("plans ingredients for food portions", () => {
+  it("plans ingredients for prepared-food portions", () => {
     const plan = planConsumption(
       {
         id: "waakye-medium",
         outputId: "menu-waakye-medium",
-        outputKind: "PRODUCT",
+        outputKind: "PREPARED_PRODUCT",
         outputUnitId: "plate",
         components: [
           { componentProductId: "rice", stockUnitId: "kg", quantityPerOutput: 0.25, expectedWastePercent: 4 },
@@ -22,6 +22,26 @@ describe("planConsumption", () => {
     expect(plan[0]?.expectedWasteQuantity).toBe(1);
     expect(plan[0]?.totalPlannedQuantity).toBe(26);
     expect(plan[2]?.totalPlannedQuantity).toBe(100);
+  });
+
+  it("scales a batch recipe yield to the number of portions actually sold", () => {
+    const plan = planConsumption(
+      {
+        id: "waakye-batch",
+        outputId: "menu-waakye-medium",
+        outputKind: "PREPARED_PRODUCT",
+        outputUnitId: "plate",
+        outputQuantity: 100,
+        components: [
+          { componentProductId: "rice", stockUnitId: "kg", quantityPerOutput: 25 },
+          { componentProductId: "beans", stockUnitId: "kg", quantityPerOutput: 8 },
+        ],
+      },
+      10,
+    );
+
+    expect(plan[0]?.expectedQuantity).toBe(2.5);
+    expect(plan[1]?.expectedQuantity).toBe(0.8);
   });
 
   it("plans consumables for services", () => {
