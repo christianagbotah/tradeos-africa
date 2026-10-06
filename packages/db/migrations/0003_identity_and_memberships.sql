@@ -46,6 +46,7 @@ CREATE TABLE auth_sessions (
   user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
   device_key text NOT NULL,
   platform text NOT NULL CHECK (platform IN ('WEB', 'WINDOWS', 'MACOS', 'ANDROID', 'IOS')),
+  app_version text NOT NULL,
   access_token_hash char(64) NOT NULL UNIQUE,
   refresh_token_hash char(64) NOT NULL UNIQUE,
   access_expires_at timestamptz NOT NULL,
