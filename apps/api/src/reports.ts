@@ -12,6 +12,7 @@ import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js"
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import { withTransaction, type DatabaseClient, type DatabasePool } from "./db.js";
 import { addSignedMinor, signedMinor } from "./commerce/valuation.js";
+import { evaluateBusinessHealth } from "@tradeos/domain";
 
 const READ_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "VIEWER"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -51,7 +52,7 @@ export function registerReportRoutes(app: FastifyInstance, pool: DatabasePool): 
         const branches = await loadBranches(client, businessId, branchId, from, to);
         const topItems = await loadTopItems(client, businessId, branchId, from, to);
         const comparison = compareFlows(flow, previousFlow);
-        const result: FinancialSummaryReport = {
+        const basis: Omit<FinancialSummaryReport, "health"> = {
           businessId,
           branchId,
           currencyCode: scope.currencyCode,
@@ -72,7 +73,7 @@ export function registerReportRoutes(app: FastifyInstance, pool: DatabasePool): 
           branches,
           topItems,
         };
-        return result;
+        return { ...basis, health: evaluateBusinessHealth(basis) } satisfies FinancialSummaryReport;
       });
       return report;
     } catch (error) {

@@ -1,3 +1,5 @@
+import type { BusinessHealthSummary } from "./insights.js";
+
 export interface FinancialPeriod {
   from: string;
   to: string;
@@ -114,4 +116,5 @@ export interface FinancialSummaryReport {
   daily: DailyFinancialPoint[];
   branches: BranchFinancialRow[];
   topItems: ItemPerformanceRow[];
+  health: BusinessHealthSummary;
 }
