@@ -16,7 +16,7 @@ export interface SaleMutationPayload {
   customerId?: string;
   cashierStaffId?: string;
   lines: Array<{ itemId: string; quantity: number; saleUnitCode?: string; saleUnit?: string }>;
-  payments?: Array<{ method: PaymentMethod; amountMinor: number; providerReference?: string }>;
+  payments?: Array<{ method: PaymentMethod; amountMinor: number; moneyAccountId?: string; providerReference?: string }>;
   paymentMethod?: PaymentMethod;
 }
 
@@ -206,7 +206,7 @@ export async function applySaleMutation(
 
     for (let index = 0; index < payments.length; index += 1) {
       const payment = payments[index]!;
-      await client.query<{id:string}>(
+      const insertedPayment = await client.query<{id:string}>(
         `INSERT INTO payments (
            business_id, branch_id, sale_id, amount_minor, currency_code, method,
            provider_reference, status, client_mutation_id, received_at
@@ -217,11 +217,11 @@ export async function applySaleMutation(
           `${context.clientMutationId}:payment:${index}`, context.occurredAt,
         ],
       );
+      if(payment.method==='CUSTOMER_CREDIT' && payment.moneyAccountId !== undefined) throw new SaleMutationError('Credit payments cannot have money accounts');
+      if(payment.amountMinor>0 && isCashMethod(payment.method)) await recordCashbookEntry(client,{...context,moneyAccountId:payment.moneyAccountId,currencyCode,method:payment.method,amountDeltaMinor:payment.amountMinor,entryType:"SALE_RECEIPT",sourceType:"PAYMENT",sourceId:insertedPayment.rows[0]!.id,actorStaffId:payload.cashierStaffId,idempotencyKey:`sale-payment:${insertedPayment.rows[0]!.id}`});
     }
 
     // Receipts remain gross even when their payments are later reversed by a refund.
-    const receipts = await client.query<{id:string;method:string;amount_minor:string}>(`SELECT id,method,amount_minor FROM payments WHERE sale_id=$1 AND status='SUCCEEDED'`, [saleId]);
-    for (const receipt of receipts.rows) if (Number(receipt.amount_minor) > 0 && isCashMethod(receipt.method)) await recordCashbookEntry(client,{...context,currencyCode,method:receipt.method,amountDeltaMinor:Number(receipt.amount_minor),entryType:"SALE_RECEIPT",sourceType:"PAYMENT",sourceId:receipt.id,actorStaffId:payload.cashierStaffId,idempotencyKey:`sale-payment:${receipt.id}`});
     await client.query(
       `UPDATE sales SET subtotal_net_minor=$2, tax_minor=$3, total_minor=$4,
        status='COMPLETED', completed_at=$5 WHERE id=$1`,
@@ -258,7 +258,7 @@ function validateSale(context: SaleMutationContext, payload: SaleMutationPayload
   }
 }
 
-function normalizePayments(payload: SaleMutationPayload, totalMinor: number): Array<{ method: PaymentMethod; amountMinor: number; providerReference?: string }> {
+function normalizePayments(payload: SaleMutationPayload, totalMinor: number): Array<{ method: PaymentMethod; amountMinor: number; moneyAccountId?: string; providerReference?: string }> {
   if (payload.payments?.length) {
     for (const payment of payload.payments) {
       if (!Number.isSafeInteger(payment.amountMinor) || payment.amountMinor <= 0) throw new SaleMutationError("Payment amounts must be positive minor-unit integers");

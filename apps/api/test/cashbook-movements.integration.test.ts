@@ -60,7 +60,10 @@ it('records only real money, preserves gross receipts, and backfills identical h
   expect(result.json().summary).toMatchObject({inflowMinor:1700,outflowMinor:2800,netMinor:-1100,byMethod:{CASH:{inflowMinor:1000,outflowMinor:2200,netMinor:-1200},BANK:{inflowMinor:0,outflowMinor:600,netMinor:-600},MOMO:{inflowMinor:400,outflowMinor:0,netMinor:400},CARD:{inflowMinor:300,outflowMinor:0,netMinor:300}}});
   // Run the migration's backfill against source history after removing only derived entries.
   const migration=await readFile(new URL('../../../packages/db/migrations/0008_cashbook_expenses.sql',import.meta.url),'utf8');
-  const backfill=migration.slice(migration.indexOf('INSERT INTO cashbook_entries')) .replace(/COMMIT;\s*$/,'');
+  const backfill=migration.slice(migration.indexOf('INSERT INTO cashbook_entries')) .replace(/COMMIT;\s*$/,'')
+    .replaceAll('idempotency_key,occurred_at)', 'idempotency_key,occurred_at,money_account_id)')
+    .replaceAll('SELECT * FROM (SELECT', 'SELECT movement.*,d.money_account_id FROM (SELECT')
+    .replaceAll(') movement WHERE method IN', ') movement JOIN money_account_defaults d ON d.business_id=movement.business_id AND d.branch_id=movement.branch_id AND d.method=movement.method WHERE movement.method IN');
   await pool.query('DELETE FROM cashbook_entries WHERE business_id=$1',[businessId]);
   for (let replay=0;replay<2;replay++) for (const statement of backfill.split(";").filter(sql=>sql.trim())) await pool.query(statement);
   expect(await entries()).toEqual(rows);

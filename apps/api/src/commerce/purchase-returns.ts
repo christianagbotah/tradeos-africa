@@ -6,6 +6,7 @@ import { addSignedMinor, consumeValuation, cumulativeMinor, proportionalQuantity
 
 export const recoveryMethods = ["CREDIT_NOTE", "CASH", "MOMO", "CARD", "BANK", "OTHER"] as const;
 export interface PurchaseReturnPayload {
+ moneyAccountId?:string;
  originalPurchaseId: string;
  supplierId: string;
  returnedByStaffId?: string;
@@ -14,6 +15,7 @@ export interface PurchaseReturnPayload {
 }
 export async function applyPurchaseReturnMutation(pool: DatabasePool, context: PurchaseReceiveContext, payload: PurchaseReturnPayload) {
  if (!context.branchId || !context.clientMutationId || Number.isNaN(Date.parse(context.occurredAt)) || !payload.originalPurchaseId || !payload.supplierId || !payload.returnedByStaffId || !recoveryMethods.includes(payload.recoveryMethod) || !Array.isArray(payload.lines) || !payload.lines.length) throw new PurchaseMutationError("Invalid purchase return");
+ if(payload.recoveryMethod=== "CREDIT_NOTE" && payload.moneyAccountId !== undefined) throw new PurchaseMutationError("Credit cannot have money account IDs");
  const seen = new Set<string>();
  for (const line of payload.lines) {
   if (!line.purchaseLineId || seen.has(line.purchaseLineId) || quantityUnits(line.quantity) <= 0n || !["AVAILABLE","QUARANTINE"].includes(line.sourceLocation)) throw new PurchaseMutationError("Invalid or duplicate return line");
@@ -84,7 +86,7 @@ export async function applyPurchaseReturnMutation(pool: DatabasePool, context: P
    addSignedMinor(signedMinor(Number(balance.balance)),-recovery);
    await client.query(`INSERT INTO supplier_payable_ledger (business_id,branch_id,supplier_id,currency_code,balance_delta_minor,method,source_type,source_id,actor_staff_id,client_mutation_id,occurred_at) VALUES ($1,$2,$3,$4,$5,'CREDIT_NOTE','RETURN',$6,$7,$8,$9)`,[context.businessId,context.branchId,payload.supplierId,purchase.currency_code,-recovery,returnCaseId,payload.returnedByStaffId,context.clientMutationId,context.occurredAt]);
   }
-  if (recovery > 0 && isCashMethod(payload.recoveryMethod)) await recordCashbookEntry(client,{...context,currencyCode:purchase.currency_code,method:payload.recoveryMethod,amountDeltaMinor:recovery,entryType:"PURCHASE_RETURN_RECOVERY",sourceType:"PURCHASE_RETURN",sourceId:returnCaseId,actorStaffId:payload.returnedByStaffId,idempotencyKey:`purchase-return:${returnCaseId}`});
+  if (recovery > 0 && isCashMethod(payload.recoveryMethod)) await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode:purchase.currency_code,method:payload.recoveryMethod,amountDeltaMinor:recovery,entryType:"PURCHASE_RETURN_RECOVERY",sourceType:"PURCHASE_RETURN",sourceId:returnCaseId,actorStaffId:payload.returnedByStaffId,idempotencyKey:`purchase-return:${returnCaseId}`});
   const event = JSON.stringify({originalPurchaseId:purchase.id,supplierId:payload.supplierId,recoveryMethod:payload.recoveryMethod,supplierRecoveryMinor:recovery,inventoryValueRemovedMinor:removed,purchasePriceVarianceMinor:variance});
   await client.query(`INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at) VALUES ($1,$2,$3,'PURCHASE_RETURN_CREATED','PURCHASE_RETURN',$4,$5,$6::jsonb,$7)`,[context.businessId,context.branchId,payload.returnedByStaffId,returnCaseId,context.clientMutationId,event,context.occurredAt]);
   await client.query(`INSERT INTO outbox_events (business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at) VALUES ($1,$2,'PURCHASE_RETURN',$3,'PURCHASE_RETURN_CREATED',$4::jsonb,$5)`,[context.businessId,context.branchId,returnCaseId,event,context.occurredAt]);

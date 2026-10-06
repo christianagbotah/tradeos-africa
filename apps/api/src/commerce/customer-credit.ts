@@ -6,6 +6,7 @@ export type CustomerPaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER";
 export type CustomerAccountEntryType = "CREDIT_SALE" | "PAYMENT" | "CREDIT_REFUND" | "ADJUSTMENT";
 
 export interface CustomerPaymentMutationPayload {
+ moneyAccountId?:string;
   customerId: string;
   amountMinor: number;
   method: CustomerPaymentMethod;
@@ -98,7 +99,7 @@ export async function applyCustomerPaymentMutation(
       occurredAt: context.occurredAt,
     });
 
-    await recordCashbookEntry(client,{...context,currencyCode:customer.currency_code,method:payload.method,amountDeltaMinor:payload.amountMinor,entryType:"CUSTOMER_PAYMENT",sourceType:"CUSTOMER_PAYMENT",sourceId:paymentId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`customer-payment:${paymentId}`});
+    await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode:customer.currency_code,method:payload.method,amountDeltaMinor:payload.amountMinor,entryType:"CUSTOMER_PAYMENT",sourceType:"CUSTOMER_PAYMENT",sourceId:paymentId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`customer-payment:${paymentId}`});
     const balanceMinor = await getCustomerBalance(client, context.businessId, customer.id);
     await writeCustomerPaymentEvents(client, context, payload, paymentId, balanceMinor);
 

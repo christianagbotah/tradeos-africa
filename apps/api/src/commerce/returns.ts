@@ -227,8 +227,8 @@ export async function applyReturnMutation(
       );
     }
 
-    const refunds = await client.query<{id:string;method:string;amount_minor:string}>(`SELECT id,method,amount_minor FROM refund_transactions WHERE return_case_id=$1 AND status='SUCCEEDED'`, [returnCaseId]);
-    for (const refund of refunds.rows) if (isCashMethod(refund.method)) await recordCashbookEntry(client,{...context,currencyCode:sale.currency_code,method:refund.method,amountDeltaMinor:-Number(refund.amount_minor),entryType:"SALE_REFUND",sourceType:"REFUND_TRANSACTION",sourceId:refund.id,actorStaffId:payload.initiatedByStaffId,idempotencyKey:`refund:${refund.id}`});
+    const refunds = await client.query<{id:string;method:string;amount_minor:string;money_account_id:string|null}>(`SELECT r.id,r.method,r.amount_minor,e.money_account_id FROM refund_transactions r LEFT JOIN cashbook_entries e ON e.business_id=r.business_id AND e.source_type='PAYMENT' AND e.source_id=r.original_payment_id AND e.method=r.method WHERE r.return_case_id=$1 AND r.status='SUCCEEDED'`, [returnCaseId]);
+    for (const refund of refunds.rows) if (isCashMethod(refund.method)) await recordCashbookEntry(client,{...context,moneyAccountId:refund.money_account_id ?? undefined,currencyCode:sale.currency_code,method:refund.method,amountDeltaMinor:-Number(refund.amount_minor),entryType:"SALE_REFUND",sourceType:"REFUND_TRANSACTION",sourceId:refund.id,actorStaffId:payload.initiatedByStaffId,idempotencyKey:`refund:${refund.id}`});
     if (customerCreditRefundMinor > 0 && sale.customer_id) {
       await recordCustomerAccountEntry(client, {
         businessId: context.businessId,

@@ -15,6 +15,10 @@ const exactAllowedPaths = new Set([
   "v1/operations/current",
   "v1/operations/days",
   "v1/operations/shifts",
+  "v1/money-accounts",
+  "v1/money-account-defaults",
+  "v1/money-transfers",
+  "v1/money-reconciliations",
   "v1/expenses",
   "v1/expense-categories",
 ]);
@@ -36,6 +40,8 @@ export async function PATCH(request: NextRequest, context: Context) {
   return forwardAllowed(request, context);
 }
 
+export async function PUT(request: NextRequest, context: Context) { return forwardAllowed(request, context); }
+
 async function forwardAllowed(request: NextRequest, context: Context) {
   const { path } = await context.params;
   const normalized = path.join("/");
@@ -45,6 +51,7 @@ async function forwardAllowed(request: NextRequest, context: Context) {
     !saleDetailPattern.test(normalized) &&
     !/^v1\/purchases\/[0-9a-f-]{36}$/i.test(normalized) &&
     !customerDetailPattern.test(normalized) &&
+    !/^v1\/money-accounts\/[0-9a-f-]{36}$/i.test(normalized) &&
     !/^v1\/expense-categories\/[0-9a-f-]{36}$/i.test(normalized) &&
     !/^v1\/suppliers\/[0-9a-f-]{36}$/i.test(normalized)
   ) {
