@@ -4,7 +4,11 @@ import type {
   BusinessInsight,
   BusinessInsightEvidence,
   BusinessInsightSeverity,
+  CfoAction,
+  CfoActionArea,
+  CfoActionPriority,
   FinancialSummaryReport,
+  WorkingCapitalSummary,
 } from "@tradeos/contracts";
 
 type ReportBasis = Omit<FinancialSummaryReport, "health">;
@@ -86,6 +90,85 @@ function evidence(key: string, label: string, value: number, unit: BusinessInsig
 }
 function insight(code: string, severity: BusinessInsightSeverity, title: string, message: string, action: string, evidenceRows: BusinessInsightEvidence[]): BusinessInsight {
   return { code, severity, title, message, action, evidence: evidenceRows };
+}
+
+const actionRouteByInsight: Record<string, { area: CfoActionArea; href: string; navigationLabel: string }> = {
+  OPERATING_LOSS: { area: "PRICING", href: "#catalog", navigationLabel: "Review catalog & prices" },
+  THIN_MARGIN: { area: "PRICING", href: "#catalog", navigationLabel: "Review catalog & prices" },
+  NEGATIVE_OPERATING_CASH: { area: "CASH", href: "#cashbook", navigationLabel: "Open cashbook" },
+  NON_OPERATING_CASH_SUPPORT: { area: "CASH", href: "#cashbook", navigationLabel: "Open cashbook" },
+  LOW_CASH_CONVERSION: { area: "CUSTOMERS", href: "#customers", navigationLabel: "Review customer credit" },
+  PAYABLE_COVERAGE: { area: "CASH", href: "#purchases", navigationLabel: "Review supplier balances" },
+  RECEIVABLE_PRESSURE: { area: "CUSTOMERS", href: "#customers", navigationLabel: "Collect customer balances" },
+  PRODUCT_STOCK_VALUE_MISSING: { area: "INVENTORY", href: "#purchases", navigationLabel: "Review inventory" },
+  INVENTORY_TIEUP: { area: "INVENTORY", href: "#purchases", navigationLabel: "Review inventory" },
+  QUARANTINE_PRESSURE: { area: "INVENTORY", href: "#purchases", navigationLabel: "Review quarantined stock" },
+  RETURN_WASTE: { area: "SALES", href: "#returns", navigationLabel: "Review returns" },
+  HIGH_RETURNS: { area: "SALES", href: "#returns", navigationLabel: "Review returns" },
+  REVENUE_DECLINE: { area: "SALES", href: "#reports", navigationLabel: "Inspect performance" },
+  EXPENSE_PRESSURE: { area: "EXPENSES", href: "#cashbook", navigationLabel: "Review expenses" },
+  BRANCH_MARGIN_GAP: { area: "BRANCHES", href: "#reports", navigationLabel: "Compare branches" },
+};
+
+function actionPriority(severity: BusinessInsightSeverity): CfoActionPriority {
+  if (severity === "CRITICAL") return "URGENT";
+  if (severity === "WARNING") return "HIGH";
+  if (severity === "OPPORTUNITY") return "MEDIUM";
+  return "LOW";
+}
+
+const cfoActionImpactRank: Record<string, number> = {
+  NEGATIVE_OPERATING_CASH: 0,
+  OPERATING_LOSS: 1,
+  PAYABLE_COVERAGE: 2,
+  RECEIVABLE_PRESSURE: 3,
+  NON_OPERATING_CASH_SUPPORT: 4,
+  LOW_CASH_CONVERSION: 5,
+  INVENTORY_TIEUP: 6,
+  EXPENSE_PRESSURE: 7,
+  REVENUE_DECLINE: 8,
+  HIGH_RETURNS: 9,
+  QUARANTINE_PRESSURE: 10,
+  RETURN_WASTE: 11,
+  THIN_MARGIN: 12,
+  PRODUCT_STOCK_VALUE_MISSING: 13,
+  BRANCH_MARGIN_GAP: 14,
+};
+const cfoSeverityRank: Record<BusinessInsightSeverity, number> = { CRITICAL: 0, WARNING: 1, OPPORTUNITY: 2, INFO: 3, POSITIVE: 4 };
+
+function buildCfoActions(insights: BusinessInsight[], hasScore: boolean): CfoAction[] {
+  const actionable = insights
+    .filter((item) => item.severity !== "POSITIVE" && item.code !== "NO_MAJOR_FLAGS")
+    .sort((a,b) => cfoSeverityRank[a.severity] - cfoSeverityRank[b.severity] || (cfoActionImpactRank[a.code] ?? 99) - (cfoActionImpactRank[b.code] ?? 99) || a.code.localeCompare(b.code))
+    .slice(0, 5)
+    .map((item) => {
+    const route = actionRouteByInsight[item.code] ?? { area: "REPORTS" as const, href: "#reports", navigationLabel: "Review financial report" };
+    return {
+      code: `ACTION_${item.code}`,
+      sourceInsightCode: item.code,
+      priority: actionPriority(item.severity),
+      area: route.area,
+      title: item.title,
+      reason: item.message,
+      action: item.action,
+      href: route.href,
+      navigationLabel: route.navigationLabel,
+      evidence: item.evidence,
+    };
+  });
+  if (actionable.length || !hasScore) return actionable;
+  return [{
+    code: "ACTION_MAINTAIN_RECORDING",
+    sourceInsightCode: "NO_MAJOR_FLAGS",
+    priority: "LOW",
+    area: "REPORTS",
+    title: "Keep the financial signal complete",
+    reason: "No first-generation CFO warning currently requires intervention.",
+    action: "Keep sales, purchases, expenses, customer collections and supplier payments fully recorded so TradeOS can detect changes early.",
+    href: "#reports",
+    navigationLabel: "Review financial report",
+    evidence: [],
+  }];
 }
 
 export function evaluateBusinessHealth(report: ReportBasis): BusinessHealthSummary {
@@ -172,5 +255,41 @@ export function evaluateBusinessHealth(report: ReportBasis): BusinessHealthSumma
     : status === "AT_RISK" ? "The business has material financial pressure that needs action."
     : "TradeOS needs more operating activity before the health score is reliable.";
 
-  return { algorithmVersion: "health-v1", score, status, confidence, headline, periodDays, dimensions, insights: limited };
+  const cashAfterPayablesMinor = report.position.cashBalanceMinor - report.position.payablesMinor;
+  const netTradeCreditMinor = report.position.receivablesMinor - report.position.payablesMinor;
+  const operatingWorkingCapitalMinor = inventorySnapshotAligned
+    ? report.position.receivablesMinor + report.position.inventoryValueMinor - report.position.payablesMinor
+    : null;
+  const workingCapitalPressure = meaningfulActivity && (
+    (report.position.payablesMinor > 0 && cashAfterPayablesMinor < 0 && report.flow.operatingCashNetMinor < 0)
+    || (receivableMonths !== null && receivableMonths > 2)
+    || (inventorySnapshotAligned && inventoryMonths !== null && inventoryMonths > 3)
+    || (operatingCashRatio !== null && operatingCashRatio < -10)
+  );
+  const workingCapitalWatch = meaningfulActivity && !workingCapitalPressure && (
+    cashAfterPayablesMinor < 0
+    || (receivableMonths !== null && receivableMonths > 1)
+    || (inventorySnapshotAligned && inventoryMonths !== null && inventoryMonths > 2)
+    || (operatingCashRatio !== null && operatingCashRatio < 5)
+  );
+  const workingCapitalStatus: WorkingCapitalSummary["status"] = !meaningfulActivity ? "INSUFFICIENT_DATA" : workingCapitalPressure ? "PRESSURED" : workingCapitalWatch ? "WATCH" : "HEALTHY";
+  const workingCapital: WorkingCapitalSummary = {
+    status: workingCapitalStatus,
+    headline: workingCapitalStatus === "PRESSURED" ? "Working capital is under material pressure; collections, supplier obligations or stock need attention."
+      : workingCapitalStatus === "WATCH" ? "Working capital is usable but one or more cash-conversion signals should be watched."
+      : workingCapitalStatus === "HEALTHY" ? "Current cash conversion and trade-credit signals do not show material working-capital pressure."
+      : "TradeOS needs more operating activity before working-capital signals are meaningful.",
+    inventorySnapshotAligned,
+    cashAfterPayablesMinor,
+    netTradeCreditMinor,
+    operatingWorkingCapitalMinor,
+    payableCoverageRatio: payableCoverage,
+    receivableMonths,
+    inventoryMonths: inventorySnapshotAligned ? inventoryMonths : null,
+    operatingCashConversionPercent: operatingCashRatio,
+  };
+  // Rank owner tasks from the full rule set; the explanatory insight feed is capped separately for readability.
+  const actions = buildCfoActions(insights, score !== null);
+
+  return { algorithmVersion: "health-v1", score, status, confidence, headline, periodDays, dimensions, insights: limited, workingCapital, actions };
 }

@@ -23,8 +23,11 @@ type Daily = { date: string; netRevenueMinor: number; netCogsMinor: number; gros
 type Branch = { branchId: string; branchName: string; netRevenueMinor: number; netCogsMinor: number; grossProfitMinor: number; expenseMinor: number; purchaseReturnVarianceMinor: number; operatingProfitMinor: number; cashNetMinor: number; receivablesMinor: number; payablesMinor: number; inventoryValueMinor: number; salesCount: number; returnCount: number };
 type Item = { itemId: string; itemName: string; itemKind: string; unitCode: string; quantitySold: number; quantityReturned: number; netRevenueMinor: number; netCogsMinor: number; grossProfitMinor: number };
 type HealthDimension = { key: string; label: string; weight: number; applicable: boolean; score: number | null; summary: string; metrics: Array<{ key: string; label: string; value: number | null; unit: string }> };
-type HealthInsight = { code: string; severity: "CRITICAL" | "WARNING" | "OPPORTUNITY" | "POSITIVE" | "INFO"; title: string; message: string; action: string; evidence: Array<{ key: string; label: string; value: number; unit: string }> };
-type Health = { algorithmVersion: string; score: number | null; status: string; confidence: string; headline: string; periodDays: number; dimensions: HealthDimension[]; insights: HealthInsight[] };
+type HealthEvidence = { key: string; label: string; value: number; unit: string };
+type HealthInsight = { code: string; severity: "CRITICAL" | "WARNING" | "OPPORTUNITY" | "POSITIVE" | "INFO"; title: string; message: string; action: string; evidence: HealthEvidence[] };
+type WorkingCapital = { status: string; headline: string; inventorySnapshotAligned: boolean; cashAfterPayablesMinor: number; netTradeCreditMinor: number; operatingWorkingCapitalMinor: number | null; payableCoverageRatio: number | null; receivableMonths: number | null; inventoryMonths: number | null; operatingCashConversionPercent: number | null };
+type CfoAction = { code: string; sourceInsightCode: string; priority: "URGENT" | "HIGH" | "MEDIUM" | "LOW"; area: string; title: string; reason: string; action: string; href: string; navigationLabel: string; evidence: HealthEvidence[] };
+type Health = { algorithmVersion: string; score: number | null; status: string; confidence: string; headline: string; periodDays: number; dimensions: HealthDimension[]; insights: HealthInsight[]; workingCapital: WorkingCapital; actions: CfoAction[] };
 type Report = {
   currencyCode: string;
   period: { from: string; to: string; timezone: string };
@@ -135,6 +138,27 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
           <div className="panel-heading compact"><div><p className="eyebrow">TradeOS CFO · explainable health</p><h3>Business health</h3></div><span className="workflow-badge">{report.health.score === null ? "—" : `${report.health.score}/100`} · {report.health.status.replaceAll("_", " ")}</span></div>
           <p>{report.health.headline} <small>Signal confidence: {report.health.confidence.toLowerCase()} · {report.health.algorithmVersion} · this is an operating-health score, not a lending/credit score.</small></p>
           <div className="metrics-grid">{report.health.dimensions.map((dimension) => <article className="metric-card" key={dimension.key}><span>{dimension.label}</span><strong>{dimension.applicable && dimension.score !== null ? `${dimension.score}/100` : "N/A"}</strong><small>{dimension.summary}</small></article>)}</div>
+
+          <div className="working-capital-panel">
+            <div className="panel-heading compact"><div><p className="eyebrow">Cash conversion</p><h3>Working capital cockpit</h3></div><span className="workflow-badge">{report.health.workingCapital.status.replaceAll("_", " ")}</span></div>
+            <p>{report.health.workingCapital.headline}</p>
+            <div className="working-capital-grid">
+              <article><span>Cash less supplier payables</span><strong>{money(report.health.workingCapital.cashAfterPayablesMinor)}</strong><small>Current cash minus recorded supplier balances; not a due-date forecast.</small></article>
+              <article><span>Net trade credit</span><strong>{money(report.health.workingCapital.netTradeCreditMinor)}</strong><small>Customer receivables minus supplier payables.</small></article>
+              <article><span>Operating working capital</span><strong>{report.health.workingCapital.operatingWorkingCapitalMinor === null ? "N/A" : money(report.health.workingCapital.operatingWorkingCapitalMinor)}</strong><small>{report.health.workingCapital.inventorySnapshotAligned ? "Receivables + inventory at cost − payables." : "Not shown because the current inventory snapshot does not align with this historical period."}</small></article>
+              <article><span>Cash / payables</span><strong>{report.health.workingCapital.payableCoverageRatio === null ? "N/A" : `${report.health.workingCapital.payableCoverageRatio.toLocaleString(undefined, { maximumFractionDigits: 2 })}×`}</strong><small>{report.health.workingCapital.receivableMonths === null ? "Receivable run-rate unavailable" : `${report.health.workingCapital.receivableMonths.toLocaleString(undefined, { maximumFractionDigits: 2 })} months of revenue in receivables`} · {report.health.workingCapital.inventoryMonths === null ? "inventory run-rate unavailable" : `${report.health.workingCapital.inventoryMonths.toLocaleString(undefined, { maximumFractionDigits: 2 })} months of COGS in inventory`}.</small></article>
+            </div>
+            <small className="working-capital-note">TradeOS does not yet call this a cash forecast: customer and supplier due dates/payment terms are not recorded in the ledger today.</small>
+          </div>
+
+          <div className="cfo-action-center">
+            <div className="panel-heading compact"><div><p className="eyebrow">Prioritized next moves</p><h3>CFO Action Center</h3></div><span>{report.health.actions.length} action{report.health.actions.length === 1 ? "" : "s"}</span></div>
+            {report.health.actions.length === 0 ? <p>No action is generated until TradeOS has enough operating evidence.</p> : <div className="cfo-action-list">{report.health.actions.map((item) => <article className="cfo-action" key={item.code}>
+              <div className="cfo-action-head"><div><span className={`cfo-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span>{item.area.replaceAll("_", " ")}</span></div><a className="ghost-button" href={item.href}>{item.navigationLabel}</a></div>
+              <strong>{item.title}</strong><p>{item.reason}</p>{item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${healthValue(row.value, row.unit)}`).join(" · ")}</p> : null}<p><b>Do:</b> {item.action}</p>
+            </article>)}</div>}
+          </div>
+
           <div>{report.health.insights.map((item) => <div className={`insight ${item.severity === "CRITICAL" || item.severity === "WARNING" ? "important" : ""}`} key={item.code}><strong>{item.severity.replaceAll("_", " ")} · {item.title}</strong><p>{item.message}</p>{item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${healthValue(row.value, row.unit)}`).join(" · ")}</p> : null}<p><b>Next:</b> {item.action}</p></div>)}</div>
         </div>
 
