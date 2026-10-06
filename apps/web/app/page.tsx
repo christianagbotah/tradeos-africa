@@ -1,4 +1,5 @@
 import { NetworkStatus } from "./components/network-status";
+import { QuickSale } from "./components/quick-sale";
 import { ReturnsPanel } from "./components/returns-panel";
 
 const businessPacks = [
@@ -8,15 +9,6 @@ const businessPacks = [
   { name: "Drinks & Spots", detail: "Crates, bottles, glasses, shots, tabs", icon: "◉" },
   { name: "Washing Bay", detail: "Vehicle services, attendants, chemicals, commissions", icon: "◇" },
   { name: "Car Park", detail: "Entry/exit, tickets, time billing, shift cash", icon: "▣" },
-];
-
-const quickItems = [
-  { name: "Medium Waakye", unit: "plate", price: "₵30.00" },
-  { name: "Egg", unit: "piece", price: "₵5.00" },
-  { name: "Malt", unit: "bottle", price: "₵18.00" },
-  { name: "Standard Haircut", unit: "service", price: "₵40.00" },
-  { name: "SUV Full Wash", unit: "service", price: "₵80.00" },
-  { name: "2.5mm Cable", unit: "yard", price: "₵11.50" },
 ];
 
 export default function HomePage() {
@@ -80,38 +72,7 @@ export default function HomePage() {
         </section>
 
         <section className="content-grid">
-          <article className="panel quick-sale" id="sell">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Fast counter mode</p>
-                <h2>Quick sale</h2>
-              </div>
-              <button className="text-button">View full POS</button>
-            </div>
-
-            <div className="quick-items">
-              {quickItems.map((item) => (
-                <button className="quick-item" key={item.name}>
-                  <span>{item.name}</span>
-                  <small>{item.unit}</small>
-                  <strong>{item.price}</strong>
-                </button>
-              ))}
-            </div>
-
-            <div className="checkout-strip">
-              <div>
-                <span>Current sale</span>
-                <strong>3 items · ₵53.00</strong>
-              </div>
-              <div className="payment-actions">
-                <button>Cash</button>
-                <button>MoMo</button>
-                <button>Pay later</button>
-                <button className="checkout-button">Charge ₵53.00</button>
-              </div>
-            </div>
-          </article>
+          <QuickSale />
 
           <aside className="panel ai-panel">
             <div className="panel-heading compact">
