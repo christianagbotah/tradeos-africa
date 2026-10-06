@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CustomersCredit } from "./customers-credit";
 import { NetworkStatus } from "./network-status";
 import { QuickSale, type QuickSaleItem } from "./quick-sale";
 import { SalesAndReturns } from "./sales-returns";
@@ -325,6 +326,7 @@ function BusinessWorkspace(props: {
         <nav className="nav-stack" aria-label="Primary navigation">
           <a className="nav-item active" href="#dashboard">Overview</a>
           <a className="nav-item" href="#sell">Sell</a>
+          <a className="nav-item" href="#customers">Customers & credit</a>
           <a className="nav-item" href="#catalog">Catalog & units</a>
           <a className="nav-item" href="#returns">Returns & refunds</a>
         </nav>
@@ -360,6 +362,13 @@ function BusinessWorkspace(props: {
         </section>
 
         <QuickSale businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} items={sellableItems} />
+
+        <CustomersCredit
+          businessId={context.business.id}
+          branchId={branchId}
+          currencyCode={context.business.currencyCode}
+          role={context.membership.role}
+        />
 
         <CatalogStarter businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} onCreated={props.onCatalogChanged} />
 

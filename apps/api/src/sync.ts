@@ -1,4 +1,9 @@
 import type { ClientMutation, MutationResult, SyncPushRequest, SyncResponse } from "@tradeos/contracts";
+import {
+  applyCustomerPaymentMutation,
+  CustomerCreditError,
+  type CustomerPaymentMutationPayload,
+} from "./commerce/customer-credit.js";
 import { applyReturnMutation, ReturnMutationError, type ReturnMutationPayload } from "./commerce/returns.js";
 import { applySaleMutation, SaleMutationError, type SaleMutationPayload } from "./commerce/sales.js";
 import type { DatabasePool } from "./db.js";
@@ -89,7 +94,9 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     );
     return { clientMutationId: mutation.clientMutationId, status: "APPLIED", serverReceivedAt, result };
   } catch (error) {
-    const code = error instanceof SaleMutationError || error instanceof ReturnMutationError ? error.code : "MUTATION_APPLY_FAILED";
+    const code = error instanceof SaleMutationError || error instanceof ReturnMutationError || error instanceof CustomerCreditError
+      ? error.code
+      : "MUTATION_APPLY_FAILED";
     const message = error instanceof Error ? error.message : "Unknown mutation application error";
     const result = { errorCode: code, errorMessage: message };
     await pool.query(
@@ -123,6 +130,8 @@ async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutatio
     case "RETURN_CREATE":
     case "REFUND_CREATE":
       return applyReturnMutation(pool, context, mutation.payload as ReturnMutationPayload);
+    case "CUSTOMER_PAYMENT_CREATE":
+      return applyCustomerPaymentMutation(pool, context, mutation.payload as CustomerPaymentMutationPayload);
     default:
       throw new SyncRequestError(`Unsupported mutationType: ${mutation.mutationType}`);
   }

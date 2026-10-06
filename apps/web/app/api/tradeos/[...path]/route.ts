@@ -6,10 +6,12 @@ export const dynamic = "force-dynamic";
 const exactAllowedPaths = new Set([
   "v1/onboarding/business",
   "v1/catalog/items",
+  "v1/customers",
   "v1/sales",
 ]);
 const businessContextPattern = /^v1\/businesses\/[0-9a-f-]{36}\/context$/i;
 const saleDetailPattern = /^v1\/sales\/[0-9a-f-]{36}$/i;
+const customerDetailPattern = /^v1\/customers\/[0-9a-f-]{36}$/i;
 
 type Context = { params: Promise<{ path: string[] }> };
 
@@ -21,10 +23,19 @@ export async function POST(request: NextRequest, context: Context) {
   return forwardAllowed(request, context);
 }
 
+export async function PATCH(request: NextRequest, context: Context) {
+  return forwardAllowed(request, context);
+}
+
 async function forwardAllowed(request: NextRequest, context: Context) {
   const { path } = await context.params;
   const normalized = path.join("/");
-  if (!exactAllowedPaths.has(normalized) && !businessContextPattern.test(normalized) && !saleDetailPattern.test(normalized)) {
+  if (
+    !exactAllowedPaths.has(normalized) &&
+    !businessContextPattern.test(normalized) &&
+    !saleDetailPattern.test(normalized) &&
+    !customerDetailPattern.test(normalized)
+  ) {
     return NextResponse.json({ error: "ROUTE_NOT_ALLOWED", message: "This TradeOS web route is not exposed." }, { status: 404 });
   }
 

@@ -5,6 +5,7 @@ import { registerAuthRoutes } from "./auth/routes.js";
 import { authenticateAccessToken, AuthError, type AuthContext } from "./auth/security.js";
 import { registerBusinessRoutes } from "./businesses.js";
 import { registerCatalogRoutes } from "./catalog.js";
+import { registerCustomerRoutes } from "./customers.js";
 import type { DatabasePool } from "./db.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
 import { registerSalesReadRoutes } from "./sales-read.js";
@@ -12,6 +13,7 @@ import { ingestSyncBatch, SyncRequestError } from "./sync.js";
 
 const SALE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "STAFF"];
 const RETURN_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER"];
+const CUSTOMER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
 
 export function buildApp(pool: DatabasePool) {
   const app = Fastify({ logger: true });
@@ -29,6 +31,7 @@ export function buildApp(pool: DatabasePool) {
   registerOnboardingRoutes(app, pool);
   registerBusinessRoutes(app, pool);
   registerCatalogRoutes(app, pool);
+  registerCustomerRoutes(app, pool);
   registerSalesReadRoutes(app, pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
@@ -116,6 +119,11 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
     };
   }
 
+  if (mutation.mutationType === "CUSTOMER_PAYMENT_CREATE") {
+    const { receivedByStaffId: _ignored, ...rest } = payload;
+    return { ...rest, receivedByStaffId: access.staffId };
+  }
+
   return payload;
 }
 
@@ -126,6 +134,8 @@ function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
     case "RETURN_CREATE":
     case "REFUND_CREATE":
       return RETURN_ROLES;
+    case "CUSTOMER_PAYMENT_CREATE":
+      return CUSTOMER_PAYMENT_ROLES;
     default:
       throw new SyncRequestError(`Unsupported mutationType: ${mutation.mutationType}`);
   }
