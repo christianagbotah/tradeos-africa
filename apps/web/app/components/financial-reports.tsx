@@ -28,6 +28,8 @@ type HealthInsight = { code: string; severity: "CRITICAL" | "WARNING" | "OPPORTU
 type WorkingCapital = { status: string; headline: string; inventorySnapshotAligned: boolean; cashAfterPayablesMinor: number; netTradeCreditMinor: number; operatingWorkingCapitalMinor: number | null; payableCoverageRatio: number | null; receivableMonths: number | null; inventoryMonths: number | null; operatingCashConversionPercent: number | null };
 type CfoAction = { code: string; sourceInsightCode: string; priority: "URGENT" | "HIGH" | "MEDIUM" | "LOW"; area: string; title: string; reason: string; action: string; href: string; navigationLabel: string; evidence: HealthEvidence[] };
 type Health = { algorithmVersion: string; score: number | null; status: string; confidence: string; headline: string; periodDays: number; dimensions: HealthDimension[]; insights: HealthInsight[]; workingCapital: WorkingCapital; actions: CfoAction[] };
+type AgingSide = { totalOpenMinor: number; notDueMinor: number; dueWithin7DaysMinor: number; dueWithin30DaysMinor: number; overdue1To30DaysMinor: number; overdue31To60DaysMinor: number; overdue61To90DaysMinor: number; overdueOver90DaysMinor: number; obligationCount: number; oldestDueAt: string | null };
+type CreditAging = { businessId: string; branchId: string | null; currencyCode: string; generatedAt: string; receivables: AgingSide; payables: AgingSide };
 type Report = {
   currencyCode: string;
   period: { from: string; to: string; timezone: string };
@@ -69,12 +71,14 @@ function zonedMidnightIso(date: string, timezone: string) {
 }
 function percentage(value: number | null) { return value === null ? "new" : `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`; }
 function signed(value: number, money: (n: number) => string) { return `${value >= 0 ? "+" : ""}${money(value)}`; }
+function overdueTotal(side: AgingSide) { return side.overdue1To30DaysMinor + side.overdue31To60DaysMinor + side.overdue61To90DaysMinor + side.overdueOver90DaysMinor; }
 
 export function FinancialReports({ businessId, branchId, currencyCode, role, businessTimezone, branchTimezone }: { businessId: string; branchId: string; currencyCode: string; role: string; businessTimezone: string; branchTimezone: string }) {
   const [fromDate, setFromDate] = useState(() => dateInZone(branchTimezone, -29));
   const [toDate, setToDate] = useState(() => dateInZone(branchTimezone, 0));
   const [allBranches, setAllBranches] = useState(false);
   const [report, setReport] = useState<Report | null>(null);
+  const [aging, setAging] = useState<CreditAging | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const canRead = allowedRoles.includes(role);
@@ -92,6 +96,7 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
     if (!canRead) return;
     let alive = true;
     setMessage("");
+    setAging(null);
     let cachedReport: Report | null = null;
     try { const cached = localStorage.getItem(cacheKey); if (cached) cachedReport = JSON.parse(cached) as Report; } catch { /* optional cache */ }
     setReport(cachedReport);
@@ -103,9 +108,15 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
         const reportTimezone = allBranches ? businessTimezone : branchTimezone;
         const query = new URLSearchParams({ businessId, from: zonedMidnightIso(fromDate, reportTimezone), to: zonedMidnightIso(addLocalDays(toDate, 1), reportTimezone) });
         if (!allBranches) query.set("branchId", branchId);
-        const next = await clientApi<Report>(`/api/tradeos/v1/reports/financial-summary?${query}`);
+        const agingQuery = new URLSearchParams({ businessId });
+        if (!allBranches) agingQuery.set("branchId", branchId);
+        const [next,nextAging] = await Promise.all([
+          clientApi<Report>(`/api/tradeos/v1/reports/financial-summary?${query}`),
+          clientApi<CreditAging>(`/api/tradeos/v1/reports/credit-aging?${agingQuery}`),
+        ]);
         if (!alive) return;
         setReport(next);
+        setAging(nextAging);
         setMessage("");
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* optional cache */ }
       } catch (error) { if (alive) setMessage(messageFrom(error)); }
@@ -148,7 +159,13 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
               <article><span>Operating working capital</span><strong>{report.health.workingCapital.operatingWorkingCapitalMinor === null ? "N/A" : money(report.health.workingCapital.operatingWorkingCapitalMinor)}</strong><small>{report.health.workingCapital.inventorySnapshotAligned ? "Receivables + inventory at cost − payables." : "Not shown because the current inventory snapshot does not align with this historical period."}</small></article>
               <article><span>Cash / payables</span><strong>{report.health.workingCapital.payableCoverageRatio === null ? "N/A" : `${report.health.workingCapital.payableCoverageRatio.toLocaleString(undefined, { maximumFractionDigits: 2 })}×`}</strong><small>{report.health.workingCapital.receivableMonths === null ? "Receivable run-rate unavailable" : `${report.health.workingCapital.receivableMonths.toLocaleString(undefined, { maximumFractionDigits: 2 })} months of revenue in receivables`} · {report.health.workingCapital.inventoryMonths === null ? "inventory run-rate unavailable" : `${report.health.workingCapital.inventoryMonths.toLocaleString(undefined, { maximumFractionDigits: 2 })} months of COGS in inventory`}.</small></article>
             </div>
-            <small className="working-capital-note">TradeOS does not yet call this a cash forecast: customer and supplier due dates/payment terms are not recorded in the ledger today.</small>
+            {aging ? <div className="working-capital-grid credit-aging-grid">
+              <article><span>Receivables overdue</span><strong>{money(overdueTotal(aging.receivables))}</strong><small>{aging.receivables.obligationCount} open obligation{aging.receivables.obligationCount === 1 ? "" : "s"} · {money(aging.receivables.dueWithin30DaysMinor)} due in the next 30 days.</small></article>
+              <article><span>Supplier payables overdue</span><strong>{money(overdueTotal(aging.payables))}</strong><small>{aging.payables.obligationCount} open obligation{aging.payables.obligationCount === 1 ? "" : "s"} · {money(aging.payables.dueWithin30DaysMinor)} due in the next 30 days.</small></article>
+              <article><span>Receivables 31–90+ days late</span><strong>{money(aging.receivables.overdue31To60DaysMinor + aging.receivables.overdue61To90DaysMinor + aging.receivables.overdueOver90DaysMinor)}</strong><small>1–30 days late: {money(aging.receivables.overdue1To30DaysMinor)}.</small></article>
+              <article><span>Payables 31–90+ days late</span><strong>{money(aging.payables.overdue31To60DaysMinor + aging.payables.overdue61To90DaysMinor + aging.payables.overdueOver90DaysMinor)}</strong><small>1–30 days late: {money(aging.payables.overdue1To30DaysMinor)}.</small></article>
+            </div> : null}
+            <small className="working-capital-note">Credit aging is a current snapshot built from fixed due dates on each pay-later sale and supplier-credit purchase. Legacy obligations that predate terms tracking are conservatively treated as due on their original transaction date. This schedule is now suitable as the timing foundation for the next cash-forecast layer.</small>
           </div>
 
           <div className="cfo-action-center">

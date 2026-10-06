@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type {
   BranchFinancialRow,
+  CreditAgingReport,
+  CreditAgingSide,
   DailyFinancialPoint,
   FinancialComparison,
   FinancialFlowSummary,
@@ -81,6 +83,50 @@ export function registerReportRoutes(app: FastifyInstance, pool: DatabasePool): 
       throw error;
     }
   });
+
+  app.get<{ Querystring: { businessId?: string; branchId?: string } }>("/v1/reports/credit-aging", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = uuid(request.query.businessId, "businessId");
+      const branchId = request.query.branchId ? uuid(request.query.branchId, "branchId") : null;
+      await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      return await withTransaction(pool, async client => {
+        await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        const scope = await loadScope(client,businessId,branchId);
+        const generatedAt = new Date();
+        const receivables = await loadAgingSide(client,"customer_credit_obligations",businessId,branchId,generatedAt);
+        const payables = await loadAgingSide(client,"supplier_credit_obligations",businessId,branchId,generatedAt);
+        return { businessId,branchId,currencyCode:scope.currencyCode,generatedAt:generatedAt.toISOString(),receivables,payables } satisfies CreditAgingReport;
+      });
+    } catch (error) {
+      if (error instanceof ReportError || error instanceof AuthError) return reply.code(error.statusCode).send({ error: error.code, message: error.message });
+      throw error;
+    }
+  });
+}
+
+async function loadAgingSide(client: DatabaseClient, table: "customer_credit_obligations" | "supplier_credit_obligations", businessId: string, branchId: string | null, now: Date): Promise<CreditAgingSide> {
+  const result = await client.query(`
+    SELECT
+      COALESCE(SUM(open_minor),0) AS total_open,
+      COALESCE(SUM(CASE WHEN due_at >= $3 THEN open_minor ELSE 0 END),0) AS not_due,
+      COALESCE(SUM(CASE WHEN due_at >= $3 AND due_at < $3 + interval '7 days' THEN open_minor ELSE 0 END),0) AS due_7,
+      COALESCE(SUM(CASE WHEN due_at >= $3 AND due_at < $3 + interval '30 days' THEN open_minor ELSE 0 END),0) AS due_30,
+      COALESCE(SUM(CASE WHEN due_at < $3 AND due_at >= $3 - interval '30 days' THEN open_minor ELSE 0 END),0) AS od_1_30,
+      COALESCE(SUM(CASE WHEN due_at < $3 - interval '30 days' AND due_at >= $3 - interval '60 days' THEN open_minor ELSE 0 END),0) AS od_31_60,
+      COALESCE(SUM(CASE WHEN due_at < $3 - interval '60 days' AND due_at >= $3 - interval '90 days' THEN open_minor ELSE 0 END),0) AS od_61_90,
+      COALESCE(SUM(CASE WHEN due_at < $3 - interval '90 days' THEN open_minor ELSE 0 END),0) AS od_90_plus,
+      COUNT(*) FILTER (WHERE open_minor>0) AS obligation_count,
+      MIN(due_at) FILTER (WHERE open_minor>0) AS oldest_due
+    FROM ${table}
+    WHERE business_id=$1 AND ($2::uuid IS NULL OR branch_id=$2) AND open_minor>0
+  `,[businessId,branchId,now.toISOString()]);
+  const row=result.rows[0] ?? {};
+  return {
+    totalOpenMinor:minor(row.total_open),notDueMinor:minor(row.not_due),dueWithin7DaysMinor:minor(row.due_7),dueWithin30DaysMinor:minor(row.due_30),
+    overdue1To30DaysMinor:minor(row.od_1_30),overdue31To60DaysMinor:minor(row.od_31_60),overdue61To90DaysMinor:minor(row.od_61_90),overdueOver90DaysMinor:minor(row.od_90_plus),
+    obligationCount:count(row.obligation_count),oldestDueAt:row.oldest_due ? new Date(row.oldest_due).toISOString() : null,
+  };
 }
 
 async function loadScope(client: DatabaseClient, businessId: string, branchId: string | null) {

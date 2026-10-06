@@ -16,7 +16,7 @@ describe("purchase receiving and supplier payables", () => {
   const onboard = await app.inject({method:"POST",url:"/v1/onboarding/business",headers,payload:{name:"Bottle Shop",businessType:"DRINKING_SPOT",branchName:"Main"}});
   expect(onboard.statusCode).toBe(201);
   const businessId = onboard.json().business.id, branchId = onboard.json().branch.id;
-  const supplierResponse = await app.inject({method:"POST",url:"/v1/suppliers",headers,payload:{businessId,name:"Whisky Supplier"}});
+  const supplierResponse = await app.inject({method:"POST",url:"/v1/suppliers",headers,payload:{businessId,name:"Whisky Supplier",paymentTermsDays:45}});
   expect(supplierResponse.statusCode).toBe(201);
   const supplierId = supplierResponse.json().supplier.id;
   const catalog = await app.inject({method:"POST",url:"/v1/catalog/items",headers,payload:{businessId,name:"Whisky",kind:"PRODUCT",trackStock:true,stockUnitCode:"ml",units:[{code:"ml",label:"ml",canStock:true},{code:"bottle",label:"Bottle",canPurchase:true},{code:"glass",label:"Glass",canSell:true,defaultSalePriceMinor:1800}],conversions:[{fromUnitCode:"bottle",toUnitCode:"ml",factor:750},{fromUnitCode:"glass",toUnitCode:"ml",factor:50}]}});
@@ -52,10 +52,15 @@ describe("purchase receiving and supplier payables", () => {
   expect(afterReturnInventory.json().items[0]).toMatchObject({available:1450,quarantine:50,inventoryValueMinor:30000});
   const balances=async()=> (await app.inject({method:"GET",url:`/v1/suppliers?businessId=${businessId}`,headers})).json().suppliers[0].balanceMinor;
   expect(await balances()).toBe(30000);
+  let obligation=(await pool.query<{original_minor:string;open_minor:string;issued_at:Date;due_at:Date}>(`SELECT original_minor,open_minor,issued_at,due_at FROM supplier_credit_obligations WHERE business_id=$1 AND supplier_id=$2`,[businessId,supplierId])).rows[0]!;
+  expect(Number(obligation.original_minor)).toBe(30000); expect(Number(obligation.open_minor)).toBe(30000);
+  expect(obligation.due_at.getTime()-obligation.issued_at.getTime()).toBe(45*86_400_000);
   const payment={supplierId,amountMinor:10000,method:"MOMO",paidByStaffId:receipt.receivedByStaffId};
   expect((await sync("payment-1","SUPPLIER_PAYMENT_CREATE",payment)).status).toBe("APPLIED");
   expect((await sync("payment-1","SUPPLIER_PAYMENT_CREATE",payment)).status).toBe("APPLIED");
   expect(await balances()).toBe(20000);
+  obligation=(await pool.query<{open_minor:string}>(`SELECT open_minor FROM supplier_credit_obligations WHERE business_id=$1 AND supplier_id=$2`,[businessId,supplierId])).rows[0] as any;
+  expect(Number(obligation.open_minor)).toBe(20000);
   const paymentActor = (await pool.query(`SELECT actor_staff_id FROM supplier_payable_ledger WHERE source_type='PAYMENT'`)).rows[0];
   expect(paymentActor.actor_staff_id).toBe(actor.rows[0].staff_id);
   expect((await sync("overpay","SUPPLIER_PAYMENT_CREATE",{...payment,amountMinor:20001})).errorCode).toBe("SUPPLIER_OVERPAYMENT");
@@ -79,6 +84,11 @@ describe("purchase receiving and supplier payables", () => {
   const concurrent=await Promise.all([sync("concurrent-pay-1","SUPPLIER_PAYMENT_CREATE",{...payment,amountMinor:15000}),sync("concurrent-pay-2","SUPPLIER_PAYMENT_CREATE",{...payment,amountMinor:15000})]);
   expect(concurrent.map(result=>result.status).sort()).toEqual(["APPLIED","REJECTED"]);
   expect(await balances()).toBe(5000);
+  obligation=(await pool.query<{open_minor:string}>(`SELECT open_minor FROM supplier_credit_obligations WHERE business_id=$1 AND supplier_id=$2`,[businessId,supplierId])).rows[0] as any;
+  expect(Number(obligation.open_minor)).toBe(5000);
+  const aging=await app.inject({method:"GET",url:`/v1/reports/credit-aging?businessId=${businessId}&branchId=${branchId}`,headers});
+  expect(aging.statusCode).toBe(200);
+  expect(aging.json().payables).toMatchObject({totalOpenMinor:5000,notDueMinor:5000,obligationCount:1});
  });
 
  it("carries purchased consumable cost into a service sale while reducing stock and valuation", async () => {

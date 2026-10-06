@@ -1,4 +1,5 @@
 import { recordCashbookEntry } from "./cashbook.js";
+import { allocateCustomerPayment } from "./credit-obligations.js";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 
@@ -34,6 +35,7 @@ type CustomerRow = {
   id: string;
   currency_code: string;
   credit_limit_minor: string | number | null;
+  credit_terms_days: number;
   is_active: boolean;
 };
 
@@ -99,6 +101,7 @@ export async function applyCustomerPaymentMutation(
       occurredAt: context.occurredAt,
     });
 
+    await allocateCustomerPayment(client,{businessId:context.businessId,customerId:customer.id,paymentId,amountMinor:payload.amountMinor,occurredAt:context.occurredAt});
     await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode:customer.currency_code,method:payload.method,amountDeltaMinor:payload.amountMinor,entryType:"CUSTOMER_PAYMENT",sourceType:"CUSTOMER_PAYMENT",sourceId:paymentId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`customer-payment:${paymentId}`});
     const balanceMinor = await getCustomerBalance(client, context.businessId, customer.id);
     await writeCustomerPaymentEvents(client, context, payload, paymentId, balanceMinor);
@@ -120,7 +123,7 @@ export async function assertCustomerCreditAvailable(
   customerId: string,
   currencyCode: string,
   requestedCreditMinor: number,
-): Promise<{ currentBalanceMinor: number; creditLimitMinor: number }> {
+): Promise<{ currentBalanceMinor: number; creditLimitMinor: number; creditTermsDays: number }> {
   if (!Number.isSafeInteger(requestedCreditMinor) || requestedCreditMinor <= 0) {
     throw new CustomerCreditError("Credit amount must be a positive minor-unit integer", "INVALID_CREDIT_AMOUNT");
   }
@@ -145,7 +148,7 @@ export async function assertCustomerCreditAvailable(
     );
   }
 
-  return { currentBalanceMinor, creditLimitMinor };
+  return { currentBalanceMinor, creditLimitMinor, creditTermsDays: customer.credit_terms_days };
 }
 
 export async function recordCustomerAccountEntry(
@@ -196,7 +199,7 @@ export async function loadCustomerAccount(
   lock = false,
 ): Promise<CustomerRow> {
   const result = await client.query<CustomerRow>(
-    `SELECT c.id,b.currency_code,c.credit_limit_minor,c.is_active
+    `SELECT c.id,b.currency_code,c.credit_limit_minor,c.credit_terms_days,c.is_active
      FROM customers c JOIN businesses b ON b.id=c.business_id
      WHERE c.id=$1 AND c.business_id=$2${lock ? " FOR UPDATE OF c" : ""}`,
     [customerId, businessId],

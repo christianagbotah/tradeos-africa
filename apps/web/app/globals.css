@@ -187,6 +187,16 @@ a { color: inherit; text-decoration: none; }
 .cfo-priority { border-radius: 999px; padding: 4px 8px; border: 1px solid var(--line); background: var(--surface-soft); color: var(--ink); font-size: 10px; letter-spacing: .06em; }
 .cfo-priority.urgent, .cfo-priority.high { border-color: #f59e0b; }
 
+
+.credit-aging-grid { margin-top: 10px; }
+.supplier-terms-inline { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
+.supplier-terms-inline label { min-width: 92px; margin: 0; }
+.supplier-terms-inline input { width: 92px; }
+@media (max-width: 560px) {
+  .supplier-terms-inline { width: 100%; align-items: stretch; }
+  .supplier-terms-inline label, .supplier-terms-inline input { width: 100%; }
+}
+
 .return-options { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
 .return-options > div {
   border: 1px solid var(--line);

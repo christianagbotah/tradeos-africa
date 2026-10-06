@@ -3,6 +3,7 @@ import { adjustValuation, signedMinor, addSignedMinor, safeMinor, proportionalMi
 import { UnitConverter } from "@tradeos/domain";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
+import { allocateSupplierPayment, createSupplierCreditObligation } from "./credit-obligations.js";
 
 export interface PurchaseReceiveMutationPayload {
  moneyAccountId?:string;
@@ -81,8 +82,8 @@ export async function applyPurchaseReceiveMutation(
     const currencyCode = branch.rows[0]?.currency_code;
     if (!currencyCode) throw new PurchaseMutationError("Branch was not found for this business", "BRANCH_NOT_FOUND");
 
-    const supplier = await client.query<{ id: string; name: string }>(
-      `SELECT id,name FROM suppliers WHERE id=$1 AND business_id=$2 AND is_active=true FOR UPDATE`,
+    const supplier = await client.query<{ id: string; name: string; payment_terms_days: number }>(
+      `SELECT id,name,payment_terms_days FROM suppliers WHERE id=$1 AND business_id=$2 AND is_active=true FOR UPDATE`,
       [payload.supplierId, context.businessId],
     );
     if (!supplier.rows[0]) throw new PurchaseMutationError("Supplier is not active for this business", "SUPPLIER_NOT_FOUND");
@@ -154,6 +155,7 @@ export async function applyPurchaseReceiveMutation(
       `INSERT INTO supplier_payable_ledger (business_id,branch_id,supplier_id,currency_code,balance_delta_minor,method,source_type,source_id,actor_staff_id,client_mutation_id,occurred_at)
        VALUES ($1,$2,$3,$4,$5,$6,'PURCHASE',$7,$8,$9,$10)`,
       [context.businessId,context.branchId,payload.supplierId,currencyCode,totalMinor,payload.settlementMethod,purchaseId,payload.receivedByStaffId,context.clientMutationId,context.occurredAt]);
+      await createSupplierCreditObligation(client,{businessId:context.businessId,branchId:context.branchId,supplierId:payload.supplierId,purchaseId,currencyCode,amountMinor:totalMinor,termsDays:supplier.rows[0]!.payment_terms_days,occurredAt:context.occurredAt});
     }
     if (totalMinor > 0 && isCashMethod(payload.settlementMethod)) await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode,method:payload.settlementMethod,amountDeltaMinor:-totalMinor,entryType:"PURCHASE_PAYMENT",sourceType:"PURCHASE",sourceId:purchaseId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`purchase:${purchaseId}`});
     await writeEvents(client, context, payload, purchaseId, totalMinor);
@@ -270,6 +272,7 @@ export async function applySupplierPaymentMutation(pool: DatabasePool, context: 
   if (outstanding <= 0 || payload.amountMinor > outstanding) throw new PurchaseMutationError("Payment exceeds positive supplier payable", "SUPPLIER_OVERPAYMENT");
   const result = await client.query<{id:string}>(`INSERT INTO supplier_payable_ledger (business_id,branch_id,supplier_id,currency_code,balance_delta_minor,method,source_type,source_id,actor_staff_id,client_mutation_id,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,'PAYMENT',gen_random_uuid(),$7,$8,$9) RETURNING id`,[context.businessId,context.branchId,payload.supplierId,branch.rows[0].currency_code,-payload.amountMinor,payload.method,payload.paidByStaffId,context.clientMutationId,context.occurredAt]);
   const paymentId = result.rows[0]!.id;
+  await allocateSupplierPayment(client,{businessId:context.businessId,supplierId:payload.supplierId,paymentId,amountMinor:payload.amountMinor,occurredAt:context.occurredAt});
   await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode:branch.rows[0].currency_code,method:payload.method,amountDeltaMinor:-payload.amountMinor,entryType:"SUPPLIER_PAYMENT",sourceType:"SUPPLIER_PAYMENT",sourceId:paymentId,actorStaffId:payload.paidByStaffId,idempotencyKey:`supplier-payment:${paymentId}`});
   const eventPayload = JSON.stringify({supplierId:payload.supplierId,amountMinor:payload.amountMinor,method:payload.method});
   await client.query(`INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at) VALUES ($1,$2,$3,'SUPPLIER_PAYMENT_CREATED','SUPPLIER_PAYMENT',$4,$5,$6::jsonb,$7)`,[context.businessId,context.branchId,payload.paidByStaffId,paymentId,context.clientMutationId,eventPayload,context.occurredAt]);

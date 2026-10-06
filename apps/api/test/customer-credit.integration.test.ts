@@ -25,19 +25,22 @@ describe("customer credit and receivables", () => {
         name: "Ama Mensah",
         phone: "0240000000",
         creditLimitMinor: 6000,
+        creditTermsDays: 30,
       },
     });
     expect(customerResponse.statusCode).toBe(201);
-    const customer = customerResponse.json<{ customer: { id: string; creditLimitMinor: number } }>().customer;
+    const customer = customerResponse.json<{ customer: { id: string; creditLimitMinor: number; creditTermsDays: number } }>().customer;
     expect(customer.creditLimitMinor).toBe(6000);
+    expect(customer.creditTermsDays).toBe(30);
 
+    const creditSaleOccurredAt = new Date().toISOString();
     const firstSale = await sync(owner.accessToken, {
       clientId: "credit-device",
       clientMutationId: "credit-sale-001",
       businessId: business.businessId,
       branchId: business.branchId,
       mutationType: "SALE_CREATE",
-      occurredAt: new Date().toISOString(),
+      occurredAt: creditSaleOccurredAt,
       payload: {
         currencyCode: "GHS",
         customerId: customer.id,
@@ -51,6 +54,9 @@ describe("customer credit and receivables", () => {
     expect(detail.customer.balanceMinor).toBe(5000);
     expect(detail.customer.availableCreditMinor).toBe(1000);
     expect(detail.ledger[0]).toMatchObject({ entryType: "CREDIT_SALE", balanceDeltaMinor: 5000, sourceType: "SALE" });
+    expect(detail.obligations).toHaveLength(1);
+    expect(detail.obligations[0]).toMatchObject({ originalMinor: 5000, openMinor: 5000 });
+    expect(Date.parse(detail.obligations[0]!.dueAt) - Date.parse(creditSaleOccurredAt)).toBe(30 * 86_400_000);
 
     const overLimit = await sync(owner.accessToken, {
       clientId: "credit-device",
@@ -92,6 +98,7 @@ describe("customer credit and receivables", () => {
     expect(detail.customer.balanceMinor).toBe(3000);
     expect(detail.customer.availableCreditMinor).toBe(3000);
     expect(detail.ledger[0]).toMatchObject({ entryType: "PAYMENT", balanceDeltaMinor: -2000 });
+    expect(detail.obligations[0]?.openMinor).toBe(3000);
 
     const actor = await pool.query<{ actor_staff_id: string | null; owner_staff_id: string }>(
       `SELECT cp.actor_staff_id,m.staff_id AS owner_staff_id
@@ -127,6 +134,11 @@ describe("customer credit and receivables", () => {
     expect(detail.customer.balanceMinor).toBe(2000);
     expect(detail.customer.availableCreditMinor).toBe(4000);
     expect(detail.ledger[0]).toMatchObject({ entryType: "CREDIT_REFUND", balanceDeltaMinor: -1000 });
+    expect(detail.obligations[0]?.openMinor).toBe(2000);
+
+    const aging = await app.inject({ method: "GET", url: `/v1/reports/credit-aging?businessId=${business.businessId}&branchId=${business.branchId}`, headers: bearer(owner.accessToken) });
+    expect(aging.statusCode).toBe(200);
+    expect(aging.json<{receivables:{totalOpenMinor:number;notDueMinor:number;obligationCount:number}}>().receivables).toMatchObject({ totalOpenMinor: 2000, notDueMinor: 2000, obligationCount: 1 });
 
     const search = await app.inject({
       method: "GET",
@@ -136,6 +148,38 @@ describe("customer credit and receivables", () => {
     expect(search.statusCode).toBe(200);
     expect(search.json<{ customers: Array<{ id: string; balanceMinor: number }> }>().customers)
       .toContainEqual(expect.objectContaining({ id: customer.id, balanceMinor: 2000 }));
+  });
+
+  it("snapshots changed terms per sale and allocates payments to the earliest due obligation", async () => {
+    const owner = await register("credit-aging-fifo@tradeos.test", "credit-aging-fifo-device");
+    const business = await createBusiness(owner.accessToken);
+    const serviceId = await createService(owner.accessToken, business.businessId, 2500);
+    const customerResponse = await app.inject({ method:"POST", url:"/v1/customers", headers:bearer(owner.accessToken), payload:{ businessId:business.businessId,name:"Terms Customer",creditLimitMinor:10000,creditTermsDays:30 } });
+    expect(customerResponse.statusCode).toBe(201);
+    const customerId = customerResponse.json<{customer:{id:string}}>().customer.id;
+
+    const saleOne = await sync(owner.accessToken,{ clientId:"credit-aging-fifo-device",clientMutationId:"terms-sale-1",businessId:business.businessId,branchId:business.branchId,mutationType:"SALE_CREATE",occurredAt:"2026-10-01T00:00:00.000Z",payload:{customerId,paymentMethod:"CUSTOMER_CREDIT",lines:[{itemId:serviceId,quantity:1,saleUnitCode:"service"}]} });
+    expect(saleOne.status).toBe("APPLIED");
+    const saleOneId=(saleOne.result as {saleId:string}).saleId;
+
+    const termsPatch = await app.inject({ method:"PATCH",url:`/v1/customers/${customerId}`,headers:bearer(owner.accessToken),payload:{businessId:business.businessId,creditTermsDays:5} });
+    expect(termsPatch.statusCode).toBe(200);
+
+    const saleTwo = await sync(owner.accessToken,{ clientId:"credit-aging-fifo-device",clientMutationId:"terms-sale-2",businessId:business.businessId,branchId:business.branchId,mutationType:"SALE_CREATE",occurredAt:"2026-10-02T00:00:00.000Z",payload:{customerId,paymentMethod:"CUSTOMER_CREDIT",lines:[{itemId:serviceId,quantity:1,saleUnitCode:"service"}]} });
+    expect(saleTwo.status).toBe("APPLIED");
+    const saleTwoId=(saleTwo.result as {saleId:string}).saleId;
+
+    const before = await pool.query<{sale_id:string;open_minor:string;due_at:Date}>(`SELECT sale_id,open_minor,due_at FROM customer_credit_obligations WHERE business_id=$1 AND customer_id=$2 ORDER BY due_at`,[business.businessId,customerId]);
+    expect(before.rows.map(row=>[row.sale_id,Number(row.open_minor),row.due_at.toISOString()])).toEqual([
+      [saleTwoId,2500,"2026-10-07T00:00:00.000Z"],
+      [saleOneId,2500,"2026-10-31T00:00:00.000Z"],
+    ]);
+
+    const payment = await sync(owner.accessToken,{ clientId:"credit-aging-fifo-device",clientMutationId:"terms-payment-1",businessId:business.businessId,branchId:business.branchId,mutationType:"CUSTOMER_PAYMENT_CREATE",occurredAt:"2026-10-03T00:00:00.000Z",payload:{customerId,amountMinor:2500,method:"CASH"} });
+    expect(payment.status).toBe("APPLIED");
+    const after = await pool.query<{sale_id:string;open_minor:string}>(`SELECT sale_id,open_minor FROM customer_credit_obligations WHERE business_id=$1 AND customer_id=$2 ORDER BY sale_id`,[business.businessId,customerId]);
+    expect(Number(after.rows.find(row=>row.sale_id===saleTwoId)!.open_minor)).toBe(0);
+    expect(Number(after.rows.find(row=>row.sale_id===saleOneId)!.open_minor)).toBe(2500);
   });
 
   it("requires an enabled credit limit and protects customer data across tenants", async () => {
@@ -242,6 +286,7 @@ async function getCustomer(accessToken: string, businessId: string, customerId: 
   expect(response.statusCode).toBe(200);
   return response.json<{
     customer: { balanceMinor: number; availableCreditMinor: number | null };
+    obligations: Array<{ originalMinor: number; openMinor: number; dueAt: string }>;
     ledger: Array<{ entryType: string; balanceDeltaMinor: number; sourceType: string }>;
   }>();
 }

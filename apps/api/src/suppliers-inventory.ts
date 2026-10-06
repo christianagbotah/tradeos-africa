@@ -9,6 +9,7 @@ const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
 const SUPPLIER_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"];
+const SUPPLIER_TERMS_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 
 type SupplierInput = {
   businessId: string;
@@ -16,6 +17,7 @@ type SupplierInput = {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  paymentTermsDays?: number;
 };
 type SupplierPatch = Partial<Omit<SupplierInput, "businessId">> & { businessId: string; active?: boolean };
 
@@ -25,6 +27,7 @@ type SupplierRow = {
   phone: string | null;
   email: string | null;
   address: string | null;
+  payment_terms_days: number;
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
@@ -39,7 +42,7 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
       const query = request.query.query?.trim() ?? "";
       const result = await pool.query<SupplierRow>(
-        `SELECT id,name,phone,email,address,is_active,created_at,updated_at,
+        `SELECT id,name,phone,email,address,payment_terms_days,is_active,created_at,updated_at,
            (SELECT COALESCE(SUM(balance_delta_minor),0) FROM supplier_payable_ledger l WHERE l.business_id=suppliers.business_id AND l.supplier_id=suppliers.id) AS balance_minor
          FROM suppliers
          WHERE business_id=$1 AND ($2='' OR name ILIKE $3 OR COALESCE(phone,'') ILIKE $3 OR COALESCE(email,'') ILIKE $3)
@@ -60,7 +63,8 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       const supplier = await loadSupplier(pool,businessId,request.params.supplierId);
       const balance = await pool.query<{balance:string}>(`SELECT COALESCE(SUM(balance_delta_minor),0) AS balance FROM supplier_payable_ledger WHERE business_id=$1 AND supplier_id=$2`,[businessId,supplier.id]);
       const entries = await pool.query<{id:string;branch_id:string;currency_code:string;balance_delta_minor:string;method:string;source_type:string;source_id:string;actor_staff_id:string;occurred_at:Date}>(`SELECT id,branch_id,currency_code,balance_delta_minor,method,source_type,source_id,actor_staff_id,occurred_at FROM supplier_payable_ledger WHERE business_id=$1 AND supplier_id=$2 ORDER BY occurred_at DESC,id DESC LIMIT 200`,[businessId,supplier.id]);
-      return {supplier:{...supplier,balanceMinor:Number(balance.rows[0]!.balance)},ledger:entries.rows.map(row=>({id:row.id,branchId:row.branch_id,currencyCode:row.currency_code,balanceDeltaMinor:Number(row.balance_delta_minor),method:row.method,sourceType:row.source_type,sourceId:row.source_id,actorStaffId:row.actor_staff_id,occurredAt:row.occurred_at.toISOString()}))};
+      const obligations = await pool.query<{id:string;purchase_id:string;original_minor:string;open_minor:string;issued_at:Date;due_at:Date}>(`SELECT id,purchase_id,original_minor,open_minor,issued_at,due_at FROM supplier_credit_obligations WHERE business_id=$1 AND supplier_id=$2 ORDER BY (open_minor>0) DESC,due_at,issued_at,id`,[businessId,supplier.id]);
+      return {supplier:{...supplier,balanceMinor:Number(balance.rows[0]!.balance)},obligations:obligations.rows.map(row=>({id:row.id,purchaseId:row.purchase_id,originalMinor:Number(row.original_minor),openMinor:Number(row.open_minor),issuedAt:row.issued_at.toISOString(),dueAt:row.due_at.toISOString()})),ledger:entries.rows.map(row=>({id:row.id,branchId:row.branch_id,currencyCode:row.currency_code,balanceDeltaMinor:Number(row.balance_delta_minor),method:row.method,sourceType:row.source_type,sourceId:row.source_id,actorStaffId:row.actor_staff_id,occurredAt:row.occurred_at.toISOString()}))};
     } catch(error) {return sendError(request,reply,error);}
   });
 
@@ -69,14 +73,15 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const input = validateSupplier(request.body);
       const access = await requireBusinessRole(pool, auth, input.businessId, SUPPLIER_WRITE_ROLES);
+      if (request.body.paymentTermsDays !== undefined && !SUPPLIER_TERMS_ROLES.includes(access.role)) throw new AuthError("Your role cannot set supplier payment terms",403,"SUPPLIER_TERMS_FORBIDDEN");
       const id = await withTransaction(pool, async (client) => {
         const result = await client.query<{ id: string }>(
-          `INSERT INTO suppliers (business_id,name,phone,email,address) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-          [input.businessId,input.name,input.phone,input.email,input.address],
+          `INSERT INTO suppliers (business_id,name,phone,email,address,payment_terms_days) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+          [input.businessId,input.name,input.phone,input.email,input.address,input.paymentTermsDays],
         );
         const supplierId = result.rows[0]?.id;
         if (!supplierId) throw new SupplierError("Supplier could not be created", 500, "SUPPLIER_CREATE_FAILED");
-        await supplierAudit(client, input.businessId, access, "SUPPLIER_CREATED", supplierId, { name: input.name });
+        await supplierAudit(client, input.businessId, access, "SUPPLIER_CREATED", supplierId, { name: input.name, paymentTermsDays: input.paymentTermsDays });
         return supplierId;
       });
       return reply.code(201).send({ supplier: await loadSupplier(pool, input.businessId, id) });
@@ -90,6 +95,7 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = required(request.body.businessId, "businessId");
       const access = await requireBusinessRole(pool, auth, businessId, SUPPLIER_WRITE_ROLES);
+      if (request.body.paymentTermsDays !== undefined && !SUPPLIER_TERMS_ROLES.includes(access.role)) throw new AuthError("Your role cannot change supplier payment terms",403,"SUPPLIER_TERMS_FORBIDDEN");
       const current = await loadSupplier(pool, businessId, request.params.supplierId);
       const next = validateSupplier({
         businessId,
@@ -97,16 +103,17 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
         phone: request.body.phone === undefined ? current.phone : request.body.phone,
         email: request.body.email === undefined ? current.email : request.body.email,
         address: request.body.address === undefined ? current.address : request.body.address,
+        paymentTermsDays: request.body.paymentTermsDays === undefined ? current.paymentTermsDays : request.body.paymentTermsDays,
       });
       const active = request.body.active ?? current.active;
       await withTransaction(pool, async (client) => {
         const updated = await client.query(
-          `UPDATE suppliers SET name=$3,phone=$4,email=$5,address=$6,is_active=$7,updated_at=now()
+          `UPDATE suppliers SET name=$3,phone=$4,email=$5,address=$6,payment_terms_days=$7,is_active=$8,updated_at=now()
            WHERE id=$1 AND business_id=$2`,
-          [request.params.supplierId,businessId,next.name,next.phone,next.email,next.address,active],
+          [request.params.supplierId,businessId,next.name,next.phone,next.email,next.address,next.paymentTermsDays,active],
         );
         if (updated.rowCount !== 1) throw new SupplierError("Supplier was not found", 404, "SUPPLIER_NOT_FOUND");
-        await supplierAudit(client,businessId,access,"SUPPLIER_UPDATED",request.params.supplierId,{ name: next.name, active });
+        await supplierAudit(client,businessId,access,"SUPPLIER_UPDATED",request.params.supplierId,{ name: next.name, paymentTermsDays: next.paymentTermsDays, active });
       });
       return { supplier: await loadSupplier(pool,businessId,request.params.supplierId) };
     } catch (error) {
@@ -207,7 +214,7 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
 
 async function loadSupplier(pool: DatabasePool,businessId: string,supplierId: string) {
   const result = await pool.query<SupplierRow>(
-    `SELECT id,name,phone,email,address,is_active,created_at,updated_at FROM suppliers WHERE id=$1 AND business_id=$2`,
+    `SELECT id,name,phone,email,address,payment_terms_days,is_active,created_at,updated_at FROM suppliers WHERE id=$1 AND business_id=$2`,
     [supplierId,businessId],
   );
   const row = result.rows[0];
@@ -216,7 +223,7 @@ async function loadSupplier(pool: DatabasePool,businessId: string,supplierId: st
 }
 
 function toSupplier(row: SupplierRow) {
-  return { balanceMinor: Number(row.balance_minor ?? 0), id: row.id,name: row.name,phone: row.phone,email: row.email,address: row.address,active: row.is_active,
+  return { balanceMinor: Number(row.balance_minor ?? 0), id: row.id,name: row.name,phone: row.phone,email: row.email,address: row.address,paymentTermsDays: row.payment_terms_days,active: row.is_active,
     createdAt: row.created_at.toISOString(),updatedAt: row.updated_at.toISOString() };
 }
 
@@ -227,7 +234,9 @@ function validateSupplier(body: SupplierInput) {
   const phone = nullable(body.phone,40);
   const email = nullable(body.email,254)?.toLowerCase() ?? null;
   if (email && !email.includes("@")) throw new SupplierError("Supplier email is invalid");
-  return { businessId,name,phone,email,address: nullable(body.address,500) };
+  const paymentTermsDays = body.paymentTermsDays ?? 0;
+  if (!Number.isInteger(paymentTermsDays) || paymentTermsDays < 0 || paymentTermsDays > 3650) throw new SupplierError("Payment terms must be a whole number of days from 0 to 3650",400,"INVALID_PAYMENT_TERMS");
+  return { businessId,name,phone,email,address: nullable(body.address,500),paymentTermsDays };
 }
 
 function nullable(value: string | null | undefined,max: number): string | null {

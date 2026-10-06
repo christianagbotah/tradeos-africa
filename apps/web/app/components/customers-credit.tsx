@@ -17,6 +17,7 @@ type Customer = {
   phone: string | null;
   email: string | null;
   creditLimitMinor: number | null;
+  creditTermsDays: number;
   balanceMinor: number;
   availableCreditMinor: number | null;
   creditEnabled: boolean;
@@ -37,7 +38,8 @@ type LedgerEntry = {
   occurredAt: string;
 };
 
-type CustomerDetail = { customer: Customer; ledger: LedgerEntry[] };
+type CreditObligation = { id: string; saleId: string; originalMinor: number; openMinor: number; issuedAt: string; dueAt: string };
+type CustomerDetail = { customer: Customer; obligations: CreditObligation[]; ledger: LedgerEntry[] };
 type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER";
 
 type Props = {
@@ -204,6 +206,7 @@ function CustomerCreate({ businessId, currencyCode, canControlCredit, onCreated 
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [creditLimit, setCreditLimit] = useState("");
+  const [creditTermsDays, setCreditTermsDays] = useState("0");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -218,12 +221,15 @@ function CustomerCreate({ businessId, currencyCode, canControlCredit, onCreated 
         phone: phone.trim() || null,
         email: email.trim() || null,
       };
-      if (canControlCredit) payload.creditLimitMinor = creditLimit.trim() ? moneyToMinor(creditLimit) : null;
+      if (canControlCredit) {
+        payload.creditLimitMinor = creditLimit.trim() ? moneyToMinor(creditLimit) : null;
+        payload.creditTermsDays = Number(creditTermsDays || 0);
+      }
       const result = await clientApi<{ customer: Customer }>("/api/tradeos/v1/customers", {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      setName(""); setPhone(""); setEmail(""); setCreditLimit(""); setOpen(false);
+      setName(""); setPhone(""); setEmail(""); setCreditLimit(""); setCreditTermsDays("0"); setOpen(false);
       onCreated(result.customer);
     } catch (reason) {
       setError(messageFrom(reason));
@@ -240,7 +246,10 @@ function CustomerCreate({ businessId, currencyCode, canControlCredit, onCreated 
           <label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Customer or business name" /></label>
           <label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="024…" /></label>
           <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="optional" /></label>
-          {canControlCredit ? <label>Credit limit ({currencyCode === "GHS" ? "₵" : currencyCode})<input inputMode="decimal" value={creditLimit} onChange={(event) => setCreditLimit(event.target.value)} placeholder="Leave blank to disable Pay later" /></label> : null}
+          {canControlCredit ? <>
+            <label>Credit limit ({currencyCode === "GHS" ? "₵" : currencyCode})<input inputMode="decimal" value={creditLimit} onChange={(event) => setCreditLimit(event.target.value)} placeholder="Leave blank to disable Pay later" /></label>
+            <label>Pay-later terms (days)<input inputMode="numeric" min="0" max="3650" value={creditTermsDays} onChange={(event) => setCreditTermsDays(event.target.value.replace(/\D/g, ""))} /></label>
+          </> : null}
           <button className="ghost-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save customer"}</button>
           {error ? <span className="form-error inline-error">{error}</span> : null}
         </form>
@@ -260,6 +269,7 @@ function CustomerAccount({ detail, businessId, branchId, currencyCode, canContro
 }) {
   const customer = detail.customer;
   const [limit, setLimit] = useState(customer.creditLimitMinor === null ? "" : String(customer.creditLimitMinor / 100));
+  const [termsDays, setTermsDays] = useState(String(customer.creditTermsDays));
   const [payment, setPayment] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("CASH");
   const [providerReference, setProviderReference] = useState("");
@@ -267,7 +277,8 @@ function CustomerAccount({ detail, businessId, branchId, currencyCode, canContro
 
   useEffect(() => {
     setLimit(customer.creditLimitMinor === null ? "" : String(customer.creditLimitMinor / 100));
-  }, [customer.id, customer.creditLimitMinor]);
+    setTermsDays(String(customer.creditTermsDays));
+  }, [customer.id, customer.creditLimitMinor, customer.creditTermsDays]);
 
   const updateCredit = async () => {
     if (!canControlCredit || busy) return;
@@ -275,7 +286,7 @@ function CustomerAccount({ detail, businessId, branchId, currencyCode, canContro
     try {
       await clientApi(`/api/tradeos/v1/customers/${customer.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ businessId, creditLimitMinor: limit.trim() ? moneyToMinor(limit) : null }),
+        body: JSON.stringify({ businessId, creditLimitMinor: limit.trim() ? moneyToMinor(limit) : null, creditTermsDays: Number(termsDays || 0) }),
       });
       onMessage("Customer credit settings updated.");
       onChanged();
@@ -349,12 +360,14 @@ function CustomerAccount({ detail, businessId, branchId, currencyCode, canContro
         <div><span>Balance owed</span><strong>{customer.balanceMinor >= 0 ? formatMoney(customer.balanceMinor, currencyCode) : `-${formatMoney(-customer.balanceMinor, currencyCode)}`}</strong></div>
         <div><span>Credit limit</span><strong>{customer.creditLimitMinor === null ? "Off" : formatMoney(customer.creditLimitMinor, currencyCode)}</strong></div>
         <div><span>Available credit</span><strong>{customer.availableCreditMinor === null ? "—" : formatMoney(customer.availableCreditMinor, currencyCode)}</strong></div>
+        <div><span>Pay-later terms</span><strong>Net {customer.creditTermsDays} day{customer.creditTermsDays === 1 ? "" : "s"}</strong></div>
       </div>
 
       {canControlCredit ? (
         <div className="credit-controls">
           <label>Credit limit<input inputMode="decimal" value={limit} onChange={(event) => setLimit(event.target.value)} placeholder="Blank disables Pay later" /></label>
-          <button className="ghost-button" type="button" disabled={busy} onClick={() => void updateCredit()}>Update limit</button>
+          <label>Terms (days)<input inputMode="numeric" min="0" max="3650" value={termsDays} onChange={(event) => setTermsDays(event.target.value.replace(/\D/g, ""))} /></label>
+          <button className="ghost-button" type="button" disabled={busy} onClick={() => void updateCredit()}>Update credit settings</button>
           <button className="text-button" type="button" disabled={busy} onClick={() => void toggleActive()}>{customer.active ? "Disable account" : "Reactivate account"}</button>
         </div>
       ) : null}
@@ -365,6 +378,11 @@ function CustomerAccount({ detail, businessId, branchId, currencyCode, canContro
         <label>Method<select value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}><option value="CASH">Cash</option><option value="MOMO">MoMo</option><option value="CARD">Card</option><option value="BANK">Bank</option><option value="OTHER">Other</option></select></label>
         <label>Reference<input value={providerReference} onChange={(event) => setProviderReference(event.target.value)} placeholder="optional" /></label>
         <button className="primary-button" type="button" disabled={busy || moneyToMinor(payment) <= 0} onClick={() => void recordPayment()}>{busy ? "Saving…" : "Receive payment"}</button>
+      </div>
+
+      <div className="customer-ledger">
+        <div className="ledger-head"><strong>Open credit obligations</strong><span>Due dates are fixed when each pay-later sale posts</span></div>
+        {detail.obligations.filter((item) => item.openMinor > 0).length === 0 ? <div className="customer-empty">No open credit obligations.</div> : detail.obligations.filter((item) => item.openMinor > 0).map((item) => { const overdue = Date.parse(item.dueAt) < Date.now(); return <div className="ledger-row" key={item.id}><div><strong>{overdue ? "Overdue" : "Due"} {formatDate(item.dueAt)}</strong><span>Original {formatMoney(item.originalMinor, currencyCode)} · sale {item.saleId.slice(0, 8)}</span></div><strong className={overdue ? "ledger-debit" : ""}>{formatMoney(item.openMinor, currencyCode)}</strong></div>; })}
       </div>
 
       <div className="customer-ledger">
