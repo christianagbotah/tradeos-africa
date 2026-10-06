@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { OperationsReconciliation } from "./operations-reconciliation";
+import { FinancialReports } from "./financial-reports";
 import { CashbookExpenses } from "./cashbook-expenses";
 import { PurchasesInventory } from "./purchases-inventory";
 import { CustomersCredit } from "./customers-credit";
@@ -366,6 +367,8 @@ function BusinessWorkspace(props: {
           <article className="metric-card"><span>Services</span><strong>{services}</strong><small>Service consumables can be added next</small></article>
           <article className="metric-card health-card"><span>Currency</span><strong>{context.business.currencyCode === "GHS" ? "₵ GHS" : context.business.currencyCode}</strong><small className="positive">{context.business.countryCode}</small></article>
         </section>
+
+        <FinancialReports businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} role={context.membership.role} businessTimezone={context.business.timezone} branchTimezone={context.branches.find((branch) => branch.id === branchId)?.timezone ?? context.business.timezone} />
 
         <QuickSale businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} items={sellableItems} />
 

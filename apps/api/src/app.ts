@@ -1,3 +1,4 @@
+import { registerReportRoutes } from "./reports.js";
 import { registerOperationsRoutes } from "./operations.js";
 import { registerTreasuryRoutes } from "./treasury.js";
 import { registerCashbookRoutes } from "./cashbook.js";
@@ -45,6 +46,7 @@ export function buildApp(pool: DatabasePool) {
   registerCashbookRoutes(app, pool);
   registerOperationsRoutes(app,pool);
   registerTreasuryRoutes(app,pool);
+  registerReportRoutes(app,pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
     try {
