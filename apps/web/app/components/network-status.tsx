@@ -5,7 +5,7 @@ import { flushPendingMutations, getQueueState, queueChangedEvent, type QueueStat
 
 export function NetworkStatus() {
   const [online, setOnline] = useState(true);
-  const [queue, setQueue] = useState<QueueState>({ pending: 0, failed: 0 });
+  const [queue, setQueue] = useState<QueueState>({ pending: 0, blocked: 0, failed: 0 });
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
 
@@ -25,7 +25,7 @@ export function NetworkStatus() {
       try {
         const summary = await flushPendingMutations();
         if (active) {
-          setQueue({ pending: summary.pending, failed: summary.failed });
+          setQueue({ pending: summary.pending, blocked: summary.blocked, failed: summary.failed });
           setSyncError(false);
         }
       } catch {
@@ -52,8 +52,7 @@ export function NetworkStatus() {
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {
-        // The transaction queue is localStorage-backed and remains safe even if
-        // shell caching is unavailable on a particular browser.
+        // Selling remains available even if shell caching is unsupported.
       });
     }
 
@@ -63,7 +62,8 @@ export function NetworkStatus() {
     window.addEventListener("storage", queueChanged);
     window.addEventListener(queueChangedEvent, queueChanged);
     const timer = window.setInterval(() => {
-      if (navigator.onLine && getQueueState().pending > 0) void syncNow();
+      const state = getQueueState();
+      if (navigator.onLine && state.pending > state.blocked) void syncNow();
     }, 15_000);
 
     return () => {
@@ -76,31 +76,36 @@ export function NetworkStatus() {
     };
   }, []);
 
+  const readyToSync = queue.pending - queue.blocked;
   const title = !online
     ? "Offline · work continues"
     : syncing
-      ? `Syncing · ${queue.pending} waiting`
+      ? `Syncing · ${readyToSync} waiting`
       : queue.failed > 0
         ? `Online · ${queue.failed} needs review`
-        : queue.pending > 0
-          ? `Online · ${queue.pending} waiting to sync`
-          : "Online · fully synced";
+        : queue.blocked > 0
+          ? "Demo mode · setup required"
+          : readyToSync > 0
+            ? `Online · ${readyToSync} waiting to sync`
+            : "Online · fully synced";
 
   const detail = !online
     ? `${queue.pending} change${queue.pending === 1 ? "" : "s"} stored safely on this device`
     : syncError
       ? "Sync service unavailable — changes remain safely queued"
       : queue.failed > 0
-        ? "Rejected changes are separated for review and will not retry forever"
-        : queue.pending > 0
-          ? "Queued changes retry automatically"
-          : "No pending changes";
+        ? "Rejected changes are separated for review and do not retry forever"
+        : queue.blocked > 0
+          ? "Demo transactions stay local until a real business profile is configured"
+          : readyToSync > 0
+            ? "Queued changes retry automatically"
+            : "No pending changes";
 
   return (
     <div className="sync-card" aria-live="polite">
       <div
         className="sync-dot"
-        style={!online || syncError || queue.failed > 0
+        style={!online || syncError || queue.failed > 0 || queue.blocked > 0
           ? { background: "#f59e0b", boxShadow: "0 0 0 4px rgba(245,158,11,.12)" }
           : undefined}
       />
