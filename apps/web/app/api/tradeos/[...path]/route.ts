@@ -19,6 +19,7 @@ const exactAllowedPaths = new Set([
   "v1/money-account-defaults",
   "v1/money-transfers",
   "v1/money-reconciliations",
+  "v1/reports/financial-summary",
   "v1/expenses",
   "v1/expense-categories",
 ]);
