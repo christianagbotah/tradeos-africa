@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "TradeOS Africa",
+    "slug": "tradeos-africa",
+    "scheme": "tradeos",
+    "version": "0.0.1",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lightworldtech.tradeos"
+    },
+    "android": {
+      "package": "com.lightworldtech.tradeos"
+    },
+    "extra": {
+      "product": "TradeOS Africa",
+      "offlineFirst": true
+    }
+  }
+}

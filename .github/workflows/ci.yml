@@ -44,7 +44,12 @@ jobs:
       - name: Validate PostgreSQL migrations
         env:
           PGPASSWORD: tradeos
-        run: psql -h localhost -U tradeos -d tradeos_ci -v ON_ERROR_STOP=1 -f packages/db/migrations/0001_core.sql
+        run: |
+          set -euo pipefail
+          for migration in packages/db/migrations/*.sql; do
+            echo "Applying $migration"
+            psql -h localhost -U tradeos -d tradeos_ci -v ON_ERROR_STOP=1 -f "$migration"
+          done
 
       - name: Typecheck
         run: pnpm typecheck
