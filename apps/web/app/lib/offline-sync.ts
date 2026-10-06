@@ -33,6 +33,7 @@ export type FailedMutation = {
 
 export type QueueState = {
   pending: number;
+  blocked: number;
   failed: number;
 };
 
@@ -48,6 +49,7 @@ const failedKey = "tradeos.failedMutations.v1";
 const clientIdKey = "tradeos.clientId.v1";
 export const queueChangedEvent = "tradeos:queue-changed";
 const maxBatchSize = 100;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 let inFlight: Promise<FlushSummary> | null = null;
 
@@ -71,9 +73,11 @@ export function enqueueMutation(mutation: PendingMutation): void {
 }
 
 export function getQueueState(): QueueState {
-  if (typeof window === "undefined") return { pending: 0, failed: 0 };
+  if (typeof window === "undefined") return { pending: 0, blocked: 0, failed: 0 };
+  const pending = readJson<PendingMutation[]>(pendingKey, []);
   return {
-    pending: readJson<PendingMutation[]>(pendingKey, []).length,
+    pending: pending.length,
+    blocked: pending.filter((mutation) => !isServerReady(mutation)).length,
     failed: readJson<FailedMutation[]>(failedKey, []).length,
   };
 }
@@ -88,9 +92,6 @@ export function retryFailedMutation(clientMutationId: string): boolean {
   const failed = readJson<FailedMutation[]>(failedKey, []);
   const found = failed.find((entry) => entry.mutation.clientMutationId === clientMutationId);
   if (!found) return false;
-
-  // Retrying the exact same rejected id would only replay the durable REJECTED result.
-  // A user-approved retry therefore receives a fresh id while preserving the economic payload.
   const replacement: PendingMutation = {
     ...found.mutation,
     clientMutationId: crypto.randomUUID(),
@@ -114,9 +115,7 @@ export function dismissFailedMutation(clientMutationId: string): void {
 
 export function flushPendingMutations(): Promise<FlushSummary> {
   if (inFlight) return inFlight;
-  inFlight = performFlush().finally(() => {
-    inFlight = null;
-  });
+  inFlight = performFlush().finally(() => { inFlight = null; });
   return inFlight;
 }
 
@@ -124,26 +123,24 @@ async function performFlush(): Promise<FlushSummary> {
   if (typeof window === "undefined" || !navigator.onLine) return emptySummary();
 
   const allPending = readJson<PendingMutation[]>(pendingKey, []);
-  if (allPending.length === 0) return emptySummary();
+  const batch = allPending.filter(isServerReady).slice(0, maxBatchSize);
+  if (batch.length === 0) return emptySummary();
 
-  const batch = allPending.slice(0, maxBatchSize);
   const response = await fetch("/api/sync", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ mutations: batch }),
     cache: "no-store",
   });
-
-  if (!response.ok) {
-    throw new Error(`Sync endpoint returned HTTP ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Sync endpoint returned HTTP ${response.status}`);
 
   const body = (await response.json()) as SyncResponse;
   if (!Array.isArray(body.mutationResults)) throw new Error("Sync endpoint returned an invalid response");
 
   const byId = new Map(body.mutationResults.map((result) => [result.clientMutationId, result]));
   const failed = readJson<FailedMutation[]>(failedKey, []);
-  const remainingBatch: PendingMutation[] = [];
+  const batchIds = new Set(batch.map((mutation) => mutation.clientMutationId));
+  const remaining: PendingMutation[] = allPending.filter((mutation) => !batchIds.has(mutation.clientMutationId));
   let applied = 0;
   let received = 0;
   let rejected = 0;
@@ -151,35 +148,27 @@ async function performFlush(): Promise<FlushSummary> {
   for (const mutation of batch) {
     const result = byId.get(mutation.clientMutationId);
     if (!result || result.status === "RECEIVED") {
-      remainingBatch.push(mutation);
+      remaining.push(mutation);
       received += 1;
-      continue;
-    }
-
-    if (result.status === "APPLIED") {
+    } else if (result.status === "APPLIED") {
       applied += 1;
-      continue;
-    }
-
-    rejected += 1;
-    if (!failed.some((entry) => entry.mutation.clientMutationId === mutation.clientMutationId)) {
-      failed.push({ mutation, result, failedAt: new Date().toISOString() });
+    } else {
+      rejected += 1;
+      if (!failed.some((entry) => entry.mutation.clientMutationId === mutation.clientMutationId)) {
+        failed.push({ mutation, result, failedAt: new Date().toISOString() });
+      }
     }
   }
 
-  const remainder = allPending.slice(batch.length);
-  localStorage.setItem(pendingKey, JSON.stringify([...remainingBatch, ...remainder]));
+  localStorage.setItem(pendingKey, JSON.stringify(remaining));
   localStorage.setItem(failedKey, JSON.stringify(failed));
   notifyQueueChanged();
 
-  const state = getQueueState();
-  return {
-    ...state,
-    applied,
-    received,
-    rejected,
-    attempted: batch.length,
-  };
+  return { ...getQueueState(), applied, received, rejected, attempted: batch.length };
+}
+
+function isServerReady(mutation: PendingMutation): boolean {
+  return uuidPattern.test(mutation.businessId) && Boolean(mutation.branchId && uuidPattern.test(mutation.branchId));
 }
 
 function readJson<T>(key: string, fallback: T): T {
@@ -192,7 +181,7 @@ function readJson<T>(key: string, fallback: T): T {
 }
 
 function emptySummary(): FlushSummary {
-  const state = typeof window === "undefined" ? { pending: 0, failed: 0 } : getQueueState();
+  const state = typeof window === "undefined" ? { pending: 0, blocked: 0, failed: 0 } : getQueueState();
   return { ...state, applied: 0, received: 0, rejected: 0, attempted: 0 };
 }
 
