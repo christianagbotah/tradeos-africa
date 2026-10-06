@@ -1,7 +1,7 @@
 import { Money, money, multiplyMoney } from "./money.js";
 
 export type SellableKind = "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
-export type ReturnDisposition = "RESTOCK" | "QUARANTINE" | "DISCARD" | "NOT_APPLICABLE";
+export type ReturnDisposition = "RESTOCK" | "QUARANTINE" | "DISCARD" | "NOT_RETURNED" | "NOT_APPLICABLE";
 export type RefundMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT" | "ORIGINAL_METHOD";
 
 export interface SaleLineSnapshot {
@@ -98,11 +98,10 @@ export function planSaleReturn(saleLines: SaleLineSnapshot[], request: SaleRetur
     let inventoryEffect: InventoryReturnEffect | undefined;
 
     if (line.kind === "PRODUCT") {
-      if (!line.stockUnitId) throw new SaleReturnError(`Product line ${line.id} has no stock unit`);
-      const factor = line.stockQuantityPerSaleUnit ?? 1;
-      assertPositive(factor, `Stock conversion for ${line.id}`);
-
       if (requested.disposition === "RESTOCK" || requested.disposition === "QUARANTINE") {
+        if (!line.stockUnitId) throw new SaleReturnError(`Product line ${line.id} has no stock unit`);
+        const factor = line.stockQuantityPerSaleUnit ?? 1;
+        assertPositive(factor, `Stock conversion for ${line.id}`);
         cogsReversal = returnedCost;
         inventoryEffect = {
           saleLineId: line.id,
@@ -111,8 +110,11 @@ export function planSaleReturn(saleLines: SaleLineSnapshot[], request: SaleRetur
           destination: requested.disposition === "RESTOCK" ? "AVAILABLE" : "QUARANTINE",
         };
       } else if (requested.disposition === "DISCARD") {
+        // The item physically came back but is unusable, so it does not recreate an inventory asset.
         discardedCost = returnedCost;
       }
+      // NOT_RETURNED reverses revenue/tax only. The customer keeps the product, so
+      // stock and COGS remain exactly as recorded by the original sale.
     } else if (line.kind === "PREPARED_PRODUCT" && requested.disposition === "DISCARD") {
       discardedCost = returnedCost;
     }
@@ -158,9 +160,14 @@ function assertDisposition(line: SaleLineSnapshot, disposition: ReturnDispositio
     throw new SaleReturnError("Service refunds must use NOT_APPLICABLE disposition");
   }
   if (line.kind === "PRODUCT" && disposition === "NOT_APPLICABLE") {
-    throw new SaleReturnError("Product returns require RESTOCK, QUARANTINE or DISCARD disposition");
+    throw new SaleReturnError("Product refunds require RESTOCK, QUARANTINE, DISCARD or NOT_RETURNED disposition");
   }
-  if (line.kind === "PREPARED_PRODUCT" && disposition !== "DISCARD" && disposition !== "NOT_APPLICABLE") {
-    throw new SaleReturnError("Prepared-product refunds may be DISCARD or NOT_APPLICABLE; ingredients cannot be restocked");
+  if (
+    line.kind === "PREPARED_PRODUCT" &&
+    disposition !== "DISCARD" &&
+    disposition !== "NOT_RETURNED" &&
+    disposition !== "NOT_APPLICABLE"
+  ) {
+    throw new SaleReturnError("Prepared-product refunds may be DISCARD, NOT_RETURNED or NOT_APPLICABLE; ingredients cannot be restocked");
   }
 }
