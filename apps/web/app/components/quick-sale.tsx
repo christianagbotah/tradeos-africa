@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../lib/offline-sync";
 
 type PaymentMethod = "CASH" | "MOMO" | "CUSTOMER_CREDIT";
 
@@ -22,8 +23,6 @@ const items: QuickItem[] = [
   { id: "cable-2-5", name: "2.5mm Cable", unit: "yard", priceMinor: 1150 },
 ];
 
-const queueKey = "tradeos.pendingMutations.v1";
-
 function formatMoney(minor: number): string {
   return `₵${(minor / 100).toFixed(2)}`;
 }
@@ -32,6 +31,7 @@ export function QuickSale() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const totalMinor = useMemo(
     () => cart.reduce((sum, line) => sum + line.priceMinor * line.quantity, 0),
@@ -50,42 +50,40 @@ export function QuickSale() {
     });
   };
 
-  const recordSale = () => {
-    if (cart.length === 0) return;
-
-    const mutation = {
-      clientId: "tradeos-web-demo",
-      clientMutationId: crypto.randomUUID(),
-      businessId: "demo-business",
-      branchId: "demo-main",
-      mutationType: "SALE_CREATE",
-      occurredAt: new Date().toISOString(),
-      payload: {
-        currency: "GHS",
-        paymentMethod,
-        totalMinor,
-        lines: cart.map(({ id, name, unit, priceMinor, quantity }) => ({
-          itemId: id,
-          itemName: name,
-          saleUnit: unit,
-          unitPriceMinor: priceMinor,
-          quantity,
-        })),
-      },
-    };
+  const recordSale = async () => {
+    if (cart.length === 0 || saving) return;
+    setSaving(true);
 
     try {
-      const existing = JSON.parse(localStorage.getItem(queueKey) ?? "[]") as unknown[];
-      existing.push(mutation);
-      localStorage.setItem(queueKey, JSON.stringify(existing));
+      enqueueMutation({
+        clientId: getOrCreateClientId(),
+        clientMutationId: crypto.randomUUID(),
+        businessId: "demo-business",
+        branchId: "demo-main",
+        mutationType: "SALE_CREATE",
+        occurredAt: new Date().toISOString(),
+        payload: {
+          currencyCode: "GHS",
+          paymentMethod,
+          lines: cart.map(({ id, unit, quantity }) => ({
+            itemId: id,
+            saleUnitCode: unit,
+            quantity,
+          })),
+        },
+      });
+
       setCart([]);
-      setMessage(
-        navigator.onLine
-          ? "Sale queued safely for server sync."
-          : "Sale saved offline. It will sync when connectivity returns.",
-      );
+      if (navigator.onLine) {
+        await flushPendingMutations();
+        setMessage("Demo sale saved locally. Real business setup will enable server synchronization.");
+      } else {
+        setMessage("Sale saved offline on this device. Demo data remains local until business setup.");
+      }
     } catch {
       setMessage("This device could not save the sale locally. Please retry before serving the next customer.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -119,29 +117,11 @@ export function QuickSale() {
           {message ? <small className="sale-message">{message}</small> : null}
         </div>
         <div className="payment-actions">
-          <button
-            className={paymentMethod === "CASH" ? "selected" : undefined}
-            type="button"
-            onClick={() => setPaymentMethod("CASH")}
-          >
-            Cash
-          </button>
-          <button
-            className={paymentMethod === "MOMO" ? "selected" : undefined}
-            type="button"
-            onClick={() => setPaymentMethod("MOMO")}
-          >
-            MoMo
-          </button>
-          <button
-            className={paymentMethod === "CUSTOMER_CREDIT" ? "selected" : undefined}
-            type="button"
-            onClick={() => setPaymentMethod("CUSTOMER_CREDIT")}
-          >
-            Pay later
-          </button>
-          <button className="checkout-button" type="button" disabled={cart.length === 0} onClick={recordSale}>
-            Record {formatMoney(totalMinor)}
+          <button className={paymentMethod === "CASH" ? "selected" : undefined} type="button" onClick={() => setPaymentMethod("CASH")}>Cash</button>
+          <button className={paymentMethod === "MOMO" ? "selected" : undefined} type="button" onClick={() => setPaymentMethod("MOMO")}>MoMo</button>
+          <button className={paymentMethod === "CUSTOMER_CREDIT" ? "selected" : undefined} type="button" onClick={() => setPaymentMethod("CUSTOMER_CREDIT")}>Pay later</button>
+          <button className="checkout-button" type="button" disabled={cart.length === 0 || saving} onClick={() => void recordSale()}>
+            {saving ? "Saving…" : `Record ${formatMoney(totalMinor)}`}
           </button>
         </div>
       </div>
