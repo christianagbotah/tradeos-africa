@@ -12,6 +12,9 @@ const exactAllowedPaths = new Set([
   "v1/inventory",
   "v1/purchases",
   "v1/cashbook",
+  "v1/operations/current",
+  "v1/operations/days",
+  "v1/operations/shifts",
   "v1/expenses",
   "v1/expense-categories",
 ]);

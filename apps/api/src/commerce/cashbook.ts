@@ -1,3 +1,4 @@
+import { lockOperations, recomputeReconciliation } from "./reconciliation.js";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 import { signedMinor } from "./valuation.js";
@@ -13,18 +14,25 @@ export async function recordCashbookEntry(client: DatabaseClient, input: {
 }): Promise<void> {
   signedMinor(input.amountDeltaMinor);
   if (!input.amountDeltaMinor || !isCashMethod(input.method) || !input.idempotencyKey || Number.isNaN(Date.parse(input.occurredAt))) throw new CashbookError("Invalid cashbook entry");
-  const values = [input.businessId,input.branchId,input.amountDeltaMinor,input.currencyCode,input.method,input.entryType,input.sourceType,input.sourceId,input.actorStaffId ?? null,input.idempotencyKey,input.occurredAt];
+  await lockOperations(client,input.businessId,input.branchId);
+  const operatingDayId = (await client.query(`SELECT id FROM operating_days WHERE business_id=$1 AND branch_id=$2 AND opened_at<=$3 AND (closed_at IS NULL OR $3<=closed_at) ORDER BY opened_at DESC,id DESC LIMIT 1`,[input.businessId,input.branchId,input.occurredAt])).rows[0]?.id ?? null;
+  const staffShiftId = operatingDayId && input.actorStaffId ? (await client.query(`SELECT id FROM staff_shifts WHERE business_id=$1 AND branch_id=$2 AND operating_day_id=$3 AND staff_id=$4 AND opened_at<=$5 AND (closed_at IS NULL OR $5<=closed_at) ORDER BY opened_at DESC,id DESC LIMIT 1`,[input.businessId,input.branchId,operatingDayId,input.actorStaffId,input.occurredAt])).rows[0]?.id ?? null : null;
+  const values = [input.businessId,input.branchId,input.amountDeltaMinor,input.currencyCode,input.method,input.entryType,input.sourceType,input.sourceId,input.actorStaffId ?? null,input.idempotencyKey,input.occurredAt,operatingDayId,staffShiftId];
   // A conflicting key must describe the same movement; silently dropping another movement would hide money.
-  const result = await client.query(`INSERT INTO cashbook_entries(business_id,branch_id,amount_delta_minor,currency_code,method,entry_type,source_type,source_id,actor_staff_id,idempotency_key,occurred_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+  const result = await client.query(`INSERT INTO cashbook_entries(business_id,branch_id,amount_delta_minor,currency_code,method,entry_type,source_type,source_id,actor_staff_id,idempotency_key,occurred_at,operating_day_id,staff_shift_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
     ON CONFLICT(business_id,idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
     WHERE cashbook_entries.branch_id=EXCLUDED.branch_id AND cashbook_entries.amount_delta_minor=EXCLUDED.amount_delta_minor
     AND cashbook_entries.currency_code=EXCLUDED.currency_code AND cashbook_entries.method=EXCLUDED.method
     AND cashbook_entries.entry_type=EXCLUDED.entry_type AND cashbook_entries.source_type=EXCLUDED.source_type AND cashbook_entries.source_id=EXCLUDED.source_id
     AND cashbook_entries.actor_staff_id IS NOT DISTINCT FROM EXCLUDED.actor_staff_id
+    AND cashbook_entries.operating_day_id IS NOT DISTINCT FROM EXCLUDED.operating_day_id
+    AND cashbook_entries.staff_shift_id IS NOT DISTINCT FROM EXCLUDED.staff_shift_id
     AND cashbook_entries.occurred_at=EXCLUDED.occurred_at
     RETURNING id`, values);
   if (!result.rowCount) throw new CashbookError("Cashbook idempotency key conflicts with another movement");
+  if (operatingDayId) await recomputeReconciliation(client,"operating_day",operatingDayId);
+  if (staffShiftId) await recomputeReconciliation(client,"staff_shift",staffShiftId);
 }
 export class CashbookError extends Error { constructor(message: string, readonly code = "CASHBOOK_INVALID", readonly statusCode = 400) { super(message); } }
 export interface CashbookMutationPayload {

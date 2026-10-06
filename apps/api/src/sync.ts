@@ -1,3 +1,4 @@
+import { applyReconciliationMutation, type ReconciliationPayload } from "./commerce/reconciliation.js";
 import { applyCashbookMutation, CashbookError, type CashbookMutationPayload } from "./commerce/cashbook.js";
 import { applyPurchaseReturnMutation, type PurchaseReturnPayload } from "./commerce/purchase-returns.js";
 import { applyPurchaseReceiveMutation, applySupplierPaymentMutation, PurchaseMutationError, type PurchaseReceiveMutationPayload, type SupplierPaymentPayload } from "./commerce/purchases.js";
@@ -128,6 +129,11 @@ async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutatio
   };
 
   switch (mutation.mutationType) {
+    case "OPERATING_DAY_OPEN_CREATE":
+    case "OPERATING_DAY_CLOSE_CREATE":
+    case "SHIFT_OPEN_CREATE":
+    case "SHIFT_CLOSE_CREATE":
+      return applyReconciliationMutation(pool,context,mutation.payload as ReconciliationPayload,mutation.mutationType);
     case "EXPENSE_CREATE":
     case "CASHBOOK_ADJUSTMENT_CREATE":
       return applyCashbookMutation(pool,context,mutation.payload as CashbookMutationPayload,mutation.mutationType === "CASHBOOK_ADJUSTMENT_CREATE");

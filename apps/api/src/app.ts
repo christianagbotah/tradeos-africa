@@ -1,3 +1,4 @@
+import { registerOperationsRoutes } from "./operations.js";
 import { registerCashbookRoutes } from "./cashbook.js";
 import { registerSupplierInventoryRoutes } from "./suppliers-inventory.js";
 import Fastify from "fastify";
@@ -41,6 +42,7 @@ export function buildApp(pool: DatabasePool) {
   registerSalesReadRoutes(app, pool);
   registerSupplierInventoryRoutes(app, pool);
   registerCashbookRoutes(app, pool);
+  registerOperationsRoutes(app,pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
     try {
@@ -113,7 +115,7 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
   }
   const payload = mutation.payload as Record<string, unknown>;
 
-  if (["EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE"].includes(mutation.mutationType)) {
+  if (["EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE","OPERATING_DAY_OPEN_CREATE","OPERATING_DAY_CLOSE_CREATE","SHIFT_OPEN_CREATE","SHIFT_CLOSE_CREATE"].includes(mutation.mutationType)) {
     const { actorStaffId: _ignored, ...rest } = payload;
     return {...rest,actorStaffId:access.staffId};
   }
@@ -151,6 +153,10 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
 
 function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
   switch (mutation.mutationType) {
+    case "OPERATING_DAY_OPEN_CREATE":
+    case "OPERATING_DAY_CLOSE_CREATE": return CASHBOOK_ADJUSTMENT_ROLES;
+    case "SHIFT_OPEN_CREATE":
+    case "SHIFT_CLOSE_CREATE": return EXPENSE_ROLES;
     case "EXPENSE_CREATE": return EXPENSE_ROLES;
     case "CASHBOOK_ADJUSTMENT_CREATE": return CASHBOOK_ADJUSTMENT_ROLES;
     case "SALE_CREATE":
