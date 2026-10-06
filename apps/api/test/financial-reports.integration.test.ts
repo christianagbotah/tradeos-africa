@@ -88,6 +88,11 @@ describe("financial summary reports", () => {
     expect(report.topItems[0]).toMatchObject({ itemId, itemName:"Box Item", unitCode:"piece", quantitySold:4, quantityReturned:1, netRevenueMinor:1500, netCogsMinor:600, grossProfitMinor:900 });
     expect(report.branches).toHaveLength(1);
     expect(report.branches[0]).toMatchObject({ branchId, netRevenueMinor:1500, netCogsMinor:600, grossProfitMinor:900, expenseMinor:100, operatingProfitMinor:800, cashNetMinor:-1100, receivablesMinor:500, payablesMinor:400, inventoryValueMinor:1800, salesCount:2, returnCount:1 });
+    expect(report.health.algorithmVersion).toBe("health-v1");
+    expect(report.health.score).not.toBeNull();
+    expect(report.health.confidence).toBe("LOW");
+    expect(report.health.dimensions).toHaveLength(5);
+    expect(report.health.insights.map((item:{code:string})=>item.code)).toEqual(expect.arrayContaining(["NEGATIVE_OPERATING_CASH","PAYABLE_COVERAGE","HIGH_RETURNS"]));
   });
 
   it("reports multi-unit product volume in one stock-equivalent unit", async () => {
@@ -141,7 +146,9 @@ describe("financial summary reports", () => {
     const onboard = await app.inject({ method:"POST", url:"/v1/onboarding/business", headers, payload:{ name:"Gate Shop", businessType:"OTHER", branchName:"Main" } });
     const businessId = onboard.json().business.id, branchId = onboard.json().branch.id;
     const good = `/v1/reports/financial-summary?businessId=${businessId}&branchId=${branchId}&from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z`;
-    expect((await app.inject({ method:"GET", url:good, headers })).statusCode).toBe(200);
+    const emptyReportResponse=await app.inject({ method:"GET", url:good, headers });
+    expect(emptyReportResponse.statusCode).toBe(200);
+    expect(emptyReportResponse.json().health).toMatchObject({algorithmVersion:"health-v1",score:null,status:"INSUFFICIENT_DATA",confidence:"LOW"});
     expect((await app.inject({ method:"GET", url:`${good}&extra=ignored`, headers })).statusCode).toBe(200);
     expect((await app.inject({ method:"GET", url:`/v1/reports/financial-summary?businessId=${businessId}&branchId=00000000-0000-4000-8000-000000000000&from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z`, headers })).statusCode).toBe(404);
     expect((await app.inject({ method:"GET", url:`/v1/reports/financial-summary?businessId=${businessId}&from=bad&to=2026-10-02T00:00:00Z`, headers })).statusCode).toBe(400);

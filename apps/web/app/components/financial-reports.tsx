@@ -22,6 +22,9 @@ type Position = {
 type Daily = { date: string; netRevenueMinor: number; netCogsMinor: number; grossProfitMinor: number; expenseMinor: number; purchaseReturnVarianceMinor: number; operatingProfitMinor: number; cashNetMinor: number; salesCount: number; returnCount: number };
 type Branch = { branchId: string; branchName: string; netRevenueMinor: number; netCogsMinor: number; grossProfitMinor: number; expenseMinor: number; purchaseReturnVarianceMinor: number; operatingProfitMinor: number; cashNetMinor: number; receivablesMinor: number; payablesMinor: number; inventoryValueMinor: number; salesCount: number; returnCount: number };
 type Item = { itemId: string; itemName: string; itemKind: string; unitCode: string; quantitySold: number; quantityReturned: number; netRevenueMinor: number; netCogsMinor: number; grossProfitMinor: number };
+type HealthDimension = { key: string; label: string; weight: number; applicable: boolean; score: number | null; summary: string; metrics: Array<{ key: string; label: string; value: number | null; unit: string }> };
+type HealthInsight = { code: string; severity: "CRITICAL" | "WARNING" | "OPPORTUNITY" | "POSITIVE" | "INFO"; title: string; message: string; action: string; evidence: Array<{ key: string; label: string; value: number; unit: string }> };
+type Health = { algorithmVersion: string; score: number | null; status: string; confidence: string; headline: string; periodDays: number; dimensions: HealthDimension[]; insights: HealthInsight[] };
 type Report = {
   currencyCode: string;
   period: { from: string; to: string; timezone: string };
@@ -34,6 +37,7 @@ type Report = {
   daily: Daily[];
   branches: Branch[];
   topItems: Item[];
+  health: Health;
 };
 
 const allowedRoles = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "VIEWER"];
@@ -71,8 +75,15 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const canRead = allowedRoles.includes(role);
-  const cacheKey = useMemo(() => `tradeos.report.v1:${businessId}:${allBranches ? "all" : branchId}:${fromDate}:${toDate}`, [businessId, branchId, allBranches, fromDate, toDate]);
+  const cacheKey = useMemo(() => `tradeos.report.v2:${businessId}:${allBranches ? "all" : branchId}:${fromDate}:${toDate}`, [businessId, branchId, allBranches, fromDate, toDate]);
   const money = (minor: number) => `${currencyCode === "GHS" ? "₵" : currencyCode} ${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const healthValue = (value: number, unit: string) => {
+    if (unit === "MINOR") return money(value);
+    if (unit === "PERCENT") return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+    if (unit === "MONTHS") return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} months`;
+    if (unit === "RATIO") return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}×`;
+    return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  };
 
   useEffect(() => {
     if (!canRead) return;
@@ -120,6 +131,13 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
       </div>
       {message ? <p role="status">{message}</p> : null}
       {!report || !f || !p ? <p>{busy ? "Calculating financial performance…" : "No saved report is available yet."}</p> : <>
+        <div className="ai-panel">
+          <div className="panel-heading compact"><div><p className="eyebrow">TradeOS CFO · explainable health</p><h3>Business health</h3></div><span className="workflow-badge">{report.health.score === null ? "—" : `${report.health.score}/100`} · {report.health.status.replaceAll("_", " ")}</span></div>
+          <p>{report.health.headline} <small>Signal confidence: {report.health.confidence.toLowerCase()} · {report.health.algorithmVersion} · this is an operating-health score, not a lending/credit score.</small></p>
+          <div className="metrics-grid">{report.health.dimensions.map((dimension) => <article className="metric-card" key={dimension.key}><span>{dimension.label}</span><strong>{dimension.applicable && dimension.score !== null ? `${dimension.score}/100` : "N/A"}</strong><small>{dimension.summary}</small></article>)}</div>
+          <div>{report.health.insights.map((item) => <div className={`insight ${item.severity === "CRITICAL" || item.severity === "WARNING" ? "important" : ""}`} key={item.code}><strong>{item.severity.replaceAll("_", " ")} · {item.title}</strong><p>{item.message}</p>{item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${healthValue(row.value, row.unit)}`).join(" · ")}</p> : null}<p><b>Next:</b> {item.action}</p></div>)}</div>
+        </div>
+
         <div className="metrics-grid">
           <article className="metric-card"><span>Net revenue</span><strong>{money(f.netRevenueMinor)}</strong><small>{percentage(report.comparison.netRevenueChangePercent)} vs previous period</small></article>
           <article className="metric-card"><span>Gross profit</span><strong>{money(f.grossProfitMinor)}</strong><small>{percentage(report.comparison.grossProfitChangePercent)} vs previous period</small></article>
