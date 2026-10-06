@@ -22,6 +22,7 @@ interface RegisterBody {
   password: string;
   platform: ClientPlatform;
   deviceKey: string;
+  appVersion: string;
 }
 
 interface LoginBody {
@@ -29,6 +30,7 @@ interface LoginBody {
   password: string;
   platform: ClientPlatform;
   deviceKey: string;
+  appVersion: string;
 }
 
 interface RefreshBody { refreshToken: string; }
@@ -41,6 +43,7 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
       if (!displayName) throw new AuthError("Display name is required", 400, "DISPLAY_NAME_REQUIRED");
       assertPlatform(body.platform);
       if (!body.deviceKey?.trim()) throw new AuthError("deviceKey is required", 400, "DEVICE_REQUIRED");
+      if (!body.appVersion?.trim()) throw new AuthError("appVersion is required", 400, "APP_VERSION_REQUIRED");
 
       const email = normalizeEmail(body.email);
       const phoneE164 = normalizePhone(body.phone);
@@ -60,6 +63,7 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
           userId,
           platform: body.platform,
           deviceKey: body.deviceKey.trim(),
+          appVersion: body.appVersion.trim(),
         });
         return { userId, session };
       });
@@ -81,6 +85,7 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
       const body = request.body;
       assertPlatform(body.platform);
       if (!body.deviceKey?.trim()) throw new AuthError("deviceKey is required", 400, "DEVICE_REQUIRED");
+      if (!body.appVersion?.trim()) throw new AuthError("appVersion is required", 400, "APP_VERSION_REQUIRED");
       const identifier = body.identifier?.trim();
       if (!identifier) throw new AuthError("Email or phone number is required", 400, "IDENTIFIER_REQUIRED");
 
@@ -110,6 +115,7 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
         userId: user.id,
         platform: body.platform,
         deviceKey: body.deviceKey.trim(),
+        appVersion: body.appVersion.trim(),
       }));
 
       return {
@@ -167,6 +173,11 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
           displayName: auth.displayName,
           email: auth.email,
           phoneE164: auth.phoneE164,
+        },
+        client: {
+          platform: auth.platform,
+          deviceKey: auth.deviceKey,
+          appVersion: auth.appVersion,
         },
         memberships: memberships.rows.map((row) => ({
           id: row.membership_id,
