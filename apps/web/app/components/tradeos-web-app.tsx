@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { OperationsReconciliation } from "./operations-reconciliation";
 import { CashbookExpenses } from "./cashbook-expenses";
 import { PurchasesInventory } from "./purchases-inventory";
 import { CustomersCredit } from "./customers-credit";
@@ -328,6 +329,7 @@ function BusinessWorkspace(props: {
         <nav className="nav-stack" aria-label="Primary navigation">
           <a className="nav-item active" href="#dashboard">Overview</a>
           <a className="nav-item" href="#sell">Sell</a>
+          <a className="nav-item" href="#operations">Day &amp; shifts</a>
           <a className="nav-item" href="#cashbook">Cashbook & expenses</a>
           <a className="nav-item" href="#customers">Customers & credit</a>
           <a className="nav-item" href="#purchases">Purchases & inventory</a>
@@ -369,6 +371,7 @@ function BusinessWorkspace(props: {
 
         <PurchasesInventory businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} role={context.membership.role} catalog={props.catalog} />
 
+        <OperationsReconciliation staffId={context.membership.staffId} businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} role={context.membership.role} />
         <CashbookExpenses businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} role={context.membership.role} />
         <CustomersCredit
           businessId={context.business.id}
