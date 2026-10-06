@@ -17,6 +17,7 @@ export interface AuthContext {
   phoneE164: string | null;
   platform: ClientPlatform;
   deviceKey: string;
+  appVersion: string;
 }
 
 export interface SessionTokens {
@@ -83,9 +84,10 @@ export function assertPlatform(value: unknown): asserts value is ClientPlatform 
 
 export async function issueSession(
   client: DatabaseClient,
-  input: { userId: string; platform: ClientPlatform; deviceKey: string },
+  input: { userId: string; platform: ClientPlatform; deviceKey: string; appVersion: string },
 ): Promise<SessionTokens> {
   if (!input.deviceKey.trim()) throw new AuthError("deviceKey is required", 400, "DEVICE_REQUIRED");
+  if (!input.appVersion.trim()) throw new AuthError("appVersion is required", 400, "APP_VERSION_REQUIRED");
 
   const accessToken = `tos_access_${randomBytes(32).toString("base64url")}`;
   const refreshToken = `tos_refresh_${randomBytes(40).toString("base64url")}`;
@@ -95,13 +97,14 @@ export async function issueSession(
 
   await client.query(
     `INSERT INTO auth_sessions (
-       user_id,device_key,platform,access_token_hash,refresh_token_hash,
+       user_id,device_key,platform,app_version,access_token_hash,refresh_token_hash,
        access_expires_at,refresh_expires_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     [
       input.userId,
       input.deviceKey,
       input.platform,
+      input.appVersion,
       tokenHash(accessToken),
       tokenHash(refreshToken),
       accessExpiresAt,
@@ -128,8 +131,9 @@ export async function rotateSession(pool: DatabasePool, refreshToken: string): P
       user_id: string;
       platform: ClientPlatform;
       device_key: string;
+      app_version: string;
     }>(
-      `SELECT s.id,s.user_id,s.platform,s.device_key
+      `SELECT s.id,s.user_id,s.platform,s.device_key,s.app_version
        FROM auth_sessions s
        JOIN app_users u ON u.id=s.user_id
        WHERE s.refresh_token_hash=$1
@@ -147,6 +151,7 @@ export async function rotateSession(pool: DatabasePool, refreshToken: string): P
       userId: prior.user_id,
       platform: prior.platform,
       deviceKey: prior.device_key,
+      appVersion: prior.app_version,
     });
   });
 }
@@ -164,8 +169,10 @@ export async function authenticateAccessToken(
     phone_e164: string | null;
     platform: ClientPlatform;
     device_key: string;
+    app_version: string;
   }>(
-    `SELECT s.id AS session_id,u.id AS user_id,u.display_name,u.email,u.phone_e164,s.platform,s.device_key
+    `SELECT s.id AS session_id,u.id AS user_id,u.display_name,u.email,u.phone_e164,
+            s.platform,s.device_key,s.app_version
      FROM auth_sessions s
      JOIN app_users u ON u.id=s.user_id
      WHERE s.access_token_hash=$1
@@ -187,6 +194,7 @@ export async function authenticateAccessToken(
     phoneE164: row.phone_e164,
     platform: row.platform,
     deviceKey: row.device_key,
+    appVersion: row.app_version,
   };
 }
 
