@@ -1,0 +1,138 @@
+.customer-credit-panel { margin-top: 18px; }
+.customer-credit-summary { display: grid; justify-items: end; gap: 2px; }
+.customer-credit-summary span, .customer-credit-summary small { color: #7b899b; font-size: 11px; }
+.customer-credit-summary strong { color: #0f172a; font-size: 22px; }
+.customer-create { display: grid; gap: 12px; margin-bottom: 14px; }
+.customer-create > .primary-button { width: fit-content; }
+.customer-create-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(150px, .8fr) minmax(180px, 1fr) minmax(160px, .8fr) auto;
+  gap: 9px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #e0e7ef;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.customer-create-form label, .credit-controls label, .customer-payment-box label {
+  display: grid;
+  gap: 6px;
+  color: #516176;
+  font-size: 11px;
+  font-weight: 800;
+}
+.customer-create-form input, .customer-search input, .credit-controls input, .customer-payment-box input, .customer-payment-box select, .credit-customer-picker select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #d8e1eb;
+  border-radius: 9px;
+  padding: 9px 11px;
+  background: white;
+  color: #0f172a;
+  font: inherit;
+  outline: none;
+}
+.customer-create-form input:focus, .customer-search input:focus, .credit-controls input:focus, .customer-payment-box input:focus, .customer-payment-box select:focus, .credit-customer-picker select:focus {
+  border-color: #63b987;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, .1);
+}
+.inline-error { grid-column: 1 / -1; }
+.customer-search {
+  display: grid;
+  grid-template-columns: minmax(230px, 1fr) auto auto;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+.customer-credit-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, .82fr) minmax(0, 1.35fr);
+  gap: 14px;
+  align-items: start;
+}
+.customer-list {
+  min-height: 430px;
+  max-height: 760px;
+  overflow: auto;
+  padding: 7px;
+  border: 1px solid #e1e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.customer-empty { padding: 26px 16px; text-align: center; color: #7a899c; font-size: 12px; line-height: 1.5; }
+.customer-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.customer-row:hover { background: white; }
+.customer-row.active { background: white; border-color: #bfe6cc; box-shadow: 0 5px 18px rgba(39, 76, 53, .07); }
+.customer-row > div { display: grid; gap: 4px; }
+.customer-row strong { color: #172033; font-size: 13px; }
+.customer-row span { color: #7b899b; font-size: 11px; }
+.customer-row-money { text-align: right; justify-items: end; }
+.customer-row-money .customer-debt, .ledger-debit { color: #a84632; }
+.customer-row-money .customer-credit, .ledger-credit { color: #147a42; }
+.customer-account-detail {
+  min-height: 430px;
+  padding: 18px;
+  border: 1px solid #e1e8f0;
+  border-radius: 14px;
+  background: white;
+}
+.customer-placeholder { min-height: 390px; display: grid; place-content: center; justify-items: center; gap: 7px; text-align: center; color: #7a899c; }
+.customer-placeholder strong { color: #172033; }
+.customer-placeholder span { max-width: 420px; font-size: 12px; line-height: 1.5; }
+.customer-account { display: grid; gap: 16px; }
+.customer-account-head { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
+.customer-account-head h3 { margin: 4px 0; font-size: 25px; color: #0f172a; }
+.customer-account-head span { color: #7b899b; font-size: 12px; }
+.account-status { padding: 7px 10px; border-radius: 999px; background: #f1f5f9; color: #7b899b !important; font-weight: 800; }
+.account-status.active { background: #ecfdf3; color: #147a42 !important; }
+.customer-account-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.customer-account-metrics > div { display: grid; gap: 4px; padding: 12px; border: 1px solid #e3eaf1; border-radius: 11px; background: #fbfcfd; }
+.customer-account-metrics span { color: #7b899b; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.customer-account-metrics strong { color: #172033; font-size: 16px; }
+.credit-controls { display: grid; grid-template-columns: minmax(170px, .6fr) auto auto; gap: 9px; align-items: end; padding: 12px; border: 1px solid #dfe8f0; border-radius: 12px; background: #f8fafc; }
+.customer-payment-box { display: grid; grid-template-columns: minmax(160px, 1fr) 135px 135px minmax(150px, .8fr) auto; gap: 9px; align-items: end; padding: 13px; border: 1px solid #bfe6cc; border-radius: 12px; background: #f4fbf7; }
+.customer-payment-box > div { display: grid; gap: 3px; align-self: center; }
+.customer-payment-box > div strong { color: #172033; }
+.customer-ledger { border-top: 1px solid #e5ebf2; padding-top: 13px; }
+.ledger-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.ledger-head strong { color: #172033; }
+.ledger-head span { color: #8491a1; font-size: 10px; }
+.ledger-row { display: flex; justify-content: space-between; gap: 14px; padding: 10px 0; border-bottom: 1px solid #edf1f5; }
+.ledger-row > div { display: grid; gap: 3px; }
+.ledger-row > div strong { color: #26364b; font-size: 12px; }
+.ledger-row span { color: #8491a1; font-size: 10px; }
+.ledger-row > strong { font-size: 13px; }
+.customer-message { margin-top: 12px; padding: 11px 13px; border-radius: 10px; background: #f0f7ff; color: #315c8f; font-size: 12px; }
+.credit-customer-picker { min-width: 260px; display: grid; gap: 4px; }
+.credit-customer-picker small { color: #738399; font-size: 10px; line-height: 1.4; }
+.credit-customer-picker .credit-warning { color: #a84632; font-weight: 700; }
+
+@media (max-width: 1180px) {
+  .customer-create-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .customer-create-form .ghost-button { justify-self: start; }
+  .customer-payment-box { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .customer-payment-box > div { grid-column: 1 / -1; }
+}
+@media (max-width: 980px) {
+  .customer-credit-grid { grid-template-columns: 1fr; }
+  .customer-list { min-height: auto; max-height: 330px; }
+}
+@media (max-width: 700px) {
+  .customer-create-form, .customer-payment-box, .credit-controls, .customer-account-metrics { grid-template-columns: 1fr; }
+  .customer-search { grid-template-columns: 1fr auto; }
+  .customer-search .text-button { grid-column: 1 / -1; justify-self: start; }
+  .customer-credit-summary { justify-items: start; }
+  .customer-credit-panel .panel-heading { align-items: flex-start; flex-direction: column; }
+  .ledger-head { display: grid; }
+  .credit-customer-picker { min-width: 100%; width: 100%; }
+}

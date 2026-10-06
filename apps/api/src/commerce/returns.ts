@@ -1,6 +1,7 @@
 import { money, planSaleReturn, SaleReturnError, type RefundMethod, type ReturnDisposition, type SaleLineSnapshot } from "@tradeos/domain";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
+import { loadCustomerAccount, recordCustomerAccountEntry } from "./customer-credit.js";
 
 export interface ReturnMutationPayload {
   originalSaleId: string;
@@ -133,6 +134,18 @@ export async function applyReturnMutation(
     }
 
     const allocations = await allocateRefund(client, sale.id, plan.refundTotal.minor, payload.refundMethod);
+    const customerCreditRefundMinor = allocations
+      .filter((allocation) => allocation.method === "CUSTOMER_CREDIT")
+      .reduce((sum, allocation) => sum + allocation.amountMinor, 0);
+    if (customerCreditRefundMinor > 0) {
+      if (!sale.customer_id) {
+        throw new ReturnMutationError("Customer credit refunds require a customer on the original sale", "CUSTOMER_REQUIRED_FOR_CREDIT_REFUND");
+      }
+      const customer = await loadCustomerAccount(client, context.businessId, sale.customer_id, true);
+      if (customer.currency_code !== sale.currency_code) {
+        throw new ReturnMutationError("Customer account currency does not match the sale", "CUSTOMER_CURRENCY_MISMATCH");
+      }
+    }
     const pending = allocations.some((allocation) => allocation.status === "PENDING");
     const status = pending ? "PROCESSING" : "COMPLETED";
     const approvedBy = payload.approvedByStaffId ?? payload.initiatedByStaffId ?? null;
@@ -194,6 +207,22 @@ export async function applyReturnMutation(
          allocation.method,allocation.status,`${context.clientMutationId}:refund:${index}`,context.occurredAt,
          allocation.status === "SUCCEEDED" ? context.occurredAt : null],
       );
+    }
+
+    if (customerCreditRefundMinor > 0 && sale.customer_id) {
+      await recordCustomerAccountEntry(client, {
+        businessId: context.businessId,
+        branchId: context.branchId,
+        customerId: sale.customer_id,
+        currencyCode: sale.currency_code,
+        entryType: "CREDIT_REFUND",
+        balanceDeltaMinor: -customerCreditRefundMinor,
+        sourceType: "RETURN_CASE",
+        sourceId: returnCaseId,
+        actorStaffId: payload.initiatedByStaffId ?? null,
+        idempotencyKey: `${context.clientMutationId}:credit-ledger`,
+        occurredAt: context.occurredAt,
+      });
     }
 
     await refreshPayments(client, sale.id);

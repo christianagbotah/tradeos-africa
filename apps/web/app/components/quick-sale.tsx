@@ -1,7 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../lib/offline-sync";
+import { useEffect, useMemo, useState } from "react";
+import { clientApi } from "../lib/client-api";
+import { customersChangedEvent } from "../lib/customer-events";
+import {
+  enqueueMutation,
+  flushPendingMutations,
+  getOrCreateClientId,
+  mutationAppliedEvent,
+  type AppliedMutationDetail,
+} from "../lib/offline-sync";
 
 type PaymentMethod = "CASH" | "MOMO" | "CUSTOMER_CREDIT";
 
@@ -15,6 +23,17 @@ export type QuickSaleItem = {
 };
 
 type CartLine = QuickSaleItem & { quantity: number };
+
+type CreditCustomer = {
+  id: string;
+  name: string;
+  phone: string | null;
+  creditEnabled: boolean;
+  creditLimitMinor: number | null;
+  balanceMinor: number;
+  availableCreditMinor: number | null;
+  active: boolean;
+};
 
 type Props = {
   businessId: string;
@@ -33,12 +52,46 @@ export function QuickSale({ businessId, branchId, currencyCode, items }: Props) 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [creditCustomers, setCreditCustomers] = useState<CreditCustomer[]>([]);
+  const [customerId, setCustomerId] = useState("");
 
   const totalMinor = useMemo(
     () => cart.reduce((sum, line) => sum + line.priceMinor * line.quantity, 0),
     [cart],
   );
   const itemCount = useMemo(() => cart.reduce((sum, line) => sum + line.quantity, 0), [cart]);
+
+  const loadCreditCustomers = async () => {
+    try {
+      const response = await clientApi<{ customers: CreditCustomer[] }>(
+        `/api/tradeos/v1/customers?businessId=${encodeURIComponent(businessId)}&limit=200`,
+      );
+      setCreditCustomers(response.customers.filter((customer) => customer.active && customer.creditEnabled));
+    } catch {
+      // Cash/MoMo selling must remain available even if customer lookup is temporarily unavailable.
+    }
+  };
+
+  useEffect(() => {
+    setCustomerId("");
+    void loadCreditCustomers();
+    const refresh = () => void loadCreditCustomers();
+    const mutationApplied = (event: Event) => {
+      const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
+      if (detail?.businessId === businessId && ["SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE", "CUSTOMER_PAYMENT_CREATE"].includes(detail.mutationType)) refresh();
+    };
+    window.addEventListener(customersChangedEvent, refresh);
+    window.addEventListener(mutationAppliedEvent, mutationApplied);
+    return () => {
+      window.removeEventListener(customersChangedEvent, refresh);
+      window.removeEventListener(mutationAppliedEvent, mutationApplied);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId]);
+
+  const selectedCustomer = creditCustomers.find((customer) => customer.id === customerId) ?? null;
+  const creditAvailable = selectedCustomer?.availableCreditMinor ?? 0;
+  const creditReady = paymentMethod !== "CUSTOMER_CREDIT" || Boolean(selectedCustomer && creditAvailable >= totalMinor);
 
   const addItem = (item: QuickSaleItem) => {
     setMessage(null);
@@ -50,7 +103,7 @@ export function QuickSale({ businessId, branchId, currencyCode, items }: Props) 
   };
 
   const recordSale = async () => {
-    if (cart.length === 0 || saving) return;
+    if (cart.length === 0 || saving || !creditReady) return;
     setSaving(true);
 
     try {
@@ -64,6 +117,7 @@ export function QuickSale({ businessId, branchId, currencyCode, items }: Props) 
         payload: {
           currencyCode,
           paymentMethod,
+          ...(paymentMethod === "CUSTOMER_CREDIT" && customerId ? { customerId } : {}),
           lines: cart.map(({ itemId, unitCode, quantity }) => ({
             itemId,
             saleUnitCode: unitCode,
@@ -129,7 +183,22 @@ export function QuickSale({ businessId, branchId, currencyCode, items }: Props) 
           <button className={paymentMethod === "CASH" ? "selected" : undefined} type="button" onClick={() => setPaymentMethod("CASH")}>Cash</button>
           <button className={paymentMethod === "MOMO" ? "selected" : undefined} type="button" onClick={() => setPaymentMethod("MOMO")}>MoMo</button>
           <button className={paymentMethod === "CUSTOMER_CREDIT" ? "selected" : undefined} type="button" onClick={() => setPaymentMethod("CUSTOMER_CREDIT")}>Pay later</button>
-          <button className="checkout-button" type="button" disabled={cart.length === 0 || saving} onClick={() => void recordSale()}>
+          {paymentMethod === "CUSTOMER_CREDIT" ? (
+            <div className="credit-customer-picker">
+              <select value={customerId} onChange={(event) => setCustomerId(event.target.value)} aria-label="Credit customer">
+                <option value="">Select credit customer…</option>
+                {creditCustomers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name} · available {formatMoney(customer.availableCreditMinor ?? 0, currencyCode)}
+                  </option>
+                ))}
+              </select>
+              {creditCustomers.length === 0 ? <small>Add a customer with a credit limit below before using Pay later.</small> : null}
+              {selectedCustomer && creditAvailable < totalMinor ? <small className="credit-warning">Only {formatMoney(creditAvailable, currencyCode)} credit is currently available.</small> : null}
+              {selectedCustomer && creditAvailable >= totalMinor ? <small>{selectedCustomer.name} will owe {formatMoney(selectedCustomer.balanceMinor + totalMinor, currencyCode)} after this sale.</small> : null}
+            </div>
+          ) : null}
+          <button className="checkout-button" type="button" disabled={cart.length === 0 || saving || !creditReady} onClick={() => void recordSale()}>
             {saving ? "Saving…" : `Record ${formatMoney(totalMinor, currencyCode)}`}
           </button>
         </div>

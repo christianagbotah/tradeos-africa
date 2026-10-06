@@ -84,7 +84,7 @@ export function NetworkStatus() {
       : queue.failed > 0
         ? `Online · ${queue.failed} needs review`
         : queue.blocked > 0
-          ? "Demo mode · setup required"
+          ? "Other business · sync paused"
           : readyToSync > 0
             ? `Online · ${readyToSync} waiting to sync`
             : "Online · fully synced";
@@ -96,7 +96,7 @@ export function NetworkStatus() {
       : queue.failed > 0
         ? "Rejected changes are separated for review and do not retry forever"
         : queue.blocked > 0
-          ? "Demo transactions stay local until a real business profile is configured"
+          ? "Some queued changes belong to another business and remain safely stored until that business is active"
           : readyToSync > 0
             ? "Queued changes retry automatically"
             : "No pending changes";

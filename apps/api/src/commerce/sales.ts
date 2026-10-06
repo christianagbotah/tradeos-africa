@@ -1,5 +1,10 @@
 import { planConsumption, UnitConverter } from "@tradeos/domain";
 import type { DatabaseClient, DatabasePool } from "../db.js";
+import {
+  assertCustomerCreditAvailable,
+  loadCustomerAccount,
+  recordCustomerAccountEntry,
+} from "./customer-credit.js";
 import { withTransaction } from "../db.js";
 
 export type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT" | "OTHER";
@@ -71,6 +76,10 @@ export async function applySaleMutation(
 
     const currencyCode = (payload.currencyCode ?? "GHS").toUpperCase();
     if (!/^[A-Z]{3}$/.test(currencyCode)) throw new SaleMutationError("Currency must be a three-letter code");
+    if (payload.customerId) {
+      const customer = await loadCustomerAccount(client, context.businessId, payload.customerId);
+      if (!customer.is_active) throw new SaleMutationError("Customer account is inactive", "CUSTOMER_INACTIVE");
+    }
 
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO sales (
@@ -158,6 +167,13 @@ export async function applySaleMutation(
     if (payments.reduce((sum, payment) => sum + payment.amountMinor, 0) !== totalMinor) {
       throw new SaleMutationError("Payment total does not equal the server-calculated sale total", "PAYMENT_TOTAL_MISMATCH");
     }
+    const creditMinor = payments
+      .filter((payment) => payment.method === "CUSTOMER_CREDIT")
+      .reduce((sum, payment) => sum + payment.amountMinor, 0);
+    if (creditMinor > 0) {
+      if (!payload.customerId) throw new SaleMutationError("Pay later requires a customer", "CUSTOMER_REQUIRED_FOR_CREDIT");
+      await assertCustomerCreditAvailable(client, context.businessId, payload.customerId, currencyCode, creditMinor);
+    }
 
     for (let index = 0; index < payments.length; index += 1) {
       const payment = payments[index]!;
@@ -179,6 +195,21 @@ export async function applySaleMutation(
        status='COMPLETED', completed_at=$5 WHERE id=$1`,
       [saleId, subtotalMinor, taxMinor, totalMinor, context.occurredAt],
     );
+    if (creditMinor > 0 && payload.customerId) {
+      await recordCustomerAccountEntry(client, {
+        businessId: context.businessId,
+        branchId: context.branchId,
+        customerId: payload.customerId,
+        currencyCode,
+        entryType: "CREDIT_SALE",
+        balanceDeltaMinor: creditMinor,
+        sourceType: "SALE",
+        sourceId: saleId,
+        actorStaffId: payload.cashierStaffId ?? null,
+        idempotencyKey: `${context.clientMutationId}:credit-ledger`,
+        occurredAt: context.occurredAt,
+      });
+    }
     await writeEvent(client, context, payload.cashierStaffId ?? null, saleId, totalMinor);
 
     return { saleId, status: "COMPLETED", totalMinor, idempotentReplay: false };
