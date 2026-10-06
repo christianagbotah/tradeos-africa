@@ -4,6 +4,7 @@ import { money, planSaleReturn, SaleReturnError, type RefundMethod, type ReturnD
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 import { loadCustomerAccount, recordCustomerAccountEntry } from "./customer-credit.js";
+import { reduceCustomerObligationForSale } from "./credit-obligations.js";
 
 export interface ReturnMutationPayload {
   originalSaleId: string;
@@ -243,6 +244,7 @@ export async function applyReturnMutation(
         idempotencyKey: `${context.clientMutationId}:credit-ledger`,
         occurredAt: context.occurredAt,
       });
+      await reduceCustomerObligationForSale(client,{businessId:context.businessId,saleId:sale.id,sourceId:returnCaseId,amountMinor:customerCreditRefundMinor,occurredAt:context.occurredAt});
     }
 
     await refreshPayments(client, sale.id);

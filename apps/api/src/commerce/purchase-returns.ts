@@ -1,6 +1,7 @@
 import { recordCashbookEntry, isCashMethod } from "./cashbook.js";
 import type { DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
+import { reduceSupplierObligationForPurchase } from "./credit-obligations.js";
 import { PurchaseMutationError, type PurchaseReceiveContext } from "./purchases.js";
 import { addSignedMinor, consumeValuation, cumulativeMinor, proportionalQuantity, quantityFromUnits, quantityUnits, safeMinor, signedMinor } from "./valuation.js";
 
@@ -85,6 +86,7 @@ export async function applyPurchaseReturnMutation(pool: DatabasePool, context: P
    const balance = (await client.query(`SELECT COALESCE(SUM(balance_delta_minor),0) AS balance FROM supplier_payable_ledger WHERE business_id=$1 AND supplier_id=$2 AND currency_code=$3`,[context.businessId,payload.supplierId,purchase.currency_code])).rows[0];
    addSignedMinor(signedMinor(Number(balance.balance)),-recovery);
    await client.query(`INSERT INTO supplier_payable_ledger (business_id,branch_id,supplier_id,currency_code,balance_delta_minor,method,source_type,source_id,actor_staff_id,client_mutation_id,occurred_at) VALUES ($1,$2,$3,$4,$5,'CREDIT_NOTE','RETURN',$6,$7,$8,$9)`,[context.businessId,context.branchId,payload.supplierId,purchase.currency_code,-recovery,returnCaseId,payload.returnedByStaffId,context.clientMutationId,context.occurredAt]);
+   await reduceSupplierObligationForPurchase(client,{businessId:context.businessId,purchaseId:purchase.id,sourceId:returnCaseId,amountMinor:recovery,occurredAt:context.occurredAt});
   }
   if (recovery > 0 && isCashMethod(payload.recoveryMethod)) await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode:purchase.currency_code,method:payload.recoveryMethod,amountDeltaMinor:recovery,entryType:"PURCHASE_RETURN_RECOVERY",sourceType:"PURCHASE_RETURN",sourceId:returnCaseId,actorStaffId:payload.returnedByStaffId,idempotencyKey:`purchase-return:${returnCaseId}`});
   const event = JSON.stringify({originalPurchaseId:purchase.id,supplierId:payload.supplierId,recoveryMethod:payload.recoveryMethod,supplierRecoveryMinor:recovery,inventoryValueRemovedMinor:removed,purchasePriceVarianceMinor:variance});

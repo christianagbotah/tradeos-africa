@@ -102,6 +102,29 @@ export interface ItemPerformanceRow {
   grossProfitMinor: number;
 }
 
+
+export interface CreditAgingSide {
+  totalOpenMinor: number;
+  notDueMinor: number;
+  dueWithin7DaysMinor: number;
+  dueWithin30DaysMinor: number;
+  overdue1To30DaysMinor: number;
+  overdue31To60DaysMinor: number;
+  overdue61To90DaysMinor: number;
+  overdueOver90DaysMinor: number;
+  obligationCount: number;
+  oldestDueAt: string | null;
+}
+
+export interface CreditAgingReport {
+  businessId: string;
+  branchId: string | null;
+  currencyCode: string;
+  generatedAt: string;
+  receivables: CreditAgingSide;
+  payables: CreditAgingSide;
+}
+
 export interface FinancialSummaryReport {
   businessId: string;
   branchId: string | null;

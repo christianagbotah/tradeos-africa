@@ -16,6 +16,7 @@ type CustomerInput = {
   phone?: string | null;
   email?: string | null;
   creditLimitMinor?: number | null;
+  creditTermsDays?: number;
 };
 
 type CustomerPatch = Partial<Omit<CustomerInput, "businessId">> & { businessId: string; active?: boolean };
@@ -26,6 +27,7 @@ type CustomerRow = {
   phone: string | null;
   email: string | null;
   credit_limit_minor: string | number | null;
+  credit_terms_days: number;
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
@@ -42,7 +44,7 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
       const search = `%${query}%`;
       const limit = clampLimit(request.query.limit);
       const result = await pool.query<CustomerRow>(
-        `SELECT c.id,c.name,c.phone,c.email,c.credit_limit_minor,c.is_active,c.created_at,c.updated_at,
+        `SELECT c.id,c.name,c.phone,c.email,c.credit_limit_minor,c.credit_terms_days,c.is_active,c.created_at,c.updated_at,
                 COALESCE((SELECT SUM(cae.balance_delta_minor) FROM customer_account_entries cae
                   WHERE cae.business_id=c.business_id AND cae.customer_id=c.id),0) AS balance_minor
          FROM customers c
@@ -63,17 +65,17 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const input = validateCustomerInput(request.body);
       const access = await requireBusinessRole(pool, auth, input.businessId, WRITE_ROLES);
-      assertCreditControl(access, request.body.creditLimitMinor !== undefined);
+      assertCreditControl(access, request.body.creditLimitMinor !== undefined || request.body.creditTermsDays !== undefined);
       const id = await withTransaction(pool, async (client) => {
         const created = await client.query<{ id: string }>(
-          `INSERT INTO customers (business_id,name,phone,email,credit_limit_minor)
-           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-          [input.businessId,input.name,input.phone,input.email,input.creditLimitMinor],
+          `INSERT INTO customers (business_id,name,phone,email,credit_limit_minor,credit_terms_days)
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+          [input.businessId,input.name,input.phone,input.email,input.creditLimitMinor,input.creditTermsDays],
         );
         const customerId = created.rows[0]?.id;
         if (!customerId) throw new CustomerRouteError("Customer could not be created", 500, "CUSTOMER_CREATE_FAILED");
         await writeAudit(client, input.businessId, access.staffId, "CUSTOMER_CREATED", customerId, {
-          name: input.name, creditLimitMinor: input.creditLimitMinor,
+          name: input.name, creditLimitMinor: input.creditLimitMinor, creditTermsDays: input.creditTermsDays,
         });
         return customerId;
       });
@@ -88,7 +90,7 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = required(request.body.businessId, "businessId");
       const access = await requireBusinessRole(pool, auth, businessId, WRITE_ROLES);
-      const touchesCreditControl = request.body.creditLimitMinor !== undefined || request.body.active !== undefined;
+      const touchesCreditControl = request.body.creditLimitMinor !== undefined || request.body.creditTermsDays !== undefined || request.body.active !== undefined;
       assertCreditControl(access, touchesCreditControl);
       const current = await loadCustomer(pool, businessId, request.params.customerId);
       const next = validateCustomerInput({
@@ -97,17 +99,18 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
         phone: request.body.phone === undefined ? current.phone : request.body.phone,
         email: request.body.email === undefined ? current.email : request.body.email,
         creditLimitMinor: request.body.creditLimitMinor === undefined ? current.creditLimitMinor : request.body.creditLimitMinor,
+        creditTermsDays: request.body.creditTermsDays === undefined ? current.creditTermsDays : request.body.creditTermsDays,
       });
       const active = request.body.active ?? current.active;
       await withTransaction(pool, async (client) => {
         const updated = await client.query(
-          `UPDATE customers SET name=$3,phone=$4,email=$5,credit_limit_minor=$6,is_active=$7,updated_at=now()
+          `UPDATE customers SET name=$3,phone=$4,email=$5,credit_limit_minor=$6,credit_terms_days=$7,is_active=$8,updated_at=now()
            WHERE id=$1 AND business_id=$2`,
-          [request.params.customerId,businessId,next.name,next.phone,next.email,next.creditLimitMinor,active],
+          [request.params.customerId,businessId,next.name,next.phone,next.email,next.creditLimitMinor,next.creditTermsDays,active],
         );
         if (updated.rowCount !== 1) throw new CustomerRouteError("Customer was not found", 404, "CUSTOMER_NOT_FOUND");
         await writeAudit(client, businessId, access.staffId, "CUSTOMER_UPDATED", request.params.customerId, {
-          name: next.name, creditLimitMinor: next.creditLimitMinor, active,
+          name: next.name, creditLimitMinor: next.creditLimitMinor, creditTermsDays: next.creditTermsDays, active,
         });
       });
       return { customer: await loadCustomer(pool, businessId, request.params.customerId) };
@@ -144,8 +147,14 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
            ORDER BY cae.occurred_at DESC,cae.id DESC LIMIT $3`,
           [businessId, request.params.customerId, limit],
         );
+        const obligations = await pool.query<{id:string;sale_id:string;original_minor:string|number;open_minor:string|number;issued_at:Date;due_at:Date}>(
+          `SELECT id,sale_id,original_minor,open_minor,issued_at,due_at FROM customer_credit_obligations
+           WHERE business_id=$1 AND customer_id=$2 ORDER BY (open_minor>0) DESC,due_at,issued_at,id`,
+          [businessId,request.params.customerId],
+        );
         return {
           customer,
+          obligations: obligations.rows.map((row)=>({id:row.id,saleId:row.sale_id,originalMinor:Number(row.original_minor),openMinor:Number(row.open_minor),issuedAt:row.issued_at.toISOString(),dueAt:row.due_at.toISOString()})),
           ledger: ledger.rows.map((entry) => ({
             id: entry.id,
             branchId: entry.branch_id,
@@ -167,7 +176,7 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
 
 async function loadCustomer(pool: DatabasePool, businessId: string, customerId: string) {
   const result = await pool.query<CustomerRow>(
-    `SELECT c.id,c.name,c.phone,c.email,c.credit_limit_minor,c.is_active,c.created_at,c.updated_at,
+    `SELECT c.id,c.name,c.phone,c.email,c.credit_limit_minor,c.credit_terms_days,c.is_active,c.created_at,c.updated_at,
             COALESCE((SELECT SUM(cae.balance_delta_minor) FROM customer_account_entries cae
               WHERE cae.business_id=c.business_id AND cae.customer_id=c.id),0) AS balance_minor
      FROM customers c WHERE c.id=$1 AND c.business_id=$2`,
@@ -187,6 +196,7 @@ function toCustomer(row: CustomerRow) {
     phone: row.phone,
     email: row.email,
     creditLimitMinor,
+    creditTermsDays: row.credit_terms_days,
     balanceMinor,
     availableCreditMinor: creditLimitMinor === null ? null : Math.max(0, creditLimitMinor - balanceMinor),
     creditEnabled: creditLimitMinor !== null,
@@ -207,12 +217,16 @@ function validateCustomerInput(body: CustomerInput) {
   if (creditLimitMinor !== null && (!Number.isSafeInteger(creditLimitMinor) || creditLimitMinor < 0)) {
     throw new CustomerRouteError("Credit limit must be a non-negative minor-unit integer", 400, "INVALID_CREDIT_LIMIT");
   }
-  return { businessId, name, phone, email, creditLimitMinor };
+  const creditTermsDays = body.creditTermsDays ?? 0;
+  if (!Number.isInteger(creditTermsDays) || creditTermsDays < 0 || creditTermsDays > 3650) {
+    throw new CustomerRouteError("Credit terms must be a whole number of days from 0 to 3650", 400, "INVALID_CREDIT_TERMS");
+  }
+  return { businessId, name, phone, email, creditLimitMinor, creditTermsDays };
 }
 
 function assertCreditControl(access: BusinessAccess, requested: boolean): void {
   if (requested && !CREDIT_CONTROL_ROLES.includes(access.role)) {
-    throw new AuthError("Your role cannot change customer credit limits or account status", 403, "CREDIT_CONTROL_FORBIDDEN");
+    throw new AuthError("Your role cannot change customer credit limits, terms or account status", 403, "CREDIT_CONTROL_FORBIDDEN");
   }
 }
 

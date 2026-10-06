@@ -8,6 +8,7 @@ import {
   recordCustomerAccountEntry,
 } from "./customer-credit.js";
 import { withTransaction } from "../db.js";
+import { createCustomerCreditObligation } from "./credit-obligations.js";
 
 export type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT" | "OTHER";
 
@@ -199,9 +200,11 @@ export async function applySaleMutation(
     const creditMinor = payments
       .filter((payment) => payment.method === "CUSTOMER_CREDIT")
       .reduce((sum, payment) => sum + payment.amountMinor, 0);
+    let creditTermsDays = 0;
     if (creditMinor > 0) {
       if (!payload.customerId) throw new SaleMutationError("Pay later requires a customer", "CUSTOMER_REQUIRED_FOR_CREDIT");
-      await assertCustomerCreditAvailable(client, context.businessId, payload.customerId, currencyCode, creditMinor);
+      const credit = await assertCustomerCreditAvailable(client, context.businessId, payload.customerId, currencyCode, creditMinor);
+      creditTermsDays = credit.creditTermsDays;
     }
 
     for (let index = 0; index < payments.length; index += 1) {
@@ -241,6 +244,7 @@ export async function applySaleMutation(
         idempotencyKey: `${context.clientMutationId}:credit-ledger`,
         occurredAt: context.occurredAt,
       });
+      await createCustomerCreditObligation(client,{businessId:context.businessId,branchId:context.branchId,customerId:payload.customerId,saleId,currencyCode,amountMinor:creditMinor,termsDays:creditTermsDays,occurredAt:context.occurredAt});
     }
     await writeEvent(client, context, payload.cashierStaffId ?? null, saleId, totalMinor);
 

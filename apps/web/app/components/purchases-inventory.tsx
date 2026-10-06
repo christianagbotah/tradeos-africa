@@ -29,6 +29,7 @@ type Supplier = {
   address: string | null;
   active: boolean;
   balanceMinor: number;
+  paymentTermsDays: number;
 };
 
 type InventoryItem = {
@@ -128,7 +129,7 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
 
       {canReceive ? (
         <div className="procurement-actions">
-          <SupplierCreate businessId={businessId} onCreated={(supplier) => { setSuppliers((current) => [...current, supplier].sort((a,b) => a.name.localeCompare(b.name))); setMessage("Supplier added."); }} />
+          <SupplierCreate businessId={businessId} canManageTerms={canPaySupplier} onCreated={(supplier) => { setSuppliers((current) => [...current, supplier].sort((a,b) => a.name.localeCompare(b.name))); setMessage("Supplier added."); }} />
           <PurchaseReceipt
             businessId={businessId}
             branchId={branchId}
@@ -140,7 +141,7 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
         </div>
       ) : <div className="inventory-readonly-note">Your role can view stock and purchase history but cannot receive inventory.</div>}
 
-      <div className="supplier-balances">{suppliers.map(supplier => <div className="purchase-history-row" key={supplier.id}><strong>{supplier.name} · {supplier.balanceMinor < 0 ? "Supplier credit" : "Payable"} {formatMoney(Math.abs(supplier.balanceMinor),currencyCode)}</strong>{canPaySupplier && supplier.balanceMinor > 0 ? <SupplierPayment businessId={businessId} branchId={branchId} supplier={supplier} onMessage={setMessage} /> : null}</div>)}</div>
+      <div className="supplier-balances">{suppliers.map(supplier => <div className="purchase-history-row" key={supplier.id}><div><strong>{supplier.name} · {supplier.balanceMinor < 0 ? "Supplier credit" : "Payable"} {formatMoney(Math.abs(supplier.balanceMinor),currencyCode)}</strong><span>Terms: Net {supplier.paymentTermsDays} day{supplier.paymentTermsDays === 1 ? "" : "s"}</span></div>{canPaySupplier ? <SupplierTerms businessId={businessId} supplier={supplier} onSaved={()=>void refresh()} onMessage={setMessage} /> : null}{canPaySupplier && supplier.balanceMinor > 0 ? <SupplierPayment businessId={businessId} branchId={branchId} supplier={supplier} onMessage={setMessage} /> : null}</div>)}</div>
       <div className="procurement-grid">
         <InventoryTable items={inventory} currencyCode={currencyCode} />
         <RecentPurchases purchases={purchases} onReturn={canReceive ? setReturnPurchase : undefined} />
@@ -151,11 +152,12 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   );
 }
 
-function SupplierCreate({ businessId, onCreated }: { businessId: string; onCreated: (supplier: Supplier) => void }) {
+function SupplierCreate({ businessId, canManageTerms, onCreated }: { businessId: string; canManageTerms: boolean; onCreated: (supplier: Supplier) => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [paymentTermsDays, setPaymentTermsDays] = useState("0");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -164,9 +166,9 @@ function SupplierCreate({ businessId, onCreated }: { businessId: string; onCreat
     try {
       const result = await clientApi<{ supplier: Supplier }>("/api/tradeos/v1/suppliers", {
         method: "POST",
-        body: JSON.stringify({ businessId, name: name.trim(), phone: phone.trim() || null, email: email.trim() || null }),
+        body: JSON.stringify({ businessId, name: name.trim(), phone: phone.trim() || null, email: email.trim() || null, ...(canManageTerms ? { paymentTermsDays: Number(paymentTermsDays || 0) } : {}) }),
       });
-      setName(""); setPhone(""); setEmail(""); setOpen(false); onCreated(result.supplier);
+      setName(""); setPhone(""); setEmail(""); setPaymentTermsDays("0"); setOpen(false); onCreated(result.supplier);
     } catch (reason) { setError(messageFrom(reason)); }
     finally { setBusy(false); }
   };
@@ -178,6 +180,7 @@ function SupplierCreate({ businessId, onCreated }: { businessId: string; onCreat
         <label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Supplier name" /></label>
         <label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="optional" /></label>
         <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="optional" /></label>
+{canManageTerms ? <label>Payment terms (days)<input inputMode="numeric" min="0" max="3650" value={paymentTermsDays} onChange={(event) => setPaymentTermsDays(event.target.value.replace(/\D/g, ""))} /></label> : null}
         <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save supplier"}</button>
         {error ? <span className="form-error supplier-error">{error}</span> : null}
       </form> : null}
@@ -336,6 +339,14 @@ function moneyToMinor(value:string):number {
 function formatMoney(minor:number,currencyCode:string):string { return currencyCode==="GHS"?`₵${(minor/100).toFixed(2)}`:new Intl.NumberFormat(undefined,{style:"currency",currency:currencyCode}).format(minor/100); }
 function formatQuantity(value:number):string { return new Intl.NumberFormat(undefined,{maximumFractionDigits:4}).format(value); }
 function formatDate(value:string):string { return new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short"}).format(new Date(value)); }
+
+function SupplierTerms({ businessId, supplier, onSaved, onMessage }: { businessId: string; supplier: Supplier; onSaved: () => void; onMessage: (message: string | null) => void }) {
+  const [days,setDays]=useState(String(supplier.paymentTermsDays));
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>setDays(String(supplier.paymentTermsDays)),[supplier.id,supplier.paymentTermsDays]);
+  const save=async()=>{ if(busy) return; setBusy(true); onMessage(null); try { await clientApi(`/api/tradeos/v1/suppliers/${supplier.id}`,{method:"PATCH",body:JSON.stringify({businessId,paymentTermsDays:Number(days||0)})}); onMessage("Supplier payment terms updated. New credit purchases will snapshot the new due date."); onSaved(); } catch(error){ onMessage(messageFrom(error)); } finally { setBusy(false); } };
+  return <div className="supplier-terms-inline"><label>Net days<input inputMode="numeric" min="0" max="3650" value={days} onChange={(event)=>setDays(event.target.value.replace(/\D/g,""))} /></label><button type="button" className="text-button" disabled={busy} onClick={()=>void save()}>{busy?"Saving…":"Save terms"}</button></div>;
+}
 
 function SupplierPayment({businessId,branchId,supplier,onMessage}:{businessId:string;branchId:string;supplier:Supplier;onMessage:(message:string)=>void}) {
  const [amount,setAmount]=useState(""); const [method,setMethod]=useState("CASH"); const [busy,setBusy]=useState(false);
