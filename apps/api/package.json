@@ -5,10 +5,12 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "pnpm --filter @tradeos/domain build && tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
+    "pretypecheck": "pnpm --filter @tradeos/domain build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "pnpm --filter @tradeos/domain build",
     "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
