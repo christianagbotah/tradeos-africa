@@ -13,6 +13,7 @@ function productLine(overrides: Partial<SaleLineSnapshot> = {}): SaleLineSnapsho
     unitTax: money(currency, 150),
     unitCost: money(currency, 600),
     stockUnitId: "piece",
+    stockQuantityPerSaleUnit: 1,
     ...overrides,
   };
 }
@@ -36,6 +37,36 @@ describe("planSaleReturn", () => {
       stockUnitId: "piece",
       destination: "AVAILABLE",
     });
+  });
+
+  it("restores the stock-unit quantity captured on the original sale", () => {
+    const plan = planSaleReturn(
+      [
+        productLine({
+          id: "whisky-glass",
+          quantitySold: 15,
+          unitNet: money(currency, 1800),
+          unitTax: money(currency, 0),
+          unitCost: money(currency, 1000),
+          stockUnitId: "ml",
+          stockQuantityPerSaleUnit: 50,
+        }),
+      ],
+      {
+        idempotencyKey: "return-glass-001",
+        reason: "Wrong order",
+        refundMethod: "CASH",
+        lines: [{ saleLineId: "whisky-glass", quantity: 2, disposition: "RESTOCK" }],
+      },
+    );
+
+    expect(plan.lines[0]?.inventoryEffect).toEqual({
+      saleLineId: "whisky-glass",
+      quantity: 100,
+      stockUnitId: "ml",
+      destination: "AVAILABLE",
+    });
+    expect(plan.refundTotal.minor).toBe(3600);
   });
 
   it("quarantines a returned product without making it saleable", () => {
@@ -82,6 +113,30 @@ describe("planSaleReturn", () => {
 
     expect(plan.refundTotal.minor).toBe(5000);
     expect(plan.cogsReversalTotal.minor).toBe(0);
+    expect(plan.lines[0]?.inventoryEffect).toBeUndefined();
+  });
+
+  it("does not reconstruct ingredients for a prepared-food refund", () => {
+    const prepared: SaleLineSnapshot = {
+      id: "waakye-medium",
+      kind: "PREPARED_PRODUCT",
+      quantitySold: 3,
+      quantityPreviouslyReturned: 0,
+      unitNet: money(currency, 3000),
+      unitTax: money(currency, 0),
+      unitCost: money(currency, 1340),
+    };
+
+    const plan = planSaleReturn([prepared], {
+      idempotencyKey: "refund-waakye-001",
+      reason: "Order rejected after serving",
+      refundMethod: "CASH",
+      lines: [{ saleLineId: "waakye-medium", quantity: 1, disposition: "DISCARD" }],
+    });
+
+    expect(plan.refundTotal.minor).toBe(3000);
+    expect(plan.cogsReversalTotal.minor).toBe(0);
+    expect(plan.discardedCostTotal.minor).toBe(1340);
     expect(plan.lines[0]?.inventoryEffect).toBeUndefined();
   });
 
