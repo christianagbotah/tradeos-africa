@@ -1,4 +1,5 @@
 import { registerOperationsRoutes } from "./operations.js";
+import { registerTreasuryRoutes } from "./treasury.js";
 import { registerCashbookRoutes } from "./cashbook.js";
 import { registerSupplierInventoryRoutes } from "./suppliers-inventory.js";
 import Fastify from "fastify";
@@ -43,6 +44,7 @@ export function buildApp(pool: DatabasePool) {
   registerSupplierInventoryRoutes(app, pool);
   registerCashbookRoutes(app, pool);
   registerOperationsRoutes(app,pool);
+  registerTreasuryRoutes(app,pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
     try {
@@ -115,9 +117,9 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
   }
   const payload = mutation.payload as Record<string, unknown>;
 
-  if (["EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE","OPERATING_DAY_OPEN_CREATE","OPERATING_DAY_CLOSE_CREATE","SHIFT_OPEN_CREATE","SHIFT_CLOSE_CREATE"].includes(mutation.mutationType)) {
+  if (["EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE","OPERATING_DAY_OPEN_CREATE","OPERATING_DAY_CLOSE_CREATE","SHIFT_OPEN_CREATE","SHIFT_CLOSE_CREATE","MONEY_TRANSFER_CREATE","MONEY_RECONCILIATION_CREATE","MONEY_RECONCILIATION_RESOLVE"].includes(mutation.mutationType)) {
     const { actorStaffId: _ignored, ...rest } = payload;
-    return {...rest,actorStaffId:access.staffId};
+    return {...rest,actorStaffId:access.staffId,actorRole:access.role};
   }
   if (mutation.mutationType === "SALE_CREATE") {
     const { cashierStaffId: _ignored, ...rest } = payload;
@@ -156,8 +158,11 @@ function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
     case "OPERATING_DAY_OPEN_CREATE":
     case "OPERATING_DAY_CLOSE_CREATE": return CASHBOOK_ADJUSTMENT_ROLES;
     case "SHIFT_OPEN_CREATE":
-    case "SHIFT_CLOSE_CREATE": return EXPENSE_ROLES;
+    case "SHIFT_CLOSE_CREATE":
+    case "MONEY_RECONCILIATION_CREATE":
     case "EXPENSE_CREATE": return EXPENSE_ROLES;
+    case "MONEY_TRANSFER_CREATE":
+    case "MONEY_RECONCILIATION_RESOLVE": return CASHBOOK_ADJUSTMENT_ROLES;
     case "CASHBOOK_ADJUSTMENT_CREATE": return CASHBOOK_ADJUSTMENT_ROLES;
     case "SALE_CREATE":
       return SALE_ROLES;

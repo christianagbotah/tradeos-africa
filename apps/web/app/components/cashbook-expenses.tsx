@@ -1,5 +1,6 @@
 "use client";
 
+import { Treasury, type MoneyAccount } from "./treasury";
 import { useEffect, useState, type FormEvent } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId, mutationAppliedEvent, queueChangedEvent, getPendingMutations, getFailedMutations } from "../lib/offline-sync";
@@ -10,7 +11,7 @@ type Expense = { id: string; amountMinor: number; categoryName: string; descript
 type Summary = { inflowMinor: number; outflowMinor: number; netMinor: number; byMethod: Record<string,{inflowMinor:number;outflowMinor:number;netMinor:number}> };
 type Snapshot = { categories: Category[]; entries: Entry[]; expenses: Expense[]; totals: { method: string; balanceMinor: number; inflowMinor: number; outflowMinor: number }[]; summary: Summary };
 const today = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
-const moneyMutations = new Set(["SALE_CREATE","CUSTOMER_PAYMENT_CREATE","PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","RETURN_CREATE","REFUND_CREATE","PURCHASE_RETURN_CREATE","EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE"]);
+const moneyMutations = new Set(["SALE_CREATE","CUSTOMER_PAYMENT_CREATE","PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","RETURN_CREATE","REFUND_CREATE","PURCHASE_RETURN_CREATE","EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE","MONEY_TRANSFER_CREATE","MONEY_RECONCILIATION_CREATE","MONEY_RECONCILIATION_RESOLVE"]);
 const methods = ["CASH", "MOMO", "CARD", "BANK", "OTHER"];
 const expenseRoles = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
 const adjustmentRoles = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
@@ -19,6 +20,8 @@ const readRoles = [...expenseRoles, "VIEWER"];
 export function CashbookExpenses({ businessId, branchId, currencyCode, role }: { businessId: string; branchId: string; currencyCode: string; role: string }) {
   const emptySummary: Summary = {inflowMinor:0,outflowMinor:0,netMinor:0,byMethod:{}};
   const [snapshot, setSnapshot] = useState<Snapshot>({ categories: [], entries: [], expenses: [], totals: [], summary: emptySummary });
+  const [accounts,setAccounts]=useState<MoneyAccount[]>([]);
+  const [moneyAccountId,setMoneyAccountId]=useState("");
   const [mode, setMode] = useState("EXPENSE_CREATE");
   const [categoryId, setCategoryId] = useState("");
   const [amount, setAmount] = useState("");
@@ -46,7 +49,7 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
     setCategoryId("");
     try { const cached = localStorage.getItem(cacheKey); if (cached) setSnapshot(JSON.parse(cached)); } catch { /* Ignore unavailable cache. */ }
     const refreshQueue = () => {
-      const matches = (m: { businessId: string; branchId?: string; mutationType: string }) => m.businessId === businessId && m.branchId === branchId && ["EXPENSE_CREATE", "CASHBOOK_ADJUSTMENT_CREATE"].includes(m.mutationType);
+      const matches = (m: { businessId: string; branchId?: string; mutationType: string }) => m.businessId === businessId && m.branchId === branchId && ["EXPENSE_CREATE", "CASHBOOK_ADJUSTMENT_CREATE","MONEY_TRANSFER_CREATE","MONEY_RECONCILIATION_CREATE","MONEY_RECONCILIATION_RESOLVE"].includes(m.mutationType);
       setQueued(getPendingMutations().filter(matches).length);
       setFailed(getFailedMutations().filter(f => matches(f.mutation)).map(f => f.result.errorMessage ?? "Entry rejected"));
     };
@@ -85,7 +88,7 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
       const adjustmentMinor = reason === "OWNER_WITHDRAWAL" ? -Math.abs(parsedMinor)
         : ["OPENING_BALANCE","OWNER_INJECTION"].includes(reason) ? Math.abs(parsedMinor)
         : parsedMinor;
-      enqueueMutation({ clientId: getOrCreateClientId(), clientMutationId: crypto.randomUUID(), businessId, branchId, mutationType: mode, occurredAt: new Date().toISOString(), payload: { method, currencyCode, ...(mode === "EXPENSE_CREATE" ? { categoryId, amountMinor: parsedMinor, description: note, payee, provider, providerReference } : { amountDeltaMinor: adjustmentMinor, reason, note }) } });
+      enqueueMutation({ clientId: getOrCreateClientId(), clientMutationId: crypto.randomUUID(), businessId, branchId, mutationType: mode, occurredAt: new Date().toISOString(), payload: { method, currencyCode, ...(moneyAccountId?{moneyAccountId}:{}), ...(mode === "EXPENSE_CREATE" ? { categoryId, amountMinor: parsedMinor, description: note, payee, provider, providerReference } : { amountDeltaMinor: adjustmentMinor, reason, note }) } });
       setAmount(""); setNote(""); setPayee(""); setProvider(""); setProviderReference("");
       setMessage("Saved on this device. Pending entries appear in the cashbook after sync succeeds.");
       void flushPendingMutations().catch(error => setMessage(`Saved on this device. ${messageFrom(error)}`));
@@ -107,13 +110,15 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
     <p>Money movement in the selected period; credit is excluded. Cached records remain available offline.</p>
     <div className="form-row">{snapshot.totals.map(t => <div key={t.method}><strong>{t.method} net movement: {money(t.balanceMinor)}</strong><p>In {money(t.inflowMinor)} · Out {money(t.outflowMinor)}</p></div>)}</div>
     {expenseRoles.includes(role) && <form onSubmit={submit}>
-      <div className="form-row"><label>Entry<select value={mode} onChange={e => setMode(e.target.value)}><option value="EXPENSE_CREATE">Expense</option>{canAdjust && <option value="CASHBOOK_ADJUSTMENT_CREATE">Balance adjustment</option>}</select></label><label>Amount ({currencyCode})<input required inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} /></label><label>Payment method<select value={method} onChange={e => setMethod(e.target.value)}>{methods.map(m => <option key={m}>{m}</option>)}</select></label></div>
+      <div className="form-row"><label>Entry<select value={mode} onChange={e => setMode(e.target.value)}><option value="EXPENSE_CREATE">Expense</option>{canAdjust && <option value="CASHBOOK_ADJUSTMENT_CREATE">Balance adjustment</option>}</select></label><label>Amount ({currencyCode})<input required inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} /></label><label>Payment method<select value={method} onChange={e => {setMethod(e.target.value);setMoneyAccountId("");}}>{methods.map(m => <option key={m}>{m}</option>)}</select></label></div>
+      <label>Money account<select value={moneyAccountId} onChange={e=>setMoneyAccountId(e.target.value)}><option value="">Branch default</option>{accounts.filter(a=>a.active&&a.method===method&&(a.branchId===null||a.branchId===branchId)).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
       {mode === "EXPENSE_CREATE" ? <><div className="form-row"><label>Category<select required value={categoryId} onChange={e => setCategoryId(e.target.value)}><option value="">Select category</option>{snapshot.categories.filter(c => c.active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label>Payee<input value={payee} onChange={e => setPayee(e.target.value)} maxLength={1000} /></label></div><div className="form-row"><label>Provider<input value={provider} onChange={e => setProvider(e.target.value)} maxLength={1000} /></label><label>Provider reference<input value={providerReference} onChange={e => setProviderReference(e.target.value)} maxLength={1000} /></label></div></> : <><label>Reason<select value={reason} onChange={e => setReason(e.target.value)}>{["CORRECTION", "OPENING_BALANCE", "OWNER_INJECTION", "OWNER_WITHDRAWAL"].map(r => <option key={r}>{r}</option>)}</select></label><p>Enter the amount normally. TradeOS automatically treats withdrawals as money out; corrections may be positive or negative.</p></>}
       <label>{mode === "EXPENSE_CREATE" ? "Description" : "Required explanation"}<input required={mode !== "EXPENSE_CREATE" || !payee.trim()} value={note} onChange={e => setNote(e.target.value)} maxLength={1000} /></label>
       <button className="primary-button" type="submit">Save entry</button>
     </form>}
     {canAdjust && <div className="form-row"><label>New expense category (online)<input value={categoryName} onChange={e => setCategoryName(e.target.value)} maxLength={160} /></label><button type="button" disabled={busy || !categoryName.trim()} onClick={() => void createCategory()}>Add category</button></div>}
     {message && <p role="status">{message}</p>}{failed.map((error, i) => <p className="form-error" key={i}>Sync rejected: {error}</p>)}
+    <Treasury businessId={businessId} branchId={branchId} currencyCode={currencyCode} role={role} onAccounts={setAccounts}/>
     <h3>Recent movements</h3><table><thead><tr><th>Date</th><th>Movement</th><th>Method</th><th>Amount</th></tr></thead><tbody>{snapshot.entries.map(e => <tr key={e.id}><td>{new Date(e.occurredAt).toLocaleString()}</td><td>{e.entryType.replaceAll("_", " ")}</td><td>{e.method}</td><td>{money(e.amountDeltaMinor)}</td></tr>)}</tbody></table>
     <h3>Recent expenses</h3>{snapshot.expenses.map(e => <p key={e.id}>{e.categoryName} · {e.description || e.payee} · {e.method} · {money(e.amountMinor)}</p>)}
   </section>;
