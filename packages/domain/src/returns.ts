@@ -1,6 +1,6 @@
 import { Money, money, multiplyMoney } from "./money.js";
 
-export type SellableKind = "PRODUCT" | "SERVICE";
+export type SellableKind = "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
 export type ReturnDisposition = "RESTOCK" | "QUARANTINE" | "DISCARD" | "NOT_APPLICABLE";
 export type RefundMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT" | "ORIGINAL_METHOD";
 
@@ -11,8 +11,22 @@ export interface SaleLineSnapshot {
   quantityPreviouslyReturned: number;
   unitNet: Money;
   unitTax: Money;
+  /** Cost attached to one sale unit at the time of the original sale. */
   unitCost: Money;
+  /** Stock unit used by the inventory ledger, e.g. ml, kg, metre or piece. */
   stockUnitId?: string;
+  /**
+   * Number of stock units represented by one sale unit.
+   *
+   * Examples:
+   * - whisky sold by 50 ml glass while stock is tracked in ml => 50
+   * - cable sold by yard while stock is tracked in metre => 0.9144
+   * - item sold and stocked by piece => 1
+   *
+   * This value is captured on the sale line so future unit-rule edits cannot change
+   * the accounting or stock effect of a historical return.
+   */
+  stockQuantityPerSaleUnit?: number;
 }
 
 export interface SaleReturnLineRequest {
@@ -30,6 +44,7 @@ export interface SaleReturnRequest {
 
 export interface InventoryReturnEffect {
   saleLineId: string;
+  /** Quantity in the item's stock unit, not the unit originally sold. */
   quantity: number;
   stockUnitId: string;
   destination: "AVAILABLE" | "QUARANTINE";
@@ -60,11 +75,15 @@ export interface SaleReturnPlan {
 export class SaleReturnError extends Error {}
 
 /**
- * Builds the accounting/inventory intent for a physical sale return.
+ * Builds the accounting/inventory intent for a sale return or refund.
  * Persistence, approval and actual payment reversal are handled by application services.
  *
- * Key rule: money and stock are separate effects. A service refund does not recreate
- * consumed stock; a discarded product return does not re-enter available inventory.
+ * Key rules:
+ * - Money and stock are separate effects.
+ * - Product returns recreate stock only when restocked/quarantined.
+ * - Sale-unit quantities are converted back to the historical stock unit before stock moves.
+ * - Service refunds never recreate consumables or labour already used.
+ * - Prepared-product refunds never reconstruct ingredients already consumed.
  */
 export function planSaleReturn(
   saleLines: SaleLineSnapshot[],
@@ -102,12 +121,7 @@ export function planSaleReturn(
       }
     }
 
-    if (line.kind === "SERVICE" && requested.disposition !== "NOT_APPLICABLE") {
-      throw new SaleReturnError("Service returns must use NOT_APPLICABLE disposition");
-    }
-    if (line.kind === "PRODUCT" && requested.disposition === "NOT_APPLICABLE") {
-      throw new SaleReturnError("Product returns require RESTOCK, QUARANTINE or DISCARD disposition");
-    }
+    assertDisposition(line, requested.disposition);
 
     const netRevenueReversal = multiplyMoney(line.unitNet, requested.quantity);
     const taxReversal = multiplyMoney(line.unitTax, requested.quantity);
@@ -119,12 +133,14 @@ export function planSaleReturn(
 
     if (line.kind === "PRODUCT") {
       if (!line.stockUnitId) throw new SaleReturnError(`Product line ${line.id} has no stock unit`);
+      const stockQuantityPerSaleUnit = line.stockQuantityPerSaleUnit ?? 1;
+      assertStockConversion(stockQuantityPerSaleUnit, line.id);
 
       if (requested.disposition === "RESTOCK" || requested.disposition === "QUARANTINE") {
         cogsReversal = returnedCost;
         inventoryEffect = {
           saleLineId: line.id,
-          quantity: requested.quantity,
+          quantity: requested.quantity * stockQuantityPerSaleUnit,
           stockUnitId: line.stockUnitId,
           destination: requested.disposition === "RESTOCK" ? "AVAILABLE" : "QUARANTINE",
         };
@@ -132,6 +148,10 @@ export function planSaleReturn(
         // Revenue is reversed, but the unusable item does not recreate an inventory asset.
         discardedCost = returnedCost;
       }
+    } else if (line.kind === "PREPARED_PRODUCT" && requested.disposition === "DISCARD") {
+      // Ingredients/consumables were already consumed when the prepared item was produced/sold.
+      // A physical return can be recorded as waste, but it must not rebuild ingredient stock.
+      discardedCost = returnedCost;
     }
 
     return {
@@ -174,5 +194,31 @@ export function planSaleReturn(
 function assertQuantity(quantity: number): void {
   if (!Number.isFinite(quantity) || quantity <= 0) {
     throw new SaleReturnError("Return quantity must be a positive finite number");
+  }
+}
+
+function assertStockConversion(stockQuantityPerSaleUnit: number, saleLineId: string): void {
+  if (!Number.isFinite(stockQuantityPerSaleUnit) || stockQuantityPerSaleUnit <= 0) {
+    throw new SaleReturnError(`Product line ${saleLineId} has an invalid stock conversion snapshot`);
+  }
+}
+
+function assertDisposition(line: SaleLineSnapshot, disposition: ReturnDisposition): void {
+  if (line.kind === "SERVICE" && disposition !== "NOT_APPLICABLE") {
+    throw new SaleReturnError("Service refunds must use NOT_APPLICABLE disposition");
+  }
+
+  if (line.kind === "PRODUCT" && disposition === "NOT_APPLICABLE") {
+    throw new SaleReturnError("Product returns require RESTOCK, QUARANTINE or DISCARD disposition");
+  }
+
+  if (
+    line.kind === "PREPARED_PRODUCT" &&
+    disposition !== "DISCARD" &&
+    disposition !== "NOT_APPLICABLE"
+  ) {
+    throw new SaleReturnError(
+      "Prepared-product refunds may be marked DISCARD or NOT_APPLICABLE; ingredients cannot be restocked",
+    );
   }
 }
