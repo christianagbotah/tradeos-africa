@@ -79,6 +79,13 @@ async function authorizeAndEnrichSyncBatch(
       access = await requireBusinessRole(pool, auth, mutation.businessId, roles);
       accessCache.set(authorizationKey, access);
     }
+    if (!access.staffId) {
+      throw new AuthError(
+        "Your business membership is not linked to an active staff actor",
+        403,
+        "STAFF_ACTOR_REQUIRED",
+      );
+    }
 
     mutations.push({
       ...mutation,
@@ -97,12 +104,11 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
 
   if (mutation.mutationType === "SALE_CREATE") {
     const { cashierStaffId: _ignored, ...rest } = payload;
-    return access.staffId ? { ...rest, cashierStaffId: access.staffId } : rest;
+    return { ...rest, cashierStaffId: access.staffId };
   }
 
   if (mutation.mutationType === "RETURN_CREATE" || mutation.mutationType === "REFUND_CREATE") {
     const { initiatedByStaffId: _ignoredInitiator, approvedByStaffId: _ignoredApprover, ...rest } = payload;
-    if (!access.staffId) return rest;
     return {
       ...rest,
       initiatedByStaffId: access.staffId,

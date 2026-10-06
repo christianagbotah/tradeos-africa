@@ -159,7 +159,13 @@ function assertDisposition(line: SaleLineSnapshot, disposition: ReturnDispositio
   if (line.kind === "SERVICE" && disposition !== "NOT_APPLICABLE") {
     throw new SaleReturnError("Service refunds must use NOT_APPLICABLE disposition");
   }
-  if (line.kind === "PRODUCT" && disposition === "NOT_APPLICABLE") {
+  if (
+    line.kind === "PRODUCT" &&
+    disposition !== "RESTOCK" &&
+    disposition !== "QUARANTINE" &&
+    disposition !== "DISCARD" &&
+    disposition !== "NOT_RETURNED"
+  ) {
     throw new SaleReturnError("Product refunds require RESTOCK, QUARANTINE, DISCARD or NOT_RETURNED disposition");
   }
   if (

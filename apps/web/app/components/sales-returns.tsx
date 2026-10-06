@@ -1,7 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../lib/offline-sync";
+import {
+  enqueueMutation,
+  flushPendingMutations,
+  getOrCreateClientId,
+  mutationAppliedEvent,
+  type AppliedMutationDetail,
+} from "../lib/offline-sync";
 
 type SaleSummary = {
   id: string;
@@ -110,6 +116,20 @@ export function SalesAndReturns({ businessId, branchId, currencyCode }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId, branchId]);
 
+  useEffect(() => {
+    const onMutationApplied = (event: Event) => {
+      const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
+      if (!detail || detail.businessId !== businessId || detail.branchId !== branchId) return;
+      if (!["SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE"].includes(detail.mutationType)) return;
+      void loadSales(query);
+    };
+
+    window.addEventListener(mutationAppliedEvent, onMutationApplied);
+    return () => window.removeEventListener(mutationAppliedEvent, onMutationApplied);
+    // loadSales is intentionally scoped to the current search/context.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId, branchId, query]);
+
   const selectedLines = useMemo(() => {
     if (!selected) return [];
     return selected.lines.flatMap((line) => {
@@ -158,7 +178,6 @@ export function SalesAndReturns({ businessId, branchId, currencyCode }: Props) {
       if (!navigator.onLine) {
         setMessage("Return/refund saved safely offline. It will process when this device reconnects.");
         setSelected(null);
-        await loadSales();
         return;
       }
 

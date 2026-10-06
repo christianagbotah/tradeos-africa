@@ -49,6 +49,14 @@ const failedKey = "tradeos.failedMutations.v1";
 const clientIdKey = "tradeos.clientId.v1";
 const activeBusinessKey = "tradeos.activeBusinessId.v1";
 export const queueChangedEvent = "tradeos:queue-changed";
+export const mutationAppliedEvent = "tradeos:mutation-applied";
+export type AppliedMutationDetail = {
+  businessId: string;
+  branchId?: string;
+  mutationType: string;
+  clientMutationId: string;
+  result?: unknown;
+};
 const maxBatchSize = 100;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -163,6 +171,7 @@ async function performFlush(): Promise<FlushSummary> {
   let applied = 0;
   let received = 0;
   let rejected = 0;
+  const appliedMutations: AppliedMutationDetail[] = [];
 
   for (const mutation of batch) {
     const result = byId.get(mutation.clientMutationId);
@@ -171,6 +180,13 @@ async function performFlush(): Promise<FlushSummary> {
       received += 1;
     } else if (result.status === "APPLIED") {
       applied += 1;
+      appliedMutations.push({
+        businessId: mutation.businessId,
+        ...(mutation.branchId ? { branchId: mutation.branchId } : {}),
+        mutationType: mutation.mutationType,
+        clientMutationId: mutation.clientMutationId,
+        ...(result.result !== undefined ? { result: result.result } : {}),
+      });
     } else {
       rejected += 1;
       if (!failed.some((entry) => entry.mutation.clientMutationId === mutation.clientMutationId)) {
@@ -182,6 +198,9 @@ async function performFlush(): Promise<FlushSummary> {
   localStorage.setItem(pendingKey, JSON.stringify(remaining));
   localStorage.setItem(failedKey, JSON.stringify(failed));
   notifyQueueChanged();
+  for (const detail of appliedMutations) {
+    window.dispatchEvent(new CustomEvent<AppliedMutationDetail>(mutationAppliedEvent, { detail }));
+  }
 
   return { ...getQueueState(), applied, received, rejected, attempted: batch.length };
 }

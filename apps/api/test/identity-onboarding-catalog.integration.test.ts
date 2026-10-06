@@ -187,6 +187,121 @@ describe("identity, onboarding and flexible-unit catalog", () => {
     expect(response.json<{ error: string }>().error).toBe("DEVICE_MISMATCH");
   });
 
+  it("uses the authenticated staff actor for sales and returns and exposes real sale history", async () => {
+    const owner = await register("actor-owner@tradeos.test", "actor-device");
+    const businessResponse = await app.inject({
+      method: "POST",
+      url: "/v1/onboarding/business",
+      headers: bearer(owner.accessToken),
+      payload: { name: "Actor Test Services", businessType: "SERVICES", branchName: "Main" },
+    });
+    expect(businessResponse.statusCode).toBe(201);
+    const created = businessResponse.json<{
+      business: { id: string };
+      branch: { id: string };
+      owner: { staffId: string };
+    }>();
+
+    const catalogResponse = await app.inject({
+      method: "POST",
+      url: "/v1/catalog/items",
+      headers: bearer(owner.accessToken),
+      payload: {
+        businessId: created.business.id,
+        name: "Consultation",
+        kind: "SERVICE",
+        units: [{ code: "service", label: "Service", canSell: true, defaultSalePriceMinor: 5000 }],
+      },
+    });
+    expect(catalogResponse.statusCode).toBe(201);
+    const serviceId = catalogResponse.json<{ item: { id: string } }>().item.id;
+    const spoofedStaffId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+    const saleResponse = await app.inject({
+      method: "POST",
+      url: "/v1/sync",
+      headers: bearer(owner.accessToken),
+      payload: {
+        mutations: [{
+          clientId: "actor-device",
+          clientMutationId: "actor-sale-001",
+          businessId: created.business.id,
+          branchId: created.branch.id,
+          mutationType: "SALE_CREATE",
+          occurredAt: new Date().toISOString(),
+          payload: {
+            currencyCode: "GHS",
+            cashierStaffId: spoofedStaffId,
+            paymentMethod: "CASH",
+            lines: [{ itemId: serviceId, quantity: 1, saleUnitCode: "service" }],
+          },
+        }],
+      },
+    });
+    expect(saleResponse.statusCode).toBe(200);
+    expect(saleResponse.json<{ mutationResults: Array<{ status: string }> }>().mutationResults[0]?.status).toBe("APPLIED");
+
+    const saleRow = await pool.query<{ id: string; cashier_staff_id: string | null }>(
+      `SELECT id,cashier_staff_id FROM sales WHERE business_id=$1 AND client_mutation_id='actor-sale-001'`,
+      [created.business.id],
+    );
+    expect(saleRow.rows[0]?.cashier_staff_id).toBe(created.owner.staffId);
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: `/v1/sales?businessId=${created.business.id}&branchId=${created.branch.id}`,
+      headers: bearer(owner.accessToken),
+    });
+    expect(listResponse.statusCode).toBe(200);
+    const listed = listResponse.json<{ sales: Array<{ id: string; cashierName: string | null }> }>().sales;
+    expect(listed).toContainEqual(expect.objectContaining({ id: saleRow.rows[0]!.id, cashierName: "Test Owner" }));
+
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: `/v1/sales/${saleRow.rows[0]!.id}?businessId=${created.business.id}`,
+      headers: bearer(owner.accessToken),
+    });
+    expect(detailResponse.statusCode).toBe(200);
+    const detail = detailResponse.json<{ sale: { lines: Array<{ id: string; quantityReturnable: number }> } }>().sale;
+    expect(detail.lines[0]?.quantityReturnable).toBe(1);
+
+    const returnResponse = await app.inject({
+      method: "POST",
+      url: "/v1/sync",
+      headers: bearer(owner.accessToken),
+      payload: {
+        mutations: [{
+          clientId: "actor-device",
+          clientMutationId: "actor-return-001",
+          businessId: created.business.id,
+          branchId: created.branch.id,
+          mutationType: "RETURN_CREATE",
+          occurredAt: new Date().toISOString(),
+          payload: {
+            originalSaleId: saleRow.rows[0]!.id,
+            initiatedByStaffId: spoofedStaffId,
+            approvedByStaffId: spoofedStaffId,
+            reason: "Service complaint",
+            refundMethod: "ORIGINAL_METHOD",
+            lines: [{ saleLineId: detail.lines[0]!.id, quantity: 1, disposition: "NOT_APPLICABLE" }],
+          },
+        }],
+      },
+    });
+    expect(returnResponse.statusCode).toBe(200);
+    expect(returnResponse.json<{ mutationResults: Array<{ status: string }> }>().mutationResults[0]?.status).toBe("APPLIED");
+
+    const returnCase = await pool.query<{ initiated_by_staff_id: string | null; approved_by_staff_id: string | null }>(
+      `SELECT initiated_by_staff_id,approved_by_staff_id FROM return_cases
+       WHERE business_id=$1 AND client_mutation_id='actor-return-001'`,
+      [created.business.id],
+    );
+    expect(returnCase.rows[0]).toMatchObject({
+      initiated_by_staff_id: created.owner.staffId,
+      approved_by_staff_id: created.owner.staffId,
+    });
+  });
+
   it("rotates refresh tokens and revokes the previous access session", async () => {
     const owner = await register("refresh@tradeos.test", "refresh-device");
 
