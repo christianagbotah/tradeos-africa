@@ -115,11 +115,13 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
           sale_unit_code: string;
           unit_net_minor: string | number;
           unit_tax_minor: string | number;
+          unit_cost_minor: string | number;
+          line_cost_minor: string | number;
           line_total_minor: string | number;
           quantity_returned: string | number;
         }>(
           `SELECT sl.id,sl.item_id,sl.item_name_snapshot,sl.item_kind,sl.quantity,sl.sale_unit_code,
-                  sl.unit_net_minor,sl.unit_tax_minor,sl.line_total_minor,
+                  sl.unit_net_minor,sl.unit_tax_minor,sl.unit_cost_minor,sl.line_cost_minor,sl.line_total_minor,
                   COALESCE((SELECT SUM(rl.quantity)
                     FROM return_lines rl JOIN return_cases rc ON rc.id=rl.return_case_id
                     WHERE rl.original_sale_line_id=sl.id
@@ -171,6 +173,8 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
                 saleUnitCode: line.sale_unit_code,
                 unitNetMinor: Number(line.unit_net_minor),
                 unitTaxMinor: Number(line.unit_tax_minor),
+                unitCostMinor: Number(line.unit_cost_minor),
+                lineCostMinor: Number(line.line_cost_minor),
                 lineTotalMinor: Number(line.line_total_minor),
               };
             }),

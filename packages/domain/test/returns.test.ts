@@ -122,3 +122,15 @@ describe("planSaleReturn", () => {
     ).toThrow(SaleReturnError);
   });
 });
+
+it("restores the exact line COGS across successive partial returns", () => {
+  let restored = 0;
+  for (let returned = 0; returned < 3; returned += 1) {
+    const plan = planSaleReturn([productLine({quantitySold:3,quantityPreviouslyReturned:returned,unitCost:money("GHS",333),lineCost:money("GHS",1000)})], {
+      idempotencyKey:`cost-${returned}`,reason:"Returned",refundMethod:"CASH",
+      lines:[{saleLineId:"line-1",quantity:1,disposition:returned === 1 ? "QUARANTINE" : "RESTOCK"}],
+    });
+    restored += plan.cogsReversalTotal.minor;
+  }
+  expect(restored).toBe(1000);
+});

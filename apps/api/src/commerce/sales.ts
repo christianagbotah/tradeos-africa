@@ -1,3 +1,4 @@
+import { consumeValuation, safeMinor, proportionalMinor } from "./valuation.js";
 import { planConsumption, UnitConverter } from "@tradeos/domain";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import {
@@ -68,14 +69,20 @@ export async function applySaleMutation(
       return { saleId: replay.id, status: "COMPLETED", totalMinor: Number(replay.total_minor), idempotentReplay: true };
     }
 
-    const branch = await client.query(
-      `SELECT id FROM branches WHERE id = $1 AND business_id = $2 AND is_active = true FOR SHARE`,
+    const branch = await client.query<{ currency_code: string }>(
+      `SELECT b.currency_code FROM branches br
+       JOIN businesses b ON b.id=br.business_id
+       WHERE br.id=$1 AND br.business_id=$2 AND br.is_active=true FOR SHARE OF br,b`,
       [context.branchId, context.businessId],
     );
-    if (branch.rowCount !== 1) throw new SaleMutationError("Branch was not found for this business", "BRANCH_NOT_FOUND");
+    const businessCurrency = branch.rows[0]?.currency_code;
+    if (!businessCurrency) throw new SaleMutationError("Branch was not found for this business", "BRANCH_NOT_FOUND");
 
-    const currencyCode = (payload.currencyCode ?? "GHS").toUpperCase();
+    const currencyCode = (payload.currencyCode ?? businessCurrency).toUpperCase();
     if (!/^[A-Z]{3}$/.test(currencyCode)) throw new SaleMutationError("Currency must be a three-letter code");
+    if (currencyCode !== businessCurrency) {
+      throw new SaleMutationError("Sale currency must match the business currency", "SALE_CURRENCY_MISMATCH");
+    }
     if (payload.customerId) {
       const customer = await loadCustomerAccount(client, context.businessId, payload.customerId);
       if (!customer.is_active) throw new SaleMutationError("Customer account is inactive", "CUSTOMER_INACTIVE");
@@ -113,25 +120,27 @@ export async function applySaleMutation(
         throw new SaleMutationError(`${item.name} has no valid price for ${saleUnitCode}`, "PRICE_NOT_CONFIGURED");
       }
 
-      // Tax and cost-basis engines are separate follow-up modules. The immutable snapshots
-      // already exist so those engines can be added without changing historical sale shape.
+      // Tax remains separate; physical products snapshot the branch moving-average cost.
       const unitTaxMinor = 0;
-      const unitCostMinor = 0;
-      const lineNetMinor = Math.round(unitNetMinor * requested.quantity);
-      const lineTaxMinor = Math.round(unitTaxMinor * requested.quantity);
-      const lineTotalMinor = lineNetMinor + lineTaxMinor;
+
+      const lineNetMinor = proportionalMinor(unitNetMinor, requested.quantity, 1);
+      const lineTaxMinor = proportionalMinor(unitTaxMinor, requested.quantity, 1);
+      const lineTotalMinor = safeMinor(lineNetMinor + lineTaxMinor);
       const stockQuantity = await stockQuantityForSale(client, item, requested.quantity, saleUnitCode);
 
+      let lineCostMinor = item.kind === "PRODUCT" && item.track_stock && stockQuantity !== null
+        ? await consumeValuation(client, context, item.id, stockQuantity) : 0;
+      let unitCostMinor = proportionalMinor(lineCostMinor, 1, requested.quantity);
       const lineInsert = await client.query<{ id: string }>(
         `INSERT INTO sale_lines (
            sale_id, business_id, item_id, item_name_snapshot, item_kind, quantity,
            sale_unit_code, stock_quantity, stock_unit_code, unit_net_minor,
-           unit_tax_minor, unit_cost_minor, line_net_minor, line_tax_minor, line_total_minor
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+           unit_tax_minor, unit_cost_minor, line_net_minor, line_tax_minor, line_total_minor, line_cost_minor
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
         [
           saleId, context.businessId, item.id, item.name, item.kind, requested.quantity,
           saleUnitCode, stockQuantity, item.stock_unit_code, unitNetMinor,
-          unitTaxMinor, unitCostMinor, lineNetMinor, lineTaxMinor, lineTotalMinor,
+          unitTaxMinor, unitCostMinor, lineNetMinor, lineTaxMinor, lineTotalMinor, lineCostMinor,
         ],
       );
       const saleLineId = lineInsert.rows[0]?.id;
@@ -155,14 +164,21 @@ export async function applySaleMutation(
       }
 
       if (item.kind === "SERVICE" || item.kind === "PREPARED_PRODUCT") {
-        await consumeDefinition(client, context, payload.cashierStaffId ?? null, item, requested.quantity, saleUnitCode, saleLineId, index);
+        lineCostMinor = await consumeDefinition(
+          client, context, payload.cashierStaffId ?? null, item, requested.quantity, saleUnitCode, saleLineId, index,
+        );
+        unitCostMinor = proportionalMinor(lineCostMinor, 1, requested.quantity);
+        await client.query(
+          `UPDATE sale_lines SET unit_cost_minor=$2,line_cost_minor=$3 WHERE id=$1 AND business_id=$4`,
+          [saleLineId, unitCostMinor, lineCostMinor, context.businessId],
+        );
       }
 
-      subtotalMinor += lineNetMinor;
-      taxMinor += lineTaxMinor;
+      subtotalMinor = safeMinor(subtotalMinor + lineNetMinor);
+      taxMinor = safeMinor(taxMinor + lineTaxMinor);
     }
 
-    const totalMinor = subtotalMinor + taxMinor;
+    const totalMinor = safeMinor(subtotalMinor + taxMinor);
     const payments = normalizePayments(payload, totalMinor);
     if (payments.reduce((sum, payment) => sum + payment.amountMinor, 0) !== totalMinor) {
       throw new SaleMutationError("Payment total does not equal the server-calculated sale total", "PAYMENT_TOTAL_MISMATCH");
@@ -303,14 +319,14 @@ async function consumeDefinition(
   saleUnit: string,
   saleLineId: string,
   lineIndex: number,
-): Promise<void> {
+): Promise<number> {
   const definitionResult = await client.query<{ id: string; output_quantity: string | number; output_unit_code: string }>(
     `SELECT id,output_quantity,output_unit_code FROM consumption_definitions
      WHERE business_id=$1 AND output_item_id=$2 ORDER BY updated_at DESC,id LIMIT 1`,
     [context.businessId, item.id],
   );
   const definition = definitionResult.rows[0];
-  if (!definition) return;
+  if (!definition) return 0;
 
   let outputQuantity = saleQuantity;
   if (saleUnit !== definition.output_unit_code) {
@@ -328,7 +344,7 @@ async function consumeDefinition(
      FROM consumption_components cc JOIN catalog_items ci ON ci.id=cc.component_item_id
      WHERE cc.definition_id=$1 ORDER BY cc.component_item_id`, [definition.id],
   );
-  if (!components.rowCount) return;
+  if (!components.rowCount) return 0;
 
   const ids = components.rows.map((row) => row.component_item_id);
   await client.query(`SELECT id FROM catalog_items WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`, [ids]);
@@ -347,9 +363,14 @@ async function consumeDefinition(
     })),
   }, outputQuantity);
 
+  let componentCostMinor = 0;
   for (let index = 0; index < plan.length; index += 1) {
     const component = plan[index]!;
     const row = components.rows[index]!;
+    const componentCost = await consumeValuation(
+      client, context, component.componentProductId, component.totalPlannedQuantity,
+    );
+    componentCostMinor = safeMinor(componentCostMinor + componentCost);
     await consumeStock(client, {
       businessId: context.businessId, branchId: context.branchId, itemId: component.componentProductId,
       itemName: row.component_name, unit: component.stockUnitId, quantity: component.totalPlannedQuantity,
@@ -359,6 +380,7 @@ async function consumeDefinition(
       occurredAt: context.occurredAt,
     });
   }
+  return componentCostMinor;
 }
 
 async function writeEvent(client: DatabaseClient, context: SaleMutationContext, actorStaffId: string | null, saleId: string, totalMinor: number): Promise<void> {

@@ -1,0 +1,70 @@
+.purchase-inventory-panel { margin-top: 18px; }
+.inventory-summary { display: grid; justify-items: end; gap: 2px; }
+.inventory-summary span, .inventory-summary small { color: #7b899b; font-size: 11px; }
+.inventory-summary strong { color: #0f172a; font-size: 22px; }
+.procurement-actions { display: grid; gap: 12px; margin-bottom: 14px; }
+.supplier-create { display: grid; gap: 10px; }
+.supplier-create > button { width: fit-content; }
+.supplier-form { display: grid; grid-template-columns: 1.2fr .8fr 1fr auto; gap: 9px; align-items: end; padding: 12px; border: 1px solid #e0e7ef; border-radius: 12px; background: #f8fafc; }
+.supplier-form label, .receipt-context-row label, .receipt-line-builder label { display: grid; gap: 6px; color: #516176; font-size: 11px; font-weight: 800; }
+.supplier-form input, .receipt-context-row input, .receipt-context-row select, .receipt-line-builder input, .receipt-line-builder select { width: 100%; min-height: 42px; border: 1px solid #d8e1eb; border-radius: 9px; padding: 9px 11px; background: white; color: #0f172a; font: inherit; outline: none; }
+.supplier-form input:focus, .receipt-context-row input:focus, .receipt-context-row select:focus, .receipt-line-builder input:focus, .receipt-line-builder select:focus { border-color: #63b987; box-shadow: 0 0 0 3px rgba(34,197,94,.1); }
+.supplier-error { grid-column: 1 / -1; }
+.purchase-receipt-box { padding: 15px; border: 1px solid #dce7ef; border-radius: 14px; background: #fbfcfd; }
+.purchase-receipt-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 12px; }
+.purchase-receipt-head > div { display: grid; gap: 2px; }
+.purchase-receipt-head > span { font-size: 20px; font-weight: 850; color: #152238; }
+.receipt-context-row { display: grid; grid-template-columns: minmax(180px,.8fr) minmax(190px,.8fr) minmax(220px,1.2fr); gap: 9px; margin-bottom: 9px; }
+.receipt-line-builder { display: grid; grid-template-columns: minmax(190px,1.1fr) minmax(140px,.7fr) 110px 120px auto; gap: 9px; align-items: end; }
+.receipt-lines { display: grid; gap: 7px; margin-top: 12px; }
+.receipt-empty, .inventory-empty { display: block; padding: 22px 14px; text-align: center; color: #7d8b9c; font-size: 12px; }
+.receipt-line { display: grid; grid-template-columns: minmax(180px,1fr) minmax(145px,.6fr) auto auto; gap: 12px; align-items: center; padding: 11px 12px; border: 1px solid #e3eaf1; border-radius: 11px; background: white; }
+.receipt-line > div:first-child { display: grid; gap: 3px; }
+.receipt-line > div:first-child strong { color: #172033; font-size: 12px; }
+.receipt-line > div:first-child span, .receipt-stock-effect span { color: #8090a3; font-size: 10px; }
+.receipt-stock-effect { display: grid; gap: 3px; }
+.receipt-stock-effect strong { color: #147a42; font-size: 12px; }
+.receipt-line > strong { color: #172033; font-size: 13px; }
+.receive-stock-button { margin-top: 12px; }
+.inventory-readonly-note { padding: 11px 12px; border: 1px solid #dce7ef; border-radius: 10px; background: #f8fafc; color: #64748b; font-size: 12px; }
+.procurement-grid { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(300px,.65fr); gap: 14px; align-items: start; }
+.inventory-card, .purchase-history-card { min-height: 320px; border: 1px solid #e1e8f0; border-radius: 14px; background: white; overflow: hidden; }
+.subpanel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 15px 16px; border-bottom: 1px solid #e9eef4; }
+.subpanel-head h3 { margin: 3px 0 0; color: #172033; font-size: 18px; }
+.subpanel-head > span { color: #7b899b; font-size: 11px; }
+.inventory-table { max-height: 600px; overflow: auto; }
+.inventory-row { display: grid; grid-template-columns: minmax(180px,1fr) minmax(125px,.55fr) 100px minmax(150px,.7fr); gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid #edf1f5; }
+.inventory-row > div { display: grid; gap: 3px; }
+.inventory-row > div:first-child strong { color: #172033; font-size: 12px; }
+.inventory-row span { color: #8190a2; font-size: 10px; }
+.inventory-row strong { color: #344256; font-size: 12px; }
+.inventory-row .stock-empty { color: #a84632; }
+.purchase-history-list { max-height: 600px; overflow: auto; }
+.purchase-history-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #edf1f5; }
+.purchase-history-row > div { display: grid; gap: 3px; }
+.purchase-history-row > div:last-child { text-align: right; justify-items: end; }
+.purchase-history-row strong { color: #26364b; font-size: 12px; }
+.purchase-history-row span { color: #8491a1; font-size: 10px; }
+.procurement-message { margin-top: 12px; padding: 11px 13px; border-radius: 10px; background: #f0f7ff; color: #315c8f; font-size: 12px; }
+
+@media (max-width: 1180px) {
+  .supplier-form { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .receipt-line-builder { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .receipt-line-builder .ghost-button { justify-self: start; }
+  .procurement-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .purchase-inventory-panel .panel-heading { align-items: flex-start; flex-direction: column; }
+  .inventory-summary { justify-items: start; }
+  .supplier-form, .receipt-context-row, .receipt-line-builder { grid-template-columns: 1fr; }
+  .receipt-line { grid-template-columns: 1fr auto; }
+  .receipt-stock-effect { grid-column: 1 / -1; }
+  .inventory-row { grid-template-columns: 1fr 1fr; }
+  .inventory-row > div:first-child { grid-column: 1 / -1; }
+}
+
+.supplier-balances { margin-bottom: 14px; border: 1px solid #e1e8f0; border-radius: 12px; }
+.supplier-balances .purchase-history-row { align-items: center; flex-wrap: wrap; }
+.supplier-balances .supplier-form { grid-template-columns: minmax(100px,1fr) minmax(100px,1fr) auto; }
+.supplier-form select { min-height: 42px; border: 1px solid #d8e1eb; border-radius: 9px; padding: 9px 11px; background: white; color: #0f172a; }
+@media (max-width: 760px) { .supplier-balances .supplier-form { grid-template-columns: 1fr; width: 100%; } }
