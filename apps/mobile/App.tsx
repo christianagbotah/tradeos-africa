@@ -1,5 +1,4 @@
-import { StatusBar } from "expo-status-bar";
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
 import { defaultPlatformProfile } from "@tradeos/client-core";
 
 const profile = defaultPlatformProfile("ANDROID");
@@ -16,7 +15,7 @@ const packs = [
 export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
+      <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.brandRow}>
           <View style={styles.mark}><Text style={styles.markText}>T</Text></View>
