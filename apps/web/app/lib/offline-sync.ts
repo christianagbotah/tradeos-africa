@@ -47,6 +47,7 @@ export type FlushSummary = QueueState & {
 const pendingKey = "tradeos.pendingMutations.v1";
 const failedKey = "tradeos.failedMutations.v1";
 const clientIdKey = "tradeos.clientId.v1";
+const activeBusinessKey = "tradeos.activeBusinessId.v1";
 export const queueChangedEvent = "tradeos:queue-changed";
 const maxBatchSize = 100;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -62,6 +63,18 @@ export function getOrCreateClientId(): string {
   return clientId;
 }
 
+export function setActiveBusinessId(businessId: string | null): void {
+  assertBrowser();
+  if (businessId) localStorage.setItem(activeBusinessKey, businessId);
+  else localStorage.removeItem(activeBusinessKey);
+  notifyQueueChanged();
+}
+
+export function getActiveBusinessId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(activeBusinessKey);
+}
+
 export function enqueueMutation(mutation: PendingMutation): void {
   assertBrowser();
   const pending = readJson<PendingMutation[]>(pendingKey, []);
@@ -75,9 +88,10 @@ export function enqueueMutation(mutation: PendingMutation): void {
 export function getQueueState(): QueueState {
   if (typeof window === "undefined") return { pending: 0, blocked: 0, failed: 0 };
   const pending = readJson<PendingMutation[]>(pendingKey, []);
+  const activeBusinessId = getActiveBusinessId();
   return {
     pending: pending.length,
-    blocked: pending.filter((mutation) => !isServerReady(mutation)).length,
+    blocked: pending.filter((mutation) => !isServerReady(mutation) || !activeBusinessId || mutation.businessId !== activeBusinessId).length,
     failed: readJson<FailedMutation[]>(failedKey, []).length,
   };
 }
@@ -122,8 +136,13 @@ export function flushPendingMutations(): Promise<FlushSummary> {
 async function performFlush(): Promise<FlushSummary> {
   if (typeof window === "undefined" || !navigator.onLine) return emptySummary();
 
+  const activeBusinessId = getActiveBusinessId();
+  if (!activeBusinessId) return emptySummary();
+
   const allPending = readJson<PendingMutation[]>(pendingKey, []);
-  const batch = allPending.filter(isServerReady).slice(0, maxBatchSize);
+  const batch = allPending
+    .filter((mutation) => mutation.businessId === activeBusinessId && isServerReady(mutation))
+    .slice(0, maxBatchSize);
   if (batch.length === 0) return emptySummary();
 
   const response = await fetch("/api/sync", {

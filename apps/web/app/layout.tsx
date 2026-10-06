@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./returns.css";
 import "./interactions.css";
+import "./real-app.css";
 
 export const metadata: Metadata = {
   title: "TradeOS Africa",

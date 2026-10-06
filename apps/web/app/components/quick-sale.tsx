@@ -5,29 +5,30 @@ import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../
 
 type PaymentMethod = "CASH" | "MOMO" | "CUSTOMER_CREDIT";
 
-type QuickItem = {
-  id: string;
+export type QuickSaleItem = {
+  key: string;
+  itemId: string;
   name: string;
-  unit: string;
+  unitCode: string;
+  unitLabel: string;
   priceMinor: number;
 };
 
-type CartLine = QuickItem & { quantity: number };
+type CartLine = QuickSaleItem & { quantity: number };
 
-const items: QuickItem[] = [
-  { id: "waakye-medium", name: "Medium Waakye", unit: "plate", priceMinor: 3000 },
-  { id: "egg", name: "Egg", unit: "piece", priceMinor: 500 },
-  { id: "malt", name: "Malt", unit: "bottle", priceMinor: 1800 },
-  { id: "haircut-standard", name: "Standard Haircut", unit: "service", priceMinor: 4000 },
-  { id: "suv-full-wash", name: "SUV Full Wash", unit: "service", priceMinor: 8000 },
-  { id: "cable-2-5", name: "2.5mm Cable", unit: "yard", priceMinor: 1150 },
-];
+type Props = {
+  businessId: string;
+  branchId: string;
+  currencyCode: string;
+  items: QuickSaleItem[];
+};
 
-function formatMoney(minor: number): string {
-  return `₵${(minor / 100).toFixed(2)}`;
+function formatMoney(minor: number, currencyCode: string): string {
+  if (currencyCode === "GHS") return `₵${(minor / 100).toFixed(2)}`;
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100);
 }
 
-export function QuickSale() {
+export function QuickSale({ businessId, branchId, currencyCode, items }: Props) {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [message, setMessage] = useState<string | null>(null);
@@ -39,14 +40,12 @@ export function QuickSale() {
   );
   const itemCount = useMemo(() => cart.reduce((sum, line) => sum + line.quantity, 0), [cart]);
 
-  const addItem = (item: QuickItem) => {
+  const addItem = (item: QuickSaleItem) => {
     setMessage(null);
     setCart((current) => {
-      const existing = current.find((line) => line.id === item.id);
+      const existing = current.find((line) => line.key === item.key);
       if (!existing) return [...current, { ...item, quantity: 1 }];
-      return current.map((line) =>
-        line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line,
-      );
+      return current.map((line) => line.key === item.key ? { ...line, quantity: line.quantity + 1 } : line);
     });
   };
 
@@ -58,30 +57,33 @@ export function QuickSale() {
       enqueueMutation({
         clientId: getOrCreateClientId(),
         clientMutationId: crypto.randomUUID(),
-        businessId: "demo-business",
-        branchId: "demo-main",
+        businessId,
+        branchId,
         mutationType: "SALE_CREATE",
         occurredAt: new Date().toISOString(),
         payload: {
-          currencyCode: "GHS",
+          currencyCode,
           paymentMethod,
-          lines: cart.map(({ id, unit, quantity }) => ({
-            itemId: id,
-            saleUnitCode: unit,
+          lines: cart.map(({ itemId, unitCode, quantity }) => ({
+            itemId,
+            saleUnitCode: unitCode,
             quantity,
           })),
         },
       });
 
       setCart([]);
-      if (navigator.onLine) {
-        await flushPendingMutations();
-        setMessage("Demo sale saved locally. Real business setup will enable server synchronization.");
-      } else {
-        setMessage("Sale saved offline on this device. Demo data remains local until business setup.");
+      if (!navigator.onLine) {
+        setMessage("Sale saved safely offline. It will sync automatically when the connection returns.");
+        return;
       }
+
+      const summary = await flushPendingMutations();
+      if (summary.rejected > 0) setMessage("Sale was saved locally but needs review before it can sync.");
+      else if (summary.applied > 0) setMessage("Sale recorded and synchronized.");
+      else setMessage("Sale saved locally and queued for synchronization.");
     } catch {
-      setMessage("This device could not save the sale locally. Please retry before serving the next customer.");
+      setMessage("Sale is saved on this device, but synchronization is not available right now.");
     } finally {
       setSaving(false);
     }
@@ -94,26 +96,33 @@ export function QuickSale() {
           <p className="eyebrow">Fast counter mode</p>
           <h2>Quick sale</h2>
         </div>
-        <button className="text-button" type="button">View full POS</button>
+        <span className="workflow-badge">Server-priced</span>
       </div>
 
-      <div className="quick-items">
-        {items.map((item) => {
-          const quantity = cart.find((line) => line.id === item.id)?.quantity ?? 0;
-          return (
-            <button className="quick-item" key={item.id} type="button" onClick={() => addItem(item)}>
-              <span>{item.name}</span>
-              <small>{item.unit}{quantity > 0 ? ` · ${quantity} selected` : ""}</small>
-              <strong>{formatMoney(item.priceMinor)}</strong>
-            </button>
-          );
-        })}
-      </div>
+      {items.length === 0 ? (
+        <div className="empty-sale-state">
+          <strong>No sellable items yet</strong>
+          <span>Add your first product or service to start selling.</span>
+        </div>
+      ) : (
+        <div className="quick-items">
+          {items.map((item) => {
+            const quantity = cart.find((line) => line.key === item.key)?.quantity ?? 0;
+            return (
+              <button className="quick-item" key={item.key} type="button" onClick={() => addItem(item)}>
+                <span>{item.name}</span>
+                <small>{item.unitLabel}{quantity > 0 ? ` · ${quantity} selected` : ""}</small>
+                <strong>{formatMoney(item.priceMinor, currencyCode)}</strong>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="checkout-strip">
         <div>
           <span>Current sale</span>
-          <strong>{itemCount} item{itemCount === 1 ? "" : "s"} · {formatMoney(totalMinor)}</strong>
+          <strong>{itemCount} item{itemCount === 1 ? "" : "s"} · {formatMoney(totalMinor, currencyCode)}</strong>
           {message ? <small className="sale-message">{message}</small> : null}
         </div>
         <div className="payment-actions">
@@ -121,7 +130,7 @@ export function QuickSale() {
           <button className={paymentMethod === "MOMO" ? "selected" : undefined} type="button" onClick={() => setPaymentMethod("MOMO")}>MoMo</button>
           <button className={paymentMethod === "CUSTOMER_CREDIT" ? "selected" : undefined} type="button" onClick={() => setPaymentMethod("CUSTOMER_CREDIT")}>Pay later</button>
           <button className="checkout-button" type="button" disabled={cart.length === 0 || saving} onClick={() => void recordSale()}>
-            {saving ? "Saving…" : `Record ${formatMoney(totalMinor)}`}
+            {saving ? "Saving…" : `Record ${formatMoney(totalMinor, currencyCode)}`}
           </button>
         </div>
       </div>
