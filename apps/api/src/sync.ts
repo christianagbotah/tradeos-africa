@@ -1,3 +1,4 @@
+import { applyPurchaseReceiveMutation, applySupplierPaymentMutation, PurchaseMutationError, type PurchaseReceiveMutationPayload, type SupplierPaymentPayload } from "./commerce/purchases.js";
 import type { ClientMutation, MutationResult, SyncPushRequest, SyncResponse } from "@tradeos/contracts";
 import {
   applyCustomerPaymentMutation,
@@ -94,7 +95,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     );
     return { clientMutationId: mutation.clientMutationId, status: "APPLIED", serverReceivedAt, result };
   } catch (error) {
-    const code = error instanceof SaleMutationError || error instanceof ReturnMutationError || error instanceof CustomerCreditError
+    const code = error instanceof SaleMutationError || error instanceof ReturnMutationError || error instanceof CustomerCreditError || error instanceof PurchaseMutationError
       ? error.code
       : "MUTATION_APPLY_FAILED";
     const message = error instanceof Error ? error.message : "Unknown mutation application error";
@@ -125,6 +126,10 @@ async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutatio
   };
 
   switch (mutation.mutationType) {
+    case "PURCHASE_RECEIVE_CREATE":
+      return applyPurchaseReceiveMutation(pool, context, mutation.payload as PurchaseReceiveMutationPayload);
+    case "SUPPLIER_PAYMENT_CREATE":
+      return applySupplierPaymentMutation(pool, context, mutation.payload as SupplierPaymentPayload);
     case "SALE_CREATE":
       return applySaleMutation(pool, context, mutation.payload as SaleMutationPayload);
     case "RETURN_CREATE":

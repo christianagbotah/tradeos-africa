@@ -1,3 +1,4 @@
+import { registerSupplierInventoryRoutes } from "./suppliers-inventory.js";
 import Fastify from "fastify";
 import type { ClientMutation, SyncPushRequest } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
@@ -14,6 +15,8 @@ import { ingestSyncBatch, SyncRequestError } from "./sync.js";
 const SALE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "STAFF"];
 const RETURN_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER"];
 const CUSTOMER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
+const PURCHASE_RECEIVE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"];
+const SUPPLIER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 
 export function buildApp(pool: DatabasePool) {
   const app = Fastify({ logger: true });
@@ -33,6 +36,7 @@ export function buildApp(pool: DatabasePool) {
   registerCatalogRoutes(app, pool);
   registerCustomerRoutes(app, pool);
   registerSalesReadRoutes(app, pool);
+  registerSupplierInventoryRoutes(app, pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
     try {
@@ -119,9 +123,14 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
     };
   }
 
-  if (mutation.mutationType === "CUSTOMER_PAYMENT_CREATE") {
+  if (["CUSTOMER_PAYMENT_CREATE", "PURCHASE_RECEIVE_CREATE"].includes(mutation.mutationType)) {
     const { receivedByStaffId: _ignored, ...rest } = payload;
     return { ...rest, receivedByStaffId: access.staffId };
+  }
+
+  if (mutation.mutationType === "SUPPLIER_PAYMENT_CREATE") {
+    const { paidByStaffId: _ignored, receivedByStaffId: _legacyIgnored, ...rest } = payload;
+    return { ...rest, paidByStaffId: access.staffId };
   }
 
   return payload;
@@ -134,6 +143,10 @@ function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
     case "RETURN_CREATE":
     case "REFUND_CREATE":
       return RETURN_ROLES;
+    case "PURCHASE_RECEIVE_CREATE":
+      return PURCHASE_RECEIVE_ROLES;
+    case "SUPPLIER_PAYMENT_CREATE":
+      return SUPPLIER_PAYMENT_ROLES;
     case "CUSTOMER_PAYMENT_CREATE":
       return CUSTOMER_PAYMENT_ROLES;
     default:

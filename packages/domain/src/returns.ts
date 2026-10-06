@@ -12,6 +12,7 @@ export interface SaleLineSnapshot {
   unitNet: Money;
   unitTax: Money;
   unitCost: Money;
+  lineCost?: Money;
   stockUnitId?: string;
   /** Historical stock units represented by one sale unit at the time of sale. */
   stockQuantityPerSaleUnit?: number;
@@ -83,7 +84,7 @@ export function planSaleReturn(saleLines: SaleLineSnapshot[], request: SaleRetur
       throw new SaleReturnError(`Cannot return ${requested.quantity}; only ${remaining} remains returnable for ${line.id}`);
     }
 
-    for (const value of [line.unitNet, line.unitTax, line.unitCost]) {
+    for (const value of [line.unitNet, line.unitTax, line.unitCost, ...(line.lineCost ? [line.lineCost] : [])]) {
       currency ??= value.currency;
       if (value.currency !== currency) throw new SaleReturnError("All sale line money values must use one currency");
     }
@@ -92,7 +93,9 @@ export function planSaleReturn(saleLines: SaleLineSnapshot[], request: SaleRetur
 
     const netRevenueReversal = multiplyMoney(line.unitNet, requested.quantity);
     const taxReversal = multiplyMoney(line.unitTax, requested.quantity);
-    const returnedCost = multiplyMoney(line.unitCost, requested.quantity);
+    const returnedCost = line.lineCost
+      ? money(line.lineCost.currency, allocatedCost(line.lineCost.minor, line.quantityPreviouslyReturned + requested.quantity, line.quantitySold) - allocatedCost(line.lineCost.minor, line.quantityPreviouslyReturned, line.quantitySold))
+      : multiplyMoney(line.unitCost, requested.quantity);
     let cogsReversal = money(line.unitCost.currency, 0);
     let discardedCost = money(line.unitCost.currency, 0);
     let inventoryEffect: InventoryReturnEffect | undefined;
@@ -176,4 +179,15 @@ function assertDisposition(line: SaleLineSnapshot, disposition: ReturnDispositio
   ) {
     throw new SaleReturnError("Prepared-product refunds may be DISCARD, NOT_RETURNED or NOT_APPLICABLE; ingredients cannot be restocked");
   }
+}
+
+function allocatedCost(minor: number, quantity: number, totalQuantity: number): number {
+  const scale = 100_000_000;
+  const numerator = Math.round(quantity * scale);
+  const denominator = Math.round(totalQuantity * scale);
+  if (!Number.isSafeInteger(numerator) || !Number.isSafeInteger(denominator) || denominator <= 0) {
+    throw new SaleReturnError("Unsafe valuation quantity");
+  }
+  const divisor = BigInt(denominator);
+  return Number((BigInt(minor) * BigInt(numerator) + divisor / 2n) / divisor);
 }

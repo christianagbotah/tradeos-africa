@@ -1,3 +1,4 @@
+import "./purchases-inventory.css";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./returns.css";

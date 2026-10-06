@@ -1,3 +1,4 @@
+import { adjustValuation } from "./valuation.js";
 import { money, planSaleReturn, SaleReturnError, type RefundMethod, type ReturnDisposition, type SaleLineSnapshot } from "@tradeos/domain";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
@@ -36,6 +37,7 @@ type SaleLineRow = {
   unit_net_minor: string | number;
   unit_tax_minor: string | number;
   unit_cost_minor: string | number;
+  line_cost_minor: string | number;
   stock_quantity: string | number | null;
   stock_unit_code: string | null;
   item_id: string;
@@ -89,7 +91,7 @@ export async function applyReturnMutation(
 
     const requestedIds = payload.lines.map((line) => line.saleLineId);
     const linesResult = await client.query<SaleLineRow>(
-      `SELECT sl.id,sl.item_kind,sl.quantity,sl.unit_net_minor,sl.unit_tax_minor,sl.unit_cost_minor,
+      `SELECT sl.id,sl.item_kind,sl.quantity,sl.unit_net_minor,sl.unit_tax_minor,sl.unit_cost_minor,sl.line_cost_minor,
               sl.stock_quantity,sl.stock_unit_code,sl.item_id,
               COALESCE((SELECT SUM(rl.quantity) FROM return_lines rl
                 JOIN return_cases rc ON rc.id=rl.return_case_id
@@ -115,6 +117,7 @@ export async function applyReturnMutation(
         unitNet: money(sale.currency_code, Number(line.unit_net_minor)),
         unitTax: money(sale.currency_code, Number(line.unit_tax_minor)),
         unitCost: money(sale.currency_code, Number(line.unit_cost_minor)),
+        lineCost: money(sale.currency_code, Number(line.line_cost_minor)),
         ...(line.stock_unit_code ? { stockUnitId: line.stock_unit_code } : {}),
         ...(stock !== null ? { stockQuantityPerSaleUnit: stock / sold } : {}),
       };
@@ -183,7 +186,10 @@ export async function applyReturnMutation(
       if (!returnLineId) throw new ReturnMutationError("Could not create return line", "RETURN_LINE_CREATE_FAILED");
 
       if (planned.inventoryEffect) {
-        await client.query(`SELECT id FROM catalog_items WHERE id=$1 FOR UPDATE`, [original.item_id]);
+        await client.query(`SELECT id FROM catalog_items WHERE id=$1 AND business_id=$2 FOR UPDATE`, [original.item_id,context.businessId]);
+        if (["RESTOCK","QUARANTINE"].includes(requested.disposition)) {
+          await adjustValuation(client,context,original.item_id,planned.inventoryEffect.destination,planned.inventoryEffect.quantity,planned.cogsReversal.minor);
+        }
         await client.query(
           `INSERT INTO inventory_movements (
              business_id,branch_id,item_id,stock_unit_code,quantity_delta,location_type,reason,

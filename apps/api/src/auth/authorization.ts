@@ -22,9 +22,10 @@ export async function requireBusinessRole(
     staff_id: string | null;
     business_status: string;
   }>(
-    `SELECT m.id AS membership_id,m.role,m.staff_id,b.status AS business_status
+    `SELECT m.id AS membership_id,m.role,st.id AS staff_id,b.status AS business_status
      FROM business_memberships m
      JOIN businesses b ON b.id=m.business_id
+     LEFT JOIN staff st ON st.id=m.staff_id AND st.business_id=m.business_id AND st.is_active=true
      WHERE m.business_id=$1 AND m.user_id=$2 AND m.status='ACTIVE'`,
     [businessId, auth.userId],
   );

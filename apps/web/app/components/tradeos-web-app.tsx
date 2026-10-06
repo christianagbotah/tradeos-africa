@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { PurchasesInventory } from "./purchases-inventory";
 import { CustomersCredit } from "./customers-credit";
 import { NetworkStatus } from "./network-status";
 import { QuickSale, type QuickSaleItem } from "./quick-sale";
@@ -327,6 +328,7 @@ function BusinessWorkspace(props: {
           <a className="nav-item active" href="#dashboard">Overview</a>
           <a className="nav-item" href="#sell">Sell</a>
           <a className="nav-item" href="#customers">Customers & credit</a>
+          <a className="nav-item" href="#purchases">Purchases & inventory</a>
           <a className="nav-item" href="#catalog">Catalog & units</a>
           <a className="nav-item" href="#returns">Returns & refunds</a>
         </nav>
@@ -362,6 +364,8 @@ function BusinessWorkspace(props: {
         </section>
 
         <QuickSale businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} items={sellableItems} />
+
+        <PurchasesInventory businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} role={context.membership.role} catalog={props.catalog} />
 
         <CustomersCredit
           businessId={context.business.id}
