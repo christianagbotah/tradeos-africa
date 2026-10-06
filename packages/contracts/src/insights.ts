@@ -36,6 +36,37 @@ export interface BusinessInsight {
   evidence: BusinessInsightEvidence[];
 }
 
+export type WorkingCapitalStatus = "HEALTHY" | "WATCH" | "PRESSURED" | "INSUFFICIENT_DATA";
+
+export interface WorkingCapitalSummary {
+  status: WorkingCapitalStatus;
+  headline: string;
+  inventorySnapshotAligned: boolean;
+  cashAfterPayablesMinor: number;
+  netTradeCreditMinor: number;
+  operatingWorkingCapitalMinor: number | null;
+  payableCoverageRatio: number | null;
+  receivableMonths: number | null;
+  inventoryMonths: number | null;
+  operatingCashConversionPercent: number | null;
+}
+
+export type CfoActionPriority = "URGENT" | "HIGH" | "MEDIUM" | "LOW";
+export type CfoActionArea = "CASH" | "CUSTOMERS" | "INVENTORY" | "SALES" | "EXPENSES" | "PRICING" | "BRANCHES" | "REPORTS";
+
+export interface CfoAction {
+  code: string;
+  sourceInsightCode: string;
+  priority: CfoActionPriority;
+  area: CfoActionArea;
+  title: string;
+  reason: string;
+  action: string;
+  href: string;
+  navigationLabel: string;
+  evidence: BusinessInsightEvidence[];
+}
+
 export interface BusinessHealthSummary {
   algorithmVersion: "health-v1";
   score: number | null;
@@ -45,4 +76,6 @@ export interface BusinessHealthSummary {
   periodDays: number;
   dimensions: BusinessHealthDimension[];
   insights: BusinessInsight[];
+  workingCapital: WorkingCapitalSummary;
+  actions: CfoAction[];
 }

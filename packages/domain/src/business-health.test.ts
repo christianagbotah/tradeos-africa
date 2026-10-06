@@ -127,6 +127,39 @@ describe("business health rules", () => {
     expect(result.status).not.toBe("EXCELLENT");
   });
 
+  it("turns working-capital pressure into ranked owner actions with direct workflow routes", () => {
+    const report = basis({
+      flow: { ...basis().flow, netRevenueMinor: 50000, netCogsMinor: 30000, operatingCashNetMinor: -12000, netCashMovementMinor: 15000 },
+      position: { ...basis().position, cashBalanceMinor: 10000, receivablesMinor: 90000, payablesMinor: 40000, inventoryValueMinor: 120000, inventoryAvailableValueMinor: 120000 },
+    });
+    const result = evaluateBusinessHealth(report);
+    expect(result.workingCapital.status).toBe("PRESSURED");
+    expect(result.workingCapital.cashAfterPayablesMinor).toBe(-30000);
+    expect(result.workingCapital.netTradeCreditMinor).toBe(50000);
+    expect(result.workingCapital.operatingWorkingCapitalMinor).toBe(170000);
+    expect(result.actions[0]?.priority).toBe("URGENT");
+    expect(result.actions.some((item) => item.sourceInsightCode === "PAYABLE_COVERAGE" && item.href === "#purchases")).toBe(true);
+    expect(result.actions.some((item) => item.sourceInsightCode === "RECEIVABLE_PRESSURE" && item.href === "#customers")).toBe(true);
+  });
+
+  it("does not fabricate operating working capital for a historical period with a current inventory snapshot", () => {
+    const report = basis({
+      period: { from: "2026-06-01T00:00:00.000Z", to: "2026-07-01T00:00:00.000Z", timezone: "Africa/Accra" },
+      position: { ...basis().position, inventorySnapshotAt: "2026-10-06T00:00:00.000Z" },
+    });
+    const result = evaluateBusinessHealth(report);
+    expect(result.workingCapital.inventorySnapshotAligned).toBe(false);
+    expect(result.workingCapital.operatingWorkingCapitalMinor).toBeNull();
+    expect(result.workingCapital.inventoryMonths).toBeNull();
+  });
+
+  it("gives a healthy business a low-priority keep-recording action instead of inventing a problem", () => {
+    const result = evaluateBusinessHealth(basis());
+    expect(result.workingCapital.status).toBe("HEALTHY");
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0]).toMatchObject({ code: "ACTION_MAINTAIN_RECORDING", priority: "LOW", area: "REPORTS" });
+  });
+
   it("returns insufficient data instead of inventing a score for an empty business", () => {
     const empty = basis({
       flow: { ...basis().flow, grossRevenueMinor: 0, returnsRevenueMinor: 0, netRevenueMinor: 0, grossCogsMinor: 0, cogsReversalMinor: 0, netCogsMinor: 0, grossProfitMinor: 0, expenseMinor: 0, operatingProfitMinor: 0, grossSalesTotalMinor: 0, refundTotalMinor: 0, salesCount: 0, returnCount: 0, averageNetSaleMinor: 0, cashInflowMinor: 0, cashOutflowMinor: 0, netCashMovementMinor: 0, operatingCashNetMinor: 0 },
