@@ -1,3 +1,4 @@
+import { applyPurchaseReturnMutation, type PurchaseReturnPayload } from "./commerce/purchase-returns.js";
 import { applyPurchaseReceiveMutation, applySupplierPaymentMutation, PurchaseMutationError, type PurchaseReceiveMutationPayload, type SupplierPaymentPayload } from "./commerce/purchases.js";
 import type { ClientMutation, MutationResult, SyncPushRequest, SyncResponse } from "@tradeos/contracts";
 import {
@@ -126,6 +127,8 @@ async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutatio
   };
 
   switch (mutation.mutationType) {
+    case "PURCHASE_RETURN_CREATE":
+      return applyPurchaseReturnMutation(pool, context, mutation.payload as PurchaseReturnPayload);
     case "PURCHASE_RECEIVE_CREATE":
       return applyPurchaseReceiveMutation(pool, context, mutation.payload as PurchaseReceiveMutationPayload);
     case "SUPPLIER_PAYMENT_CREATE":

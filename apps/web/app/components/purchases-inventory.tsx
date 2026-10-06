@@ -84,6 +84,7 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [purchases, setPurchases] = useState<PurchaseSummary[]>([]);
+  const [returnPurchase, setReturnPurchase] = useState<PurchaseSummary | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const canReceive = receiveRoles.has(role);
   const canPaySupplier = supplierPaymentRoles.has(role);
@@ -107,7 +108,7 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
     void refresh();
     const onApplied = (event: Event) => {
       const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
-      if (detail?.businessId === businessId && detail.branchId === branchId && ["PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","SALE_CREATE","RETURN_CREATE","REFUND_CREATE"].includes(detail.mutationType)) {
+      if (detail?.businessId === businessId && detail.branchId === branchId && ["PURCHASE_RETURN_CREATE","PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","SALE_CREATE","RETURN_CREATE","REFUND_CREATE"].includes(detail.mutationType)) {
         void refresh();
       }
     };
@@ -139,11 +140,12 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
         </div>
       ) : <div className="inventory-readonly-note">Your role can view stock and purchase history but cannot receive inventory.</div>}
 
-      <div className="supplier-balances">{suppliers.map(supplier => <div className="purchase-history-row" key={supplier.id}><strong>{supplier.name} · Payable {formatMoney(supplier.balanceMinor,currencyCode)}</strong>{canPaySupplier && supplier.balanceMinor > 0 ? <SupplierPayment businessId={businessId} branchId={branchId} supplier={supplier} onMessage={setMessage} /> : null}</div>)}</div>
+      <div className="supplier-balances">{suppliers.map(supplier => <div className="purchase-history-row" key={supplier.id}><strong>{supplier.name} · {supplier.balanceMinor < 0 ? "Supplier credit" : "Payable"} {formatMoney(Math.abs(supplier.balanceMinor),currencyCode)}</strong>{canPaySupplier && supplier.balanceMinor > 0 ? <SupplierPayment businessId={businessId} branchId={branchId} supplier={supplier} onMessage={setMessage} /> : null}</div>)}</div>
       <div className="procurement-grid">
         <InventoryTable items={inventory} currencyCode={currencyCode} />
-        <RecentPurchases purchases={purchases} />
+        <RecentPurchases purchases={purchases} onReturn={canReceive ? setReturnPurchase : undefined} />
       </div>
+      {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={()=>setReturnPurchase(null)} onMessage={setMessage} /> : null}
       {message ? <div className="procurement-message">{message}</div> : null}
     </section>
   );
@@ -302,11 +304,12 @@ function InventoryTable({ items, currencyCode }: { items: InventoryItem[]; curre
   </div>;
 }
 
-function RecentPurchases({ purchases }: { purchases: PurchaseSummary[] }) {
+function RecentPurchases({ purchases, onReturn }: { purchases: PurchaseSummary[]; onReturn?: ((purchase: PurchaseSummary) => void) | undefined }) {
   return <div className="purchase-history-card"><div className="subpanel-head"><div><p className="eyebrow">Receiving history</p><h3>Recent purchases</h3></div></div>
     <div className="purchase-history-list">{purchases.length===0?<div className="inventory-empty">No purchase receipts yet.</div>:purchases.map((purchase)=><div className="purchase-history-row" key={purchase.id}>
       <div><strong>{purchase.supplierName}</strong><span>{purchase.supplierReference??`${purchase.lineCount} line${purchase.lineCount===1?"":"s"}`} · {formatDate(purchase.receivedAt)}</span></div>
       <div><strong>{formatMoney(purchase.totalMinor,purchase.currencyCode)}</strong><span>{purchase.settlementMethod.replaceAll("_", " ")} · {purchase.receiverName??"Staff"}</span></div>
+      {onReturn ? <button type="button" className="ghost-button" onClick={()=>onReturn(purchase)}>Return purchase</button> : null}
     </div>)}</div>
   </div>;
 }
@@ -345,4 +348,47 @@ function SupplierPayment({businessId,branchId,supplier,onMessage}:{businessId:st
   } catch(error){onMessage(messageFrom(error));} finally{setBusy(false);}
  };
  return <form className="supplier-form" onSubmit={event=>void submit(event)}><label>Payment amount<input required inputMode="decimal" value={amount} onChange={event=>setAmount(event.target.value)} /></label><label>Method<select value={method} onChange={event=>setMethod(event.target.value)}>{["CASH","MOMO","CARD","BANK","OTHER"].map(value=><option key={value}>{value}</option>)}</select></label><button disabled={busy} className="primary-button">Pay supplier</button></form>;
+}
+
+
+type ReturnablePurchaseLine = {id:string;itemName:string;purchaseUnitCode:string;purchaseQuantity:number;stockUnitCode:string;stockQuantity:number;lineCostMinor:number;returnedQuantity:number;remainingQuantity:number;returnedRecoveryMinor:number};
+function returnPreview(line:ReturnablePurchaseLine, quantity:number):number {
+ const original=BigInt(Math.round(line.purchaseQuantity*1e8));
+ if (original<=0n || !Number.isFinite(quantity) || quantity<0 || quantity>line.remainingQuantity) return 0;
+ const cumulative=BigInt(Math.round(line.returnedQuantity*1e8))+BigInt(Math.round(quantity*1e8));
+ return Number((BigInt(line.lineCostMinor)*cumulative+original/2n)/original)-line.returnedRecoveryMinor;
+}
+function PurchaseReturn({businessId,branchId,purchase,onClose,onMessage}:{businessId:string;branchId:string;purchase:PurchaseSummary;onClose:()=>void;onMessage:(message:string)=>void}) {
+ const [lines,setLines]=useState<ReturnablePurchaseLine[]>([]);
+ const [quantities,setQuantities]=useState<Record<string,string>>({});
+ const [locations,setLocations]=useState<Record<string,string>>({});
+ const [method,setMethod]=useState("CREDIT_NOTE");
+ const [busy,setBusy]=useState(false);
+ const [loaded,setLoaded]=useState(false);
+ const [loadError,setLoadError]=useState<string | null>(null);
+ useEffect(()=>{let active=true; clientApi<{lines:ReturnablePurchaseLine[]}>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then(data=>{if(active){setLines(data.lines);setLoaded(true);}}).catch(error=>{if(active)setLoadError(messageFrom(error));});return ()=>{active=false;};},[businessId,purchase.id]);
+ const preview=lines.reduce((sum,line)=>sum+returnPreview(line,Number(quantities[line.id]||0)),0);
+ const submit=async(event:FormEvent)=>{
+  event.preventDefault();
+  const selected=lines.filter(line=>Number(quantities[line.id]||0)>0);
+  if(!selected.length || selected.some(line=>!Number.isFinite(Number(quantities[line.id])) || Number(quantities[line.id])>line.remainingQuantity)){onMessage("Choose quantities within the remaining purchased quantities.");return;}
+  setBusy(true);
+  try {
+   enqueueMutation({clientId:getOrCreateClientId(),clientMutationId:crypto.randomUUID(),businessId,branchId,mutationType:"PURCHASE_RETURN_CREATE",occurredAt:new Date().toISOString(),payload:{originalPurchaseId:purchase.id,supplierId:purchase.supplierId,recoveryMethod:method,lines:selected.map(line=>({purchaseLineId:line.id,quantity:Number(quantities[line.id]),sourceLocation:locations[line.id]||"AVAILABLE"}))}});
+   onClose();
+   if(!navigator.onLine){onMessage("Purchase return saved offline; stock and recovery will post when synchronized.");return;}
+   const result=await flushPendingMutations();onMessage(result.rejected ? "Purchase return needs review." : "Purchase return saved for synchronization.");
+  }catch(error){onMessage(messageFrom(error));}finally{setBusy(false);}
+ };
+ return <form className="purchase-receipt-box" onSubmit={event=>void submit(event)}>
+  <div className="purchase-receipt-head"><strong>Return to {purchase.supplierName}</strong><button className="ghost-button" type="button" onClick={onClose}>Close</button></div>
+  {!loaded ? <p>{loadError || "Loading original purchase…"}</p> : lines.map(line=><div className="receipt-line-builder" key={line.id}>
+   <div><strong>{line.itemName}</strong><p>Remaining {formatQuantity(line.remainingQuantity)} {line.purchaseUnitCode} · Originally {formatQuantity(line.purchaseQuantity)} {line.purchaseUnitCode} = {formatQuantity(line.stockQuantity)} {line.stockUnitCode}</p></div>
+   <label>Return quantity ({line.purchaseUnitCode})<input type="number" min="0" max={line.remainingQuantity} step="0.00000001" disabled={line.remainingQuantity<=0} value={quantities[line.id]||""} onChange={event=>setQuantities(current=>({...current,[line.id]:event.target.value}))}/></label>
+   <label>Stock source<select value={locations[line.id]||"AVAILABLE"} onChange={event=>setLocations(current=>({...current,[line.id]:event.target.value}))}><option>AVAILABLE</option><option>QUARANTINE</option></select></label>
+  </div>)}
+  <label>Recovery method<select value={method} onChange={event=>setMethod(event.target.value)}>{["CREDIT_NOTE","CASH","MOMO","CARD","BANK","OTHER"].map(value=><option key={value} value={value}>{value==="CREDIT_NOTE"?"Supplier credit note":value}</option>)}</select></label>
+  <p>{method==="CREDIT_NOTE"?"Supplier credit":"Supplier recovery"} preview: {formatMoney(preview,purchase.currencyCode)}</p>
+  <button className="primary-button" disabled={busy||!loaded} type="submit">Save purchase return</button>
+ </form>;
 }

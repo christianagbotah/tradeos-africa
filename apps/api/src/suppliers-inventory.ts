@@ -1,3 +1,4 @@
+import { quantityFromUnits, quantityUnits } from "./commerce/valuation.js";
 import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
@@ -155,6 +156,24 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
     } catch (error) {
       return sendError(request,reply,error);
     }
+  });
+
+  app.get<{ Params: { purchaseId: string }; Querystring: { businessId?: string } }>("/v1/purchases/:purchaseId", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = required(request.query.businessId, "businessId");
+      await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      const purchase = (await pool.query(`SELECT p.*,s.name AS supplier_name FROM purchases p JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=$1 AND p.business_id=$2`, [request.params.purchaseId,businessId])).rows[0];
+      if (!purchase) throw new SupplierError("Purchase was not found",404,"PURCHASE_NOT_FOUND");
+      const lines = await pool.query(`SELECT pl.*,COALESCE(r.quantity,0) AS returned_quantity,
+        COALESCE(r.recovery,0) AS returned_recovery_minor FROM purchase_lines pl
+        LEFT JOIN (SELECT purchase_line_id,SUM(purchase_quantity) AS quantity,SUM(supplier_recovery_minor) AS recovery FROM purchase_return_lines GROUP BY purchase_line_id) r ON r.purchase_line_id=pl.id
+        WHERE pl.purchase_id=$1 AND pl.business_id=$2 ORDER BY pl.created_at,pl.id`,[purchase.id,businessId]);
+      const returns = await pool.query(`SELECT id,recovery_method,supplier_recovery_minor,inventory_value_removed_minor,purchase_price_variance_minor,occurred_at FROM purchase_return_cases WHERE original_purchase_id=$1 AND business_id=$2 ORDER BY occurred_at DESC,id DESC LIMIT 25`,[purchase.id,businessId]);
+      return { purchase: { id:purchase.id,businessId,branchId:purchase.branch_id,supplierId:purchase.supplier_id,supplierName:purchase.supplier_name,status:purchase.status,currencyCode:purchase.currency_code,totalMinor:Number(purchase.total_minor),settlementMethod:purchase.settlement_method },
+        lines:lines.rows.map(row=>({id:row.id,itemId:row.item_id,itemName:row.item_name_snapshot,purchaseUnitCode:row.purchase_unit_code,purchaseQuantity:Number(row.purchase_quantity),stockUnitCode:row.stock_unit_code,stockQuantity:Number(row.stock_quantity),unitCostMinor:Number(row.unit_cost_minor),lineCostMinor:Number(row.line_cost_minor),returnedQuantity:Number(row.returned_quantity),remainingQuantity:quantityFromUnits(quantityUnits(Number(row.purchase_quantity))-quantityUnits(Number(row.returned_quantity))),returnedRecoveryMinor:Number(row.returned_recovery_minor)})),
+        returns:returns.rows.map(row=>({id:row.id,recoveryMethod:row.recovery_method,supplierRecoveryMinor:Number(row.supplier_recovery_minor),inventoryValueRemovedMinor:Number(row.inventory_value_removed_minor),purchasePriceVarianceMinor:Number(row.purchase_price_variance_minor),occurredAt:row.occurred_at.toISOString()})) };
+    } catch (error) { return sendError(request,reply,error); }
   });
 
   app.get<{ Querystring: { businessId?: string; branchId?: string; limit?: string } }>("/v1/purchases", async (request, reply) => {

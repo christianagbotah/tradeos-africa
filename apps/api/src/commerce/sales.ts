@@ -83,8 +83,18 @@ export async function applySaleMutation(
     if (currencyCode !== businessCurrency) {
       throw new SaleMutationError("Sale currency must match the business currency", "SALE_CURRENCY_MISMATCH");
     }
+    const customerCreditRequested = payload.paymentMethod === "CUSTOMER_CREDIT"
+      || Boolean(payload.payments?.some((payment) => payment.method === "CUSTOMER_CREDIT"));
+    if (customerCreditRequested && !payload.customerId) {
+      throw new SaleMutationError("Pay later requires a customer", "CUSTOMER_REQUIRED_FOR_CREDIT");
+    }
     if (payload.customerId) {
-      const customer = await loadCustomerAccount(client, context.businessId, payload.customerId);
+      // Customer-credit mutations use one global lock order: customer first, then catalog/inventory.
+      // Refunds already lock the customer before restoring stock, so this prevents the inverse
+      // catalog -> customer order from deadlocking with a concurrent refund.
+      const customer = await loadCustomerAccount(
+        client, context.businessId, payload.customerId, customerCreditRequested,
+      );
       if (!customer.is_active) throw new SaleMutationError("Customer account is inactive", "CUSTOMER_INACTIVE");
     }
 
@@ -105,6 +115,8 @@ export async function applySaleMutation(
     );
     const saleId = inserted.rows[0]?.id;
     if (!saleId) throw new SaleMutationError("Could not create sale", "SALE_CREATE_FAILED");
+
+    await lockSaleCatalogItems(client, context.businessId, payload.lines.map((line) => line.itemId));
 
     let subtotalMinor = 0;
     let taxMinor = 0;
@@ -251,6 +263,37 @@ function normalizePayments(payload: SaleMutationPayload, totalMinor: number): Ar
   }
   if (!payload.paymentMethod) throw new SaleMutationError("A payment method is required", "PAYMENT_REQUIRED");
   return [{ method: payload.paymentMethod, amountMinor: totalMinor }];
+}
+
+async function lockSaleCatalogItems(client: DatabaseClient, businessId: string, itemIds: string[]): Promise<void> {
+  const directIds = [...new Set(itemIds)].sort();
+  if (directIds.length === 0) return;
+
+  // A service/prepared-product sale may consume hidden ingredient products. Include the
+  // components from each output item's current definition before taking any catalog locks,
+  // then lock the full affected set in one deterministic UUID order. This matches the
+  // purchase/return lock order and prevents sale-vs-return deadlocks.
+  const components = await client.query<{ component_item_id: string }>(
+    `SELECT DISTINCT cc.component_item_id
+     FROM unnest($2::uuid[]) AS requested(output_item_id)
+     JOIN LATERAL (
+       SELECT cd.id
+       FROM consumption_definitions cd
+       WHERE cd.business_id=$1 AND cd.output_item_id=requested.output_item_id
+       ORDER BY cd.updated_at DESC,cd.id
+       LIMIT 1
+     ) latest ON true
+     JOIN consumption_components cc ON cc.definition_id=latest.id`,
+    [businessId, directIds],
+  );
+  const affectedIds = [...new Set([
+    ...directIds,
+    ...components.rows.map((row) => row.component_item_id),
+  ])].sort();
+  await client.query(
+    `SELECT id FROM catalog_items WHERE business_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE`,
+    [businessId, affectedIds],
+  );
 }
 
 async function loadItem(client: DatabaseClient, businessId: string, itemId: string, unit: string): Promise<CatalogRow> {

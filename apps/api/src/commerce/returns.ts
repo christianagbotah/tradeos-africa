@@ -170,6 +170,18 @@ export async function applyReturnMutation(
     if (!returnCaseId) throw new ReturnMutationError("Could not create return case", "RETURN_CREATE_FAILED");
 
     const originalById = new Map(linesResult.rows.map((line) => [line.id, line]));
+    const returnItemIds = [...new Set(
+      plan.lines
+        .filter((line) => Boolean(line.inventoryEffect))
+        .map((line) => originalById.get(line.saleLineId)?.item_id)
+        .filter((itemId): itemId is string => Boolean(itemId)),
+    )].sort();
+    if (returnItemIds.length > 0) {
+      await client.query(
+        `SELECT id FROM catalog_items WHERE business_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE`,
+        [context.businessId, returnItemIds],
+      );
+    }
     for (let index = 0; index < plan.lines.length; index += 1) {
       const planned = plan.lines[index]!;
       const requested = payload.lines.find((line) => line.saleLineId === planned.saleLineId)!;
@@ -186,7 +198,6 @@ export async function applyReturnMutation(
       if (!returnLineId) throw new ReturnMutationError("Could not create return line", "RETURN_LINE_CREATE_FAILED");
 
       if (planned.inventoryEffect) {
-        await client.query(`SELECT id FROM catalog_items WHERE id=$1 AND business_id=$2 FOR UPDATE`, [original.item_id,context.businessId]);
         if (["RESTOCK","QUARANTINE"].includes(requested.disposition)) {
           await adjustValuation(client,context,original.item_id,planned.inventoryEffect.destination,planned.inventoryEffect.quantity,planned.cogsReversal.minor);
         }
