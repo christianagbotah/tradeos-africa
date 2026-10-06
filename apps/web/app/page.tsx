@@ -1,3 +1,5 @@
+import { NetworkStatus } from "./components/network-status";
+
 const businessPacks = [
   { name: "Retail & Hardware", detail: "Shops, provisions, iron rods, nails, sandpaper", icon: "▦" },
   { name: "Food & Waakye", detail: "Recipes, portions, ingredients, packaging", icon: "◒" },
@@ -38,13 +40,7 @@ export default function HomePage() {
           <a className="nav-item" href="#reports">Reports</a>
         </nav>
 
-        <div className="sync-card">
-          <div className="sync-dot" />
-          <div>
-            <strong>Offline-ready</strong>
-            <span>Changes sync automatically</span>
-          </div>
-        </div>
+        <NetworkStatus />
       </aside>
 
       <section className="workspace">
