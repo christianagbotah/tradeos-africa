@@ -1,29 +1,25 @@
 import type { ClientMutation, MutationResult, SyncPushRequest, SyncResponse } from "@tradeos/contracts";
+import { applyReturnMutation, ReturnMutationError, type ReturnMutationPayload } from "./commerce/returns.js";
+import { applySaleMutation, SaleMutationError, type SaleMutationPayload } from "./commerce/sales.js";
 import type { DatabasePool } from "./db.js";
 
 const MAX_BATCH_SIZE = 100;
+type StoredStatus = "RECEIVED" | "APPLIED" | "REJECTED";
 
 export class SyncRequestError extends Error {
-  constructor(
-    message: string,
-    readonly statusCode = 400,
-  ) {
+  constructor(message: string, readonly statusCode = 400) {
     super(message);
   }
 }
 
 export async function ingestSyncBatch(pool: DatabasePool, request: SyncPushRequest): Promise<SyncResponse> {
-  if (!Array.isArray(request.mutations)) {
-    throw new SyncRequestError("mutations must be an array");
-  }
+  if (!Array.isArray(request.mutations)) throw new SyncRequestError("mutations must be an array");
   if (request.mutations.length > MAX_BATCH_SIZE) {
     throw new SyncRequestError(`A sync batch may contain at most ${MAX_BATCH_SIZE} mutations`, 413);
   }
 
   const mutationResults: MutationResult[] = [];
-  for (const mutation of request.mutations) {
-    mutationResults.push(await ingestMutation(pool, mutation));
-  }
+  for (const mutation of request.mutations) mutationResults.push(await ingestMutation(pool, mutation));
 
   return {
     mutationResults,
@@ -34,107 +30,122 @@ export async function ingestSyncBatch(pool: DatabasePool, request: SyncPushReque
 
 async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Promise<MutationResult> {
   assertMutationShape(mutation);
-  const client = await pool.connect();
   const serverReceivedAt = new Date().toISOString();
+  const client = await pool.connect();
+  let insertedNew = false;
 
   try {
     await client.query("BEGIN");
-
     const inserted = await client.query<{
-      status: "RECEIVED" | "APPLIED" | "REJECTED";
+      status: StoredStatus;
       result_payload: unknown | null;
       received_at: Date;
     }>(
-      `
-        INSERT INTO sync_mutations (
-          business_id,
-          branch_id,
-          client_id,
-          client_mutation_id,
-          mutation_type,
-          request_payload,
-          status
-        )
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'RECEIVED')
-        ON CONFLICT (business_id, client_id, client_mutation_id) DO NOTHING
-        RETURNING status, result_payload, received_at
-      `,
-      [
-        mutation.businessId,
-        mutation.branchId ?? null,
-        mutation.clientId,
-        mutation.clientMutationId,
-        mutation.mutationType,
-        JSON.stringify(mutation),
-      ],
+      `INSERT INTO sync_mutations (
+         business_id,branch_id,client_id,client_mutation_id,mutation_type,request_payload,status
+       ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,'RECEIVED')
+       ON CONFLICT (business_id,client_id,client_mutation_id) DO NOTHING
+       RETURNING status,result_payload,received_at`,
+      [mutation.businessId, mutation.branchId ?? null, mutation.clientId, mutation.clientMutationId,
+       mutation.mutationType, JSON.stringify(mutation)],
     );
 
-    if ((inserted.rowCount ?? 0) === 1) {
+    insertedNew = (inserted.rowCount ?? 0) === 1;
+    if (!insertedNew) {
+      const existing = await client.query<{ status: StoredStatus; result_payload: unknown | null; received_at: Date }>(
+        `SELECT status,result_payload,received_at FROM sync_mutations
+         WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 FOR SHARE`,
+        [mutation.businessId, mutation.clientId, mutation.clientMutationId],
+      );
+      const prior = existing.rows[0];
+      if (!prior) throw new Error("Idempotent mutation record disappeared during transaction");
       await client.query("COMMIT");
       return {
         clientMutationId: mutation.clientMutationId,
-        status: "RECEIVED",
-        serverReceivedAt,
+        status: prior.status,
+        serverReceivedAt: prior.received_at.toISOString(),
+        ...(prior.result_payload !== null ? { result: prior.result_payload } : {}),
       };
     }
 
-    const existing = await client.query<{
-      status: "RECEIVED" | "APPLIED" | "REJECTED";
-      result_payload: unknown | null;
-      received_at: Date;
-    }>(
-      `
-        SELECT status, result_payload, received_at
-        FROM sync_mutations
-        WHERE business_id = $1 AND client_id = $2 AND client_mutation_id = $3
-        FOR SHARE
-      `,
-      [mutation.businessId, mutation.clientId, mutation.clientMutationId],
-    );
-
-    const prior = existing.rows[0];
-    if (!prior) {
-      throw new Error("Idempotent mutation record disappeared during transaction");
-    }
-
     await client.query("COMMIT");
-    return {
-      clientMutationId: mutation.clientMutationId,
-      status: prior.status,
-      serverReceivedAt: prior.received_at.toISOString(),
-      ...(prior.result_payload !== null ? { result: prior.result_payload } : {}),
-    };
   } catch (error) {
     await client.query("ROLLBACK");
-    const message = error instanceof Error ? error.message : "Unknown sync ingestion error";
+    return rejection(mutation.clientMutationId, serverReceivedAt, "SYNC_INGEST_FAILED", error);
+  } finally {
+    client.release();
+  }
+
+  if (!insertedNew) {
+    return { clientMutationId: mutation.clientMutationId, status: "RECEIVED", serverReceivedAt };
+  }
+
+  try {
+    const result = await applyEconomicMutation(pool, mutation);
+    await pool.query(
+      `UPDATE sync_mutations SET status='APPLIED',result_payload=$4::jsonb,applied_at=now()
+       WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3`,
+      [mutation.businessId, mutation.clientId, mutation.clientMutationId, JSON.stringify(result)],
+    );
+    return { clientMutationId: mutation.clientMutationId, status: "APPLIED", serverReceivedAt, result };
+  } catch (error) {
+    const code = error instanceof SaleMutationError || error instanceof ReturnMutationError ? error.code : "MUTATION_APPLY_FAILED";
+    const message = error instanceof Error ? error.message : "Unknown mutation application error";
+    const result = { errorCode: code, errorMessage: message };
+    await pool.query(
+      `UPDATE sync_mutations SET status='REJECTED',result_payload=$4::jsonb,applied_at=now()
+       WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3`,
+      [mutation.businessId, mutation.clientId, mutation.clientMutationId, JSON.stringify(result)],
+    );
     return {
       clientMutationId: mutation.clientMutationId,
       status: "REJECTED",
       serverReceivedAt,
-      errorCode: "SYNC_INGEST_FAILED",
+      errorCode: code,
       errorMessage: message,
+      result,
     };
-  } finally {
-    client.release();
   }
+}
+
+async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
+  if (!mutation.branchId) throw new SyncRequestError("branchId is required for economic mutations");
+  const context = {
+    businessId: mutation.businessId,
+    branchId: mutation.branchId,
+    clientMutationId: mutation.clientMutationId,
+    occurredAt: mutation.occurredAt,
+  };
+
+  switch (mutation.mutationType) {
+    case "SALE_CREATE":
+      return applySaleMutation(pool, context, mutation.payload as SaleMutationPayload);
+    case "RETURN_CREATE":
+    case "REFUND_CREATE":
+      return applyReturnMutation(pool, context, mutation.payload as ReturnMutationPayload);
+    default:
+      throw new SyncRequestError(`Unsupported mutationType: ${mutation.mutationType}`);
+  }
+}
+
+function rejection(clientMutationId: string, serverReceivedAt: string, code: string, error: unknown): MutationResult {
+  return {
+    clientMutationId,
+    status: "REJECTED",
+    serverReceivedAt,
+    errorCode: code,
+    errorMessage: error instanceof Error ? error.message : "Unknown sync ingestion error",
+  };
 }
 
 function assertMutationShape(mutation: ClientMutation): void {
   const required: Array<[string, unknown]> = [
-    ["businessId", mutation.businessId],
-    ["clientId", mutation.clientId],
-    ["clientMutationId", mutation.clientMutationId],
-    ["mutationType", mutation.mutationType],
+    ["businessId", mutation.businessId], ["clientId", mutation.clientId],
+    ["clientMutationId", mutation.clientMutationId], ["mutationType", mutation.mutationType],
     ["occurredAt", mutation.occurredAt],
   ];
-
   for (const [name, value] of required) {
-    if (typeof value !== "string" || value.trim() === "") {
-      throw new SyncRequestError(`${name} is required`);
-    }
+    if (typeof value !== "string" || value.trim() === "") throw new SyncRequestError(`${name} is required`);
   }
-
-  if (Number.isNaN(Date.parse(mutation.occurredAt))) {
-    throw new SyncRequestError("occurredAt must be an ISO date-time string");
-  }
+  if (Number.isNaN(Date.parse(mutation.occurredAt))) throw new SyncRequestError("occurredAt must be an ISO date-time string");
 }

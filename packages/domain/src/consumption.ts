@@ -1,16 +1,18 @@
 export interface ConsumptionComponent {
   componentProductId: string;
   stockUnitId: string;
+  /** Quantity consumed for the definition's declared output quantity. */
   quantityPerOutput: number;
-  /** Expected loss/overage as a percentage, e.g. 5 means 5%. */
   expectedWastePercent?: number;
 }
 
 export interface ConsumptionDefinition {
   id: string;
   outputId: string;
-  outputKind: "PRODUCT" | "SERVICE";
+  outputKind: "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
   outputUnitId: string;
+  /** Batch yield represented by component quantities. Defaults to one output. */
+  outputQuantity?: number;
   components: ConsumptionComponent[];
 }
 
@@ -24,20 +26,11 @@ export interface PlannedConsumption {
 
 export class ConsumptionError extends Error {}
 
-/**
- * Used by both recipes and services.
- * Examples:
- * - one medium waakye consumes rice/beans/gari/packaging
- * - one haircut consumes a blade/disinfectant/powder
- * - one SUV wash consumes shampoo/tyre shine
- */
-export function planConsumption(
-  definition: ConsumptionDefinition,
-  outputQuantity: number,
-): PlannedConsumption[] {
-  if (!Number.isFinite(outputQuantity) || outputQuantity <= 0) {
-    throw new ConsumptionError("Output quantity must be a positive finite number");
-  }
+export function planConsumption(definition: ConsumptionDefinition, outputQuantity: number): PlannedConsumption[] {
+  assertPositive(outputQuantity, "Output quantity");
+  const definedOutputQuantity = definition.outputQuantity ?? 1;
+  assertPositive(definedOutputQuantity, "Definition output quantity");
+  const scale = outputQuantity / definedOutputQuantity;
 
   return definition.components.map((component) => {
     if (!Number.isFinite(component.quantityPerOutput) || component.quantityPerOutput < 0) {
@@ -47,10 +40,8 @@ export function planConsumption(
     if (!Number.isFinite(wastePercent) || wastePercent < 0 || wastePercent >= 100) {
       throw new ConsumptionError(`Invalid waste percentage for ${component.componentProductId}`);
     }
-
-    const expectedQuantity = component.quantityPerOutput * outputQuantity;
+    const expectedQuantity = component.quantityPerOutput * scale;
     const expectedWasteQuantity = expectedQuantity * (wastePercent / 100);
-
     return {
       componentProductId: component.componentProductId,
       stockUnitId: component.stockUnitId,
@@ -59,4 +50,10 @@ export function planConsumption(
       totalPlannedQuantity: expectedQuantity + expectedWasteQuantity,
     };
   });
+}
+
+function assertPositive(value: number, label: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new ConsumptionError(`${label} must be a positive finite number`);
+  }
 }
