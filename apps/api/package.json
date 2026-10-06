@@ -11,7 +11,7 @@
     "pretypecheck": "pnpm --filter @tradeos/domain build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm --filter @tradeos/domain build",
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
