@@ -1,4 +1,5 @@
 import { NetworkStatus } from "./components/network-status";
+import { ReturnsPanel } from "./components/returns-panel";
 
 const businessPacks = [
   { name: "Retail & Hardware", detail: "Shops, provisions, iron rods, nails, sandpaper", icon: "▦" },
@@ -134,33 +135,7 @@ export default function HomePage() {
           </aside>
         </section>
 
-        <section className="panel" id="returns">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Protected workflow</p>
-              <h2>Returns & refunds</h2>
-            </div>
-            <button className="ghost-button">Start return / refund</button>
-          </div>
-          <div className="return-options">
-            <div>
-              <strong>Return + refund</strong>
-              <span>Restock, quarantine or discard the returned item.</span>
-            </div>
-            <div>
-              <strong>Refund only</strong>
-              <span>For services, goodwill refunds or cases where stock does not come back.</span>
-            </div>
-            <div>
-              <strong>Exchange</strong>
-              <span>Link the returned item to its replacement and settle any difference.</span>
-            </div>
-            <div>
-              <strong>Partial refund</strong>
-              <span>Refund selected lines or quantities without reversing the whole sale.</span>
-            </div>
-          </div>
-        </section>
+        <ReturnsPanel />
 
         <section className="panel">
           <div className="panel-heading">
