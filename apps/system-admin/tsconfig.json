@@ -4,10 +4,14 @@
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": false,
     "noEmit": true,
-    "jsx": "preserve",
     "incremental": true,
-    "plugins": [{ "name": "next" }]
+    "jsx": "preserve",
+    "plugins": [{ "name": "next" }],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true
   },
-  "include": ["next-env.d.ts", ".next/types/**/*.ts", "**/*.ts", "**/*.tsx"],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]
 }
