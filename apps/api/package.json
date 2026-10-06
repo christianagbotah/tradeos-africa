@@ -1,0 +1,30 @@
+{
+  "name": "@tradeos/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "pnpm --filter @tradeos/domain build && tsx watch src/server.ts",
+    "pretypecheck": "pnpm --filter @tradeos/domain build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "pnpm --filter @tradeos/domain build",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.0",
+    "@tradeos/domain": "workspace:*",
+    "fastify": "^5.0.0",
+    "pg": "^8.13.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
