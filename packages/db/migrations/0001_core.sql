@@ -282,7 +282,7 @@ CREATE INDEX idx_inventory_balance_lookup ON inventory_movements(business_id, br
 CREATE INDEX idx_return_cases_sale ON return_cases(original_sale_id);
 CREATE INDEX idx_return_lines_sale_line ON return_lines(original_sale_line_id);
 CREATE INDEX idx_audit_events_entity ON audit_events(business_id, entity_type, entity_id, occurred_at DESC);
-CREATE INDEX idx_outbox_unpublished ON outbox_events(created_at) WHERE published_at IS NULL;
+CREATE INDEX idx_outbox_unpublished ON outbox_events(occurred_at) WHERE published_at IS NULL;
 CREATE INDEX idx_sync_mutations_client ON sync_mutations(business_id, client_id, received_at DESC);
 
 COMMIT;
