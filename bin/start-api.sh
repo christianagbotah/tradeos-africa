@@ -9,10 +9,21 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+while IFS= read -r line || [[ -n "$line" ]]; do
+  line="${line%$'\r'}"
+  [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+  if [[ "$line" != *=* ]]; then
+    echo "Invalid TradeOS environment entry: expected KEY=VALUE" >&2
+    exit 1
+  fi
+  key="${line%%=*}"
+  value="${line#*=}"
+  if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    echo "Invalid TradeOS environment key: $key" >&2
+    exit 1
+  fi
+  export "$key=$value"
+done < "$ENV_FILE"
 
 export HOST="${HOST:-127.0.0.1}"
 export PORT="${PORT:-4036}"
