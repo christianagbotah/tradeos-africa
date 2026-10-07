@@ -41,6 +41,11 @@ describe("multi-page release hardening", () => {
     expect(bootstrap).toContain('deviceKey: ""');
   });
 
+  it("restores the displayed business intent after a failed business switch without clobbering newer switches", () => {
+    const provider = read("app/components/workspace/workspace-provider.tsx");
+    expect(provider).toMatch(/catch \(reason\)[\s\S]*businessIntent\.current === businessId[\s\S]*context\?\.business\.id/);
+  });
+
   it("remounts route-local drafts when business or branch context changes", () => {
     const shell = read("app/components/workspace/app-shell.tsx");
     expect(shell).toContain('key={`${context.business.id}:${branchId}`}');

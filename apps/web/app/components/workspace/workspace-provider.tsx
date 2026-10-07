@@ -4,6 +4,7 @@ import { createContext, useCallback, useEffect, useMemo, useRef, useState, type 
 import type { QuickSaleItem } from "../quick-sale";
 import { getActiveBusinessId, setActiveBusinessId } from "../../lib/offline-sync";
 import { clearWorkspaceBootstrap, readWorkspaceBootstrap, writeWorkspaceBootstrap } from "../../lib/workspace-bootstrap";
+import { clearFeatureCaches } from "../../lib/feature-cache";
 import type { BusinessContext, CatalogItem, MePayload, Membership } from "../../lib/workspace-types";
 
 export type WorkspaceContextValue = {
@@ -109,6 +110,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         requestGenerationRef.current += 1;
         businessIntent.current = null;
         clearWorkspaceBootstrap();
+        clearFeatureCaches();
         setSession(null);
         setContext(null);
         setCatalog([]);
@@ -160,12 +162,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!session?.memberships.some((membership) => membership.businessId === businessId)) throw new Error("Business is not available to this session.");
     setError(null);
     businessIntent.current = businessId;
-    const loaded = await loadBusiness(businessId);
-    if (loaded) {
-      setActiveBusinessId(businessId);
-      writeWorkspaceBootstrap({ session, ...loaded });
+    try {
+      const loaded = await loadBusiness(businessId);
+      if (loaded) {
+        setActiveBusinessId(businessId);
+        writeWorkspaceBootstrap({ session, ...loaded });
+      }
+    } catch (reason) {
+      if (businessIntent.current === businessId) {
+        businessIntent.current = context?.business.id ?? null;
+        setError(messageFrom(reason));
+      }
     }
-  }, [loadBusiness, session]);
+  }, [context?.business.id, loadBusiness, session]);
 
   const setBranch = useCallback((branchId: string) => {
     if (!context?.branches.some((branch) => branch.id === branchId && branch.active)) return;
@@ -185,6 +194,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       requestGenerationRef.current += 1;
       businessIntent.current = null;
       clearWorkspaceBootstrap();
+      clearFeatureCaches();
       setActiveBusinessId(null);
       setSession(null);
       setContext(null);

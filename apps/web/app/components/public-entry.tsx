@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { DemoAccountSelect } from "./demo-account-select";
 import { getActiveBusinessId, getOrCreateClientId, setActiveBusinessId } from "../lib/offline-sync";
 import { clearWorkspaceBootstrap, readWorkspaceBootstrap } from "../lib/workspace-bootstrap";
+import { clearFeatureCaches } from "../lib/feature-cache";
 import type { BusinessContext, MePayload } from "../lib/workspace-types";
 
 type AuthMode = "login" | "register";
@@ -43,6 +44,7 @@ export function PublicEntry() {
       const response = await fetch("/api/session/me", { cache: "no-store" });
       if (response.status === 401) {
         clearWorkspaceBootstrap();
+        clearFeatureCaches();
         setSession(null);
         setActiveBusinessId(null);
         return;
@@ -247,6 +249,7 @@ function LoadingScreen() {
 async function logout(setSession: (value: MePayload | null) => void) {
   try { await fetch("/api/session/logout", { method: "POST" }); } finally {
     clearWorkspaceBootstrap();
+    clearFeatureCaches();
     setActiveBusinessId(null);
     setSession(null);
   }

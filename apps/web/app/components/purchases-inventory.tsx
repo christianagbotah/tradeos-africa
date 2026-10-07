@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
+import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import {
   enqueueMutation,
   flushPendingMutations,
@@ -82,6 +83,16 @@ type Props = {
 const receiveRoles = new Set(["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"]);
 const supplierPaymentRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
 
+type PurchasesInventorySnapshot = { suppliers: Supplier[]; inventory: InventoryItem[]; purchases: PurchaseSummary[] };
+function isPurchasesInventorySnapshot(value: unknown): value is PurchasesInventorySnapshot {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<PurchasesInventorySnapshot>;
+  return Array.isArray(row.suppliers) && Array.isArray(row.inventory) && Array.isArray(row.purchases);
+}
+function isPurchaseDetail(value: unknown): value is { lines: ReturnablePurchaseLine[] } {
+  return Boolean(value && typeof value === "object" && Array.isArray((value as { lines?: unknown }).lines));
+}
+
 export function PurchasesInventory({ businessId, branchId, currencyCode, role, catalog, view }: Props) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -92,17 +103,30 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   const canPaySupplier = supplierPaymentRoles.has(role);
 
   const refresh = async () => {
+    const cached = readFeatureCache("purchases-inventory", businessId, branchId, "root", isPurchasesInventorySnapshot);
+    if (cached) {
+      setSuppliers(cached.suppliers);
+      setInventory(cached.inventory);
+      setPurchases(cached.purchases);
+    }
+    if (!navigator.onLine) {
+      setMessage(cached ? "Offline: showing saved suppliers, purchases and inventory for this branch." : "Offline: no saved purchase or inventory data exists for this branch yet.");
+      return;
+    }
     try {
       const [supplierData, inventoryData, purchaseData] = await Promise.all([
         clientApi<{ suppliers: Supplier[] }>(`/api/tradeos/v1/suppliers?businessId=${encodeURIComponent(businessId)}&limit=200`),
         clientApi<{ items: InventoryItem[] }>(`/api/tradeos/v1/inventory?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`),
         clientApi<{ purchases: PurchaseSummary[] }>(`/api/tradeos/v1/purchases?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}&limit=20`),
       ]);
-      setSuppliers(supplierData.suppliers);
-      setInventory(inventoryData.items);
-      setPurchases(purchaseData.purchases);
+      const next: PurchasesInventorySnapshot = { suppliers: supplierData.suppliers, inventory: inventoryData.items, purchases: purchaseData.purchases };
+      setSuppliers(next.suppliers);
+      setInventory(next.inventory);
+      setPurchases(next.purchases);
+      writeFeatureCache("purchases-inventory", businessId, branchId, next);
+      setMessage(null);
     } catch (error) {
-      setMessage(messageFrom(error));
+      setMessage(cached ? `Showing saved branch data. ${messageFrom(error)}` : messageFrom(error));
     }
   };
 
@@ -372,7 +396,14 @@ function PurchaseReturn({businessId,branchId,purchase,onClose,onMessage}:{busine
  const [busy,setBusy]=useState(false);
  const [loaded,setLoaded]=useState(false);
  const [loadError,setLoadError]=useState<string | null>(null);
- useEffect(()=>{let active=true; clientApi<{lines:ReturnablePurchaseLine[]}>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then(data=>{if(active){setLines(data.lines);setLoaded(true);}}).catch(error=>{if(active)setLoadError(messageFrom(error));});return ()=>{active=false;};},[businessId,purchase.id]);
+ useEffect(()=>{
+  let active=true;
+  const cached=readFeatureCache("purchase-detail",businessId,branchId,purchase.id,isPurchaseDetail);
+  if(cached){setLines(cached.lines);setLoaded(true);}
+  if(!navigator.onLine){if(!cached)setLoadError("Offline: this purchase has not been opened on this device yet.");return()=>{active=false;};}
+  clientApi<{lines:ReturnablePurchaseLine[]}>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then(data=>{if(active){setLines(data.lines);setLoaded(true);setLoadError(null);writeFeatureCache("purchase-detail",businessId,branchId,data,purchase.id);}}).catch(error=>{if(active&&!cached)setLoadError(messageFrom(error));});
+  return()=>{active=false;};
+ },[businessId,branchId,purchase.id]);
  const preview=lines.reduce((sum,line)=>sum+returnPreview(line,Number(quantities[line.id]||0)),0);
  const submit=async(event:FormEvent)=>{
   event.preventDefault();

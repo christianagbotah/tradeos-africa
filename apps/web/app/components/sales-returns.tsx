@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import {
   enqueueMutation,
   flushPendingMutations,
@@ -70,6 +71,14 @@ type Props = {
   view: "sales" | "returns";
 };
 
+function isSalesListCache(value: unknown): value is { sales: SaleSummary[] } {
+  return Boolean(value && typeof value === "object" && Array.isArray((value as { sales?: unknown }).sales));
+}
+function isSaleDetailCache(value: unknown): value is { sale: SaleDetail } {
+  const sale = value && typeof value === "object" ? (value as { sale?: unknown }).sale : null;
+  return Boolean(sale && typeof sale === "object" && Array.isArray((sale as { lines?: unknown }).lines) && Array.isArray((sale as { payments?: unknown }).payments));
+}
+
 export function SalesAndReturns({ businessId, branchId, currencyCode, view }: Props) {
   const [sales, setSales] = useState<SaleSummary[]>([]);
   const [query, setQuery] = useState("");
@@ -84,23 +93,31 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view }: Pr
 
   const loadSales = async (search = query) => {
     setLoading(true);
+    const cacheToken = search.trim().toLowerCase() || "all";
+    const cached = readFeatureCache("sales-list", businessId, branchId, cacheToken, isSalesListCache);
+    if (cached) setSales(cached.sales);
+    if (!navigator.onLine) {
+      setMessage(cached ? "Offline: showing saved sales for this branch." : "Offline: no saved sales exist for this search on this device yet.");
+      setLoading(false);
+      return;
+    }
     try {
       const params = new URLSearchParams({ businessId, branchId, limit: "30" });
       if (search.trim()) params.set("query", search.trim());
       const response = await clientApi<{ sales: SaleSummary[] }>(`/api/tradeos/v1/sales?${params}`);
       setSales(response.sales);
+      writeFeatureCache("sales-list", businessId, branchId, response, cacheToken);
+      setMessage(null);
+    } catch (error) {
+      setMessage(cached ? `Showing saved sales. ${error instanceof Error ? error.message : "Live sales are unavailable."}` : error instanceof Error ? error.message : "Sales could not be loaded.");
     } finally {
       setLoading(false);
     }
   };
 
-  const loadDetail = async (saleId: string) => {
-    setMessage(null);
-    const response = await clientApi<{ sale: SaleDetail }>(
-      `/api/tradeos/v1/sales/${saleId}?businessId=${encodeURIComponent(businessId)}`,
-    );
-    setSelected(response.sale);
-    setDrafts(Object.fromEntries(response.sale.lines.map((line) => [
+  const applySaleDetail = (sale: SaleDetail) => {
+    setSelected(sale);
+    setDrafts(Object.fromEntries(sale.lines.map((line) => [
       line.id,
       {
         selected: false,
@@ -108,6 +125,25 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view }: Pr
         disposition: defaultDisposition(line.itemKind),
       },
     ])));
+  };
+
+  const loadDetail = async (saleId: string) => {
+    setMessage(null);
+    const cached = readFeatureCache("sale-detail", businessId, branchId, saleId, isSaleDetailCache);
+    if (cached) applySaleDetail(cached.sale);
+    if (!navigator.onLine) {
+      if (!cached) setMessage("Offline: this sale has not been opened on this device yet.");
+      return;
+    }
+    try {
+      const response = await clientApi<{ sale: SaleDetail }>(
+        `/api/tradeos/v1/sales/${saleId}?businessId=${encodeURIComponent(businessId)}`,
+      );
+      applySaleDetail(response.sale);
+      writeFeatureCache("sale-detail", businessId, branchId, response, saleId);
+    } catch (error) {
+      if (!cached) setMessage(error instanceof Error ? error.message : "Sale details could not be loaded.");
+    }
   };
 
   useEffect(() => {

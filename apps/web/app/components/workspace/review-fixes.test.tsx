@@ -67,4 +67,17 @@ describe("multi-page review regressions", () => {
     expect(forecast).toContain("ResponsiveTable");
     expect(forecast).not.toContain('className="table-scroll"');
   });
+
+  it("preserves purchase, inventory, sales and return read data in business/branch-scoped feature caches", () => {
+    const purchases = read("components/purchases-inventory.tsx");
+    const sales = read("components/sales-returns.tsx");
+    expect(purchases).toContain("readFeatureCache");
+    expect(purchases).toContain("writeFeatureCache");
+    expect(purchases).toContain('"purchases-inventory"');
+    expect(purchases).toContain('"purchase-detail"');
+    expect(sales).toContain("readFeatureCache");
+    expect(sales).toContain("writeFeatureCache");
+    expect(sales).toContain('"sales-list"');
+    expect(sales).toContain('"sale-detail"');
+  });
 });
