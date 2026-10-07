@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a CI-gated, VPS-side staging deployer that promotes only successfully tested `main` commits, applies forward-only migrations safely, prepares immutable releases, atomically switches the active runtime, and rolls application code back on failed post-activation health checks.
+**Goal:** Build a CI-gated VPS staging deployer that promotes only successfully tested `main` commits, applies forward-only migrations safely, prepares immutable releases, atomically switches the active runtime, and restores the previous application release on failed post-activation health checks.
 
-**Architecture:** GitHub Actions advances a fast-forward-only `deploy/staging-ready` ref after successful CI on `main`. A `lightworld` systemd timer polls that approved ref through a persistent bare Git mirror, materializes a release by SHA, runs validation/build/migrations, atomically switches `/home/lightworld/webapps/tradeos-staging` to the release, reloads the existing PM2 apps, verifies health, and records a manifest. Database migrations use a checksum ledger and remain forward-only.
+**Architecture:** GitHub Actions advances a fast-forward-only `deploy/staging-ready` ref after successful CI on `main`. A `lightworld` systemd timer polls that approved ref through a persistent bare Git mirror, materializes a release by SHA, validates/builds it, applies only migrations not already recorded in a checksum ledger, atomically switches `/home/lightworld/webapps/tradeos-staging`, reloads the existing PM2 apps, verifies health, and records a manifest. The existing staging database is explicitly baselined once; the normal migration runner refuses to operate before that baseline exists.
 
 **Tech Stack:** GitHub Actions, Bash, Git, systemd, PM2, Node.js 22+, pnpm 10.17.1, PostgreSQL 17-compatible SQL, Node `node:test`.
 
@@ -12,24 +12,24 @@
 
 ## Global Constraints
 
-- Deploy only a CI-approved SHA published through `refs/heads/deploy/staging-ready`; never deploy `main` directly.
-- `deploy/staging-ready` must move by normal fast-forward only; never force-push it.
-- VPS deployment service runs as `lightworld`, not root.
-- Do not introduce a GitHub SSH key or PAT on the VPS.
-- Preserve `.env.staging` outside Git; never print or shell-evaluate secret values.
-- Keep API on `127.0.0.1:4036` and web on `127.0.0.1:3036`.
-- Keep PM2 app names `tradeos-staging-api` and `tradeos-staging-web` and tracked launchers `bin/start-api.sh` / `bin/start-web.sh`.
-- Database migrations are forward-only and immutable after application; checksum drift must abort deployment.
-- Release activation must be atomic and the previous application release must remain recoverable.
-- A failed build, migration, or health check must not advance the deployment manifest.
+- Deploy only a CI-approved SHA from `refs/heads/deploy/staging-ready`; never deploy `main` directly.
+- The handoff ref moves by normal fast-forward only; never force-push it.
+- Normal VPS deployment runs as `lightworld`, not root.
+- No GitHub SSH key or PAT on the VPS.
+- Preserve `.env.staging` outside Git; never print, `source`, or `eval` secret values.
+- Keep API `127.0.0.1:4036`, web `127.0.0.1:3036`, PM2 names `tradeos-staging-api` / `tradeos-staging-web`, and tracked launchers unchanged.
+- Historical migrations become immutable once baselined; checksum drift aborts deployment.
+- The normal migration runner requires an existing `schema_migrations` baseline and must never replay pre-ledger history on an unbaselined database.
+- Activation is atomic and manifest advancement happens only after all health checks pass.
+- Database rollback is never automatic; future migrations follow expand/contract compatibility.
 
 ## Review Focus
 
-- **Out-of-order successful CI runs:** a stale earlier run must not move `deploy/staging-ready` backward; Task 1 tests the handoff update strategy and ancestry guard.
-- **Edited historical migration:** an already-recorded filename with a new SHA-256 must abort before activation; Task 2 tests checksum drift.
-- **Interrupted or concurrent deploy:** a second deployer invocation must exit cleanly while the lock is held, and rerunning the same candidate must remain safe; Task 3 tests lock/no-op behavior.
-- **Post-migration application health failure:** code must return to the prior release while leaving forward schema changes intact; Task 3 tests runtime-pointer rollback and manifest preservation.
-- **Secret/metacharacter environment values:** deployment/bootstrap scripts must parse dotenv values literally without `source`, `eval`, or logging secrets; Tasks 2 and 4 extend the existing dotenv safety tests.
+- **Out-of-order successful CI runs:** stale CI must not move the handoff ref backward — Task 1.
+- **Unbaselined or checksum-drift database:** normal deployment must abort before replaying history — Task 2.
+- **Concurrent/interrupted deploy:** lock/no-op behavior and reusable candidate releases must be safe — Task 3.
+- **Post-migration application health failure:** restore prior code pointer while retaining forward schema — Task 3.
+- **Secret/metacharacter dotenv values:** preserve literal data without shell evaluation or logging — Tasks 2 and 4.
 
 ---
 
@@ -41,49 +41,40 @@
 - Modify: `package.json`
 
 **Interfaces:**
-- Consumes: existing workflow named `CI` in `.github/workflows/ci.yml`.
-- Produces: fast-forward-only `refs/heads/deploy/staging-ready` pointing to the exact successful `workflow_run.head_sha` from `main`.
+- Consumes existing workflow named `CI`.
+- Produces fast-forward-only `refs/heads/deploy/staging-ready` at the exact successful `workflow_run.head_sha` from `main`.
 
 - [ ] **Step 1: Write failing workflow-contract tests**
 
-Create `test/deployment-handoff.test.mjs` with tests named:
+Tests:
 - `handoff listens only to completed CI workflow runs`
 - `handoff requires success and main before publishing`
-- `handoff publishes workflow_run.head_sha to deploy/staging-ready without force`
+- `handoff publishes workflow_run.head_sha without force`
 - `handoff verifies candidate remains reachable from main`
 
-Assert the workflow uses `workflow_run`, `types: [completed]`, repository `contents: write`, explicit checks for `conclusion == 'success'` and `head_branch == 'main'`, fetches full history, checks ancestry against `origin/main`, and updates `deploy/staging-ready` without `--force`.
+Assert `workflow_run`, `types: [completed]`, `contents: write`, checks for `conclusion == 'success'` and `head_branch == 'main'`, full-history fetch, ancestry check against `origin/main`, and a push to `deploy/staging-ready` with no force option.
 
-- [ ] **Step 2: Run the new test and confirm RED**
-
-Run: `node --test test/deployment-handoff.test.mjs`
-Expected: FAIL because `.github/workflows/deployment-handoff.yml` does not exist.
-
-- [ ] **Step 3: Implement `.github/workflows/deployment-handoff.yml`**
-
-Use `workflow_run` for workflow name `CI`; set only `contents: write`; gate on success/main; checkout/fetch full history; assign `CANDIDATE_SHA=${{ github.event.workflow_run.head_sha }}`; require `git merge-base --is-ancestor "$CANDIDATE_SHA" origin/main`; then push `<candidate>:refs/heads/deploy/staging-ready` with no force option.
-
-- [ ] **Step 4: Run handoff tests GREEN**
+- [ ] **Step 2: Run RED**
 
 Run: `node --test test/deployment-handoff.test.mjs`
-Expected: all handoff tests PASS.
+Expected: FAIL because workflow file does not exist.
 
-- [ ] **Step 5: Add the handoff test to root `pnpm test`**
+- [ ] **Step 3: Implement the handoff workflow**
 
-Update root `package.json` so deployment contract tests run both `test/deployment-config.test.mjs` and `test/deployment-handoff.test.mjs` before workspace tests.
+Use `workflow_run.head_sha` as candidate; verify it is still on `origin/main`; push `<sha>:refs/heads/deploy/staging-ready` normally. A stale out-of-order run must fail its non-fast-forward push instead of moving the ref backward.
 
-- [ ] **Step 6: Run root deployment tests**
+- [ ] **Step 4: Run GREEN and wire into root tests**
 
-Run: `pnpm test`
-Expected: existing deployment tests plus new handoff tests PASS.
+Run: `node --test test/deployment-handoff.test.mjs`, then update root `pnpm test` to include it and run `pnpm test`.
+Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 5: Commit**
 
-Commit message: `ci: gate staging deployment on successful main CI`
+Commit: `ci: gate staging deployment on successful main CI`
 
 ---
 
-### Task 2: Migration checksum ledger and legacy baseline
+### Task 2: Migration checksum ledger and one-time staging baseline
 
 **Files:**
 - Create: `packages/db/migrations/0014_schema_migrations.sql`
@@ -93,60 +84,67 @@ Commit message: `ci: gate staging deployment on successful main CI`
 - Modify: `test/deployment-config.test.mjs`
 
 **Interfaces:**
-- Produces table `schema_migrations(filename text primary key, checksum text not null, applied_at timestamptz not null default now())`.
-- Produces command `bin/apply-migrations.sh <repo-root>`; reads `DATABASE_URL` from literal dotenv parsing when not already exported; applies unseen `packages/db/migrations/*.sql` in lexical order and records SHA-256.
-- Produces bootstrap command `bin/baseline-staging-migrations.sh <repo-root>`; validates the existing pre-ledger staging schema/data, creates the ledger if needed, then records current migration checksums without replaying historical SQL.
+- `schema_migrations(filename text primary key, checksum text not null, applied_at timestamptz not null default now())`.
+- `bin/baseline-staging-migrations.sh <repo-root>`: one-time existing-staging operation; validates legacy schema/data sentinels, creates ledger, records checksums for the already-applied 0001-0014 set without replaying historical SQL.
+- `bin/apply-migrations.sh <repo-root>`: normal deployment operation; **requires a nonempty valid baseline ledger**, compares every tracked migration checksum, applies only files absent from the ledger, and records each only after success.
 
 - [ ] **Step 1: Write failing migration-runner tests**
 
-Create temp PostgreSQL-independent harness tests around a fake `psql`/`sha256sum` PATH shim so shell behavior can be tested deterministically. Required tests:
-- `applies unseen migration then records checksum`
-- `skips migration whose filename and checksum already match`
+Tests:
+- `normal runner refuses database with no migration ledger`
+- `normal runner refuses empty unbaselined migration ledger`
+- `applies unseen post-baseline migration then records checksum`
+- `skips migration whose filename and checksum match`
 - `aborts on checksum drift before applying later migrations`
-- `processes filenames in lexical order`
+- `processes new migration filenames in lexical order`
 - `dotenv parser preserves ampersand dollar and equals characters literally`
-- `baseline refuses to mark legacy migrations when required schema sentinels are missing`
+- `baseline refuses when required legacy schema sentinel is missing`
+- `baseline records legacy checksums without executing legacy migration files`
 
-- [ ] **Step 2: Run migration-runner tests RED**
+Use fake `psql`/`sha256sum` PATH shims for deterministic shell tests.
+
+- [ ] **Step 2: Run RED**
 
 Run: `node --test test/migration-runner.test.mjs`
-Expected: FAIL because migration scripts are absent.
+Expected: FAIL because scripts/migration are absent.
 
-- [ ] **Step 3: Add migration `0014_schema_migrations.sql`**
+- [ ] **Step 3: Add `0014_schema_migrations.sql`**
 
-Create only the ledger table/indexes needed by the runner. Keep it idempotent with `CREATE TABLE IF NOT EXISTS`.
+Create only the idempotent ledger table required by deployment.
 
-- [ ] **Step 4: Implement `bin/apply-migrations.sh`**
+- [ ] **Step 4: Implement literal dotenv and migration helpers**
 
-Required shell interfaces/functions:
+In `bin/apply-migrations.sh` define:
 - `load_dotenv_literal <path>`
 - `migration_checksum <path>`
+- `assert_baseline_ready`
 - `lookup_recorded_checksum <filename>`
 - `apply_one_migration <path> <filename> <checksum>`
 
-Use `psql -v ON_ERROR_STOP=1`; never `source` or `eval` `.env.staging`; abort if a recorded checksum differs; write the ledger row only after the migration succeeds.
+Use `psql -v ON_ERROR_STOP=1`; never `source` or `eval`. `assert_baseline_ready` aborts when the ledger is absent/empty rather than replaying historical migrations.
 
-- [ ] **Step 5: Implement `bin/baseline-staging-migrations.sh`**
+- [ ] **Step 5: Implement the one-time baseline script**
 
-Validate a curated set of schema/data sentinels spanning the legacy 0001-0013 database before inserting baseline ledger rows. At minimum verify core business/branch tables, identity/membership tables, supplier/purchase tables, purchase-return structures, cashbook/expense structures, operating-day/shift structures, money-account/reconciliation structures, credit-term obligation structures, and the known demo tenant seeded by 0013. Abort if any required sentinel is absent.
+`bin/baseline-staging-migrations.sh` validates schema/data sentinels spanning 0001-0013 (core business/branch, identity/membership, supplier/purchase, purchase returns, cashbook/expenses, operating days/shifts, money accounts/reconciliation, credit obligations, and the demo tenant). It creates the ledger using the same schema as 0014, then records checksums for 0001-0014 without executing those migration files.
 
-- [ ] **Step 6: Extend deployment-config tests for migration safety**
+- [ ] **Step 6: Extend safety-contract tests**
 
-Assert both scripts use `set -euo pipefail`, literal dotenv parsing, `ON_ERROR_STOP`, SHA-256 checksums, and do not contain `source "$ENV_FILE"`, `eval`, or hard-coded database credentials.
+Assert `set -euo pipefail`, literal dotenv parsing, `ON_ERROR_STOP`, SHA-256 usage, baseline requirement, and absence of `source "$ENV_FILE"`, `eval`, or hard-coded credentials.
 
-- [ ] **Step 7: Run migration and deployment tests GREEN**
+- [ ] **Step 7: Run GREEN**
 
 Run: `node --test test/migration-runner.test.mjs test/deployment-config.test.mjs`
-Expected: all tests PASS.
+Expected: PASS.
 
-- [ ] **Step 8: Validate all migrations on a disposable PostgreSQL database**
+- [ ] **Step 8: Verify both CI and staging migration modes on disposable PostgreSQL 17 databases**
 
-Run the same lexical migration loop used by CI against a disposable PostgreSQL 17 database, then run `bin/apply-migrations.sh` again.
-Expected: first migration loop succeeds; second runner is a clean no-op with matching ledger checksums.
+Database A: run the existing CI lexical migration loop over 0001-0014 and verify it succeeds.
+
+Database B: run 0001-0014 with the CI loop, then run `baseline-staging-migrations.sh`; verify 14 ledger rows with matching checksums and no historical replay. Add a synthetic test-only `0015` fixture in a temporary repo copy, run `apply-migrations.sh` once (applies/records it), then again (clean no-op).
 
 - [ ] **Step 9: Commit**
 
-Commit message: `feat: add checksum migration ledger for staging deploys`
+Commit: `feat: add checksum migration ledger for staging deploys`
 
 ---
 
@@ -158,84 +156,77 @@ Commit message: `feat: add checksum migration ledger for staging deploys`
 - Modify: `test/deployment-config.test.mjs`
 
 **Interfaces:**
-- Reads:
-  - `TRADEOS_DEPLOY_STATE_DIR` default `/home/lightworld/deployments/tradeos`
-  - `TRADEOS_RELEASE_ROOT` default `/home/lightworld/releases/tradeos`
-  - `TRADEOS_RUNTIME_PATH` default `/home/lightworld/webapps/tradeos-staging`
-  - `TRADEOS_SHARED_ENV` default `/home/lightworld/shared/tradeos-staging/.env.staging`
-- Uses bare mirror `<state>/repo.git` and approved ref `refs/remotes/origin/deploy/staging-ready`.
-- Produces atomic manifest `<state>/last_manifest.txt` only after all health checks pass.
+- Defaults:
+  - state `/home/lightworld/deployments/tradeos`
+  - releases `/home/lightworld/releases/tradeos`
+  - runtime `/home/lightworld/webapps/tradeos-staging`
+  - env `/home/lightworld/shared/tradeos-staging/.env.staging`
+- Uses bare mirror `<state>/repo.git`.
+- Candidate is only `refs/remotes/origin/deploy/staging-ready`.
+- Writes `<state>/last_manifest.txt` only after successful activation verification.
 
-- [ ] **Step 1: Write failing deployer tests with fake Git/PM2/curl/psql commands**
+- [ ] **Step 1: Write failing fake-command deployer tests**
 
-Required tests:
-- `reads candidate only from deploy staging ready ref`
-- `rejects candidate not reachable from origin main`
-- `rejects candidate that is not descendant of deployed sha`
-- `no-op candidate exits without build migration or pm2 reload`
-- `held flock prevents overlapping deployment`
-- `materializes candidate outside active runtime path`
-- `manifest is unchanged when validation or build fails`
-- `manifest is unchanged when migration fails`
-- `successful health checks switch runtime and write manifest`
-- `post-activation health failure restores previous runtime pointer and reloads previous release`
-- `pruning always keeps active plus at least two previous releases`
+Tests:
+- approved ref is the only candidate source;
+- candidate must be reachable from `origin/main`;
+- candidate must descend from deployed SHA;
+- equal SHA is a no-op with no build/migration/reload;
+- held `flock` prevents overlap;
+- candidate is materialized outside active runtime;
+- validation/migration failure leaves runtime and manifest untouched;
+- success switches runtime and writes manifest;
+- post-activation health failure restores previous runtime and leaves manifest unchanged;
+- pruning keeps active plus at least two prior releases.
 
-- [ ] **Step 2: Run deployer tests RED**
+- [ ] **Step 2: Run RED**
 
 Run: `node --test test/staging-deployer.test.mjs`
-Expected: FAIL because `bin/deploy-staging.sh` is absent.
+Expected: FAIL.
 
-- [ ] **Step 3: Implement candidate discovery and guard functions**
+- [ ] **Step 3: Implement discovery/guard functions**
 
-Required shell functions:
+Functions:
 - `fetch_refs`
 - `read_deployed_sha`
 - `candidate_sha`
 - `verify_candidate_is_on_main <sha>`
 - `verify_fast_forward_from_deployed <deployed> <candidate>`
 
-Fetch `main` and `deploy/staging-ready` into the bare mirror; never choose `origin/main` as the candidate authority.
+- [ ] **Step 4: Implement release preparation**
 
-- [ ] **Step 4: Implement release preparation functions**
+Functions:
+- `prepare_release <sha>` via exact archive from bare mirror
+- `attach_shared_env <release>`
+- `validate_release <release>` running deployment tests, `pnpm typecheck`, `pnpm build`
+- `apply_release_migrations <release>` invoking normal migration runner
 
-Required functions:
-- `prepare_release <sha>` materializes exact Git archive into `<release-root>/<sha>`
-- `attach_shared_env <release>` creates `.env.staging` symlink to persistent shared path
-- `validate_release <release>` runs deployment tests, `pnpm typecheck`, and `pnpm build`
-- `apply_release_migrations <release>` invokes `bin/apply-migrations.sh`
+Pin `HOME=/home/lightworld` and predictable pnpm/Corepack PATH so root cache state cannot leak into the `lightworld` service.
 
-Ensure `HOME=/home/lightworld` and PATH/Corepack behavior are explicit so the deployer does not inherit root's Corepack cache.
+- [ ] **Step 5: Implement activation/health/rollback**
 
-- [ ] **Step 5: Implement activation, health, rollback, and manifest functions**
-
-Required functions:
-- `switch_runtime <release>` using atomic symlink replacement
-- `reload_tradeos_pm2 <release>` using tracked `ecosystem.config.cjs`
-- `wait_for_health` with bounded retries for API 4036 and web 3036
-- `verify_public_health` for `https://tradeosafrica.lightworldtech.com/`
+Functions:
+- `switch_runtime <release>` with atomic symlink replacement
+- `reload_tradeos_pm2 <release>`
+- `wait_for_health` with bounded retries for API/web
+- `verify_public_health`
+- `verify_pm2_ownership`
 - `rollback_runtime <previous-release>`
 - `write_manifest_atomically <candidate> <previous>`
 - `prune_old_releases`
 
-Do not update the manifest until local API, local web, public HTTPS, and PM2 ownership/status checks all pass.
-
-- [ ] **Step 6: Extend deployment-config contract tests**
-
-Assert the deploy script defaults to the exact state/release/runtime/shared paths, uses `flock`, references `deploy/staging-ready`, never uses unsafe dotenv sourcing, and verifies both TradeOS PM2 app names.
-
-- [ ] **Step 7: Run deployer tests GREEN**
+- [ ] **Step 6: Run GREEN and contract tests**
 
 Run: `node --test test/staging-deployer.test.mjs test/deployment-config.test.mjs`
-Expected: all tests PASS.
+Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
-Commit message: `feat: add immutable staging release deployer`
+Commit: `feat: add immutable staging release deployer`
 
 ---
 
-### Task 4: systemd units and idempotent VPS bootstrap
+### Task 4: systemd units and idempotent bootstrap
 
 **Files:**
 - Create: `ops/systemd/tradeos-deploy.service`
@@ -245,117 +236,80 @@ Commit message: `feat: add immutable staging release deployer`
 - Modify: `test/deployment-config.test.mjs`
 
 **Interfaces:**
-- Service invokes `/home/lightworld/webapps/tradeos-staging/bin/deploy-staging.sh` as `User=lightworld`, `Group=lightworld`, `Type=oneshot`.
-- Timer invokes `tradeos-deploy.service` approximately every minute and is persistent.
-- Bootstrap is a root-operated one-time installer but creates runtime/deployment assets owned by `lightworld`; normal deployments never require root.
+- Service executes `/home/lightworld/webapps/tradeos-staging/bin/deploy-staging.sh` with `User=lightworld`, `Group=lightworld`, `HOME=/home/lightworld`, `Type=oneshot`.
+- Timer targets that service about once per minute and is persistent.
+- Bootstrap is the only root-required installation step; normal deployments remain unprivileged.
 
 - [ ] **Step 1: Write failing unit/bootstrap tests**
 
-Required tests:
-- `service is oneshot and runs deployer as lightworld`
-- `service pins HOME to lightworld and has bounded timeout`
-- `timer targets deploy service and is persistent`
-- `bootstrap preserves existing env file without printing it`
-- `bootstrap creates bare mirror and initial release before replacing runtime directory`
-- `bootstrap refuses to replace runtime path unless candidate release passed local health checks`
-- `bootstrap is safe when persistent directories and symlink already exist`
+Tests:
+- service runs one-shot as `lightworld` and pins HOME;
+- service has bounded start timeout;
+- timer targets service and is persistent;
+- bootstrap preserves env without printing it;
+- bare mirror and initial release exist before runtime path replacement;
+- bootstrap refuses switch unless candidate local health passes;
+- rerunning an already-bootstrapped layout is non-destructive.
 
-- [ ] **Step 2: Run bootstrap tests RED**
+- [ ] **Step 2: Run RED**
 
 Run: `node --test test/staging-bootstrap.test.mjs`
-Expected: FAIL because unit/bootstrap files are absent.
+Expected: FAIL.
 
 - [ ] **Step 3: Implement systemd units**
 
-Service must set `User=lightworld`, `Group=lightworld`, `Environment=HOME=/home/lightworld`, `Type=oneshot`, and a bounded `TimeoutStartSec`. Timer must use `OnBootSec`, roughly one-minute `OnUnitActiveSec`, `Persistent=true`, and target the service.
+Use `OnBootSec`, roughly one-minute `OnUnitActiveSec`, `Persistent=true`, and a bounded `TimeoutStartSec`.
 
-- [ ] **Step 4: Implement `bin/bootstrap-staging-deployer.sh`**
+- [ ] **Step 4: Implement bootstrap stages**
 
-Required stages:
-- validate current runtime is healthy;
-- create persistent state/release/shared directories;
-- preserve/move existing `.env.staging` without echoing contents;
-- create/fetch bare mirror;
-- baseline migration ledger;
-- materialize current verified SHA as initial release;
-- verify the initial release locally before switching path layout;
-- convert `/home/lightworld/webapps/tradeos-staging` to stable symlink atomically;
-- install copied systemd unit files;
-- enable/start timer;
-- run one no-op service verification.
+Validate current runtime health; create persistent state/release/shared dirs; preserve/move `.env.staging`; create/fetch bare mirror; run migration baseline; materialize and locally verify the current known-good SHA; atomically convert runtime path to stable symlink; install/enable timer; run one no-op service verification. Detect and safely reuse an existing bootstrapped layout.
 
-The script must detect an already-bootstrapped layout and avoid destructive rework.
-
-- [ ] **Step 5: Extend deployment-config tests**
-
-Assert service/timer/bootstrap paths and least-privilege requirements match the spec and no unit file contains database credentials.
-
-- [ ] **Step 6: Run bootstrap/deployment tests GREEN**
+- [ ] **Step 5: Run GREEN**
 
 Run: `node --test test/staging-bootstrap.test.mjs test/deployment-config.test.mjs`
-Expected: all tests PASS.
+Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
-Commit message: `ops: add TradeOS staging deploy service and bootstrap`
+Commit: `ops: add TradeOS staging deploy service and bootstrap`
 
 ---
 
-### Task 5: Documentation, full verification, and controlled VPS installation
+### Task 5: Documentation, whole-repo verification, PR, and controlled VPS installation
 
 **Files:**
 - Create: `docs/operations/staging-deployment.md`
 - Modify: `README.md`
 
-**Interfaces:**
-- Documents operator commands for status, logs, manifest inspection, manual service trigger, rollback diagnosis, and handoff-ref inspection without exposing secrets.
+- [ ] **Step 1: Document lifecycle and recovery**
 
-- [ ] **Step 1: Document deployment lifecycle and recovery**
+Document CI -> handoff ref -> timer -> release -> migrations -> activation -> PM2 -> health -> manifest; status/journal/manifest commands; and explicit forward-only schema policy.
 
-Cover CI -> `deploy/staging-ready` -> systemd timer -> release preparation -> migrations -> atomic activation -> PM2 -> health -> manifest. Include `systemctl status tradeos-deploy.timer`, `systemctl status tradeos-deploy.service`, `journalctl -u tradeos-deploy.service`, and manifest location. State explicitly that schema rollback is not automatic.
+- [ ] **Step 2: Run full verification**
 
-- [ ] **Step 2: Run complete repository verification**
+Run `pnpm typecheck`, `pnpm test`, `pnpm build`.
+Expected: all exit 0.
 
-Run:
-- `pnpm typecheck`
-- `pnpm test`
-- `pnpm build`
+- [ ] **Step 3: Review branch diff against the spec and request code review**
 
-Expected: all commands exit 0.
+Confirm every spec requirement maps to code/tests/docs and no unrelated business behavior changed.
 
-- [ ] **Step 3: Review branch diff against spec**
+- [ ] **Step 4: Commit docs and open reviewed PR**
 
-Verify every spec section maps to tracked code/tests/docs and no unrelated application behavior changed.
+Commit: `docs: document TradeOS staging deployment operations`. Merge only after CI is green on the exact PR head.
 
-- [ ] **Step 4: Commit documentation**
+- [ ] **Step 5: Perform one-time VPS bootstrap from the verified merged release**
 
-Commit message: `docs: document TradeOS staging deployment operations`
+Run root-only installer without exposing `.env.staging` contents.
 
-- [ ] **Step 5: Merge through reviewed PR only after CI is green**
+- [ ] **Step 6: Verify installed service and runtime**
 
-Verify PR CI on the exact head SHA before merge.
+Confirm timer enabled/active; no-op cycle succeeds; PM2 API/web online as `lightworld`; API local health 200 with database time; web local 200; public HTTPS 200; manifest SHA equals active release and approved handoff SHA.
 
-- [ ] **Step 6: Perform one-time VPS bootstrap**
+- [ ] **Step 7: Prove automatic promotion with a harmless controlled follow-up commit**
 
-Run the tracked bootstrap from the verified merged release as root only for installation. Do not expose `.env.staging` contents.
+Merge through normal CI; verify successful CI advances the handoff, timer deploys exactly that SHA, manifest updates once, public health stays 200, and the next cycle is a no-op.
 
-- [ ] **Step 7: Verify systemd installation**
+- [ ] **Step 8: Prove failure containment only in test/fake environments**
 
-Confirm timer enabled/active, service can execute as `lightworld`, persistent directories have correct ownership, and the first service cycle is a clean no-op when already current.
-
-- [ ] **Step 8: Verify runtime after bootstrap**
-
-Confirm:
-- PM2 API/web are online as `lightworld`;
-- `curl -fsS http://127.0.0.1:4036/health` returns 200 and database time;
-- `curl -fsSI http://127.0.0.1:3036/` returns 200;
-- `curl -fsSI https://tradeosafrica.lightworldtech.com/` returns 200;
-- manifest SHA equals active release SHA.
-
-- [ ] **Step 9: Prove automatic deployment with a harmless controlled commit**
-
-Merge a documentation-or-version-marker change through normal CI. Verify CI success advances `deploy/staging-ready`, the timer deploys that exact SHA within its cadence, public health remains 200, manifest updates once, and the next cycle is a no-op.
-
-- [ ] **Step 10: Prove failure containment**
-
-Use a non-merge test harness/fake environment to prove failed CI never advances the handoff and failed local validation never changes the active runtime. Do not intentionally break the public staging service.
+Verify failed CI never advances the handoff and failed local validation never changes the active runtime. Do not intentionally break the public staging service.
