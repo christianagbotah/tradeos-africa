@@ -15,9 +15,9 @@ export const workspaceNavigation: WorkspaceNavItem[] = [
   { href: "/purchases", label: "Purchases", group: "Commerce", roles: ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT", "VIEWER"] },
   { href: "/inventory", label: "Inventory", group: "Commerce", roles: ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT", "VIEWER"] },
   { href: "/catalog", label: "Catalog & units", group: "Commerce", roles: ["OWNER", "ADMIN", "MANAGER", "INVENTORY"] },
-  { href: "/returns", label: "Returns & refunds", group: "Commerce", roles: ["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT"] },
+  { href: "/returns", label: "Returns & refunds", group: "Commerce", roles: ["OWNER", "ADMIN", "MANAGER", "CASHIER"] },
   { href: "/cashbook", label: "Cashbook & expenses", group: "Money", roles: ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT", "VIEWER"] },
-  { href: "/operations", label: "Day & shifts", group: "Operations", roles: ["OWNER", "ADMIN", "MANAGER", "CASHIER", "STAFF"] },
+  { href: "/operations", label: "Day & shifts", group: "Operations", roles: ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT", "VIEWER"] },
   { href: "/reports", label: "Reports & intelligence", group: "Insights", roles: ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "VIEWER"] },
 ];
 

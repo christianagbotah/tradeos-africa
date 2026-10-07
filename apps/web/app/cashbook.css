@@ -78,8 +78,9 @@
 .treasury-section > p { color: var(--cashbook-muted); font-size: 13px; line-height: 1.5; }
 .treasury-section > .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 14px 0; }
 .treasury-section > .form-row p { margin: 0; padding: 10px 12px; border: 1px solid #e4e8ef; border-radius: 10px; background: #f8fafc; font-size: 12px; }
-.treasury-section table { width: 100%; border-collapse: collapse; min-width: 680px; }
-.treasury-section > table { display: block; overflow-x: auto; }
+.treasury-table-scroll { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; }
+.treasury-section table { width: 100%; border-collapse: collapse; }
+.treasury-table-scroll table { min-width: 680px; }
 .treasury-section th, .treasury-section td { padding: 11px 12px; border-bottom: 1px solid #edf0f4; text-align: left; font-size: 12px; }
 .treasury-section th { color: #64748b; background: #f8fafc; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .treasury-section form { margin-top: 16px; padding: 16px; border: 1px solid #e2e7ee; border-radius: 14px; background: #fafbfd; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { QuickSaleItem } from "../quick-sale";
 import { getActiveBusinessId, setActiveBusinessId } from "../../lib/offline-sync";
 import type { BusinessContext, CatalogItem, MePayload, Membership } from "../../lib/workspace-types";
@@ -71,6 +71,10 @@ export function getWorkspaceGate(input: {
   return "ready";
 }
 
+export function isCurrentWorkspaceRequest(requestGeneration: number, currentGeneration: number): boolean {
+  return requestGeneration === currentGeneration;
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [resolved, setResolved] = useState(false);
   const [session, setSession] = useState<MePayload | null>(null);
@@ -78,17 +82,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [branchId, setBranchId] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const requestGenerationRef = useRef(0);
+  const businessIntent = useRef<string | null>(null);
 
   const loadBusiness = useCallback(async (businessId: string, preferredBranchId: string | null = null) => {
+    const generation = ++requestGenerationRef.current;
     const [business, catalogData] = await Promise.all([
       api<BusinessContext>(`/api/tradeos/v1/businesses/${businessId}/context`),
       api<{ items: CatalogItem[] }>(`/api/tradeos/v1/catalog/items?businessId=${businessId}`),
     ]);
+    if (generation !== requestGenerationRef.current) return false;
     const selectedBranch = selectInitialBranch(business, preferredBranchId);
     if (!selectedBranch) throw new Error("This business has no active branch.");
     setContext(business);
     setCatalog(catalogData.items);
     setBranchId(selectedBranch.id);
+    return true;
   }, []);
 
   const loadSession = useCallback(async () => {
@@ -96,6 +105,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch("/api/session/me", { cache: "no-store" });
       if (response.status === 401) {
+        requestGenerationRef.current += 1;
+        businessIntent.current = null;
         setSession(null);
         setContext(null);
         setCatalog([]);
@@ -107,14 +118,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setSession(data);
       const membership = selectWorkspaceMembership(data, getActiveBusinessId());
       if (!membership) {
+        businessIntent.current = null;
         setContext(null);
         setCatalog([]);
         setBranchId(null);
         setActiveBusinessId(null);
         return;
       }
-      await loadBusiness(membership.businessId);
-      setActiveBusinessId(membership.businessId);
+      businessIntent.current = membership.businessId;
+      const committed = await loadBusiness(membership.businessId);
+      if (committed) setActiveBusinessId(membership.businessId);
     } catch (reason) {
       setError(messageFrom(reason));
     } finally {
@@ -127,8 +140,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const setBusiness = useCallback(async (businessId: string) => {
     if (!session?.memberships.some((membership) => membership.businessId === businessId)) throw new Error("Business is not available to this session.");
     setError(null);
-    await loadBusiness(businessId);
-    setActiveBusinessId(businessId);
+    businessIntent.current = businessId;
+    const committed = await loadBusiness(businessId);
+    if (committed) setActiveBusinessId(businessId);
   }, [loadBusiness, session]);
 
   const setBranch = useCallback((branchId: string) => {
@@ -138,11 +152,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const refreshBusiness = useCallback(async () => {
     if (!context) return;
+    if (businessIntent.current && businessIntent.current !== context.business.id) return;
     await loadBusiness(context.business.id, branchId);
   }, [branchId, context, loadBusiness]);
 
   const logout = useCallback(async () => {
     try { await fetch("/api/session/logout", { method: "POST" }); } finally {
+      requestGenerationRef.current += 1;
+      businessIntent.current = null;
       setActiveBusinessId(null);
       setSession(null);
       setContext(null);

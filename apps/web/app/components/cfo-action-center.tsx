@@ -1,4 +1,5 @@
 import React from "react";
+import Link from "next/link";
 import type { CashForecastResponse, CfoAction } from "@tradeos/contracts";
 
 export type AgingSideSnapshot = {
@@ -30,6 +31,13 @@ type BuildInput = {
 };
 
 const priorityRank: Record<CfoAction["priority"], number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+const inventoryActionRoutes = new Set(["PRODUCT_STOCK_VALUE_MISSING", "INVENTORY_TIEUP", "QUARANTINE_PRESSURE"]);
+
+function normalizeCfoActionHref(item: CfoAction): CfoAction {
+  if (inventoryActionRoutes.has(item.sourceInsightCode)) return { ...item, href: "/inventory" };
+  if (item.href.startsWith("#")) return { ...item, href: `/${item.href.slice(1)}` };
+  return item;
+}
 
 function overdueTotal(side: AgingSideSnapshot): number {
   return side.overdue1To30DaysMinor + side.overdue31To60DaysMinor + side.overdue61To90DaysMinor + side.overdueOver90DaysMinor;
@@ -55,7 +63,7 @@ export function buildCfoActionCenterItems({ healthActions, aging, forecast }: Bu
         : "Cash forecast falls below zero",
       reason: `The 30-day forecast reaches a low of ${forecast.summary.lowestProjectedCashMinor < 0 ? "negative cash" : "zero cash"} on ${forecast.summary.lowestProjectedCashDate}.`,
       action: "Protect cash now: accelerate customer collections and defer or reschedule non-essential outflows before the projected shortfall.",
-      href: "#cashbook",
+      href: "/cashbook",
       navigationLabel: "Open cashbook",
       evidence: [
         { key: "projectedCashGap", label: "Projected cash gap", value: gap, unit: "MINOR" },
@@ -78,7 +86,7 @@ export function buildCfoActionCenterItems({ healthActions, aging, forecast }: Bu
         title: "Collect overdue customer balances",
         reason: `${aging.receivables.obligationCount} customer obligation${aging.receivables.obligationCount === 1 ? " is" : "s are"} open, with overdue balances already past their agreed due dates.`,
         action: "Start collections with the oldest overdue balances first, then work through amounts due in the next 7 days.",
-        href: "#customers",
+        href: "/customers",
         navigationLabel: "Review customer credit",
         evidence: [
           { key: "overdueReceivables", label: "Overdue receivables", value: receivablesOverdue, unit: "MINOR" },
@@ -112,7 +120,7 @@ export function buildCfoActionCenterItems({ healthActions, aging, forecast }: Bu
           ? "Some supplier obligations are already overdue; additional payments may also fall due within the next 7 days."
           : "Supplier obligations fall due within the next 7 days and should be matched against available cash.",
         action: "Schedule essential supplier payments first and negotiate revised dates before cash pressure becomes a missed payment.",
-        href: "#purchases",
+        href: "/purchases",
         navigationLabel: "Review supplier balances",
         evidence: supplierEvidence,
       });
@@ -120,7 +128,7 @@ export function buildCfoActionCenterItems({ healthActions, aging, forecast }: Bu
     }
   }
 
-  const merged = [...precise, ...healthActions.filter((item) => !suppressed.has(item.code))];
+  const merged = [...precise, ...healthActions.filter((item) => !suppressed.has(item.code))].map(normalizeCfoActionHref);
   return merged
     .map((item, index) => ({ item, index }))
     .sort((a, b) => priorityRank[a.item.priority] - priorityRank[b.item.priority] || a.index - b.index)
@@ -158,7 +166,7 @@ export function CfoActionCenter({
       ) : <p>No action is generated until TradeOS has enough operating evidence.</p>}
       {items.length ? <div className="cfo-action-list">{items.map((item) => (
         <article className="cfo-action" key={item.code}>
-          <div className="cfo-action-head"><div><span className={`cfo-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span>{item.area.replaceAll("_", " ")}</span></div><a className="ghost-button" href={item.href}>{item.navigationLabel}</a></div>
+          <div className="cfo-action-head"><div><span className={`cfo-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span>{item.area.replaceAll("_", " ")}</span></div><Link className="ghost-button" href={item.href}>{item.navigationLabel}</Link></div>
           <strong>{item.title}</strong>
           <p>{item.reason}</p>
           {item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${evidenceValue(row, money)}`).join(" · ")}</p> : null}

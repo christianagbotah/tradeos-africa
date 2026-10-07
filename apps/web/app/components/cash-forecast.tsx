@@ -1,5 +1,6 @@
 import React from "react";
 import type { CashForecastResponse } from "@tradeos/contracts";
+import { ResponsiveTable } from "./ui/responsive-table";
 
 export function CashForecastPanel({
   forecast,
@@ -59,7 +60,7 @@ export function CashForecastPanel({
       </div>
 
       <h4>Daily cash path</h4>
-      <div className="table-scroll">
+      <ResponsiveTable>
         <table>
           <thead><tr><th>Date</th><th>Opening cash</th><th>Customer due</th><th>Supplier due</th><th>Estimated inflow</th><th>Estimated outflow</th><th>Closing cash</th></tr></thead>
           <tbody>{forecast.days.map((day) => <tr className={day.closingCashMinor < 0 ? "forecast-negative" : undefined} key={day.date}>
@@ -72,7 +73,7 @@ export function CashForecastPanel({
             <td><strong>{money(day.closingCashMinor)}</strong></td>
           </tr>)}</tbody>
         </table>
-      </div>
+      </ResponsiveTable>
     </div>
   );
 }

@@ -25,12 +25,12 @@ describe("multi-page workspace parity", () => {
 
   it("keeps VIEWER navigation read-only and away from mutation-first workspaces", () => {
     const viewer = visibleWorkspaceNav("VIEWER").map((item) => item.href);
-    expect(viewer).toEqual(["/dashboard", "/sales", "/customers", "/purchases", "/inventory", "/cashbook", "/reports"]);
-    expect(viewer).not.toEqual(expect.arrayContaining(["/sell", "/catalog", "/returns", "/operations"]));
+    expect(viewer).toEqual(["/dashboard", "/sales", "/customers", "/purchases", "/inventory", "/cashbook", "/operations", "/reports"]);
+    expect(viewer).not.toEqual(expect.arrayContaining(["/sell", "/catalog", "/returns"]));
   });
 
   it("guards direct VIEWER access to mutation-first routes in presentation", () => {
-    for (const route of ["sell", "catalog", "returns", "operations"]) {
+    for (const route of ["sell", "catalog", "returns"]) {
       const source = fs.readFileSync(path.join(appRoot, "(workspace)", route, "page.tsx"), "utf8");
       expect(source).toContain("canAccessWorkspaceRoute");
       expect(source).toContain("Read-only access");

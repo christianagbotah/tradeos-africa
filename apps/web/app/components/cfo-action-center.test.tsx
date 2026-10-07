@@ -118,6 +118,10 @@ describe("CFO Action Center v2", () => {
     ]);
     expect(items.map((item) => item.code)).not.toContain("ACTION_RECEIVABLE_PRESSURE");
     expect(items.map((item) => item.code)).not.toContain("ACTION_PAYABLE_COVERAGE");
+    expect(items[0]?.href).toBe("/cashbook");
+    expect(items.find((item) => item.code === "ACTION_OVERDUE_RECEIVABLES")?.href).toBe("/customers");
+    expect(items.find((item) => item.code === "ACTION_SUPPLIER_PAYMENT_PRESSURE")?.href).toBe("/purchases");
+    expect(items.every((item) => item.href.startsWith("/"))).toBe(true);
     expect(items[0]?.evidence).toContainEqual(expect.objectContaining({ key: "projectedCashGap", value: 20_000, unit: "MINOR" }));
   });
 
@@ -128,7 +132,11 @@ describe("CFO Action Center v2", () => {
       receivables: { ...aging.receivables, overdue1To30DaysMinor: 0, overdue31To60DaysMinor: 0, overdue61To90DaysMinor: 0, overdueOver90DaysMinor: 0 },
       payables: { ...aging.payables, overdue1To30DaysMinor: 0, overdue31To60DaysMinor: 0, overdue61To90DaysMinor: 0, overdueOver90DaysMinor: 0, dueWithin7DaysMinor: 0 },
     };
-    expect(buildCfoActionCenterItems({ healthActions, aging: calmAging, forecast: calmForecast })).toEqual(healthActions);
+    expect(buildCfoActionCenterItems({ healthActions, aging: calmAging, forecast: calmForecast })).toEqual([
+      { ...healthActions[0]!, href: "/customers" },
+      { ...healthActions[1]!, href: "/purchases" },
+      { ...healthActions[2]!, href: "/catalog" },
+    ]);
   });
 
   it("renders an owner briefing with quantified evidence", () => {

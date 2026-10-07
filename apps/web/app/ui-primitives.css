@@ -31,7 +31,7 @@
 .tradeos-status-badge.danger { border-color: #efd0cd; background: #fff4f3; color: #9c443f; }
 .tradeos-status-badge.info { border-color: #cfe0f0; background: #f4f9fd; color: #2f587a; }
 .tradeos-responsive-table { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; }
-.tradeos-responsive-table table { width: 100%; border-collapse: collapse; }
+.tradeos-responsive-table table { width: 100%; min-width: 680px; border-collapse: collapse; }
 .tradeos-responsive-table th, .tradeos-responsive-table td { padding: 12px 14px; border-bottom: 1px solid #edf0f4; text-align: left; }
 .tradeos-responsive-table th { background: #f8fafc; color: #68768b; font-size: 10px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
 @media (max-width: 1100px) { .tradeos-stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
