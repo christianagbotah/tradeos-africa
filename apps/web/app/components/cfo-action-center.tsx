@@ -93,8 +93,15 @@ export function buildCfoActionCenterItems({ healthActions, aging, forecast }: Bu
     const payablesOverdue = overdueTotal(aging.payables);
     const dueSoon = aging.payables.dueWithin7DaysMinor;
     if (payablesOverdue > 0 || dueSoon > 0) {
-      const availableCash = forecast?.summary.openingCashMinor ?? 0;
-      const urgent = payablesOverdue > Math.max(0, availableCash) && payablesOverdue > 0;
+      const availableCash = forecast?.summary.openingCashMinor ?? null;
+      const urgent = availableCash !== null && payablesOverdue > Math.max(0, availableCash) && payablesOverdue > 0;
+      const supplierEvidence: CfoAction["evidence"] = [
+        { key: "overduePayables", label: "Overdue supplier payables", value: payablesOverdue, unit: "MINOR" },
+        { key: "payablesDue7", label: "Due within 7 days", value: dueSoon, unit: "MINOR" },
+      ];
+      if (availableCash !== null) {
+        supplierEvidence.push({ key: "openingCash", label: "Cash available now", value: availableCash, unit: "MINOR" });
+      }
       precise.push({
         code: "ACTION_SUPPLIER_PAYMENT_PRESSURE",
         sourceInsightCode: "SUPPLIER_PAYMENT_PRESSURE",
@@ -107,11 +114,7 @@ export function buildCfoActionCenterItems({ healthActions, aging, forecast }: Bu
         action: "Schedule essential supplier payments first and negotiate revised dates before cash pressure becomes a missed payment.",
         href: "#purchases",
         navigationLabel: "Review supplier balances",
-        evidence: [
-          { key: "overduePayables", label: "Overdue supplier payables", value: payablesOverdue, unit: "MINOR" },
-          { key: "payablesDue7", label: "Due within 7 days", value: dueSoon, unit: "MINOR" },
-          { key: "openingCash", label: "Cash available now", value: availableCash, unit: "MINOR" },
-        ],
+        evidence: supplierEvidence,
       });
       suppressed.add("ACTION_PAYABLE_COVERAGE");
     }
