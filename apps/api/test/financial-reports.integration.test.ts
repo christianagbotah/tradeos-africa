@@ -96,7 +96,7 @@ describe("financial summary reports", () => {
     expect(report.health.workingCapital).toMatchObject({ inventorySnapshotAligned:true, cashAfterPayablesMinor:-1500, netTradeCreditMinor:100 });
     expect(["WATCH","PRESSURED"]).toContain(report.health.workingCapital.status);
     expect(report.health.actions.length).toBeGreaterThan(0);
-    expect(report.health.actions.every((item:{href:string})=>item.href.startsWith("#"))).toBe(true);
+    expect(report.health.actions.every((item:{href:string})=>item.href.startsWith("/") && !item.href.startsWith("#"))).toBe(true);
   });
 
   it("reports multi-unit product volume in one stock-equivalent unit", async () => {
