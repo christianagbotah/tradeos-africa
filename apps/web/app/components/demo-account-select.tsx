@@ -1,0 +1,26 @@
+import { demoAccounts, getDemoAccount, type DemoAccount } from "./demo-accounts";
+
+export function DemoAccountSelect({
+  selectedId,
+  onSelect,
+}: {
+  selectedId: string;
+  onSelect: (account: DemoAccount | null) => void;
+}) {
+  return (
+    <label>
+      Demo account
+      <select
+        className="context-select"
+        style={{ width: "100%" }}
+        value={selectedId}
+        onChange={(event) => onSelect(getDemoAccount(event.target.value))}
+      >
+        <option value="">Choose a demo user…</option>
+        {demoAccounts.map((account) => (
+          <option key={account.id} value={account.id}>{account.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
