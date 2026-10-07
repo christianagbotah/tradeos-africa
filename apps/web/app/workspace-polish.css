@@ -1,0 +1,223 @@
+/* Final authenticated-workspace visual layer. Keeps legacy feature logic while giving every routed module one design language. */
+.workspace-main .panel,
+.workspace-main .metric-card,
+.workspace-main .purchase-receipt-box,
+.workspace-main .inventory-card,
+.workspace-main .purchase-history-card,
+.workspace-main .sales-list,
+.workspace-main .return-detail,
+.workspace-main .customer-list,
+.workspace-main .customer-account-detail {
+  border-color: var(--workspace-line);
+  background: var(--workspace-surface);
+  box-shadow: var(--workspace-shadow);
+}
+
+.workspace-main .panel {
+  min-width: 0;
+  margin: 0;
+  padding: 22px;
+  border-radius: 18px;
+}
+.workspace-main .panel-heading {
+  margin-bottom: 18px;
+  align-items: flex-start;
+}
+.workspace-main .panel-heading h2,
+.workspace-main .panel-heading h3 {
+  color: #111c2e;
+  letter-spacing: -.025em;
+}
+.workspace-main .panel-heading > span:not(.workflow-badge) {
+  color: var(--workspace-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+.workspace-main .eyebrow {
+  color: #9a7525;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .13em;
+}
+.workspace-main .workflow-badge {
+  border-color: #ead8ac;
+  background: #fbf6e9;
+  color: #805e16;
+}
+
+.workspace-main .form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+  min-width: 0;
+}
+.workspace-main .form-row.triple { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.workspace-main .form-row > * { min-width: 0; }
+.workspace-main .form-row label { display: grid; gap: 7px; }
+
+.workspace-main .primary-button,
+.workspace-main .ghost-button,
+.workspace-main .text-button {
+  min-height: 44px;
+  border-radius: 11px;
+  font-weight: 800;
+}
+.workspace-main .primary-button {
+  border: 1px solid #101b2d;
+  background: #101b2d;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(16,27,45,.12);
+}
+.workspace-main .primary-button:hover:not(:disabled) {
+  background: #1a2941;
+  border-color: #1a2941;
+  transform: translateY(-1px);
+}
+.workspace-main .ghost-button {
+  border: 1px solid #d5dce6;
+  background: #fff;
+  color: #273449;
+}
+.workspace-main .ghost-button:hover:not(:disabled) { border-color: #bfc9d6; background: #f8fafc; }
+.workspace-main .text-button { color: #617087; }
+.workspace-main .text-button:hover:not(:disabled) { color: #172033; background: #f3f5f8; }
+
+.workspace-main .metric-card {
+  padding: 18px;
+  border-radius: 16px;
+  box-shadow: 0 8px 28px rgba(16,27,45,.045);
+}
+.workspace-main .metrics-grid { gap: 12px; }
+.workspace-main .metric-card > span { color: #6b788b; font-weight: 750; }
+.workspace-main .metric-card > strong { color: #101b2d; }
+
+.workspace-main .quick-item {
+  min-height: 118px;
+  border-color: #e0e6ee;
+  border-radius: 15px;
+  background: linear-gradient(180deg, #fff, #fafbfd);
+  box-shadow: 0 6px 18px rgba(16,27,45,.035);
+}
+.workspace-main .quick-item:hover {
+  border-color: #d1b261;
+  background: #fffdfa;
+  box-shadow: 0 10px 24px rgba(16,27,45,.07);
+  transform: translateY(-2px);
+}
+.workspace-main .payment-actions button.selected {
+  border-color: #c9982f;
+  background: #fbf6e9;
+  color: #6f5315;
+  box-shadow: inset 0 0 0 1px #c9982f;
+}
+.workspace-main .payment-actions .checkout-button { background: #101b2d; border-color: #101b2d; }
+.workspace-main .checkout-strip { border-top-color: #e8edf3; }
+
+.workspace-main .purchase-inventory-panel,
+.workspace-main .sales-return-panel,
+.workspace-main .customer-credit-panel { margin-top: 0; }
+
+.workspace-main .supplier-form,
+.workspace-main .purchase-receipt-box,
+.workspace-main .customer-create-form,
+.workspace-main .credit-controls,
+.workspace-main .customer-payment-box,
+.workspace-main .returnable-line,
+.workspace-main .refund-controls,
+.workspace-main #operations > form {
+  border-color: #e0e6ee;
+  border-radius: 14px;
+  background: var(--workspace-surface-soft);
+}
+.workspace-main .supplier-form,
+.workspace-main .customer-create-form,
+.workspace-main #operations > form { padding: 16px; }
+.workspace-main #operations > form { margin: 16px 0; display: grid; gap: 14px; }
+.workspace-main #operations > form h3 { margin: 0; color: #172033; }
+.workspace-main #operations > form p { margin: 0; color: var(--workspace-muted); font-size: 12px; line-height: 1.55; }
+
+.workspace-main .inventory-card,
+.workspace-main .purchase-history-card,
+.workspace-main .sales-list,
+.workspace-main .return-detail,
+.workspace-main .customer-list,
+.workspace-main .customer-account-detail {
+  border-radius: 16px;
+  overflow: hidden;
+}
+.workspace-main .sales-list,
+.workspace-main .customer-list { background: #f8fafc; padding: 8px; }
+.workspace-main .sale-row,
+.workspace-main .customer-row { border-radius: 12px; }
+.workspace-main .sale-row:hover,
+.workspace-main .customer-row:hover { box-shadow: 0 5px 16px rgba(16,27,45,.045); }
+.workspace-main .sale-row.active,
+.workspace-main .customer-row.active { border-color: #d5bd7c; box-shadow: 0 7px 20px rgba(16,27,45,.07); }
+
+.workspace-main .subpanel-head {
+  padding: 16px 18px;
+  border-bottom-color: #e8edf3;
+  background: #fbfcfe;
+}
+.workspace-main .inventory-row,
+.workspace-main .purchase-history-row,
+.workspace-main .ledger-row { border-bottom-color: #edf1f5; }
+.workspace-main .inventory-row:hover,
+.workspace-main .purchase-history-row:hover,
+.workspace-main .ledger-row:hover { background: #fbfcfe; }
+
+.workspace-main .sales-search,
+.workspace-main .customer-search {
+  padding: 12px;
+  border: 1px solid #e1e7ef;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.workspace-main .return-action-bar {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top-color: #e8edf3;
+}
+
+.workspace-main table {
+  border-spacing: 0;
+  color: #334155;
+}
+.workspace-main table th {
+  color: #68768b;
+  background: #f8fafc;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.workspace-main table th,
+.workspace-main table td { padding: 12px 14px; border-bottom: 1px solid #edf0f4; }
+.workspace-main table tbody tr:hover { background: #fbfcfe; }
+
+.workspace-main .empty-sale-state,
+.workspace-main .receipt-empty,
+.workspace-main .inventory-empty,
+.workspace-main .sales-empty,
+.workspace-main .customer-empty,
+.workspace-main .return-placeholder,
+.workspace-main .customer-placeholder {
+  border-color: #d8e0ea;
+  color: #748196;
+}
+
+@media (max-width: 900px) {
+  .workspace-main .form-row,
+  .workspace-main .form-row.triple { grid-template-columns: 1fr; }
+  .workspace-main .panel { padding: 18px; }
+}
+
+@media (max-width: 560px) {
+  .workspace-main .panel { padding: 15px; border-radius: 15px; }
+  .workspace-main .panel-heading { display: grid; gap: 8px; }
+  .workspace-main .primary-button,
+  .workspace-main .ghost-button { min-height: 46px; }
+  .workspace-main .sales-search,
+  .workspace-main .customer-search { padding: 10px; }
+}
