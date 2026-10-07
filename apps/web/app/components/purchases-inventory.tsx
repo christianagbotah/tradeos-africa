@@ -76,12 +76,13 @@ type Props = {
   currencyCode: string;
   role: string;
   catalog: CatalogItem[];
+  view: "purchases" | "inventory";
 };
 
 const receiveRoles = new Set(["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"]);
 const supplierPaymentRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
 
-export function PurchasesInventory({ businessId, branchId, currencyCode, role, catalog }: Props) {
+export function PurchasesInventory({ businessId, branchId, currencyCode, role, catalog, view }: Props) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [purchases, setPurchases] = useState<PurchaseSummary[]>([]);
@@ -121,32 +122,26 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   const lowOrEmpty = useMemo(() => inventory.filter((item) => item.available <= 0).length, [inventory]);
 
   return (
-    <section className="panel purchase-inventory-panel" id="purchases">
+    <section className="panel purchase-inventory-panel" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
       <div className="panel-heading">
-        <div><p className="eyebrow">Procurement · stock receiving</p><h2>Suppliers, purchases & inventory</h2></div>
+        <div>
+          <p className="eyebrow">{view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}</p>
+          <h2>{view === "purchases" ? "Suppliers & purchases" : "Inventory"}</h2>
+        </div>
         <div className="inventory-summary"><span>Tracked products</span><strong>{inventory.length}</strong><small>{lowOrEmpty} empty item{lowOrEmpty === 1 ? "" : "s"}</small></div>
       </div>
 
-      {canReceive ? (
-        <div className="procurement-actions">
-          <SupplierCreate businessId={businessId} canManageTerms={canPaySupplier} onCreated={(supplier) => { setSuppliers((current) => [...current, supplier].sort((a,b) => a.name.localeCompare(b.name))); setMessage("Supplier added."); }} />
-          <PurchaseReceipt
-            businessId={businessId}
-            branchId={branchId}
-            currencyCode={currencyCode}
-            suppliers={suppliers.filter((supplier) => supplier.active)}
-            catalog={catalog}
-            onMessage={setMessage}
-          />
-        </div>
-      ) : <div className="inventory-readonly-note">Your role can view stock and purchase history but cannot receive inventory.</div>}
-
-      <div className="supplier-balances">{suppliers.map(supplier => <div className="purchase-history-row" key={supplier.id}><div><strong>{supplier.name} · {supplier.balanceMinor < 0 ? "Supplier credit" : "Payable"} {formatMoney(Math.abs(supplier.balanceMinor),currencyCode)}</strong><span>Terms: Net {supplier.paymentTermsDays} day{supplier.paymentTermsDays === 1 ? "" : "s"}</span></div>{canPaySupplier ? <SupplierTerms businessId={businessId} supplier={supplier} onSaved={()=>void refresh()} onMessage={setMessage} /> : null}{canPaySupplier && supplier.balanceMinor > 0 ? <SupplierPayment businessId={businessId} branchId={branchId} supplier={supplier} onMessage={setMessage} /> : null}</div>)}</div>
-      <div className="procurement-grid">
-        <InventoryTable items={inventory} currencyCode={currencyCode} />
+      {view === "purchases" ? <>
+        {canReceive ? (
+          <div className="procurement-actions">
+            <SupplierCreate businessId={businessId} canManageTerms={canPaySupplier} onCreated={(supplier) => { setSuppliers((current) => [...current, supplier].sort((a,b) => a.name.localeCompare(b.name))); setMessage("Supplier added."); }} />
+            <PurchaseReceipt businessId={businessId} branchId={branchId} currencyCode={currencyCode} suppliers={suppliers.filter((supplier) => supplier.active)} catalog={catalog} onMessage={setMessage} />
+          </div>
+        ) : <div className="inventory-readonly-note">Your role can view purchase history but cannot receive inventory.</div>}
+        <div className="supplier-balances">{suppliers.map(supplier => <div className="purchase-history-row" key={supplier.id}><div><strong>{supplier.name} · {supplier.balanceMinor < 0 ? "Supplier credit" : "Payable"} {formatMoney(Math.abs(supplier.balanceMinor),currencyCode)}</strong><span>Terms: Net {supplier.paymentTermsDays} day{supplier.paymentTermsDays === 1 ? "" : "s"}</span></div>{canPaySupplier ? <SupplierTerms businessId={businessId} supplier={supplier} onSaved={()=>void refresh()} onMessage={setMessage} /> : null}{canPaySupplier && supplier.balanceMinor > 0 ? <SupplierPayment businessId={businessId} branchId={branchId} supplier={supplier} onMessage={setMessage} /> : null}</div>)}</div>
         <RecentPurchases purchases={purchases} onReturn={canReceive ? setReturnPurchase : undefined} />
-      </div>
-      {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={()=>setReturnPurchase(null)} onMessage={setMessage} /> : null}
+        {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={()=>setReturnPurchase(null)} onMessage={setMessage} /> : null}
+      </> : <InventoryTable items={inventory} currencyCode={currencyCode} />}
       {message ? <div className="procurement-message">{message}</div> : null}
     </section>
   );

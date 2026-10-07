@@ -67,9 +67,10 @@ type Props = {
   businessId: string;
   branchId: string;
   currencyCode: string;
+  view: "sales" | "returns";
 };
 
-export function SalesAndReturns({ businessId, branchId, currencyCode }: Props) {
+export function SalesAndReturns({ businessId, branchId, currencyCode, view }: Props) {
   const [sales, setSales] = useState<SaleSummary[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -199,13 +200,13 @@ export function SalesAndReturns({ businessId, branchId, currencyCode }: Props) {
   };
 
   return (
-    <section className="panel sales-return-panel" id="returns">
+    <section className="panel sales-return-panel" id={view === "sales" ? "sales" : "returns"} data-sales-view={view}>
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Real transaction history</p>
-          <h2>Sales, returns & refunds</h2>
+          <p className="eyebrow">{view === "sales" ? "Transaction history" : "Protected reversal workflow"}</p>
+          <h2>{view === "sales" ? "Sales & receipts" : "Returns & refunds"}</h2>
         </div>
-        <span className="workflow-badge">Original sale required</span>
+        <span className="workflow-badge">{view === "sales" ? "Server history" : "Original sale required"}</span>
       </div>
 
       <form className="sales-search" onSubmit={submitSearch}>
@@ -240,6 +241,8 @@ export function SalesAndReturns({ businessId, branchId, currencyCode }: Props) {
               <strong>Select a sale</strong>
               <span>Choose an original sale to inspect returnable quantities and process a protected refund.</span>
             </div>
+          ) : view === "sales" ? (
+            <SaleReadOnlyDetail sale={selected} />
           ) : (
             <>
               <div className="return-detail-head">
@@ -309,6 +312,21 @@ export function SalesAndReturns({ businessId, branchId, currencyCode }: Props) {
       </div>
       {message ? <div className="return-message">{message}</div> : null}
     </section>
+  );
+}
+
+
+function SaleReadOnlyDetail({ sale }: { sale: SaleDetail }) {
+  return (
+    <div className="sale-readonly-detail">
+      <div className="return-detail-head">
+        <div><p className="eyebrow">Receipt {shortReceipt(sale.id)}</p><h3>{formatMoney(sale.totalMinor, sale.currencyCode)}</h3><span>{formatDate(sale.completedAt ?? sale.createdAt)} · {sale.cashierName ?? "Staff"}</span></div>
+        <span className="sale-status">{sale.status.replaceAll("_", " ")}</span>
+      </div>
+      <div className="sale-detail-meta"><span>Customer</span><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong></div>
+      <div className="sale-detail-lines">{sale.lines.map((line) => <div key={line.id} className="sale-detail-line"><div><strong>{line.itemName}</strong><span>{line.quantity} {line.saleUnitCode}</span></div><strong>{formatMoney(line.lineTotalMinor, sale.currencyCode)}</strong></div>)}</div>
+      <div className="sale-detail-payments">{sale.payments.map((payment) => <div key={payment.id}><span>{payment.method.replaceAll("_", " ")}</span><strong>{formatMoney(payment.amountMinor, sale.currencyCode)}</strong><small>{payment.status.replaceAll("_", " ")}{payment.refundedMinor ? ` · ${formatMoney(payment.refundedMinor, sale.currencyCode)} refunded` : ""}</small></div>)}</div>
+    </div>
   );
 }
 

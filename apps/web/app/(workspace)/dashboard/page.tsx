@@ -23,6 +23,7 @@ export default function DashboardPage() {
         role={context.membership.role}
         businessTimezone={context.business.timezone}
         branchTimezone={activeBranch.timezone}
+        view="dashboard"
       />
     </div>
   );

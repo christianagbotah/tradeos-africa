@@ -76,7 +76,7 @@ function percentage(value: number | null) { return value === null ? "new" : `${v
 function signed(value: number, money: (n: number) => string) { return `${value >= 0 ? "+" : ""}${money(value)}`; }
 function overdueTotal(side: AgingSide) { return side.overdue1To30DaysMinor + side.overdue31To60DaysMinor + side.overdue61To90DaysMinor + side.overdueOver90DaysMinor; }
 
-export function FinancialReports({ businessId, branchId, currencyCode, role, businessTimezone, branchTimezone }: { businessId: string; branchId: string; currencyCode: string; role: string; businessTimezone: string; branchTimezone: string }) {
+export function FinancialReports({ businessId, branchId, currencyCode, role, businessTimezone, branchTimezone, view }: { businessId: string; branchId: string; currencyCode: string; role: string; businessTimezone: string; branchTimezone: string; view: "dashboard" | "reports" }) {
   const [fromDate, setFromDate] = useState(() => dateInZone(branchTimezone, -29));
   const [toDate, setToDate] = useState(() => dateInZone(branchTimezone, 0));
   const [allBranches, setAllBranches] = useState(false);
@@ -165,7 +165,7 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
   const f = report?.flow;
   const p = report?.position;
   return (
-    <section className="panel" id="reports">
+    <section className="panel" id="reports" data-report-view={view}>
       <div className="panel-heading"><div><p className="eyebrow">Owner intelligence</p><h2>Financial performance</h2></div><span>{busy ? "Refreshing…" : allBranches ? "All branches" : "Current branch"}</span></div>
       <div className="form-row triple">
         <label>From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></label>
