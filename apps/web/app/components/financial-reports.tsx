@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { mutationAppliedEvent } from "../lib/offline-sync";
-import type { CashForecastResponse } from "@tradeos/contracts";
+import type { CashForecastResponse, CfoAction as ContractCfoAction, CreditAgingReport } from "@tradeos/contracts";
 import { CashForecastPanel } from "./cash-forecast";
+import { CfoActionCenter } from "./cfo-action-center";
 
 type Flow = {
   grossRevenueMinor: number; returnsRevenueMinor: number; netRevenueMinor: number;
@@ -25,13 +26,13 @@ type Daily = { date: string; netRevenueMinor: number; netCogsMinor: number; gros
 type Branch = { branchId: string; branchName: string; netRevenueMinor: number; netCogsMinor: number; grossProfitMinor: number; expenseMinor: number; purchaseReturnVarianceMinor: number; operatingProfitMinor: number; cashNetMinor: number; receivablesMinor: number; payablesMinor: number; inventoryValueMinor: number; salesCount: number; returnCount: number };
 type Item = { itemId: string; itemName: string; itemKind: string; unitCode: string; quantitySold: number; quantityReturned: number; netRevenueMinor: number; netCogsMinor: number; grossProfitMinor: number };
 type HealthDimension = { key: string; label: string; weight: number; applicable: boolean; score: number | null; summary: string; metrics: Array<{ key: string; label: string; value: number | null; unit: string }> };
-type HealthEvidence = { key: string; label: string; value: number; unit: string };
+type HealthEvidence = { key: string; label: string; value: number; unit: "PERCENT" | "MONTHS" | "RATIO" | "MINOR" | "COUNT" };
 type HealthInsight = { code: string; severity: "CRITICAL" | "WARNING" | "OPPORTUNITY" | "POSITIVE" | "INFO"; title: string; message: string; action: string; evidence: HealthEvidence[] };
 type WorkingCapital = { status: string; headline: string; inventorySnapshotAligned: boolean; cashAfterPayablesMinor: number; netTradeCreditMinor: number; operatingWorkingCapitalMinor: number | null; payableCoverageRatio: number | null; receivableMonths: number | null; inventoryMonths: number | null; operatingCashConversionPercent: number | null };
-type CfoAction = { code: string; sourceInsightCode: string; priority: "URGENT" | "HIGH" | "MEDIUM" | "LOW"; area: string; title: string; reason: string; action: string; href: string; navigationLabel: string; evidence: HealthEvidence[] };
+type CfoAction = ContractCfoAction;
 type Health = { algorithmVersion: string; score: number | null; status: string; confidence: string; headline: string; periodDays: number; dimensions: HealthDimension[]; insights: HealthInsight[]; workingCapital: WorkingCapital; actions: CfoAction[] };
-type AgingSide = { totalOpenMinor: number; notDueMinor: number; dueWithin7DaysMinor: number; dueWithin30DaysMinor: number; overdue1To30DaysMinor: number; overdue31To60DaysMinor: number; overdue61To90DaysMinor: number; overdueOver90DaysMinor: number; obligationCount: number; oldestDueAt: string | null };
-type CreditAging = { businessId: string; branchId: string | null; currencyCode: string; generatedAt: string; receivables: AgingSide; payables: AgingSide };
+type AgingSide = CreditAgingReport["receivables"];
+type CreditAging = CreditAgingReport;
 type Report = {
   currencyCode: string;
   period: { from: string; to: string; timezone: string };
@@ -83,10 +84,12 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
   const [aging, setAging] = useState<CreditAging | null>(null);
   const [forecast, setForecast] = useState<CashForecastResponse | null>(null);
   const [forecastOfflineCached, setForecastOfflineCached] = useState(false);
+  const [agingOfflineCached, setAgingOfflineCached] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const canRead = allowedRoles.includes(role);
   const cacheKey = useMemo(() => `tradeos.report.v2:${businessId}:${allBranches ? "all" : branchId}:${fromDate}:${toDate}`, [businessId, branchId, allBranches, fromDate, toDate]);
+  const agingCacheKey = useMemo(() => `tradeos.credit-aging.v1:${businessId}:${allBranches ? "all" : branchId}`, [businessId, branchId, allBranches]);
   const forecastCacheKey = useMemo(() => `tradeos.cash-forecast.v1:${businessId}:${allBranches ? "all" : branchId}:30`, [businessId, branchId, allBranches]);
   const money = (minor: number) => `${currencyCode === "GHS" ? "₵" : currencyCode} ${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const healthValue = (value: number, unit: string) => {
@@ -101,19 +104,23 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
     if (!canRead) return;
     let alive = true;
     setMessage("");
-    setAging(null);
     let cachedReport: Report | null = null;
+    let cachedAging: CreditAging | null = null;
     let cachedForecast: CashForecastResponse | null = null;
     try { const cached = localStorage.getItem(cacheKey); if (cached) cachedReport = JSON.parse(cached) as Report; } catch { /* optional cache */ }
+    try { const cached = localStorage.getItem(agingCacheKey); if (cached) cachedAging = JSON.parse(cached) as CreditAging; } catch { /* optional cache */ }
     try { const cached = localStorage.getItem(forecastCacheKey); if (cached) cachedForecast = JSON.parse(cached) as CashForecastResponse; } catch { /* optional cache */ }
     setReport(cachedReport);
+    setAging(cachedAging);
     setForecast(cachedForecast);
     setForecastOfflineCached(false);
+    setAgingOfflineCached(false);
     const load = async () => {
       if (!navigator.onLine) {
         setBusy(false);
         setForecastOfflineCached(Boolean(cachedForecast));
-        setMessage(cachedReport || cachedForecast ? "Offline: showing saved server data for this scope." : "Offline: no saved report or cash forecast exists for this scope yet.");
+        setAgingOfflineCached(Boolean(cachedAging));
+        setMessage(cachedReport || cachedAging || cachedForecast ? "Offline: showing saved server data for this scope." : "Offline: no saved report, credit aging or cash forecast exists for this scope yet.");
         return;
       }
       if (fromDate > toDate) { setMessage("Start date must not be after end date."); return; }
@@ -136,8 +143,10 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
         setAging(nextAging);
         setForecast(nextForecast);
         setForecastOfflineCached(false);
+        setAgingOfflineCached(false);
         setMessage("");
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* optional cache */ }
+        try { localStorage.setItem(agingCacheKey, JSON.stringify(nextAging)); } catch { /* optional cache */ }
         try { localStorage.setItem(forecastCacheKey, JSON.stringify(nextForecast)); } catch { /* optional cache */ }
       } catch (error) { if (alive) setMessage(messageFrom(error)); }
       finally { if (alive) setBusy(false); }
@@ -150,7 +159,7 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
     window.addEventListener("online", refresh);
     window.addEventListener(mutationAppliedEvent, refresh);
     return () => { alive = false; window.removeEventListener("online", refresh); window.removeEventListener(mutationAppliedEvent, refresh); };
-  }, [businessId, branchId, fromDate, toDate, allBranches, canRead, cacheKey, forecastCacheKey, businessTimezone, branchTimezone]);
+  }, [businessId, branchId, fromDate, toDate, allBranches, canRead, cacheKey, agingCacheKey, forecastCacheKey, businessTimezone, branchTimezone]);
 
   if (!canRead) return null;
   const f = report?.flow;
@@ -188,13 +197,13 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
             <small className="working-capital-note">Credit aging is a current snapshot built from fixed due dates on each pay-later sale and supplier-credit purchase. Legacy obligations that predate terms tracking are conservatively treated as due on their original transaction date. This schedule is now suitable as the timing foundation for the next cash-forecast layer.</small>
           </div>
 
-          <div className="cfo-action-center">
-            <div className="panel-heading compact"><div><p className="eyebrow">Prioritized next moves</p><h3>CFO Action Center</h3></div><span>{report.health.actions.length} action{report.health.actions.length === 1 ? "" : "s"}</span></div>
-            {report.health.actions.length === 0 ? <p>No action is generated until TradeOS has enough operating evidence.</p> : <div className="cfo-action-list">{report.health.actions.map((item) => <article className="cfo-action" key={item.code}>
-              <div className="cfo-action-head"><div><span className={`cfo-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span>{item.area.replaceAll("_", " ")}</span></div><a className="ghost-button" href={item.href}>{item.navigationLabel}</a></div>
-              <strong>{item.title}</strong><p>{item.reason}</p>{item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${healthValue(row.value, row.unit)}`).join(" · ")}</p> : null}<p><b>Do:</b> {item.action}</p>
-            </article>)}</div>}
-          </div>
+          <CfoActionCenter
+            healthActions={report.health.actions}
+            aging={aging}
+            forecast={forecast}
+            money={money}
+            offlineCached={agingOfflineCached || forecastOfflineCached}
+          />
 
           <div>{report.health.insights.map((item) => <div className={`insight ${item.severity === "CRITICAL" || item.severity === "WARNING" ? "important" : ""}`} key={item.code}><strong>{item.severity.replaceAll("_", " ")} · {item.title}</strong><p>{item.message}</p>{item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${healthValue(row.value, row.unit)}`).join(" · ")}</p> : null}<p><b>Next:</b> {item.action}</p></div>)}</div>
         </div>
