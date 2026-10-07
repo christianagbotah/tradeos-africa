@@ -9,6 +9,7 @@ import { CustomersCredit } from "./customers-credit";
 import { NetworkStatus } from "./network-status";
 import { QuickSale, type QuickSaleItem } from "./quick-sale";
 import { SalesAndReturns } from "./sales-returns";
+import { DemoAccountSelect } from "./demo-account-select";
 import {
   getActiveBusinessId,
   getOrCreateClientId,
@@ -186,6 +187,7 @@ export function TradeOSWebApp() {
 function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; error: string | null }) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [displayName, setDisplayName] = useState("");
+  const [demoAccountId, setDemoAccountId] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -241,9 +243,20 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
         <form className="stack-form" onSubmit={(event) => void submit(event)}>
           {mode === "register" ? (
             <label>Full name<input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" /></label>
-          ) : null}
-          <label>Email or phone<input required value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder="name@example.com or +233…" /></label>
-          <label>Password<input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 8 characters" /></label>
+          ) : (
+            <DemoAccountSelect
+              selectedId={demoAccountId}
+              onSelect={(account) => {
+                setDemoAccountId(account?.id ?? "");
+                if (!account) return;
+                setIdentifier(account.email);
+                setPassword(account.password);
+                setLocalError(null);
+              }}
+            />
+          )}
+          <label>Email or phone<input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233…" /></label>
+          <label>Password<input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" /></label>
           {localError ? <div className="form-error">{localError}</div> : null}
           <button className="primary-button auth-submit" type="submit" disabled={busy}>{busy ? "Working…" : mode === "login" ? "Sign in" : "Create account"}</button>
         </form>
