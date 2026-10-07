@@ -64,11 +64,12 @@ describe("WorkspaceProvider contract", () => {
     expect(projectSellableItems(catalog)).toEqual([{ key: "item-1:bottle", itemId: "item-1", name: "Malt", unitCode: "bottle", unitLabel: "Bottle", priceMinor: 1200 }]);
   });
 
-  it("persists business switches while branch switches stay local to provider state", () => {
+  it("persists business and branch scope safely without refetching the session on branch changes", () => {
     const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "workspace-provider.tsx"), "utf8");
     expect(source).toMatch(/setBusiness[\s\S]*setActiveBusinessId\(businessId\)/);
-    const branchCallback = source.match(/const setBranch = useCallback\([\s\S]*?\}, \[context\]\);/)?.[0] ?? "";
+    const branchCallback = source.match(/const setBranch = useCallback\([\s\S]*?\}, \[[^\]]*\]\);/)?.[0] ?? "";
     expect(branchCallback).toMatch(/setBranchId\(branchId\)/);
+    expect(branchCallback).toContain("writeWorkspaceBootstrap");
     expect(branchCallback).not.toContain("/api/session/me");
   });
 });

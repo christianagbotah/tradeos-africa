@@ -18,8 +18,9 @@ describe("multi-page review regressions", () => {
     expect(provider).toContain("useRef");
     expect(provider).toMatch(/requestGenerationRef/);
     expect(provider).toMatch(/generation !== requestGenerationRef\.current/);
-    expect(provider).toMatch(/const committed = await loadBusiness/);
-    expect(provider).toMatch(/if \(committed\) setActiveBusinessId/);
+    expect(provider).toMatch(/const loaded = await loadBusiness/);
+    expect(provider).toMatch(/if \(loaded\)[\s\S]*setActiveBusinessId/);
+    expect(provider).toContain("writeWorkspaceBootstrap");
   });
 
   it("remounts route features when business or branch changes so drafts cannot cross scopes", () => {

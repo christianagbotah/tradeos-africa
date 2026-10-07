@@ -4,8 +4,49 @@
   place-content: center;
   justify-items: center;
   gap: 14px;
+  padding: 28px;
   background: #f4f7fb;
   color: #0f172a;
+}
+
+.workspace-recovery-shell { align-content: center; }
+.workspace-recovery-card {
+  width: min(520px, calc(100vw - 36px));
+  padding: 28px;
+  border: 1px solid #dfe7f0;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(16, 27, 45, .12);
+  text-align: left;
+}
+.workspace-recovery-card h1 {
+  margin: 6px 0 10px;
+  color: #101b2d;
+  font-size: clamp(24px, 4vw, 32px);
+  line-height: 1.12;
+  letter-spacing: -.035em;
+}
+.workspace-recovery-card > p:not(.eyebrow) {
+  margin: 0;
+  color: #6c788b;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.workspace-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+.workspace-recovery-actions .primary-button,
+.workspace-recovery-actions .ghost-button {
+  min-height: 44px;
+  padding-inline: 18px;
+  border-radius: 11px;
+}
+@media (max-width: 520px) {
+  .workspace-recovery-card { padding: 22px; border-radius: 18px; }
+  .workspace-recovery-actions { display: grid; grid-template-columns: 1fr; }
 }
 
 .auth-shell {

@@ -3,6 +3,7 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { QuickSaleItem } from "../quick-sale";
 import { getActiveBusinessId, setActiveBusinessId } from "../../lib/offline-sync";
+import { clearWorkspaceBootstrap, readWorkspaceBootstrap, writeWorkspaceBootstrap } from "../../lib/workspace-bootstrap";
 import type { BusinessContext, CatalogItem, MePayload, Membership } from "../../lib/workspace-types";
 
 export type WorkspaceContextValue = {
@@ -91,13 +92,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       api<BusinessContext>(`/api/tradeos/v1/businesses/${businessId}/context`),
       api<{ items: CatalogItem[] }>(`/api/tradeos/v1/catalog/items?businessId=${businessId}`),
     ]);
-    if (generation !== requestGenerationRef.current) return false;
+    if (generation !== requestGenerationRef.current) return null;
     const selectedBranch = selectInitialBranch(business, preferredBranchId);
     if (!selectedBranch) throw new Error("This business has no active branch.");
     setContext(business);
     setCatalog(catalogData.items);
     setBranchId(selectedBranch.id);
-    return true;
+    return { context: business, branchId: selectedBranch.id, catalog: catalogData.items };
   }, []);
 
   const loadSession = useCallback(async () => {
@@ -107,6 +108,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (response.status === 401) {
         requestGenerationRef.current += 1;
         businessIntent.current = null;
+        clearWorkspaceBootstrap();
         setSession(null);
         setContext(null);
         setCatalog([]);
@@ -119,6 +121,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const membership = selectWorkspaceMembership(data, getActiveBusinessId());
       if (!membership) {
         businessIntent.current = null;
+        clearWorkspaceBootstrap();
         setContext(null);
         setCatalog([]);
         setBranchId(null);
@@ -126,9 +129,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return;
       }
       businessIntent.current = membership.businessId;
-      const committed = await loadBusiness(membership.businessId);
-      if (committed) setActiveBusinessId(membership.businessId);
+      const loaded = await loadBusiness(membership.businessId);
+      if (loaded) {
+        setActiveBusinessId(membership.businessId);
+        writeWorkspaceBootstrap({ session: data, ...loaded });
+      }
     } catch (reason) {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        const cached = readWorkspaceBootstrap();
+        if (cached) {
+          requestGenerationRef.current += 1;
+          businessIntent.current = cached.context.business.id;
+          setSession(cached.session);
+          setContext(cached.context);
+          setCatalog(cached.catalog);
+          setBranchId(cached.branchId);
+          setActiveBusinessId(cached.context.business.id);
+          return;
+        }
+      }
       setError(messageFrom(reason));
     } finally {
       setResolved(true);
@@ -141,25 +160,31 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!session?.memberships.some((membership) => membership.businessId === businessId)) throw new Error("Business is not available to this session.");
     setError(null);
     businessIntent.current = businessId;
-    const committed = await loadBusiness(businessId);
-    if (committed) setActiveBusinessId(businessId);
+    const loaded = await loadBusiness(businessId);
+    if (loaded) {
+      setActiveBusinessId(businessId);
+      writeWorkspaceBootstrap({ session, ...loaded });
+    }
   }, [loadBusiness, session]);
 
   const setBranch = useCallback((branchId: string) => {
     if (!context?.branches.some((branch) => branch.id === branchId && branch.active)) return;
     setBranchId(branchId);
-  }, [context]);
+    if (session) writeWorkspaceBootstrap({ session, context, branchId, catalog });
+  }, [catalog, context, session]);
 
   const refreshBusiness = useCallback(async () => {
     if (!context) return;
     if (businessIntent.current && businessIntent.current !== context.business.id) return;
-    await loadBusiness(context.business.id, branchId);
-  }, [branchId, context, loadBusiness]);
+    const loaded = await loadBusiness(context.business.id, branchId);
+    if (loaded && session) writeWorkspaceBootstrap({ session, ...loaded });
+  }, [branchId, context, loadBusiness, session]);
 
   const logout = useCallback(async () => {
     try { await fetch("/api/session/logout", { method: "POST" }); } finally {
       requestGenerationRef.current += 1;
       businessIntent.current = null;
+      clearWorkspaceBootstrap();
       setActiveBusinessId(null);
       setSession(null);
       setContext(null);

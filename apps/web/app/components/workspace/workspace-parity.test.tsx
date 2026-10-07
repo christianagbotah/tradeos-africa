@@ -46,6 +46,7 @@ describe("multi-page workspace parity", () => {
         memberships: [{ id: "m1", businessId: "b1", businessName: "Demo Business", businessType: "RETAIL", businessStatus: "ACTIVE", role: "OWNER", staffId: "s1" }],
       },
       workspaceReady: true,
+      error: null,
     })).toEqual({ kind: "redirect", href: "/dashboard" });
   });
 

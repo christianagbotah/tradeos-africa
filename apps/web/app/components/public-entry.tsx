@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DemoAccountSelect } from "./demo-account-select";
 import { getActiveBusinessId, getOrCreateClientId, setActiveBusinessId } from "../lib/offline-sync";
+import { clearWorkspaceBootstrap, readWorkspaceBootstrap } from "../lib/workspace-bootstrap";
 import type { BusinessContext, MePayload } from "../lib/workspace-types";
 
 type AuthMode = "login" | "register";
@@ -11,18 +12,21 @@ type PublicEntryMode =
   | { kind: "loading" }
   | { kind: "auth" }
   | { kind: "onboarding" }
+  | { kind: "error" }
   | { kind: "redirect"; href: "/dashboard" };
 
 export function getPublicEntryMode(input: {
   resolved: boolean;
   session: MePayload | null;
   workspaceReady: boolean;
+  error: string | null;
 }): PublicEntryMode {
   if (!input.resolved) return { kind: "loading" };
   if (!input.session) return { kind: "auth" };
   if (input.session.memberships.length === 0) return { kind: "onboarding" };
-  if (!input.workspaceReady) return { kind: "loading" };
-  return { kind: "redirect", href: "/dashboard" };
+  if (input.workspaceReady) return { kind: "redirect", href: "/dashboard" };
+  if (input.error) return { kind: "error" };
+  return { kind: "loading" };
 }
 
 export function PublicEntry() {
@@ -38,6 +42,7 @@ export function PublicEntry() {
     try {
       const response = await fetch("/api/session/me", { cache: "no-store" });
       if (response.status === 401) {
+        clearWorkspaceBootstrap();
         setSession(null);
         setActiveBusinessId(null);
         return;
@@ -56,6 +61,15 @@ export function PublicEntry() {
       setActiveBusinessId(membership.businessId);
       setWorkspaceReady(true);
     } catch (reason) {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        const cached = readWorkspaceBootstrap();
+        if (cached) {
+          setSession(cached.session);
+          setActiveBusinessId(cached.context.business.id);
+          setWorkspaceReady(true);
+          return;
+        }
+      }
       setError(messageFrom(reason));
     } finally {
       setResolved(true);
@@ -64,13 +78,14 @@ export function PublicEntry() {
 
   useEffect(() => { void loadSession(); }, [loadSession]);
 
-  const mode = getPublicEntryMode({ resolved, session, workspaceReady });
+  const mode = getPublicEntryMode({ resolved, session, workspaceReady, error });
   useEffect(() => {
     if (mode.kind === "redirect") router.replace(mode.href);
   }, [mode.kind, router]);
 
   if (mode.kind === "loading" || mode.kind === "redirect") return <LoadingScreen />;
   if (mode.kind === "auth") return <AuthScreen onAuthenticated={() => void loadSession()} error={error} />;
+  if (mode.kind === "error") return <WorkspaceRecoveryScreen message={error ?? "TradeOS could not load this workspace."} onRetry={() => void loadSession()} onLogout={() => void logout(setSession)} />;
   return <BusinessOnboarding userName={session!.user.displayName} onCreated={() => void loadSession()} onLogout={() => void logout(setSession)} />;
 }
 
@@ -207,12 +222,31 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
   );
 }
 
+
+function WorkspaceRecoveryScreen({ message, onRetry, onLogout }: { message: string; onRetry: () => void; onLogout: () => void }) {
+  return (
+    <main className="loading-shell workspace-recovery-shell">
+      <div className="brand-mark">T</div>
+      <div className="workspace-recovery-card">
+        <p className="eyebrow">Workspace unavailable</p>
+        <h1>TradeOS could not open your business workspace.</h1>
+        <p>{message}</p>
+        <div className="workspace-recovery-actions">
+          <button className="primary-button" type="button" onClick={onRetry}>Try again</button>
+          <button className="ghost-button" type="button" onClick={onLogout}>Sign out</button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 function LoadingScreen() {
   return <main className="loading-shell"><div className="brand-mark">T</div><strong>Loading TradeOS Africa…</strong></main>;
 }
 
 async function logout(setSession: (value: MePayload | null) => void) {
   try { await fetch("/api/session/logout", { method: "POST" }); } finally {
+    clearWorkspaceBootstrap();
     setActiveBusinessId(null);
     setSession(null);
   }

@@ -27,7 +27,18 @@ describe("multi-page release hardening", () => {
     const provider = read("app/components/workspace/workspace-provider.tsx");
     expect(provider).toContain("requestGenerationRef");
     expect(provider).toMatch(/generation !== requestGenerationRef\.current/);
-    expect(provider).toMatch(/const committed = await loadBusiness\(businessId\)[\s\S]*if \(committed\) setActiveBusinessId\(businessId\)/);
+    expect(provider).toMatch(/const loaded = await loadBusiness\(businessId\)[\s\S]*if \(loaded\)[\s\S]*setActiveBusinessId\(businessId\)[\s\S]*writeWorkspaceBootstrap/);
+  });
+
+  it("keeps authenticated APIs network-only while restoring a sanitized device-local workspace offline", () => {
+    const provider = read("app/components/workspace/workspace-provider.tsx");
+    const bootstrap = read("app/lib/workspace-bootstrap.ts");
+    expect(provider).toContain("!navigator.onLine");
+    expect(provider).toContain("readWorkspaceBootstrap");
+    expect(provider).toContain("clearWorkspaceBootstrap");
+    expect(bootstrap).toContain('email: null');
+    expect(bootstrap).toContain('phoneE164: null');
+    expect(bootstrap).toContain('deviceKey: ""');
   });
 
   it("remounts route-local drafts when business or branch context changes", () => {
