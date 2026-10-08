@@ -7,7 +7,7 @@ export type CustomerPaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER";
 export type CustomerAccountEntryType = "CREDIT_SALE" | "PAYMENT" | "CREDIT_REFUND" | "ADJUSTMENT";
 
 export interface CustomerPaymentMutationPayload {
- moneyAccountId?:string;
+  moneyAccountId?: string;
   customerId: string;
   amountMinor: number;
   method: CustomerPaymentMethod;
@@ -72,6 +72,7 @@ export async function applyCustomerPaymentMutation(
 
     await requireActiveBranch(client, context.businessId, context.branchId);
     const customer = await loadCustomerAccount(client, context.businessId, payload.customerId, true);
+    if (!customer.is_active) throw new CustomerCreditError("Customer account is inactive", "CUSTOMER_INACTIVE");
 
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO customer_payments (
@@ -101,8 +102,25 @@ export async function applyCustomerPaymentMutation(
       occurredAt: context.occurredAt,
     });
 
-    await allocateCustomerPayment(client,{businessId:context.businessId,customerId:customer.id,paymentId,amountMinor:payload.amountMinor,occurredAt:context.occurredAt});
-    await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode:customer.currency_code,method:payload.method,amountDeltaMinor:payload.amountMinor,entryType:"CUSTOMER_PAYMENT",sourceType:"CUSTOMER_PAYMENT",sourceId:paymentId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`customer-payment:${paymentId}`});
+    await allocateCustomerPayment(client, {
+      businessId: context.businessId,
+      customerId: customer.id,
+      paymentId,
+      amountMinor: payload.amountMinor,
+      occurredAt: context.occurredAt,
+    });
+    await recordCashbookEntry(client, {
+      ...context,
+      moneyAccountId: payload.moneyAccountId,
+      currencyCode: customer.currency_code,
+      method: payload.method,
+      amountDeltaMinor: payload.amountMinor,
+      entryType: "CUSTOMER_PAYMENT",
+      sourceType: "CUSTOMER_PAYMENT",
+      sourceId: paymentId,
+      actorStaffId: payload.receivedByStaffId,
+      idempotencyKey: `customer-payment:${paymentId}`,
+    });
     const balanceMinor = await getCustomerBalance(client, context.businessId, customer.id);
     await writeCustomerPaymentEvents(client, context, payload, paymentId, balanceMinor);
 
@@ -177,8 +195,8 @@ export async function recordCustomerAccountEntry(
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (business_id,idempotency_key) DO NOTHING`,
     [
-      input.businessId,input.branchId,input.customerId,input.currencyCode,input.entryType,input.balanceDeltaMinor,
-      input.sourceType,input.sourceId,input.actorStaffId,input.idempotencyKey,input.occurredAt,
+      input.businessId, input.branchId, input.customerId, input.currencyCode, input.entryType, input.balanceDeltaMinor,
+      input.sourceType, input.sourceId, input.actorStaffId, input.idempotencyKey, input.occurredAt,
     ],
   );
 }
@@ -240,11 +258,11 @@ async function writeCustomerPaymentEvents(
   await client.query(
     `INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at)
      VALUES ($1,$2,$3,'CUSTOMER_PAYMENT_RECEIVED','CUSTOMER_PAYMENT',$4,$5,$6::jsonb,$7)`,
-    [context.businessId,context.branchId,payload.receivedByStaffId ?? null,paymentId,context.clientMutationId,eventPayload,context.occurredAt],
+    [context.businessId, context.branchId, payload.receivedByStaffId ?? null, paymentId, context.clientMutationId, eventPayload, context.occurredAt],
   );
   await client.query(
     `INSERT INTO outbox_events (business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at)
      VALUES ($1,$2,'CUSTOMER_PAYMENT',$3,'CUSTOMER_PAYMENT_RECEIVED',$4::jsonb,$5)`,
-    [context.businessId,context.branchId,paymentId,eventPayload,context.occurredAt],
+    [context.businessId, context.branchId, paymentId, eventPayload, context.occurredAt],
   );
 }

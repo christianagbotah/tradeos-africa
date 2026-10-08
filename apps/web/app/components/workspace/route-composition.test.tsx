@@ -11,7 +11,7 @@ describe("workspace route composition", () => {
     expect(route("sell")).toContain("<PosWorkspace");
     expect(route("sell")).not.toContain("<QuickSale");
     expect(route("sales")).toMatch(/<SalesAndReturns[\s\S]*view="sales"/);
-    expect(route("customers")).toContain("<CustomersCredit");
+    expect(route("customers")).toContain("<CustomerWorkspace");
     expect(route("purchases")).toMatch(/<PurchasesInventory[\s\S]*view="purchases"/);
     expect(route("inventory")).toMatch(/<PurchasesInventory[\s\S]*view="inventory"/);
     expect(route("catalog")).toContain("<CatalogWorkspace");

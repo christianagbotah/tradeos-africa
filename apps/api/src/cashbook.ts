@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
-import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
+import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
-import { withTransaction, type DatabasePool } from "./db.js";
+import { withTransaction, type DatabaseClient, type DatabasePool } from "./db.js";
 import { CashbookError, isCashMethod, cashMethods } from "./commerce/cashbook.js";
 
 import { signedMinor, addSignedMinor } from "./commerce/valuation.js";
@@ -14,9 +14,60 @@ function id(value: unknown, name: string): string {
   if (typeof value !== "string" || !uuid.test(value)) throw new CashbookError(`${name} must be a UUID`);
   return value;
 }
+type ExpenseCategoryRow = {
+  id: string;
+  name: string;
+  is_active: boolean;
+  is_system: boolean;
+  created_at: Date;
+  updated_at: Date;
+};
+
 function categoryName(value: unknown): string {
   if (typeof value !== "string" || !value.trim() || value.trim().length > 160) throw new CashbookError("Category name must contain 1–160 characters");
   return value.trim();
+}
+function categoryRevision(value: unknown): string {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+    throw new CashbookError("expectedUpdatedAt is required and must be an ISO date-time", "REVISION_REQUIRED", 400);
+  }
+  return new Date(value).toISOString();
+}
+function toExpenseCategory(row: ExpenseCategoryRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    active: row.is_active,
+    system: row.is_system,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+async function loadExpenseCategory(db: DatabasePool | DatabaseClient, businessId: string, categoryId: string, lock = false) {
+  const result = await db.query<ExpenseCategoryRow>(
+    `SELECT id,name,is_active,is_system,created_at,updated_at FROM expense_categories
+     WHERE business_id=$1 AND id=$2${lock ? " FOR UPDATE" : ""}`,
+    [businessId, categoryId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new CashbookError("Category not found", "CATEGORY_NOT_FOUND", 404);
+  return toExpenseCategory(row);
+}
+function categoryChanges(
+  before: { name: string; active: boolean },
+  after: { name: string; active: boolean },
+) {
+  const changes: Record<string, { before: unknown; after: unknown }> = {};
+  if (before.name !== after.name) changes.name = { before: before.name, after: after.name };
+  if (before.active !== after.active) changes.active = { before: before.active, after: after.active };
+  return changes;
+}
+async function writeCategoryAudit(client: DatabaseClient, access: BusinessAccess, eventType: string, categoryId: string, changes: Record<string, { before: unknown; after: unknown }>) {
+  await client.query(
+    `INSERT INTO audit_events (business_id,actor_staff_id,event_type,entity_type,entity_id,payload)
+     VALUES ($1,$2,$3,'EXPENSE_CATEGORY',$4,$5::jsonb)`,
+    [access.businessId, access.staffId, eventType, categoryId, JSON.stringify({ changes })],
+  );
 }
 
 export function registerCashbookRoutes(app: FastifyInstance, pool: DatabasePool): void {
@@ -60,8 +111,8 @@ export function registerCashbookRoutes(app: FastifyInstance, pool: DatabasePool)
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = id(request.query.businessId, "businessId");
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
-      const rows = await pool.query(`SELECT id,name,is_active AS active,is_system AS system FROM expense_categories WHERE business_id=$1 ORDER BY name,id`, [businessId]);
-      return { categories: rows.rows };
+      const rows = await pool.query<ExpenseCategoryRow>(`SELECT id,name,is_active,is_system,created_at,updated_at FROM expense_categories WHERE business_id=$1 ORDER BY name,id`, [businessId]);
+      return { categories: rows.rows.map(toExpenseCategory) };
     } catch (error) { return sendError(reply, error); }
   });
   app.post<{ Body: { businessId: string; name: string } }>("/v1/expense-categories", async (request, reply) => {
@@ -69,21 +120,43 @@ export function registerCashbookRoutes(app: FastifyInstance, pool: DatabasePool)
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = id(request.body?.businessId, "businessId");
       await requireBusinessRole(pool, auth, businessId, WRITE_ROLES);
-      const result = await pool.query(`INSERT INTO expense_categories(business_id,name) VALUES ($1,$2) ON CONFLICT(business_id,name) DO UPDATE SET name=EXCLUDED.name RETURNING id,name,is_active AS active,is_system AS system`, [businessId, categoryName(request.body.name)]);
-      return reply.code(201).send({ category: result.rows[0] });
+      const result = await pool.query<ExpenseCategoryRow>(
+        `INSERT INTO expense_categories(business_id,name) VALUES ($1,$2)
+         ON CONFLICT(business_id,name) DO UPDATE SET name=EXCLUDED.name
+         RETURNING id,name,is_active,is_system,created_at,updated_at`,
+        [businessId, categoryName(request.body.name)],
+      );
+      return reply.code(201).send({ category: toExpenseCategory(result.rows[0]!) });
     } catch (error) { return sendError(reply, error); }
   });
-  app.patch<{ Params: { categoryId: string }; Body: { businessId: string; name?: string; active?: boolean } }>("/v1/expense-categories/:categoryId", async (request, reply) => {
+  app.patch<{ Params: { categoryId: string }; Body: { businessId: string; expectedUpdatedAt: string; name?: string; active?: boolean } }>("/v1/expense-categories/:categoryId", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = id(request.body?.businessId, "businessId");
-      await requireBusinessRole(pool, auth, businessId, WRITE_ROLES);
+      const access = await requireBusinessRole(pool, auth, businessId, WRITE_ROLES);
       const categoryId = id(request.params.categoryId, "categoryId");
-      const name = request.body.name === undefined ? null : categoryName(request.body.name);
+      const expectedUpdatedAt = categoryRevision(request.body.expectedUpdatedAt);
+      const requestedName = request.body.name === undefined ? undefined : categoryName(request.body.name);
       if (request.body.active !== undefined && typeof request.body.active !== "boolean") throw new CashbookError("active must be boolean");
-      const result = await pool.query(`UPDATE expense_categories SET name=COALESCE($3,name),is_active=COALESCE($4,is_active) WHERE business_id=$1 AND id=$2 RETURNING id,name,is_active AS active,is_system AS system`, [businessId, categoryId, name, request.body.active ?? null]);
-      if (!result.rowCount) throw new CashbookError("Category not found", "CATEGORY_NOT_FOUND", 404);
-      return { category: result.rows[0] };
+      const category = await withTransaction(pool, async (client) => {
+        const current = await loadExpenseCategory(client, businessId, categoryId, true);
+        if (Date.parse(current.updatedAt) !== Date.parse(expectedUpdatedAt)) {
+          throw new CashbookError("Category changed on another device. Reload before saving again.", "STALE_VERSION", 409);
+        }
+        const name = requestedName ?? current.name;
+        const active = request.body.active ?? current.active;
+        const changes = categoryChanges(current, { name, active });
+        await client.query(
+          `UPDATE expense_categories SET name=$3,is_active=$4,updated_at=clock_timestamp() WHERE business_id=$1 AND id=$2`,
+          [businessId, categoryId, name, active],
+        );
+        const eventType = current.active !== active
+          ? (active ? "EXPENSE_CATEGORY_REACTIVATED" : "EXPENSE_CATEGORY_DEACTIVATED")
+          : "EXPENSE_CATEGORY_UPDATED";
+        await writeCategoryAudit(client, access, eventType, categoryId, changes);
+        return loadExpenseCategory(client, businessId, categoryId);
+      });
+      return { category };
     } catch (error) { return sendError(reply, error); }
   });
 }

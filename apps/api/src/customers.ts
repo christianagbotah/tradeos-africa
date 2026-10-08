@@ -1,27 +1,24 @@
+import type { CustomerCreateInput, CustomerUpdateInput } from "@tradeos/contracts";
 import type { FastifyInstance } from "fastify";
-import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
+import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
-import type { DatabaseClient, DatabasePool } from "./db.js";
-import { withTransaction } from "./db.js";
+import type { DatabasePool } from "./db.js";
+import {
+  createCustomer,
+  CUSTOMER_WRITE_ROLES,
+  CustomerServiceError,
+  loadCustomer,
+  updateCustomer,
+} from "./customer-service.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
-const WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "ACCOUNTANT"];
-const CREDIT_CONTROL_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 
-type CustomerInput = {
-  businessId: string;
-  name: string;
-  phone?: string | null;
-  email?: string | null;
-  creditLimitMinor?: number | null;
-  creditTermsDays?: number;
-};
+type CustomerCreateBody = CustomerCreateInput & { businessId: string };
+type CustomerUpdateBody = CustomerUpdateInput & { businessId: string };
 
-type CustomerPatch = Partial<Omit<CustomerInput, "businessId">> & { businessId: string; active?: boolean };
-
-type CustomerRow = {
+type CustomerListRow = {
   id: string;
   name: string;
   phone: string | null;
@@ -41,9 +38,7 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
       const businessId = required(request.query.businessId, "businessId");
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
       const query = request.query.query?.trim() ?? "";
-      const search = `%${query}%`;
-      const limit = clampLimit(request.query.limit);
-      const result = await pool.query<CustomerRow>(
+      const result = await pool.query<CustomerListRow>(
         `SELECT c.id,c.name,c.phone,c.email,c.credit_limit_minor,c.credit_terms_days,c.is_active,c.created_at,c.updated_at,
                 COALESCE((SELECT SUM(cae.balance_delta_minor) FROM customer_account_entries cae
                   WHERE cae.business_id=c.business_id AND cae.customer_id=c.id),0) AS balance_minor
@@ -52,68 +47,34 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
            AND ($2='' OR c.name ILIKE $3 OR COALESCE(c.phone,'') ILIKE $3 OR COALESCE(c.email,'') ILIKE $3)
          ORDER BY c.is_active DESC,c.name,c.id
          LIMIT $4`,
-        [businessId, query, search, limit],
+        [businessId, query, `%${query}%`, clampLimit(request.query.limit)],
       );
-      return { customers: result.rows.map(toCustomer) };
+      return { customers: result.rows.map(toCustomerView) };
     } catch (error) {
       return sendCustomerError(request, reply, error);
     }
   });
 
-  app.post<{ Body: CustomerInput }>("/v1/customers", async (request, reply) => {
-    try {
-      const auth = await authenticateAccessToken(pool, request.headers.authorization);
-      const input = validateCustomerInput(request.body);
-      const access = await requireBusinessRole(pool, auth, input.businessId, WRITE_ROLES);
-      assertCreditControl(access, request.body.creditLimitMinor !== undefined || request.body.creditTermsDays !== undefined);
-      const id = await withTransaction(pool, async (client) => {
-        const created = await client.query<{ id: string }>(
-          `INSERT INTO customers (business_id,name,phone,email,credit_limit_minor,credit_terms_days)
-           VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-          [input.businessId,input.name,input.phone,input.email,input.creditLimitMinor,input.creditTermsDays],
-        );
-        const customerId = created.rows[0]?.id;
-        if (!customerId) throw new CustomerRouteError("Customer could not be created", 500, "CUSTOMER_CREATE_FAILED");
-        await writeAudit(client, input.businessId, access.staffId, "CUSTOMER_CREATED", customerId, {
-          name: input.name, creditLimitMinor: input.creditLimitMinor, creditTermsDays: input.creditTermsDays,
-        });
-        return customerId;
-      });
-      return reply.code(201).send({ customer: await loadCustomer(pool, input.businessId, id) });
-    } catch (error) {
-      return sendCustomerError(request, reply, error);
-    }
-  });
-
-  app.patch<{ Params: { customerId: string }; Body: CustomerPatch }>("/v1/customers/:customerId", async (request, reply) => {
+  app.post<{ Body: CustomerCreateBody }>("/v1/customers", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = required(request.body.businessId, "businessId");
-      const access = await requireBusinessRole(pool, auth, businessId, WRITE_ROLES);
-      const touchesCreditControl = request.body.creditLimitMinor !== undefined || request.body.creditTermsDays !== undefined || request.body.active !== undefined;
-      assertCreditControl(access, touchesCreditControl);
-      const current = await loadCustomer(pool, businessId, request.params.customerId);
-      const next = validateCustomerInput({
-        businessId,
-        name: request.body.name ?? current.name,
-        phone: request.body.phone === undefined ? current.phone : request.body.phone,
-        email: request.body.email === undefined ? current.email : request.body.email,
-        creditLimitMinor: request.body.creditLimitMinor === undefined ? current.creditLimitMinor : request.body.creditLimitMinor,
-        creditTermsDays: request.body.creditTermsDays === undefined ? current.creditTermsDays : request.body.creditTermsDays,
-      });
-      const active = request.body.active ?? current.active;
-      await withTransaction(pool, async (client) => {
-        const updated = await client.query(
-          `UPDATE customers SET name=$3,phone=$4,email=$5,credit_limit_minor=$6,credit_terms_days=$7,is_active=$8,updated_at=now()
-           WHERE id=$1 AND business_id=$2`,
-          [request.params.customerId,businessId,next.name,next.phone,next.email,next.creditLimitMinor,next.creditTermsDays,active],
-        );
-        if (updated.rowCount !== 1) throw new CustomerRouteError("Customer was not found", 404, "CUSTOMER_NOT_FOUND");
-        await writeAudit(client, businessId, access.staffId, "CUSTOMER_UPDATED", request.params.customerId, {
-          name: next.name, creditLimitMinor: next.creditLimitMinor, creditTermsDays: next.creditTermsDays, active,
-        });
-      });
-      return { customer: await loadCustomer(pool, businessId, request.params.customerId) };
+      const access = await requireBusinessRole(pool, auth, businessId, CUSTOMER_WRITE_ROLES);
+      const { businessId: _businessId, ...input } = request.body;
+      const customer = await createCustomer(pool, access, input);
+      return reply.code(201).send({ customer });
+    } catch (error) {
+      return sendCustomerError(request, reply, error);
+    }
+  });
+
+  app.patch<{ Params: { customerId: string }; Body: CustomerUpdateBody }>("/v1/customers/:customerId", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = required(request.body.businessId, "businessId");
+      const access = await requireBusinessRole(pool, auth, businessId, CUSTOMER_WRITE_ROLES);
+      const { businessId: _businessId, ...input } = request.body;
+      return { customer: await updateCustomer(pool, access, request.params.customerId, input) };
     } catch (error) {
       return sendCustomerError(request, reply, error);
     }
@@ -129,15 +90,9 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
         const customer = await loadCustomer(pool, businessId, request.params.customerId);
         const limit = clampLimit(request.query.limit, 100);
         const ledger = await pool.query<{
-          id: string;
-          branch_id: string;
-          currency_code: string;
-          entry_type: string;
-          balance_delta_minor: string | number;
-          source_type: string;
-          source_id: string;
-          actor_name: string | null;
-          occurred_at: Date;
+          id: string; branch_id: string; currency_code: string; entry_type: string;
+          balance_delta_minor: string | number; source_type: string; source_id: string;
+          actor_name: string | null; occurred_at: Date;
         }>(
           `SELECT cae.id,cae.branch_id,cae.currency_code,cae.entry_type,cae.balance_delta_minor,
                   cae.source_type,cae.source_id,st.display_name AS actor_name,cae.occurred_at
@@ -147,24 +102,21 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
            ORDER BY cae.occurred_at DESC,cae.id DESC LIMIT $3`,
           [businessId, request.params.customerId, limit],
         );
-        const obligations = await pool.query<{id:string;sale_id:string;original_minor:string|number;open_minor:string|number;issued_at:Date;due_at:Date}>(
+        const obligations = await pool.query<{ id: string; sale_id: string; original_minor: string | number; open_minor: string | number; issued_at: Date; due_at: Date }>(
           `SELECT id,sale_id,original_minor,open_minor,issued_at,due_at FROM customer_credit_obligations
            WHERE business_id=$1 AND customer_id=$2 ORDER BY (open_minor>0) DESC,due_at,issued_at,id`,
-          [businessId,request.params.customerId],
+          [businessId, request.params.customerId],
         );
         return {
           customer,
-          obligations: obligations.rows.map((row)=>({id:row.id,saleId:row.sale_id,originalMinor:Number(row.original_minor),openMinor:Number(row.open_minor),issuedAt:row.issued_at.toISOString(),dueAt:row.due_at.toISOString()})),
+          obligations: obligations.rows.map((row) => ({
+            id: row.id, saleId: row.sale_id, originalMinor: Number(row.original_minor), openMinor: Number(row.open_minor),
+            issuedAt: row.issued_at.toISOString(), dueAt: row.due_at.toISOString(),
+          })),
           ledger: ledger.rows.map((entry) => ({
-            id: entry.id,
-            branchId: entry.branch_id,
-            currencyCode: entry.currency_code,
-            entryType: entry.entry_type,
-            balanceDeltaMinor: Number(entry.balance_delta_minor),
-            sourceType: entry.source_type,
-            sourceId: entry.source_id,
-            actorName: entry.actor_name,
-            occurredAt: entry.occurred_at.toISOString(),
+            id: entry.id, branchId: entry.branch_id, currencyCode: entry.currency_code, entryType: entry.entry_type,
+            balanceDeltaMinor: Number(entry.balance_delta_minor), sourceType: entry.source_type, sourceId: entry.source_id,
+            actorName: entry.actor_name, occurredAt: entry.occurred_at.toISOString(),
           })),
         };
       } catch (error) {
@@ -174,20 +126,7 @@ export function registerCustomerRoutes(app: FastifyInstance, pool: DatabasePool)
   );
 }
 
-async function loadCustomer(pool: DatabasePool, businessId: string, customerId: string) {
-  const result = await pool.query<CustomerRow>(
-    `SELECT c.id,c.name,c.phone,c.email,c.credit_limit_minor,c.credit_terms_days,c.is_active,c.created_at,c.updated_at,
-            COALESCE((SELECT SUM(cae.balance_delta_minor) FROM customer_account_entries cae
-              WHERE cae.business_id=c.business_id AND cae.customer_id=c.id),0) AS balance_minor
-     FROM customers c WHERE c.id=$1 AND c.business_id=$2`,
-    [customerId, businessId],
-  );
-  const row = result.rows[0];
-  if (!row) throw new CustomerRouteError("Customer was not found", 404, "CUSTOMER_NOT_FOUND");
-  return toCustomer(row);
-}
-
-function toCustomer(row: CustomerRow) {
+function toCustomerView(row: CustomerListRow) {
   const balanceMinor = Number(row.balance_minor);
   const creditLimitMinor = row.credit_limit_minor === null ? null : Number(row.credit_limit_minor);
   return {
@@ -206,40 +145,9 @@ function toCustomer(row: CustomerRow) {
   };
 }
 
-function validateCustomerInput(body: CustomerInput) {
-  const businessId = required(body.businessId, "businessId");
-  const name = body.name?.trim();
-  if (!name || name.length > 160) throw new CustomerRouteError("Customer name is required and must be at most 160 characters");
-  const phone = nullable(body.phone, 40);
-  const email = nullable(body.email, 254)?.toLowerCase() ?? null;
-  if (email && !email.includes("@")) throw new CustomerRouteError("Customer email is invalid");
-  const creditLimitMinor = body.creditLimitMinor ?? null;
-  if (creditLimitMinor !== null && (!Number.isSafeInteger(creditLimitMinor) || creditLimitMinor < 0)) {
-    throw new CustomerRouteError("Credit limit must be a non-negative minor-unit integer", 400, "INVALID_CREDIT_LIMIT");
-  }
-  const creditTermsDays = body.creditTermsDays ?? 0;
-  if (!Number.isInteger(creditTermsDays) || creditTermsDays < 0 || creditTermsDays > 3650) {
-    throw new CustomerRouteError("Credit terms must be a whole number of days from 0 to 3650", 400, "INVALID_CREDIT_TERMS");
-  }
-  return { businessId, name, phone, email, creditLimitMinor, creditTermsDays };
-}
-
-function assertCreditControl(access: BusinessAccess, requested: boolean): void {
-  if (requested && !CREDIT_CONTROL_ROLES.includes(access.role)) {
-    throw new AuthError("Your role cannot change customer credit limits, terms or account status", 403, "CREDIT_CONTROL_FORBIDDEN");
-  }
-}
-
 function required(value: string | undefined, name: string): string {
   const normalized = value?.trim();
-  if (!normalized) throw new CustomerRouteError(`${name} is required`);
-  return normalized;
-}
-
-function nullable(value: string | null | undefined, max: number): string | null {
-  const normalized = value?.trim() ?? "";
-  if (!normalized) return null;
-  if (normalized.length > max) throw new CustomerRouteError(`Value must be at most ${max} characters`);
+  if (!normalized) throw new CustomerServiceError(`${name} is required`);
   return normalized;
 }
 
@@ -249,31 +157,12 @@ function clampLimit(value: string | undefined, fallback = 50): number {
   return Math.min(parsed, 200);
 }
 
-async function writeAudit(
-  db: DatabasePool | DatabaseClient,
-  businessId: string,
-  actorStaffId: string | null,
-  eventType: string,
-  customerId: string,
-  payload: unknown,
-): Promise<void> {
-  await db.query(
-    `INSERT INTO audit_events (business_id,actor_staff_id,event_type,entity_type,entity_id,payload)
-     VALUES ($1,$2,$3,'CUSTOMER',$4,$5::jsonb)`,
-    [businessId, actorStaffId, eventType, customerId, JSON.stringify(payload)],
-  );
-}
-
-class CustomerRouteError extends Error {
-  constructor(message: string, readonly statusCode = 400, readonly code = "CUSTOMER_INVALID") { super(message); }
-}
-
 function sendCustomerError(
   request: { log: { error: (error: unknown) => void } },
   reply: { code: (status: number) => { send: (payload: unknown) => unknown } },
   error: unknown,
 ) {
-  if (error instanceof CustomerRouteError || error instanceof AuthError) {
+  if (error instanceof CustomerServiceError || error instanceof AuthError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });
   }
   request.log.error(error);

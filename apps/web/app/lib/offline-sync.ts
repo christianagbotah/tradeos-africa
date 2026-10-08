@@ -64,6 +64,10 @@ const branchOptionalMutationTypes = new Set([
   "CATALOG_ITEM_UPDATE",
   "CATALOG_ITEM_ARCHIVE",
   "CATALOG_ITEM_REACTIVATE",
+  "CUSTOMER_CREATE",
+  "CUSTOMER_UPDATE",
+  "SUPPLIER_CREATE",
+  "SUPPLIER_UPDATE",
 ]);
 
 let inFlight: Promise<FlushSummary> | null = null;

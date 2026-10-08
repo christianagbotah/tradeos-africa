@@ -63,8 +63,6 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
   const [message, setMessage] = useState("");
   const [queued, setQueued] = useState(0);
   const [failed, setFailed] = useState<string[]>([]);
-  const [categoryName, setCategoryName] = useState("");
-  const [busy, setBusy] = useState(false);
   const cacheKey = `tradeos.cashbook.v1:${businessId}:${branchId}:${filter}:${from}:${to}`;
   const canRead = readRoles.includes(role);
   const canAdjust = adjustmentRoles.includes(role);
@@ -171,22 +169,7 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
     }
   };
 
-  const createCategory = async () => {
-    setBusy(true);
-    try {
-      const result = await clientApi<{ category: CashbookCategory }>("/api/tradeos/v1/expense-categories", {
-        method: "POST",
-        body: JSON.stringify({ businessId, name: categoryName }),
-      });
-      setSnapshot((current) => ({ ...current, categories: [...current.categories.filter((category) => category.id !== result.category.id), result.category] }));
-      setCategoryId(result.category.id);
-      setCategoryName("");
-    } catch (error) {
-      setMessage(messageFrom(error));
-    } finally {
-      setBusy(false);
-    }
-  };
+
 
   return (
     <section className="cashbook-page" id="cashbook">
@@ -240,7 +223,17 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
           onNoteChange={setNote}
           onSubmit={submit}
         /> : null}
-        {canAdjust ? <ExpenseCategoryCard value={categoryName} busy={busy} onChange={setCategoryName} onCreate={() => void createCategory()} /> : null}
+        {canAdjust ? <ExpenseCategoryCard
+          businessId={businessId}
+          role={role}
+          categories={snapshot.categories}
+          onChanged={(category) => {
+            setSnapshot((current) => ({ ...current, categories: [...current.categories.filter((item) => item.id !== category.id), category].sort((a, b) => a.name.localeCompare(b.name)) }));
+            if (category.active && !categoryId) setCategoryId(category.id);
+            if (!category.active && categoryId === category.id) setCategoryId("");
+          }}
+          onMessage={setMessage}
+        /> : null}
       </div>
 
       {message ? <div className="cashbook-status-message" role="status">{message}</div> : null}

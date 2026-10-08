@@ -1,25 +1,16 @@
+import type { SupplierCreateInput, SupplierUpdateInput } from "@tradeos/contracts";
 import { quantityFromUnits, quantityUnits } from "./commerce/valuation.js";
 import type { FastifyInstance } from "fastify";
-import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
+import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
-import type { DatabaseClient, DatabasePool } from "./db.js";
-import { withTransaction } from "./db.js";
+import type { DatabasePool } from "./db.js";
+import { createSupplier, loadSupplier, SUPPLIER_WRITE_ROLES, SupplierServiceError, updateSupplier } from "./supplier-service.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
-const SUPPLIER_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"];
-const SUPPLIER_TERMS_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
-
-type SupplierInput = {
-  businessId: string;
-  name: string;
-  phone?: string | null;
-  email?: string | null;
-  address?: string | null;
-  paymentTermsDays?: number;
-};
-type SupplierPatch = Partial<Omit<SupplierInput, "businessId">> & { businessId: string; active?: boolean };
+type SupplierCreateBody = SupplierCreateInput & { businessId: string };
+type SupplierUpdateBody = SupplierUpdateInput & { businessId: string };
 
 type SupplierRow = {
   id: string;
@@ -33,6 +24,21 @@ type SupplierRow = {
   updated_at: Date;
   balance_minor?: string | number;
 };
+
+function toSupplierListView(row: SupplierRow) {
+  return {
+    balanceMinor: Number(row.balance_minor ?? 0),
+    id: row.id,
+    name: row.name,
+    phone: row.phone,
+    email: row.email,
+    address: row.address,
+    paymentTermsDays: row.payment_terms_days,
+    active: row.is_active,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
 
 export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: DatabasePool): void {
   app.get<{ Querystring: { businessId?: string; query?: string; limit?: string } }>("/v1/suppliers", async (request, reply) => {
@@ -49,7 +55,7 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
          ORDER BY is_active DESC,name,id LIMIT $4`,
         [businessId,query,`%${query}%`,clampLimit(request.query.limit)],
       );
-      return { suppliers: result.rows.map(toSupplier) };
+      return { suppliers: result.rows.map(toSupplierListView) };
     } catch (error) {
       return sendError(request, reply, error);
     }
@@ -68,54 +74,26 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
     } catch(error) {return sendError(request,reply,error);}
   });
 
-  app.post<{ Body: SupplierInput }>("/v1/suppliers", async (request, reply) => {
+  app.post<{ Body: SupplierCreateBody }>("/v1/suppliers", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
-      const input = validateSupplier(request.body);
-      const access = await requireBusinessRole(pool, auth, input.businessId, SUPPLIER_WRITE_ROLES);
-      if (request.body.paymentTermsDays !== undefined && !SUPPLIER_TERMS_ROLES.includes(access.role)) throw new AuthError("Your role cannot set supplier payment terms",403,"SUPPLIER_TERMS_FORBIDDEN");
-      const id = await withTransaction(pool, async (client) => {
-        const result = await client.query<{ id: string }>(
-          `INSERT INTO suppliers (business_id,name,phone,email,address,payment_terms_days) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-          [input.businessId,input.name,input.phone,input.email,input.address,input.paymentTermsDays],
-        );
-        const supplierId = result.rows[0]?.id;
-        if (!supplierId) throw new SupplierError("Supplier could not be created", 500, "SUPPLIER_CREATE_FAILED");
-        await supplierAudit(client, input.businessId, access, "SUPPLIER_CREATED", supplierId, { name: input.name, paymentTermsDays: input.paymentTermsDays });
-        return supplierId;
-      });
-      return reply.code(201).send({ supplier: await loadSupplier(pool, input.businessId, id) });
+      const businessId = required(request.body.businessId, "businessId");
+      const access = await requireBusinessRole(pool, auth, businessId, SUPPLIER_WRITE_ROLES);
+      const { businessId: _businessId, ...input } = request.body;
+      const supplier = await createSupplier(pool, access, input);
+      return reply.code(201).send({ supplier });
     } catch (error) {
       return sendError(request, reply, error);
     }
   });
 
-  app.patch<{ Params: { supplierId: string }; Body: SupplierPatch }>("/v1/suppliers/:supplierId", async (request, reply) => {
+  app.patch<{ Params: { supplierId: string }; Body: SupplierUpdateBody }>("/v1/suppliers/:supplierId", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = required(request.body.businessId, "businessId");
       const access = await requireBusinessRole(pool, auth, businessId, SUPPLIER_WRITE_ROLES);
-      if (request.body.paymentTermsDays !== undefined && !SUPPLIER_TERMS_ROLES.includes(access.role)) throw new AuthError("Your role cannot change supplier payment terms",403,"SUPPLIER_TERMS_FORBIDDEN");
-      const current = await loadSupplier(pool, businessId, request.params.supplierId);
-      const next = validateSupplier({
-        businessId,
-        name: request.body.name ?? current.name,
-        phone: request.body.phone === undefined ? current.phone : request.body.phone,
-        email: request.body.email === undefined ? current.email : request.body.email,
-        address: request.body.address === undefined ? current.address : request.body.address,
-        paymentTermsDays: request.body.paymentTermsDays === undefined ? current.paymentTermsDays : request.body.paymentTermsDays,
-      });
-      const active = request.body.active ?? current.active;
-      await withTransaction(pool, async (client) => {
-        const updated = await client.query(
-          `UPDATE suppliers SET name=$3,phone=$4,email=$5,address=$6,payment_terms_days=$7,is_active=$8,updated_at=now()
-           WHERE id=$1 AND business_id=$2`,
-          [request.params.supplierId,businessId,next.name,next.phone,next.email,next.address,next.paymentTermsDays,active],
-        );
-        if (updated.rowCount !== 1) throw new SupplierError("Supplier was not found", 404, "SUPPLIER_NOT_FOUND");
-        await supplierAudit(client,businessId,access,"SUPPLIER_UPDATED",request.params.supplierId,{ name: next.name, paymentTermsDays: next.paymentTermsDays, active });
-      });
-      return { supplier: await loadSupplier(pool,businessId,request.params.supplierId) };
+      const { businessId: _businessId, ...input } = request.body;
+      return { supplier: await updateSupplier(pool, access, request.params.supplierId, input) };
     } catch (error) {
       return sendError(request, reply, error);
     }
@@ -212,40 +190,6 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
   });
 }
 
-async function loadSupplier(pool: DatabasePool,businessId: string,supplierId: string) {
-  const result = await pool.query<SupplierRow>(
-    `SELECT id,name,phone,email,address,payment_terms_days,is_active,created_at,updated_at FROM suppliers WHERE id=$1 AND business_id=$2`,
-    [supplierId,businessId],
-  );
-  const row = result.rows[0];
-  if (!row) throw new SupplierError("Supplier was not found",404,"SUPPLIER_NOT_FOUND");
-  return toSupplier(row);
-}
-
-function toSupplier(row: SupplierRow) {
-  return { balanceMinor: Number(row.balance_minor ?? 0), id: row.id,name: row.name,phone: row.phone,email: row.email,address: row.address,paymentTermsDays: row.payment_terms_days,active: row.is_active,
-    createdAt: row.created_at.toISOString(),updatedAt: row.updated_at.toISOString() };
-}
-
-function validateSupplier(body: SupplierInput) {
-  const businessId = required(body.businessId,"businessId");
-  const name = body.name?.trim();
-  if (!name || name.length > 180) throw new SupplierError("Supplier name is required and must be at most 180 characters");
-  const phone = nullable(body.phone,40);
-  const email = nullable(body.email,254)?.toLowerCase() ?? null;
-  if (email && !email.includes("@")) throw new SupplierError("Supplier email is invalid");
-  const paymentTermsDays = body.paymentTermsDays ?? 0;
-  if (!Number.isInteger(paymentTermsDays) || paymentTermsDays < 0 || paymentTermsDays > 3650) throw new SupplierError("Payment terms must be a whole number of days from 0 to 3650",400,"INVALID_PAYMENT_TERMS");
-  return { businessId,name,phone,email,address: nullable(body.address,500),paymentTermsDays };
-}
-
-function nullable(value: string | null | undefined,max: number): string | null {
-  const normalized = value?.trim() ?? "";
-  if (!normalized) return null;
-  if (normalized.length > max) throw new SupplierError(`Value must be at most ${max} characters`);
-  return normalized;
-}
-
 function required(value: string | undefined,name: string): string {
   const normalized = value?.trim();
   if (!normalized) throw new SupplierError(`${name} is required`);
@@ -263,14 +207,6 @@ async function assertBranch(pool: DatabasePool,businessId: string,branchId: stri
   if (result.rowCount !== 1) throw new SupplierError("Branch was not found for this business",404,"BRANCH_NOT_FOUND");
 }
 
-async function supplierAudit(client: DatabaseClient,businessId: string,access: BusinessAccess,eventType: string,supplierId: string,payload: unknown) {
-  await client.query(
-    `INSERT INTO audit_events (business_id,actor_staff_id,event_type,entity_type,entity_id,payload)
-     VALUES ($1,$2,$3,'SUPPLIER',$4,$5::jsonb)`,
-    [businessId,access.staffId,eventType,supplierId,JSON.stringify(payload)],
-  );
-}
-
 class SupplierError extends Error {
   constructor(message: string,readonly statusCode=400,readonly code="SUPPLIER_INVALID") { super(message); }
 }
@@ -280,7 +216,7 @@ function sendError(
   reply: { code: (status: number) => { send: (payload: unknown) => unknown } },
   error: unknown,
 ) {
-  if (error instanceof SupplierError || error instanceof AuthError) {
+  if (error instanceof SupplierError || error instanceof SupplierServiceError || error instanceof AuthError) {
     return reply.code(error.statusCode).send({ error: error.code,message: error.message });
   }
   request.log.error(error);

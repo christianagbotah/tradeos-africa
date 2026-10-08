@@ -3,7 +3,16 @@ import { applyTreasuryMutation, type TreasuryPayload } from "./commerce/treasury
 import { applyCashbookMutation, CashbookError, type CashbookMutationPayload } from "./commerce/cashbook.js";
 import { applyPurchaseReturnMutation, type PurchaseReturnPayload } from "./commerce/purchase-returns.js";
 import { applyPurchaseReceiveMutation, applySupplierPaymentMutation, PurchaseMutationError, type PurchaseReceiveMutationPayload, type SupplierPaymentPayload } from "./commerce/purchases.js";
-import type { ClientMutation, MutationResult, SyncPushRequest, SyncResponse } from "@tradeos/contracts";
+import type {
+  ClientMutation,
+  CustomerCreateInput,
+  CustomerUpdateInput,
+  MutationResult,
+  SupplierCreateInput,
+  SupplierUpdateInput,
+  SyncPushRequest,
+  SyncResponse,
+} from "@tradeos/contracts";
 import {
   applyCustomerPaymentMutation,
   CustomerCreditError,
@@ -12,6 +21,7 @@ import {
 import { applyReturnMutation, ReturnMutationError, type ReturnMutationPayload } from "./commerce/returns.js";
 import { applySaleMutation, SaleMutationError, type SaleMutationPayload } from "./commerce/sales.js";
 import { type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
+import { AuthError } from "./auth/security.js";
 import {
   CatalogError,
   createCatalogItem,
@@ -19,12 +29,32 @@ import {
   type CreateCatalogItemBody,
   type UpdateCatalogItemBody,
 } from "./catalog-service.js";
+import {
+  createCustomer,
+  updateCustomer,
+  CustomerServiceError,
+  CUSTOMER_WRITE_ROLES,
+} from "./customer-service.js";
+import {
+  createSupplier,
+  updateSupplier,
+  SupplierServiceError,
+  SUPPLIER_WRITE_ROLES,
+} from "./supplier-service.js";
 import type { DatabasePool } from "./db.js";
 
 const MAX_BATCH_SIZE = 100;
 const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
 const CATALOG_MUTATIONS = new Set(["CATALOG_ITEM_CREATE", "CATALOG_ITEM_UPDATE", "CATALOG_ITEM_ARCHIVE", "CATALOG_ITEM_REACTIVATE"]);
+const CUSTOMER_MUTATIONS = new Set(["CUSTOMER_CREATE", "CUSTOMER_UPDATE"]);
+const SUPPLIER_MUTATIONS = new Set(["SUPPLIER_CREATE", "SUPPLIER_UPDATE"]);
 type StoredStatus = "RECEIVED" | "APPLIED" | "REJECTED";
+
+class MasterDataSyncError extends Error {
+  constructor(message: string, readonly code = "MASTER_DATA_SYNC_INVALID", readonly statusCode = 400) {
+    super(message);
+  }
+}
 
 export class SyncRequestError extends Error {
   constructor(message: string, readonly statusCode = 400) {
@@ -118,6 +148,10 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       || error instanceof CustomerCreditError
       || error instanceof PurchaseMutationError
       || error instanceof CatalogError
+      || error instanceof CustomerServiceError
+      || error instanceof SupplierServiceError
+      || error instanceof MasterDataSyncError
+      || error instanceof AuthError
       ? error.code
       : "MUTATION_APPLY_FAILED";
     const message = error instanceof Error ? error.message : "Unknown mutation application error";
@@ -140,7 +174,77 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
 
 async function applyMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
   if (CATALOG_MUTATIONS.has(mutation.mutationType)) return applyCatalogMutation(pool, mutation);
+  if (CUSTOMER_MUTATIONS.has(mutation.mutationType) || SUPPLIER_MUTATIONS.has(mutation.mutationType)) {
+    return applyMasterDataMutation(pool, mutation);
+  }
   return applyEconomicMutation(pool, mutation);
+}
+
+async function applyMasterDataMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
+  if (typeof mutation.payload !== "object" || mutation.payload === null || Array.isArray(mutation.payload)) {
+    throw new MasterDataSyncError("Master-data mutation payload must be an object");
+  }
+  const payload = mutation.payload as Record<string, unknown>;
+  const actorStaffId = requiredMasterDataString(payload.actorStaffId, "actorStaffId");
+  const actorRole = requiredMasterDataRole(payload.actorRole, mutation.mutationType);
+  const access: BusinessAccess = {
+    membershipId: `sync:${mutation.clientId}`,
+    businessId: mutation.businessId,
+    role: actorRole,
+    staffId: actorStaffId,
+  };
+  const { actorStaffId: _ignoredStaff, actorRole: _ignoredRole, ...rest } = payload;
+
+  if (mutation.mutationType === "CUSTOMER_CREATE") {
+    rejectSensitiveMasterData(rest, ["creditLimitMinor", "creditTermsDays"]);
+    const customer = await createCustomer(pool, access, rest as unknown as CustomerCreateInput);
+    return { customer };
+  }
+  if (mutation.mutationType === "CUSTOMER_UPDATE") {
+    rejectSensitiveMasterData(rest, ["creditLimitMinor", "creditTermsDays", "active"]);
+    const customerId = requiredMasterDataString(rest.customerId, "customerId");
+    const { customerId: _ignoredCustomerId, ...input } = rest;
+    const customer = await updateCustomer(pool, access, customerId, input as unknown as CustomerUpdateInput);
+    return { customer };
+  }
+  if (mutation.mutationType === "SUPPLIER_CREATE") {
+    rejectSensitiveMasterData(rest, ["paymentTermsDays"]);
+    const supplier = await createSupplier(pool, access, rest as unknown as SupplierCreateInput);
+    return { supplier };
+  }
+  if (mutation.mutationType === "SUPPLIER_UPDATE") {
+    rejectSensitiveMasterData(rest, ["paymentTermsDays", "active"]);
+    const supplierId = requiredMasterDataString(rest.supplierId, "supplierId");
+    const { supplierId: _ignoredSupplierId, ...input } = rest;
+    const supplier = await updateSupplier(pool, access, supplierId, input as unknown as SupplierUpdateInput);
+    return { supplier };
+  }
+  throw new MasterDataSyncError(`Unsupported master-data mutationType: ${mutation.mutationType}`);
+}
+
+function rejectSensitiveMasterData(payload: Record<string, unknown>, fields: readonly string[]): void {
+  if (fields.some((field) => Object.prototype.hasOwnProperty.call(payload, field))) {
+    throw new MasterDataSyncError(
+      "Credit, status and payment-term changes require an online server check.",
+      "MASTER_DATA_SYNC_SENSITIVE_CHANGE",
+      409,
+    );
+  }
+}
+
+function requiredMasterDataString(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new MasterDataSyncError(`${name} is required`);
+  }
+  return value.trim();
+}
+
+function requiredMasterDataRole(value: unknown, mutationType: string): BusinessRole {
+  const roles = CUSTOMER_MUTATIONS.has(mutationType) ? CUSTOMER_WRITE_ROLES : SUPPLIER_WRITE_ROLES;
+  if (typeof value !== "string" || !roles.includes(value as BusinessRole)) {
+    throw new MasterDataSyncError("actorRole is invalid", "ROLE_FORBIDDEN", 403);
+  }
+  return value as BusinessRole;
 }
 
 async function applyCatalogMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {

@@ -21,7 +21,7 @@ const commonFormProps = {
   moneyAccountId: "",
   accounts: [],
   branchId: "branch-1",
-  categories: [{ id: "cat-1", name: "Fuel", active: true }],
+  categories: [{ id: "cat-1", name: "Fuel", active: true, system: false, createdAt: "2026-10-08T10:00:00.000Z", updatedAt: "2026-10-08T10:00:00.000Z" }],
   categoryId: "",
   payee: "",
   provider: "",
@@ -83,14 +83,12 @@ describe("Cashbook page composition", () => {
     expect(adjustment).not.toContain(">Category<");
   });
 
-  it("keeps category creation clearly online-only and disabled when blank or busy", () => {
-    const blank = renderToStaticMarkup(<ExpenseCategoryCard value="" busy={false} onChange={noop} onCreate={noop} />);
-    expect(blank).toContain("Expense categories");
-    expect(blank).toContain("Online only");
-    expect(blank).toContain("disabled");
-    const busy = renderToStaticMarkup(<ExpenseCategoryCard value="Travel" busy={true} onChange={noop} onCreate={noop} />);
-    expect(busy).toContain("Adding…");
-    expect(busy).toContain("disabled");
+  it("keeps category management clearly online-only with lifecycle context", () => {
+    const html = renderToStaticMarkup(<ExpenseCategoryCard businessId="business-1" role="OWNER" categories={commonFormProps.categories} onChanged={noop} onMessage={noop} />);
+    expect(html).toContain("Expense categories");
+    expect(html).toContain("online only");
+    expect(html).toContain("Add category");
+    expect(html).toContain("Edit");
   });
 
   it("renders useful empty states for movement and expense history", () => {
