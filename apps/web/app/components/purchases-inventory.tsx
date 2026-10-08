@@ -7,6 +7,9 @@ import { PurchaseReceiptBuilder } from "./purchases/purchase-receipt-builder";
 import { PurchaseWorkspace } from "./purchases/purchase-workspace";
 import { PurchaseDetailSheet } from "./purchases/purchase-detail-sheet";
 import type { PurchaseCatalogItem, PurchaseDetail, PurchaseDetailLine, PurchaseSummary } from "./purchases/types";
+import { InventoryWorkspace } from "./inventory/inventory-workspace";
+import { InventoryDetailSheet } from "./inventory/inventory-detail-sheet";
+import type { InventoryDetail, InventoryItem } from "./inventory/types";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
 import {
@@ -16,19 +19,6 @@ import {
   mutationAppliedEvent,
   type AppliedMutationDetail,
 } from "../lib/offline-sync";
-
-type InventoryItem = {
-  id: string;
-  sku: string | null;
-  name: string;
-  stockUnitCode: string;
-  available: number;
-  quarantine: number;
-  damaged: number;
-  waste: number;
-  averageStockUnitCostMinor: number | null;
-  inventoryValueMinor: number;
-};
 
 type Props = {
   businessId: string;
@@ -52,6 +42,11 @@ function isPurchaseDetail(value: unknown): value is PurchaseDetail {
   const row = value as Partial<PurchaseDetail>;
   return Boolean(row.purchase && Array.isArray(row.lines) && Array.isArray(row.returns));
 }
+function isInventoryDetail(value: unknown): value is InventoryDetail {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<InventoryDetail>;
+  return Boolean(row.item && Array.isArray(row.movements));
+}
 
 export function PurchasesInventory({ businessId, branchId, currencyCode, role, catalog, view }: Props) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -62,6 +57,9 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   const [selectedDetail, setSelectedDetail] = useState<PurchaseDetail | null>(null);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [returnPurchase, setReturnPurchase] = useState<PurchaseSummary | null>(null);
+  const [selectedInventory, setSelectedInventory] = useState<InventoryItem | null>(null);
+  const [inventoryDetail, setInventoryDetail] = useState<InventoryDetail | null>(null);
+  const [inventoryLoadingId, setInventoryLoadingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const canReceive = receiveRoles.has(role);
 
@@ -103,6 +101,8 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
     setSelectedPurchase(null);
     setSelectedDetail(null);
     setReturnPurchase(null);
+    setSelectedInventory(null);
+    setInventoryDetail(null);
     void refresh();
     const onApplied = (event: Event) => {
       const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
@@ -137,6 +137,30 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
     }
   };
 
+  const openInventory = async (item: InventoryItem) => {
+    setSelectedInventory(item);
+    setInventoryDetail(null);
+    const cached = readFeatureCache("inventory-detail", businessId, branchId, item.id, isInventoryDetail);
+    if (cached) setInventoryDetail(cached);
+    if (!navigator.onLine) {
+      if (!cached) setMessage("Offline: movement history for this item has not been opened on this device yet.");
+      return;
+    }
+    setInventoryLoadingId(item.id);
+    const sessionEpoch = captureSessionEpoch();
+    try {
+      const detail = await clientApi<InventoryDetail>(`/api/tradeos/v1/inventory/${item.id}?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}&limit=100`);
+      if (!isSessionEpochCurrent(sessionEpoch)) return;
+      setInventoryDetail(detail);
+      writeFeatureCache("inventory-detail", businessId, branchId, detail, item.id);
+      setMessage(null);
+    } catch (error) {
+      if (!cached && isSessionEpochCurrent(sessionEpoch)) setMessage(messageFrom(error));
+    } finally {
+      if (isSessionEpochCurrent(sessionEpoch)) setInventoryLoadingId(null);
+    }
+  };
+
   const lowOrEmpty = useMemo(() => inventory.filter((item) => item.available <= 0).length, [inventory]);
 
   return <section className="panel purchase-inventory-panel" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
@@ -151,20 +175,12 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
       <PurchaseWorkspace purchases={purchases} loadingId={detailLoadingId} onOpen={(purchase) => void openPurchase(purchase)} />
       <PurchaseDetailSheet open={Boolean(selectedPurchase)} purchase={selectedPurchase} detail={selectedDetail} canReturn={canReceive} onClose={() => { setSelectedPurchase(null); setSelectedDetail(null); }} onReturn={() => { if (selectedPurchase) setReturnPurchase(selectedPurchase); setSelectedPurchase(null); setSelectedDetail(null); }} />
       {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={() => setReturnPurchase(null)} onMessage={setMessage} /> : null}
-    </> : <InventoryTable items={inventory} currencyCode={currencyCode} />}
+    </> : <>
+      <InventoryWorkspace items={inventory} currencyCode={currencyCode} loadingId={inventoryLoadingId} onOpen={(item) => void openInventory(item)} />
+      <InventoryDetailSheet open={Boolean(selectedInventory)} detail={inventoryDetail} onClose={() => { setSelectedInventory(null); setInventoryDetail(null); }} />
+    </>}
     {message ? <div className="procurement-message">{message}</div> : null}
   </section>;
-}
-
-function InventoryTable({ items, currencyCode }: { items: InventoryItem[]; currencyCode: string }) {
-  return <div className="inventory-card"><div className="subpanel-head"><div><p className="eyebrow">Branch stock</p><h3>Inventory balances</h3></div><span>{items.length} tracked item{items.length === 1 ? "" : "s"}</span></div>
-    <div className="inventory-table">{items.length === 0 ? <div className="inventory-empty">No tracked products yet.</div> : items.map((item) => <div className="inventory-row" key={item.id}>
-      <div><strong>{item.name}</strong><span>{item.sku ?? item.stockUnitCode}</span></div>
-      <div><span>Available</span><strong className={item.available <= 0 ? "stock-empty" : ""}>{formatQuantity(item.available)} {item.stockUnitCode}</strong></div>
-      <div><span>Quarantine</span><strong>{formatQuantity(item.quarantine)}</strong></div>
-      <div><span>Average cost</span><strong>{item.averageStockUnitCostMinor === null ? "—" : `${formatMoney(item.averageStockUnitCostMinor, currencyCode)} / ${item.stockUnitCode}`}</strong><span>Value {formatMoney(item.inventoryValueMinor, currencyCode)}</span></div>
-    </div>)}</div>
-  </div>;
 }
 
 function returnPreview(line: PurchaseDetailLine, quantity: number): number {
