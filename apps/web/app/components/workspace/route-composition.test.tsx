@@ -13,7 +13,7 @@ describe("workspace route composition", () => {
     expect(route("customers")).toContain("<CustomersCredit");
     expect(route("purchases")).toMatch(/<PurchasesInventory[\s\S]*view="purchases"/);
     expect(route("inventory")).toMatch(/<PurchasesInventory[\s\S]*view="inventory"/);
-    expect(route("catalog")).toContain("<CatalogStarter");
+    expect(route("catalog")).toContain("<CatalogWorkspace");
     expect(route("returns")).toMatch(/<SalesAndReturns[\s\S]*view="returns"/);
     expect(route("cashbook")).toContain("<CashbookExpenses");
     expect(route("operations")).toContain("<OperationsReconciliation");
