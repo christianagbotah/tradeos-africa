@@ -1,0 +1,4 @@
+import React from "react";
+import Link from "next/link";
+export type PulseAction={href:string;label:string};
+export function BusinessPulse({headline,summary,evidence,actions,coverage}:{headline:string;summary:string;evidence:string[];actions:PulseAction[];coverage?:string}){return <section className="tos-business-pulse" aria-labelledby="tradeos-pulse-title"><div className="tos-business-pulse-kicker">TradeOS Pulse</div><h2 id="tradeos-pulse-title">{headline}</h2><p>{summary}</p>{evidence.length?<ul className="tos-pulse-evidence">{evidence.map((item)=><li key={item}>{item}</li>)}</ul>:null}{coverage?<small className="tos-pulse-coverage">{coverage}</small>:null}{actions.length?<div className="tos-pulse-actions">{actions.map((action)=><Link key={action.href+action.label} href={action.href}>{action.label}</Link>)}</div>:null}</section>;}
