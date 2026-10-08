@@ -1,8 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SalesWorkspace } from "./sales/sales-workspace";
 import { SaleDetailSheet } from "./sales/sale-detail-sheet";
+import type { SaleDetail, SaleLine, SaleSummary } from "./sales/types";
+import { ReturnRefundWorkspace } from "./returns/return-refund-workspace";
+import { ReturnRefundSheet, returnSyncMessage, type RefundMethod, type ReturnDisposition as Disposition, type ReturnLineDraft as LineDraft, type ReturnMode } from "./returns/return-refund-sheet";
 import { canAccessWorkspaceRoute } from "./workspace/workspace-navigation";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
@@ -13,60 +16,6 @@ import {
   mutationAppliedEvent,
   type AppliedMutationDetail,
 } from "../lib/offline-sync";
-
-type SaleSummary = {
-  id: string;
-  status: string;
-  currencyCode: string;
-  totalMinor: number;
-  refundTotalMinor: number;
-  completedAt: string | null;
-  createdAt: string;
-  customer: { name: string | null; phone: string | null } | null;
-  cashierName: string | null;
-  payments: Array<{ method: string; amountMinor: number; status: string }>;
-};
-
-type SaleLine = {
-  id: string;
-  itemId: string;
-  itemName: string;
-  itemKind: "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
-  quantity: number;
-  quantityReturned: number;
-  quantityReturnable: number;
-  saleUnitCode: string;
-  unitNetMinor: number;
-  unitTaxMinor: number;
-  lineTotalMinor: number;
-};
-
-type SaleDetail = {
-  id: string;
-  businessId: string;
-  branchId: string;
-  status: string;
-  currencyCode: string;
-  totalMinor: number;
-  completedAt: string | null;
-  createdAt: string;
-  customer: { id: string; name: string | null; phone: string | null } | null;
-  cashierName: string | null;
-  lines: SaleLine[];
-  payments: Array<{
-    id: string;
-    method: string;
-    amountMinor: number;
-    refundedMinor: number;
-    status: string;
-    providerReference: string | null;
-  }>;
-};
-
-type ReturnMode = "RETURN_REFUND" | "REFUND_ONLY";
-type RefundMethod = "ORIGINAL_METHOD" | "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT";
-type Disposition = "RESTOCK" | "QUARANTINE" | "DISCARD" | "NOT_RETURNED" | "NOT_APPLICABLE";
-type LineDraft = { selected: boolean; quantity: string; disposition: Disposition };
 
 type Props = {
   businessId: string;
@@ -163,6 +112,14 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
   }, [businessId, branchId]);
 
   useEffect(() => {
+    if (view !== "returns" || typeof window === "undefined") return;
+    const saleId = new URLSearchParams(window.location.search).get("saleId");
+    if (saleId) void loadDetail(saleId);
+    // loadDetail intentionally follows the current business/branch context.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId, branchId, view]);
+
+  useEffect(() => {
     const onMutationApplied = (event: Event) => {
       const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
       if (!detail || detail.businessId !== businessId || detail.branchId !== branchId) return;
@@ -191,11 +148,6 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
     () => selectedLines.reduce((sum, item) => sum + Math.round((item.line.unitNetMinor + item.line.unitTaxMinor) * item.quantity), 0),
     [selectedLines],
   );
-
-  const submitSearch = (event: FormEvent) => {
-    event.preventDefault();
-    void loadSales(query);
-  };
 
   const processReturn = async () => {
     if (!selected || selectedLines.length === 0 || busy || !reason.trim()) return;
@@ -228,14 +180,10 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
       }
 
       const summary = await flushPendingMutations();
-      if (summary.rejected > 0) {
-        setMessage("The return was saved but needs review before it can be applied.");
-      } else if (summary.applied > 0) {
-        setMessage("Return/refund applied. MoMo, card or bank reversals may remain processing until the provider confirms them.");
+      setMessage(returnSyncMessage(summary));
+      if (summary.applied > 0) {
         await loadSales();
         await loadDetail(selected.id);
-      } else {
-        setMessage("Return/refund is queued for processing.");
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The return/refund could not be synchronized.");
@@ -263,135 +211,38 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
   }
 
   return (
-    <section className="panel sales-return-panel" id="returns" data-sales-view="returns">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">Protected reversal workflow</p>
-          <h2>Returns & refunds</h2>
-        </div>
-        <span className="workflow-badge">Original sale required</span>
-      </div>
-
-      <form className="sales-search" onSubmit={submitSearch}>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search receipt ID, customer name or phone" />
-        <button className="ghost-button" type="submit">Search</button>
-        <button className="text-button" type="button" onClick={() => { setQuery(""); void loadSales(""); }}>Clear</button>
-      </form>
-
-      <div className="sales-return-grid">
-        <div className="sales-list" aria-busy={loading}>
-          {loading ? <div className="sales-empty">Loading sales…</div> : null}
-          {!loading && sales.length === 0 ? <div className="sales-empty">No completed sales found for this branch.</div> : null}
-          {sales.map((sale) => (
-            <button
-              type="button"
-              key={sale.id}
-              className={selected?.id === sale.id ? "sale-row active" : "sale-row"}
-              onClick={() => void loadDetail(sale.id)}
-            >
-              <div><strong>{shortReceipt(sale.id)}</strong><span>{formatDate(sale.completedAt ?? sale.createdAt)}</span></div>
-              <div className="sale-row-right">
-                <strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong>
-                <span>{sale.status.replaceAll("_", " ")}{sale.refundTotalMinor > 0 ? ` · ${formatMoney(sale.refundTotalMinor, sale.currencyCode)} refunded` : ""}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div className="return-detail">
-          {!selected ? (
-            <div className="return-placeholder">
-              <strong>Select a sale</strong>
-              <span>Choose an original sale to inspect returnable quantities and process a protected refund.</span>
-            </div>
-          ) : (
-            <>
-              <div className="return-detail-head">
-                <div>
-                  <p className="eyebrow">Receipt {shortReceipt(selected.id)}</p>
-                  <h3>{formatMoney(selected.totalMinor, selected.currencyCode)}</h3>
-                  <span>{formatDate(selected.completedAt ?? selected.createdAt)} · {selected.cashierName ?? "Staff"}</span>
-                </div>
-                <span className="sale-status">{selected.status.replaceAll("_", " ")}</span>
-              </div>
-
-              <div className="return-mode-grid compact-modes">
-                <button type="button" className={mode === "RETURN_REFUND" ? "return-mode active" : "return-mode"} onClick={() => setMode("RETURN_REFUND")}>
-                  <strong>Return + refund</strong><span>The item physically comes back where applicable.</span>
-                </button>
-                <button type="button" className={mode === "REFUND_ONLY" ? "return-mode active" : "return-mode"} onClick={() => setMode("REFUND_ONLY")}>
-                  <strong>Refund only</strong><span>Customer keeps the product; stock stays unchanged.</span>
-                </button>
-              </div>
-
-              <div className="returnable-lines">
-                {selected.lines.map((line) => {
-                  const draft = drafts[line.id];
-                  const disabled = line.quantityReturnable <= 0;
-                  return (
-                    <div className={disabled ? "returnable-line exhausted" : "returnable-line"} key={line.id}>
-                      <label className="return-check">
-                        <input
-                          type="checkbox"
-                          disabled={disabled}
-                          checked={Boolean(draft?.selected)}
-                          onChange={(event) => updateDraft(setDrafts, line.id, { selected: event.target.checked })}
-                        />
-                        <span><strong>{line.itemName}</strong><small>{line.quantityReturnable} of {line.quantity} {line.saleUnitCode} returnable</small></span>
-                      </label>
-                      <label>Qty<input type="number" min="0.00000001" max={line.quantityReturnable} step="any" disabled={disabled || !draft?.selected} value={draft?.quantity ?? "0"} onChange={(event) => updateDraft(setDrafts, line.id, { quantity: event.target.value })} /></label>
-                      <DispositionField line={line} mode={mode} draft={draft} onChange={(disposition) => updateDraft(setDrafts, line.id, { disposition })} />
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="refund-controls">
-                <label>Refund method
-                  <select value={refundMethod} onChange={(event) => setRefundMethod(event.target.value as RefundMethod)}>
-                    <option value="ORIGINAL_METHOD">Original payment method</option>
-                    <option value="CASH">Cash</option>
-                    <option value="MOMO">MoMo</option>
-                    <option value="CARD">Card</option>
-                    <option value="BANK">Bank</option>
-                    <option value="CUSTOMER_CREDIT">Customer credit</option>
-                  </select>
-                </label>
-                <label>Reason<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is this being refunded?" /></label>
-              </div>
-
-              <div className="return-action-bar">
-                <div><span>Refund preview</span><strong>{formatMoney(refundPreviewMinor, currencyCode)}</strong></div>
-                <div><span>Selected lines</span><strong>{selectedLines.length}</strong></div>
-                <button className="primary-button" type="button" disabled={selectedLines.length === 0 || busy || !reason.trim()} onClick={() => void processReturn()}>
-                  {busy ? "Processing…" : "Process return / refund"}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-      {message ? <div className="return-message">{message}</div> : null}
+    <section className="returns-page-workspace" id="returns" data-sales-view="returns">
+      <ReturnRefundWorkspace
+        sales={sales}
+        selectedId={selected?.id ?? null}
+        loading={loading}
+        onSelect={(saleId) => void loadDetail(saleId)}
+        onSearch={(search) => { setQuery(search); void loadSales(search); }}
+      />
+      {selected ? (
+        <ReturnRefundSheet
+          sale={selected}
+          open
+          drafts={drafts}
+          mode={mode}
+          refundMethod={refundMethod}
+          reason={reason}
+          busy={busy}
+          refundPreviewMinor={refundPreviewMinor}
+          selectedLineCount={selectedLines.length}
+          onClose={() => setSelected(null)}
+          onModeChange={setMode}
+          onRefundMethodChange={setRefundMethod}
+          onReasonChange={setReason}
+          onDraftChange={(lineId, patch) => updateDraft(setDrafts, lineId, patch)}
+          onSubmit={() => void processReturn()}
+        />
+      ) : null}
+      {message ? <div className="return-message" role="status">{message}</div> : null}
     </section>
   );
 }
 
-
-function DispositionField({ line, mode, draft, onChange }: { line: SaleLine; mode: ReturnMode; draft: LineDraft | undefined; onChange: (value: Disposition) => void }) {
-  if (mode === "REFUND_ONLY") return <div className="stock-effect"><span>Stock</span><strong>No stock return</strong></div>;
-  if (line.itemKind === "SERVICE") return <div className="stock-effect"><span>Stock</span><strong>Not applicable</strong></div>;
-  if (line.itemKind === "PREPARED_PRODUCT") return <div className="stock-effect"><span>Returned item</span><strong>Discard / waste</strong></div>;
-
-  return (
-    <label>Returned stock
-      <select disabled={!draft?.selected} value={draft?.disposition ?? "RESTOCK"} onChange={(event) => onChange(event.target.value as Disposition)}>
-        <option value="RESTOCK">Available stock</option>
-        <option value="QUARANTINE">Quarantine / inspect</option>
-        <option value="DISCARD">Discard / unusable</option>
-      </select>
-    </label>
-  );
-}
 
 function resolvedDisposition(kind: SaleLine["itemKind"], mode: ReturnMode, selected: Disposition): Disposition {
   if (kind === "SERVICE") return "NOT_APPLICABLE";
