@@ -1,4 +1,5 @@
 import { canAccessWorkspaceRoute } from "../workspace/workspace-navigation";
+import type { DashboardAttention } from "./dashboard-model";
 
 export type DashboardQuickAction = {
   href: string;
@@ -20,4 +21,19 @@ export function dashboardQuickActions(role: string): DashboardQuickAction[] {
   return definitions
     .filter((item) => item.roles.includes(role) && canAccessWorkspaceRoute(role, item.href))
     .map(({ roles: _roles, ...item }) => item);
+}
+
+
+const creditControlRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
+
+export function dashboardAttentionForRole(role: string, attention: DashboardAttention[]): DashboardAttention[] {
+  return attention
+    .filter((item) => canAccessWorkspaceRoute(role, item.href))
+    .map((item) => item.id === "overdue-receivables" && !creditControlRoles.has(role)
+      ? { ...item, actionLabel: "Review customers" }
+      : item);
+}
+
+export function dashboardCanViewReports(role: string): boolean {
+  return canAccessWorkspaceRoute(role, "/reports");
 }
