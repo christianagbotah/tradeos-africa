@@ -2,7 +2,6 @@
 
 import { useEffect, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { getActiveBusinessId } from "../../lib/offline-sync";
 import { getWorkspaceGate } from "./workspace-provider";
 import { useWorkspaceStore } from "./use-workspace";
 

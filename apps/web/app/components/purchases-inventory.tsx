@@ -402,10 +402,11 @@ function PurchaseReturn({businessId,branchId,purchase,onClose,onMessage}:{busine
  const [loadError,setLoadError]=useState<string | null>(null);
  useEffect(()=>{
   let active=true;
+  const sessionEpoch=captureSessionEpoch();
   const cached=readFeatureCache("purchase-detail",businessId,branchId,purchase.id,isPurchaseDetail);
   if(cached){setLines(cached.lines);setLoaded(true);}
   if(!navigator.onLine){if(!cached)setLoadError("Offline: this purchase has not been opened on this device yet.");return()=>{active=false;};}
-  clientApi<{lines:ReturnablePurchaseLine[]}>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then(data=>{if(active){setLines(data.lines);setLoaded(true);setLoadError(null);writeFeatureCache("purchase-detail",businessId,branchId,data,purchase.id);}}).catch(error=>{if(active&&!cached)setLoadError(messageFrom(error));});
+  clientApi<{lines:ReturnablePurchaseLine[]}>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then(data=>{if(active&&isSessionEpochCurrent(sessionEpoch)){setLines(data.lines);setLoaded(true);setLoadError(null);writeFeatureCache("purchase-detail",businessId,branchId,data,purchase.id);}}).catch(error=>{if(active&&isSessionEpochCurrent(sessionEpoch)&&!cached)setLoadError(messageFrom(error));});
   return()=>{active=false;};
  },[businessId,branchId,purchase.id]);
  const preview=lines.reduce((sum,line)=>sum+returnPreview(line,Number(quantities[line.id]||0)),0);
