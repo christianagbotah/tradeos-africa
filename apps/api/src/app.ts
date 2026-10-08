@@ -24,6 +24,8 @@ const PURCHASE_RECEIVE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANA
 const SUPPLIER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const EXPENSE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
 const CASHBOOK_ADJUSTMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
+const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
+const CATALOG_MUTATIONS = new Set(["CATALOG_ITEM_CREATE", "CATALOG_ITEM_UPDATE", "CATALOG_ITEM_ARCHIVE", "CATALOG_ITEM_REACTIVATE"]);
 
 export function buildApp(pool: DatabasePool) {
   const app = Fastify({ logger: true });
@@ -121,6 +123,11 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
   }
   const payload = mutation.payload as Record<string, unknown>;
 
+  if (CATALOG_MUTATIONS.has(mutation.mutationType)) {
+    const { actorStaffId: _ignoredStaff, actorRole: _ignoredRole, ...rest } = payload;
+    return { ...rest, actorStaffId: access.staffId, actorRole: access.role };
+  }
+
   if (["EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE","OPERATING_DAY_OPEN_CREATE","OPERATING_DAY_CLOSE_CREATE","SHIFT_OPEN_CREATE","SHIFT_CLOSE_CREATE","MONEY_TRANSFER_CREATE","MONEY_RECONCILIATION_CREATE","MONEY_RECONCILIATION_RESOLVE"].includes(mutation.mutationType)) {
     const { actorStaffId: _ignored, ...rest } = payload;
     return {...rest,actorStaffId:access.staffId,actorRole:access.role};
@@ -159,6 +166,10 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
 
 function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
   switch (mutation.mutationType) {
+    case "CATALOG_ITEM_CREATE":
+    case "CATALOG_ITEM_UPDATE":
+    case "CATALOG_ITEM_ARCHIVE":
+    case "CATALOG_ITEM_REACTIVATE": return CATALOG_WRITE_ROLES;
     case "OPERATING_DAY_OPEN_CREATE":
     case "OPERATING_DAY_CLOSE_CREATE": return CASHBOOK_ADJUSTMENT_ROLES;
     case "SHIFT_OPEN_CREATE":
