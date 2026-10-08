@@ -2,11 +2,23 @@
 
 import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { QuickSaleItem } from "../quick-sale";
-import { getActiveBusinessId, setActiveBusinessId } from "../../lib/offline-sync";
+import {
+  getActiveBusinessId,
+  mutationAppliedEvent,
+  setActiveBusinessId,
+  type AppliedMutationDetail,
+} from "../../lib/offline-sync";
 import { clearWorkspaceBootstrap, readWorkspaceBootstrap, writeWorkspaceBootstrap } from "../../lib/workspace-bootstrap";
 import { clearFeatureCaches } from "../../lib/feature-cache";
 import { finalizePendingLogout, invalidateSessionEpoch, markLogoutPending } from "../../lib/session-lifecycle";
 import type { BusinessContext, CatalogItem, MePayload, Membership } from "../../lib/workspace-types";
+
+const catalogMutationTypes = new Set([
+  "CATALOG_ITEM_CREATE",
+  "CATALOG_ITEM_UPDATE",
+  "CATALOG_ITEM_ARCHIVE",
+  "CATALOG_ITEM_REACTIVATE",
+]);
 
 export type WorkspaceContextValue = {
   session: MePayload;
@@ -213,6 +225,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const loaded = await loadBusiness(context.business.id, branchId);
     if (loaded && session) writeWorkspaceBootstrap({ session, ...loaded });
   }, [branchId, context, loadBusiness, session]);
+
+  useEffect(() => {
+    const handleMutationApplied = (event: Event) => {
+      const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
+      if (!detail || detail.businessId !== context?.business.id || !catalogMutationTypes.has(detail.mutationType)) return;
+      void refreshBusiness();
+    };
+    window.addEventListener(mutationAppliedEvent, handleMutationApplied);
+    return () => window.removeEventListener(mutationAppliedEvent, handleMutationApplied);
+  }, [context?.business.id, refreshBusiness]);
 
   const retryWorkspace = useCallback(async () => {
     setResolved(false);
