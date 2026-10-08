@@ -51,17 +51,19 @@ describe("multi-page release hardening", () => {
     expect(shell).toContain('key={`${context.business.id}:${branchId}`}');
   });
 
-  it("keeps context, sync and sign-out available in the responsive drawer with keyboard semantics", () => {
+  it("keeps context, sync and sign-out available in the responsive More sheet with keyboard semantics", () => {
     const shell = read("app/components/workspace/app-shell.tsx");
-    expect(shell).toContain('className="workspace-drawer-context"');
+    expect(shell).toContain("MobileMoreSheet");
+    expect(read("app/components/workspace/mobile-more-sheet.tsx")).toContain('className="workspace-more-context"');
     expect(shell.match(/<NetworkStatus \/>/g)?.length).toBeGreaterThanOrEqual(2);
     expect(shell.match(/Sign out/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(shell).toContain('aria-expanded={drawerOpen}');
-    expect(shell).toContain('aria-controls="workspace-mobile-navigation"');
-    expect(shell).toContain('role="dialog"');
-    expect(shell).toContain('aria-modal="true"');
-    expect(shell).toContain('event.key === "Escape"');
-    expect(shell).toContain("const contextSelectors");
+    const moreSheet = read("app/components/workspace/mobile-more-sheet.tsx");
+    expect(moreSheet).toContain('role="dialog"');
+    expect(moreSheet).toContain('aria-modal="true"');
+    expect(moreSheet).toContain('e.key==="Escape"');
+    expect(moreSheet).toContain('e.key!=="Tab"');
+    expect(moreSheet).toContain("data-more-trigger");
+    expect(shell).toContain("businessBranchSelectors");
     expect(shell).toContain("Business");
     expect(shell).toContain("Branch");
   });

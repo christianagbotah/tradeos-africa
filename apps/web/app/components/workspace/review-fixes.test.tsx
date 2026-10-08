@@ -28,13 +28,18 @@ describe("multi-page review regressions", () => {
     expect(shell).toMatch(/key=\{`\$\{context\.business\.id\}:\$\{branchId\}`\}/);
   });
 
-  it("keeps business, branch, sync and sign-out controls available in the responsive drawer", () => {
+  it("keeps business, branch, sync and sign-out controls available in the responsive More sheet", () => {
     const shell = read("components/workspace/app-shell.tsx");
-    expect(shell).toContain("workspace-drawer-context");
+    expect(shell).toContain("MobileMoreSheet");
+    expect(read("components/workspace/mobile-more-sheet.tsx")).toContain("workspace-more-context");
     expect(shell.match(/<NetworkStatus/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     expect(shell.match(/Sign out/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
-    expect(shell).toContain('aria-expanded={drawerOpen}');
-    expect(shell).toContain('aria-controls="workspace-mobile-navigation"');
+    const moreSheet = read("components/workspace/mobile-more-sheet.tsx");
+    expect(moreSheet).toContain('role="dialog"');
+    expect(moreSheet).toContain('aria-modal="true"');
+    expect(moreSheet).toContain('e.key==="Escape"');
+    expect(moreSheet).toContain('e.key!=="Tab"');
+    expect(moreSheet).toContain("data-more-trigger");
   });
 
   it("aligns returns and operations navigation with backend read/write roles", () => {
