@@ -48,7 +48,7 @@ describe("inventory movement read model", () => {
     ]);
     expect(body.movements.every((entry) => entry.actorStaffId === actor.staff_id && entry.actorName === actor.display_name)).toBe(true);
     expect(body.movements.every((entry) => entry.referenceType === "TEST_MOVEMENT" && typeof entry.referenceId === "string")).toBe(true);
-    expect(JSON.stringify(body)).not.toContain("99");
+    expect(body.movements.some((entry) => entry.quantityDelta === 99)).toBe(false);
 
     const outsider = await register("inventory-read-outsider@tradeos.test", "inventory-read-outsider-device", "Outsider");
     const foreign = await createBusiness(outsider.accessToken, "Inventory Read B");
