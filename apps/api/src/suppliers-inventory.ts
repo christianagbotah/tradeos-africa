@@ -143,6 +143,74 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
     }
   });
 
+  app.get<{ Params: { itemId: string }; Querystring: { businessId?: string; branchId?: string; limit?: string } }>("/v1/inventory/:itemId", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = required(request.query.businessId, "businessId");
+      const branchId = required(request.query.branchId, "branchId");
+      await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      await assertBranch(pool, businessId, branchId);
+
+      const itemResult = await pool.query<{
+        id: string; sku: string | null; name: string; stock_unit_code: string; is_active: boolean;
+      }>(
+        `SELECT id,sku,name,stock_unit_code,is_active
+         FROM catalog_items
+         WHERE id=$1 AND business_id=$2 AND kind='PRODUCT' AND track_stock=true`,
+        [request.params.itemId, businessId],
+      );
+      const item = itemResult.rows[0];
+      if (!item || !item.stock_unit_code) throw new SupplierError("Inventory item was not found", 404, "INVENTORY_ITEM_NOT_FOUND");
+
+      const balanceResult = await pool.query<{
+        available: string | number; quarantine: string | number; damaged: string | number; waste: string | number;
+        inventory_value_minor: string | number; latest_stock_unit_cost_minor: string | number | null;
+      }>(
+        `SELECT
+           COALESCE(SUM(im.quantity_delta) FILTER (WHERE im.location_type='AVAILABLE'),0) AS available,
+           COALESCE(SUM(im.quantity_delta) FILTER (WHERE im.location_type='QUARANTINE'),0) AS quarantine,
+           COALESCE(SUM(im.quantity_delta) FILTER (WHERE im.location_type='DAMAGED'),0) AS damaged,
+           COALESCE(SUM(im.quantity_delta) FILTER (WHERE im.location_type='WASTE'),0) AS waste,
+           COALESCE((SELECT SUM(v.value_minor) FROM inventory_valuations v WHERE v.business_id=$1 AND v.branch_id=$2 AND v.item_id=$3),0) AS inventory_value_minor,
+           (SELECT v.value_minor / NULLIF(v.quantity,0) FROM inventory_valuations v
+             WHERE v.business_id=$1 AND v.branch_id=$2 AND v.item_id=$3 AND v.location_type='AVAILABLE') AS latest_stock_unit_cost_minor
+         FROM inventory_movements im
+         WHERE im.business_id=$1 AND im.branch_id=$2 AND im.item_id=$3`,
+        [businessId, branchId, item.id],
+      );
+      const balance = balanceResult.rows[0]!;
+
+      const movementResult = await pool.query<{
+        id: string; stock_unit_code: string; quantity_delta: string | number; location_type: string; reason: string;
+        reference_type: string; reference_id: string; actor_staff_id: string | null; actor_name: string | null; occurred_at: Date;
+      }>(
+        `SELECT im.id,im.stock_unit_code,im.quantity_delta,im.location_type,im.reason,im.reference_type,im.reference_id,
+                im.actor_staff_id,st.display_name AS actor_name,im.occurred_at
+         FROM inventory_movements im
+         LEFT JOIN staff st ON st.id=im.actor_staff_id AND st.business_id=im.business_id
+         WHERE im.business_id=$1 AND im.branch_id=$2 AND im.item_id=$3
+         ORDER BY im.occurred_at DESC,im.id DESC LIMIT $4`,
+        [businessId, branchId, item.id, clampLimit(request.query.limit, 50)],
+      );
+
+      return {
+        item: {
+          id: item.id, sku: item.sku, name: item.name, stockUnitCode: item.stock_unit_code, active: item.is_active,
+          available: Number(balance.available), quarantine: Number(balance.quarantine), damaged: Number(balance.damaged), waste: Number(balance.waste),
+          inventoryValueMinor: Number(balance.inventory_value_minor),
+          averageStockUnitCostMinor: balance.latest_stock_unit_cost_minor === null ? null : Number(balance.latest_stock_unit_cost_minor),
+        },
+        movements: movementResult.rows.map((row) => ({
+          id: row.id, stockUnitCode: row.stock_unit_code, quantityDelta: Number(row.quantity_delta), location: row.location_type,
+          reason: row.reason, referenceType: row.reference_type, referenceId: row.reference_id,
+          actorStaffId: row.actor_staff_id, actorName: row.actor_name, occurredAt: row.occurred_at.toISOString(),
+        })),
+      };
+    } catch (error) {
+      return sendError(request, reply, error);
+    }
+  });
+
   app.get<{ Params: { purchaseId: string }; Querystring: { businessId?: string } }>("/v1/purchases/:purchaseId", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);

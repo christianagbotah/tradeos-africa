@@ -1,9 +1,15 @@
-"use client";
-
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { SupplierWorkspace } from "./suppliers/supplier-workspace";
 import type { Supplier } from "./suppliers/supplier-types";
+import type { MoneyAccount } from "./treasury/types";
+import { PurchaseReceiptBuilder } from "./purchases/purchase-receipt-builder";
+import { PurchaseWorkspace } from "./purchases/purchase-workspace";
+import { PurchaseDetailSheet } from "./purchases/purchase-detail-sheet";
+import type { PurchaseCatalogItem, PurchaseDetail, PurchaseDetailLine, PurchaseSummary } from "./purchases/types";
+import { InventoryWorkspace } from "./inventory/inventory-workspace";
+import { InventoryDetailSheet } from "./inventory/inventory-detail-sheet";
+import type { InventoryDetail, InventoryItem } from "./inventory/types";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
 import {
@@ -14,81 +20,46 @@ import {
   type AppliedMutationDetail,
 } from "../lib/offline-sync";
 
-type CatalogItem = {
-  id: string;
-  name: string;
-  kind: "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
-  trackStock: boolean;
-  stockUnitCode: string | null;
-  active: boolean;
-  units: Array<{ code: string; label: string; canPurchase: boolean }>;
-  conversions: Array<{ fromUnitCode: string; toUnitCode: string; factor: number }>;
-};
-
-type InventoryItem = {
-  id: string;
-  sku: string | null;
-  name: string;
-  stockUnitCode: string;
-  available: number;
-  quarantine: number;
-  damaged: number;
-  waste: number;
-  averageStockUnitCostMinor: number | null;
-  inventoryValueMinor: number;
-};
-
-type PurchaseSummary = {
-  id: string;
-  supplierId: string;
-  supplierName: string;
-  supplierReference: string | null;
-  totalMinor: number;
-  currencyCode: string;
-  receivedAt: string;
-  receiverName: string | null;
-  lineCount: number;
-  settlementMethod: string;
-};
-
-type ReceiptLine = {
-  key: string;
-  itemId: string;
-  itemName: string;
-  purchaseUnitCode: string;
-  purchaseUnitLabel: string;
-  quantity: number;
-  unitCostMinor: number;
-  estimatedStockQuantity: number | null;
-  stockUnitCode: string | null;
-};
-
 type Props = {
   businessId: string;
   branchId: string;
   currencyCode: string;
   role: string;
-  catalog: CatalogItem[];
+  catalog: PurchaseCatalogItem[];
   view: "purchases" | "inventory";
 };
 
 const receiveRoles = new Set(["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"]);
 
-type PurchasesInventorySnapshot = { suppliers: Supplier[]; inventory: InventoryItem[]; purchases: PurchaseSummary[] };
+type PurchasesInventorySnapshot = { suppliers: Supplier[]; inventory: InventoryItem[]; purchases: PurchaseSummary[]; accounts: MoneyAccount[] };
 function isPurchasesInventorySnapshot(value: unknown): value is PurchasesInventorySnapshot {
   if (!value || typeof value !== "object") return false;
   const row = value as Partial<PurchasesInventorySnapshot>;
-  return Array.isArray(row.suppliers) && Array.isArray(row.inventory) && Array.isArray(row.purchases);
+  return Array.isArray(row.suppliers) && Array.isArray(row.inventory) && Array.isArray(row.purchases) && Array.isArray(row.accounts);
 }
-function isPurchaseDetail(value: unknown): value is { lines: ReturnablePurchaseLine[] } {
-  return Boolean(value && typeof value === "object" && Array.isArray((value as { lines?: unknown }).lines));
+function isPurchaseDetail(value: unknown): value is PurchaseDetail {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<PurchaseDetail>;
+  return Boolean(row.purchase && Array.isArray(row.lines) && Array.isArray(row.returns));
+}
+function isInventoryDetail(value: unknown): value is InventoryDetail {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<InventoryDetail>;
+  return Boolean(row.item && Array.isArray(row.movements));
 }
 
 export function PurchasesInventory({ businessId, branchId, currencyCode, role, catalog, view }: Props) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [purchases, setPurchases] = useState<PurchaseSummary[]>([]);
+  const [accounts, setAccounts] = useState<MoneyAccount[]>([]);
+  const [selectedPurchase, setSelectedPurchase] = useState<PurchaseSummary | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<PurchaseDetail | null>(null);
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [returnPurchase, setReturnPurchase] = useState<PurchaseSummary | null>(null);
+  const [selectedInventory, setSelectedInventory] = useState<InventoryItem | null>(null);
+  const [inventoryDetail, setInventoryDetail] = useState<InventoryDetail | null>(null);
+  const [inventoryLoadingId, setInventoryLoadingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const canReceive = receiveRoles.has(role);
 
@@ -99,22 +70,25 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
       setSuppliers(cached.suppliers);
       setInventory(cached.inventory);
       setPurchases(cached.purchases);
+      setAccounts(cached.accounts);
     }
     if (!navigator.onLine) {
       setMessage(cached ? "Offline: showing saved suppliers, purchases and inventory for this branch." : "Offline: no saved purchase or inventory data exists for this branch yet.");
       return;
     }
     try {
-      const [supplierData, inventoryData, purchaseData] = await Promise.all([
+      const [supplierData, inventoryData, purchaseData, accountData] = await Promise.all([
         clientApi<{ suppliers: Supplier[] }>(`/api/tradeos/v1/suppliers?businessId=${encodeURIComponent(businessId)}&limit=200`),
         clientApi<{ items: InventoryItem[] }>(`/api/tradeos/v1/inventory?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`),
-        clientApi<{ purchases: PurchaseSummary[] }>(`/api/tradeos/v1/purchases?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}&limit=20`),
+        clientApi<{ purchases: PurchaseSummary[] }>(`/api/tradeos/v1/purchases?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}&limit=50`),
+        clientApi<{ accounts: MoneyAccount[] }>(`/api/tradeos/v1/money-accounts?businessId=${encodeURIComponent(businessId)}`),
       ]);
-      const next: PurchasesInventorySnapshot = { suppliers: supplierData.suppliers, inventory: inventoryData.items, purchases: purchaseData.purchases };
+      const next: PurchasesInventorySnapshot = { suppliers: supplierData.suppliers, inventory: inventoryData.items, purchases: purchaseData.purchases, accounts: accountData.accounts };
       if (!isSessionEpochCurrent(sessionEpoch)) return;
       setSuppliers(next.suppliers);
       setInventory(next.inventory);
       setPurchases(next.purchases);
+      setAccounts(next.accounts);
       writeFeatureCache("purchases-inventory", businessId, branchId, next);
       setMessage(null);
     } catch (error) {
@@ -124,244 +98,140 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   };
 
   useEffect(() => {
+    setSelectedPurchase(null);
+    setSelectedDetail(null);
+    setReturnPurchase(null);
+    setSelectedInventory(null);
+    setInventoryDetail(null);
     void refresh();
     const onApplied = (event: Event) => {
       const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
-      if (detail?.businessId === businessId && detail.branchId === branchId && ["PURCHASE_RETURN_CREATE","PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","SALE_CREATE","RETURN_CREATE","REFUND_CREATE"].includes(detail.mutationType)) {
-        void refresh();
-      }
+      if (detail?.businessId === businessId && detail.branchId === branchId && ["PURCHASE_RETURN_CREATE","PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","SALE_CREATE","RETURN_CREATE","REFUND_CREATE","INVENTORY_ADJUSTMENT_CREATE"].includes(detail.mutationType)) void refresh();
     };
     window.addEventListener(mutationAppliedEvent, onApplied);
     return () => window.removeEventListener(mutationAppliedEvent, onApplied);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId, branchId]);
 
-  const lowOrEmpty = useMemo(() => inventory.filter((item) => item.available <= 0).length, [inventory]);
-
-  return (
-    <section className="panel purchase-inventory-panel" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">{view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}</p>
-          <h2>{view === "purchases" ? "Suppliers & purchases" : "Inventory"}</h2>
-        </div>
-        <div className="inventory-summary"><span>Tracked products</span><strong>{inventory.length}</strong><small>{lowOrEmpty} empty item{lowOrEmpty === 1 ? "" : "s"}</small></div>
-      </div>
-
-      {view === "purchases" ? <>
-        <SupplierWorkspace businessId={businessId} branchId={branchId} currencyCode={currencyCode} role={role} suppliers={suppliers} onRefresh={refresh} />
-        {canReceive ? (
-          <div className="procurement-actions">
-            <PurchaseReceipt businessId={businessId} branchId={branchId} currencyCode={currencyCode} suppliers={suppliers.filter((supplier) => supplier.active)} catalog={catalog} onMessage={setMessage} />
-          </div>
-        ) : <div className="inventory-readonly-note">Your role can view purchase history but cannot receive inventory.</div>}
-        <RecentPurchases purchases={purchases} onReturn={canReceive ? setReturnPurchase : undefined} />
-        {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={()=>setReturnPurchase(null)} onMessage={setMessage} /> : null}
-      </> : <InventoryTable items={inventory} currencyCode={currencyCode} />}
-      {message ? <div className="procurement-message">{message}</div> : null}
-    </section>
-  );
-}
-
-function PurchaseReceipt({ businessId, branchId, currencyCode, suppliers, catalog, onMessage }: {
-  businessId: string;
-  branchId: string;
-  currencyCode: string;
-  suppliers: Supplier[];
-  catalog: CatalogItem[];
-  onMessage: (message: string | null) => void;
-}) {
-  const purchasable = catalog.filter((item) => item.active && item.kind === "PRODUCT" && item.trackStock && item.stockUnitCode && item.units.some((unit) => unit.canPurchase));
-  const [supplierId, setSupplierId] = useState("");
-  const [settlementMethod, setSettlementMethod] = useState("CASH");
-  const [reference, setReference] = useState("");
-  const [itemId, setItemId] = useState("");
-  const [unitCode, setUnitCode] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [unitCost, setUnitCost] = useState("");
-  const [lines, setLines] = useState<ReceiptLine[]>([]);
-  const [busy, setBusy] = useState(false);
-
-  const selectedItem = purchasable.find((item) => item.id === itemId) ?? null;
-  const purchaseUnits = selectedItem?.units.filter((unit) => unit.canPurchase) ?? [];
-  const totalMinor = useMemo(() => lines.reduce((sum, line) => sum + Math.round(line.unitCostMinor * line.quantity), 0), [lines]);
-
-  useEffect(() => {
-    if (!supplierId && suppliers[0]) setSupplierId(suppliers[0].id);
-  }, [supplierId, suppliers]);
-
-  useEffect(() => {
-    if (!itemId && purchasable[0]) setItemId(purchasable[0].id);
-  }, [itemId, purchasable]);
-
-  useEffect(() => {
-    const item = purchasable.find((candidate) => candidate.id === itemId);
-    const firstUnit = item?.units.find((unit) => unit.canPurchase);
-    setUnitCode(firstUnit?.code ?? "");
-  }, [itemId]);
-
-  const addLine = () => {
-    if (!selectedItem || !unitCode) return;
-    const parsedQuantity = Number(quantity);
-    const unitCostMinor = moneyToMinor(unitCost);
-    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || unitCostMinor < 0 || !unitCost.trim()) {
-      onMessage("Enter a positive purchase quantity and a valid unit cost.");
+  const openPurchase = async (purchase: PurchaseSummary) => {
+    setSelectedPurchase(purchase);
+    setSelectedDetail(null);
+    const cached = readFeatureCache("purchase-detail", businessId, branchId, purchase.id, isPurchaseDetail);
+    if (cached) setSelectedDetail(cached);
+    if (!navigator.onLine) {
+      if (!cached) setMessage("Offline: this purchase receipt has not been opened on this device yet.");
       return;
     }
-    const unit = purchaseUnits.find((candidate) => candidate.code === unitCode);
-    const estimatedStockQuantity = convertQuantity(selectedItem, unitCode, selectedItem.stockUnitCode!, parsedQuantity);
-    setLines((current) => [...current, {
-      key: crypto.randomUUID(),itemId:selectedItem.id,itemName:selectedItem.name,purchaseUnitCode:unitCode,
-      purchaseUnitLabel:unit?.label ?? unitCode,quantity:parsedQuantity,unitCostMinor,
-      estimatedStockQuantity,stockUnitCode:selectedItem.stockUnitCode,
-    }]);
-    setQuantity(""); setUnitCost(""); onMessage(null);
-  };
-
-  const receive = async () => {
-    if (!supplierId || lines.length === 0 || busy) return;
-    setBusy(true); onMessage(null);
+    setDetailLoadingId(purchase.id);
+    const sessionEpoch = captureSessionEpoch();
     try {
-      enqueueMutation({
-        clientId:getOrCreateClientId(),clientMutationId:crypto.randomUUID(),businessId,branchId,
-        mutationType:"PURCHASE_RECEIVE_CREATE",occurredAt:new Date().toISOString(),
-        payload:{ supplierId, settlementMethod, ...(reference.trim()?{supplierReference:reference.trim()}:{}), lines:lines.map((line)=>({
-          itemId:line.itemId,purchaseUnitCode:line.purchaseUnitCode,quantity:line.quantity,unitCostMinor:line.unitCostMinor,
-        })) },
-      });
-      setLines([]); setReference("");
-      if (!navigator.onLine) { onMessage("Purchase receipt saved offline. Stock will post when this device reconnects."); return; }
-      const summary = await flushPendingMutations();
-      if (summary.rejected > 0) onMessage("Receipt is saved but needs review before stock can post.");
-      else if (summary.applied > 0) onMessage("Purchase received and stock updated.");
-      else onMessage("Purchase receipt queued for synchronization.");
-    } catch (error) { onMessage(messageFrom(error)); }
-    finally { setBusy(false); }
+      const detail = await clientApi<PurchaseDetail>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`);
+      if (!isSessionEpochCurrent(sessionEpoch)) return;
+      setSelectedDetail(detail);
+      writeFeatureCache("purchase-detail", businessId, branchId, detail, purchase.id);
+      setMessage(null);
+    } catch (error) {
+      if (!cached && isSessionEpochCurrent(sessionEpoch)) setMessage(messageFrom(error));
+    } finally {
+      if (isSessionEpochCurrent(sessionEpoch)) setDetailLoadingId(null);
+    }
   };
 
-  return (
-    <div className="purchase-receipt-box">
-      <div className="purchase-receipt-head"><div><p className="eyebrow">Stock top-up</p><strong>Receive a purchase</strong></div><span>{formatMoney(totalMinor,currencyCode)}</span></div>
-      {suppliers.length === 0 ? <div className="inventory-readonly-note">Add a supplier before receiving stock.</div> : purchasable.length === 0 ? <div className="inventory-readonly-note">Configure a tracked product with a purchase unit first.</div> : <>
-        <div className="receipt-context-row">
-          <label>Supplier<select value={supplierId} onChange={(event)=>setSupplierId(event.target.value)}>{suppliers.map((supplier)=><option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
-          <label>Settlement<select value={settlementMethod} onChange={event=>setSettlementMethod(event.target.value)}>{["CASH","MOMO","CARD","BANK","OTHER","SUPPLIER_CREDIT"].map(method=><option key={method} value={method}>{method === "SUPPLIER_CREDIT" ? "Supplier credit (pay later)" : method}</option>)}</select></label>
-          <label>Supplier invoice/reference<input value={reference} onChange={(event)=>setReference(event.target.value)} placeholder="optional" /></label>
-        </div>
-        <div className="receipt-line-builder">
-          <label>Product<select value={itemId} onChange={(event)=>setItemId(event.target.value)}>{purchasable.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label>Purchase unit<select value={unitCode} onChange={(event)=>setUnitCode(event.target.value)}>{purchaseUnits.map((unit)=><option key={unit.code} value={unit.code}>{unit.label}</option>)}</select></label>
-          <label>Quantity<input inputMode="decimal" value={quantity} onChange={(event)=>setQuantity(event.target.value)} placeholder="0" /></label>
-          <label>Unit cost<input inputMode="decimal" value={unitCost} onChange={(event)=>setUnitCost(event.target.value)} placeholder="0.00" /></label>
-          <button className="ghost-button" type="button" onClick={addLine}>Add line</button>
-        </div>
-        <div className="receipt-lines">
-          {lines.length===0?<span className="receipt-empty">No lines added yet.</span>:lines.map((line)=><div className="receipt-line" key={line.key}>
-            <div><strong>{line.itemName}</strong><span>{formatQuantity(line.quantity)} {line.purchaseUnitLabel} · {formatMoney(line.unitCostMinor,currencyCode)} each</span></div>
-            <div className="receipt-stock-effect"><span>Stock effect</span><strong>{line.estimatedStockQuantity===null?"Server will convert":`+${formatQuantity(line.estimatedStockQuantity)} ${line.stockUnitCode}`}</strong></div>
-            <strong>{formatMoney(Math.round(line.unitCostMinor*line.quantity),currencyCode)}</strong>
-            <button className="text-button" type="button" onClick={()=>setLines((current)=>current.filter((candidate)=>candidate.key!==line.key))}>Remove</button>
-          </div>)}
-        </div>
-        <button className="primary-button receive-stock-button" type="button" disabled={busy||lines.length===0||!supplierId} onClick={()=>void receive()}>{busy?"Receiving…":`Receive ${lines.length} line${lines.length===1?"":"s"} · ${formatMoney(totalMinor,currencyCode)}`}</button>
-      </>}
+  const openInventory = async (item: InventoryItem) => {
+    setSelectedInventory(item);
+    setInventoryDetail(null);
+    const cached = readFeatureCache("inventory-detail", businessId, branchId, item.id, isInventoryDetail);
+    if (cached) setInventoryDetail(cached);
+    if (!navigator.onLine) {
+      if (!cached) setMessage("Offline: movement history for this item has not been opened on this device yet.");
+      return;
+    }
+    setInventoryLoadingId(item.id);
+    const sessionEpoch = captureSessionEpoch();
+    try {
+      const detail = await clientApi<InventoryDetail>(`/api/tradeos/v1/inventory/${item.id}?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}&limit=100`);
+      if (!isSessionEpochCurrent(sessionEpoch)) return;
+      setInventoryDetail(detail);
+      writeFeatureCache("inventory-detail", businessId, branchId, detail, item.id);
+      setMessage(null);
+    } catch (error) {
+      if (!cached && isSessionEpochCurrent(sessionEpoch)) setMessage(messageFrom(error));
+    } finally {
+      if (isSessionEpochCurrent(sessionEpoch)) setInventoryLoadingId(null);
+    }
+  };
+
+  const lowOrEmpty = useMemo(() => inventory.filter((item) => item.available <= 0).length, [inventory]);
+
+  return <section className="panel purchase-inventory-panel" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
+    <div className="panel-heading">
+      <div><p className="eyebrow">{view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}</p><h2>{view === "purchases" ? "Suppliers & purchases" : "Inventory"}</h2></div>
+      <div className="inventory-summary"><span>Tracked products</span><strong>{inventory.length}</strong><small>{lowOrEmpty} empty item{lowOrEmpty === 1 ? "" : "s"}</small></div>
     </div>
-  );
+
+    {view === "purchases" ? <>
+      <SupplierWorkspace businessId={businessId} branchId={branchId} currencyCode={currencyCode} role={role} suppliers={suppliers} onRefresh={refresh} />
+      {canReceive ? <div className="procurement-actions"><PurchaseReceiptBuilder businessId={businessId} branchId={branchId} currencyCode={currencyCode} suppliers={suppliers.filter((supplier) => supplier.active)} catalog={catalog} accounts={accounts} onMessage={setMessage} /></div> : <div className="inventory-readonly-note">Your role can view purchase history but cannot receive inventory.</div>}
+      <PurchaseWorkspace purchases={purchases} loadingId={detailLoadingId} onOpen={(purchase) => void openPurchase(purchase)} />
+      <PurchaseDetailSheet open={Boolean(selectedPurchase)} purchase={selectedPurchase} detail={selectedDetail} canReturn={canReceive} onClose={() => { setSelectedPurchase(null); setSelectedDetail(null); }} onReturn={() => { if (selectedPurchase) setReturnPurchase(selectedPurchase); setSelectedPurchase(null); setSelectedDetail(null); }} />
+      {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={() => setReturnPurchase(null)} onMessage={setMessage} /> : null}
+    </> : <>
+      <InventoryWorkspace items={inventory} currencyCode={currencyCode} loadingId={inventoryLoadingId} onOpen={(item) => void openInventory(item)} businessId={businessId} branchId={branchId} role={role} onRefresh={refresh} />
+      <InventoryDetailSheet open={Boolean(selectedInventory)} detail={inventoryDetail} onClose={() => { setSelectedInventory(null); setInventoryDetail(null); }} />
+    </>}
+    {message ? <div className="procurement-message">{message}</div> : null}
+  </section>;
 }
 
-function InventoryTable({ items, currencyCode }: { items: InventoryItem[]; currencyCode: string }) {
-  return <div className="inventory-card"><div className="subpanel-head"><div><p className="eyebrow">Branch stock</p><h3>Inventory balances</h3></div><span>{items.length} tracked item{items.length===1?"":"s"}</span></div>
-    <div className="inventory-table">
-      {items.length===0?<div className="inventory-empty">No tracked products yet.</div>:items.map((item)=><div className="inventory-row" key={item.id}>
-        <div><strong>{item.name}</strong><span>{item.sku??item.stockUnitCode}</span></div>
-        <div><span>Available</span><strong className={item.available<=0?"stock-empty":""}>{formatQuantity(item.available)} {item.stockUnitCode}</strong></div>
-        <div><span>Quarantine</span><strong>{formatQuantity(item.quarantine)}</strong></div>
-        <div><span>Average cost</span><strong>{item.averageStockUnitCostMinor===null?"—":`${formatMoney(item.averageStockUnitCostMinor,currencyCode)} / ${item.stockUnitCode}`}</strong><span>Value {formatMoney(item.inventoryValueMinor,currencyCode)}</span></div>
-      </div>)}
-    </div>
-  </div>;
+function returnPreview(line: PurchaseDetailLine, quantity: number): number {
+  const original = BigInt(Math.round(line.purchaseQuantity * 1e8));
+  if (original <= 0n || !Number.isFinite(quantity) || quantity < 0 || quantity > line.remainingQuantity) return 0;
+  const cumulative = BigInt(Math.round(line.returnedQuantity * 1e8)) + BigInt(Math.round(quantity * 1e8));
+  return Number((BigInt(line.lineCostMinor) * cumulative + original / 2n) / original) - line.returnedRecoveryMinor;
 }
 
-function RecentPurchases({ purchases, onReturn }: { purchases: PurchaseSummary[]; onReturn?: ((purchase: PurchaseSummary) => void) | undefined }) {
-  return <div className="purchase-history-card"><div className="subpanel-head"><div><p className="eyebrow">Receiving history</p><h3>Recent purchases</h3></div></div>
-    <div className="purchase-history-list">{purchases.length===0?<div className="inventory-empty">No purchase receipts yet.</div>:purchases.map((purchase)=><div className="purchase-history-row" key={purchase.id}>
-      <div><strong>{purchase.supplierName}</strong><span>{purchase.supplierReference??`${purchase.lineCount} line${purchase.lineCount===1?"":"s"}`} · {formatDate(purchase.receivedAt)}</span></div>
-      <div><strong>{formatMoney(purchase.totalMinor,purchase.currencyCode)}</strong><span>{purchase.settlementMethod.replaceAll("_", " ")} · {purchase.receiverName??"Staff"}</span></div>
-      {onReturn ? <button type="button" className="ghost-button" onClick={()=>onReturn(purchase)}>Return purchase</button> : null}
-    </div>)}</div>
-  </div>;
+function PurchaseReturn({ businessId, branchId, purchase, onClose, onMessage }: { businessId: string; branchId: string; purchase: PurchaseSummary; onClose: () => void; onMessage: (message: string) => void }) {
+  const [lines, setLines] = useState<PurchaseDetailLine[]>([]);
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [locations, setLocations] = useState<Record<string, string>>({});
+  const [method, setMethod] = useState("CREDIT_NOTE");
+  const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    const sessionEpoch = captureSessionEpoch();
+    const cached = readFeatureCache("purchase-detail", businessId, branchId, purchase.id, isPurchaseDetail);
+    if (cached) { setLines(cached.lines); setLoaded(true); }
+    if (!navigator.onLine) { if (!cached) setLoadError("Offline: this purchase has not been opened on this device yet."); return () => { active = false; }; }
+    clientApi<PurchaseDetail>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then((data) => { if (active && isSessionEpochCurrent(sessionEpoch)) { setLines(data.lines); setLoaded(true); setLoadError(null); writeFeatureCache("purchase-detail", businessId, branchId, data, purchase.id); } }).catch((error) => { if (active && isSessionEpochCurrent(sessionEpoch) && !cached) setLoadError(messageFrom(error)); });
+    return () => { active = false; };
+  }, [businessId, branchId, purchase.id]);
+  const preview = lines.reduce((sum, line) => sum + returnPreview(line, Number(quantities[line.id] || 0)), 0);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const selected = lines.filter((line) => Number(quantities[line.id] || 0) > 0);
+    if (!selected.length || selected.some((line) => !Number.isFinite(Number(quantities[line.id])) || Number(quantities[line.id]) > line.remainingQuantity)) { onMessage("Choose quantities within the remaining purchased quantities."); return; }
+    setBusy(true);
+    try {
+      enqueueMutation({ clientId: getOrCreateClientId(), clientMutationId: crypto.randomUUID(), businessId, branchId, mutationType: "PURCHASE_RETURN_CREATE", occurredAt: new Date().toISOString(), payload: { originalPurchaseId: purchase.id, supplierId: purchase.supplierId, recoveryMethod: method, lines: selected.map((line) => ({ purchaseLineId: line.id, quantity: Number(quantities[line.id]), sourceLocation: locations[line.id] || "AVAILABLE" })) } });
+      onClose();
+      if (!navigator.onLine) { onMessage("Purchase return saved offline; stock and recovery will post when synchronized."); return; }
+      const result = await flushPendingMutations(); onMessage(result.rejected ? "Purchase return needs review." : "Purchase return saved for synchronization.");
+    } catch (error) { onMessage(messageFrom(error)); } finally { setBusy(false); }
+  };
+  return <form className="purchase-return-sheet" onSubmit={(event) => void submit(event)}>
+    <div className="purchase-receipt-head"><div><span>Purchase correction</span><strong>Return to {purchase.supplierName}</strong></div><button className="ghost-button" type="button" onClick={onClose}>Close</button></div>
+    {!loaded ? <p>{loadError || "Loading original purchase…"}</p> : lines.map((line) => <div className="receipt-line-builder" key={line.id}>
+      <div><strong>{line.itemName}</strong><p>Remaining {formatQuantity(line.remainingQuantity)} {line.purchaseUnitCode} · Originally {formatQuantity(line.purchaseQuantity)} {line.purchaseUnitCode} = {formatQuantity(line.stockQuantity)} {line.stockUnitCode}</p></div>
+      <label>Return quantity ({line.purchaseUnitCode})<input type="number" min="0" max={line.remainingQuantity} step="0.00000001" disabled={line.remainingQuantity <= 0} value={quantities[line.id] || ""} onChange={(event) => setQuantities((current) => ({ ...current, [line.id]: event.target.value }))} /></label>
+      <label>Stock source<select value={locations[line.id] || "AVAILABLE"} onChange={(event) => setLocations((current) => ({ ...current, [line.id]: event.target.value }))}><option>AVAILABLE</option><option>QUARANTINE</option></select></label>
+    </div>)}
+    <label>Recovery method<select value={method} onChange={(event) => setMethod(event.target.value)}>{["CREDIT_NOTE","CASH","MOMO","CARD","BANK","OTHER"].map((value) => <option key={value} value={value}>{value === "CREDIT_NOTE" ? "Supplier credit note" : value}</option>)}</select></label>
+    <p>{method === "CREDIT_NOTE" ? "Supplier credit" : "Supplier recovery"} preview: {formatMoney(preview, purchase.currencyCode)}</p>
+    <button className="primary-button" disabled={busy || !loaded} type="submit">Save purchase return</button>
+  </form>;
 }
 
-function convertQuantity(item: CatalogItem, from: string, to: string, quantity: number): number | null {
-  if (from===to) return quantity;
-  const edges = new Map<string,Array<{to:string;factor:number}>>();
-  for (const conversion of item.conversions) {
-    const forward=edges.get(conversion.fromUnitCode)??[]; forward.push({to:conversion.toUnitCode,factor:conversion.factor}); edges.set(conversion.fromUnitCode,forward);
-    const reverse=edges.get(conversion.toUnitCode)??[]; reverse.push({to:conversion.fromUnitCode,factor:1/conversion.factor}); edges.set(conversion.toUnitCode,reverse);
-  }
-  const queue:Array<{unit:string;value:number}>=[{unit:from,value:quantity}]; const seen=new Set([from]);
-  while(queue.length){const current=queue.shift()!; for(const edge of edges.get(current.unit)??[]){if(seen.has(edge.to))continue; const value=current.value*edge.factor; if(edge.to===to)return value; seen.add(edge.to); queue.push({unit:edge.to,value});}}
-  return null;
-}
-
-function moneyToMinor(value:string):number {
-  const normalized=value.trim().replace(/,/g,"");
-  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return -1;
-  const [whole,fraction=""]=normalized.split(".");
-  const minor=Number(BigInt(whole!)*100n+BigInt(fraction.padEnd(2,"0")));
-  return Number.isSafeInteger(minor)?minor:-1;
-}
-function formatMoney(minor:number,currencyCode:string):string { return currencyCode==="GHS"?`₵${(minor/100).toFixed(2)}`:new Intl.NumberFormat(undefined,{style:"currency",currency:currencyCode}).format(minor/100); }
-function formatQuantity(value:number):string { return new Intl.NumberFormat(undefined,{maximumFractionDigits:4}).format(value); }
-function formatDate(value:string):string { return new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short"}).format(new Date(value)); }
-
-
-type ReturnablePurchaseLine = {id:string;itemName:string;purchaseUnitCode:string;purchaseQuantity:number;stockUnitCode:string;stockQuantity:number;lineCostMinor:number;returnedQuantity:number;remainingQuantity:number;returnedRecoveryMinor:number};
-function returnPreview(line:ReturnablePurchaseLine, quantity:number):number {
- const original=BigInt(Math.round(line.purchaseQuantity*1e8));
- if (original<=0n || !Number.isFinite(quantity) || quantity<0 || quantity>line.remainingQuantity) return 0;
- const cumulative=BigInt(Math.round(line.returnedQuantity*1e8))+BigInt(Math.round(quantity*1e8));
- return Number((BigInt(line.lineCostMinor)*cumulative+original/2n)/original)-line.returnedRecoveryMinor;
-}
-function PurchaseReturn({businessId,branchId,purchase,onClose,onMessage}:{businessId:string;branchId:string;purchase:PurchaseSummary;onClose:()=>void;onMessage:(message:string)=>void}) {
- const [lines,setLines]=useState<ReturnablePurchaseLine[]>([]);
- const [quantities,setQuantities]=useState<Record<string,string>>({});
- const [locations,setLocations]=useState<Record<string,string>>({});
- const [method,setMethod]=useState("CREDIT_NOTE");
- const [busy,setBusy]=useState(false);
- const [loaded,setLoaded]=useState(false);
- const [loadError,setLoadError]=useState<string | null>(null);
- useEffect(()=>{
-  let active=true;
-  const sessionEpoch=captureSessionEpoch();
-  const cached=readFeatureCache("purchase-detail",businessId,branchId,purchase.id,isPurchaseDetail);
-  if(cached){setLines(cached.lines);setLoaded(true);}
-  if(!navigator.onLine){if(!cached)setLoadError("Offline: this purchase has not been opened on this device yet.");return()=>{active=false;};}
-  clientApi<{lines:ReturnablePurchaseLine[]}>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then(data=>{if(active&&isSessionEpochCurrent(sessionEpoch)){setLines(data.lines);setLoaded(true);setLoadError(null);writeFeatureCache("purchase-detail",businessId,branchId,data,purchase.id);}}).catch(error=>{if(active&&isSessionEpochCurrent(sessionEpoch)&&!cached)setLoadError(messageFrom(error));});
-  return()=>{active=false;};
- },[businessId,branchId,purchase.id]);
- const preview=lines.reduce((sum,line)=>sum+returnPreview(line,Number(quantities[line.id]||0)),0);
- const submit=async(event:FormEvent)=>{
-  event.preventDefault();
-  const selected=lines.filter(line=>Number(quantities[line.id]||0)>0);
-  if(!selected.length || selected.some(line=>!Number.isFinite(Number(quantities[line.id])) || Number(quantities[line.id])>line.remainingQuantity)){onMessage("Choose quantities within the remaining purchased quantities.");return;}
-  setBusy(true);
-  try {
-   enqueueMutation({clientId:getOrCreateClientId(),clientMutationId:crypto.randomUUID(),businessId,branchId,mutationType:"PURCHASE_RETURN_CREATE",occurredAt:new Date().toISOString(),payload:{originalPurchaseId:purchase.id,supplierId:purchase.supplierId,recoveryMethod:method,lines:selected.map(line=>({purchaseLineId:line.id,quantity:Number(quantities[line.id]),sourceLocation:locations[line.id]||"AVAILABLE"}))}});
-   onClose();
-   if(!navigator.onLine){onMessage("Purchase return saved offline; stock and recovery will post when synchronized.");return;}
-   const result=await flushPendingMutations();onMessage(result.rejected ? "Purchase return needs review." : "Purchase return saved for synchronization.");
-  }catch(error){onMessage(messageFrom(error));}finally{setBusy(false);}
- };
- return <form className="purchase-receipt-box" onSubmit={event=>void submit(event)}>
-  <div className="purchase-receipt-head"><strong>Return to {purchase.supplierName}</strong><button className="ghost-button" type="button" onClick={onClose}>Close</button></div>
-  {!loaded ? <p>{loadError || "Loading original purchase…"}</p> : lines.map(line=><div className="receipt-line-builder" key={line.id}>
-   <div><strong>{line.itemName}</strong><p>Remaining {formatQuantity(line.remainingQuantity)} {line.purchaseUnitCode} · Originally {formatQuantity(line.purchaseQuantity)} {line.purchaseUnitCode} = {formatQuantity(line.stockQuantity)} {line.stockUnitCode}</p></div>
-   <label>Return quantity ({line.purchaseUnitCode})<input type="number" min="0" max={line.remainingQuantity} step="0.00000001" disabled={line.remainingQuantity<=0} value={quantities[line.id]||""} onChange={event=>setQuantities(current=>({...current,[line.id]:event.target.value}))}/></label>
-   <label>Stock source<select value={locations[line.id]||"AVAILABLE"} onChange={event=>setLocations(current=>({...current,[line.id]:event.target.value}))}><option>AVAILABLE</option><option>QUARANTINE</option></select></label>
-  </div>)}
-  <label>Recovery method<select value={method} onChange={event=>setMethod(event.target.value)}>{["CREDIT_NOTE","CASH","MOMO","CARD","BANK","OTHER"].map(value=><option key={value} value={value}>{value==="CREDIT_NOTE"?"Supplier credit note":value}</option>)}</select></label>
-  <p>{method==="CREDIT_NOTE"?"Supplier credit":"Supplier recovery"} preview: {formatMoney(preview,purchase.currencyCode)}</p>
-  <button className="primary-button" disabled={busy||!loaded} type="submit">Save purchase return</button>
- </form>;
-}
+function formatMoney(minor: number, currencyCode: string): string { return currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100); }
+function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }

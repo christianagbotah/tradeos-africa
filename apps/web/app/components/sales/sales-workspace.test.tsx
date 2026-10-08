@@ -1,0 +1,47 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+
+async function loadWorkspace() {
+  const modulePath = "./sales-workspace";
+  try { return await import(/* @vite-ignore */ modulePath); } catch { return null; }
+}
+
+const sales = [
+  { id: "11111111-1111-4111-8111-111111111111", status: "COMPLETED", currencyCode: "GHS", totalMinor: 12500, refundTotalMinor: 0, completedAt: "2026-10-08T09:00:00.000Z", createdAt: "2026-10-08T08:59:00.000Z", customer: null, cashierName: "Ama", payments: [{ method: "CASH", amountMinor: 12500, status: "SUCCEEDED" }] },
+  { id: "22222222-2222-4222-8222-222222222222", status: "PARTIALLY_REFUNDED", currencyCode: "GHS", totalMinor: 30000, refundTotalMinor: 5000, completedAt: "2026-10-08T10:00:00.000Z", createdAt: "2026-10-08T09:59:00.000Z", customer: { name: "Kojo Trading", phone: "0240000000" }, cashierName: "Yaw", payments: [{ method: "MOMO", amountMinor: 30000, status: "PARTIALLY_REVERSED" }] },
+];
+
+describe("SalesWorkspace", () => {
+  it("filters by receipt/customer query, status, payment and customer type", async () => {
+    const module = await loadWorkspace();
+    expect(module?.filterSales).toBeTypeOf("function");
+    if (!module?.filterSales) return;
+    expect(module.filterSales(sales, { query: "kojo", status: "ALL", payment: "ALL", customer: "ALL" }).map((sale: { id: string }) => sale.id)).toEqual([sales[1]!.id]);
+    expect(module.filterSales(sales, { query: "", status: "REFUNDED", payment: "ALL", customer: "ALL" }).map((sale: { id: string }) => sale.id)).toEqual([sales[1]!.id]);
+    expect(module.filterSales(sales, { query: "", status: "ALL", payment: "CASH", customer: "WALK_IN" }).map((sale: { id: string }) => sale.id)).toEqual([sales[0]!.id]);
+  });
+
+  it("renders a professional receipt workspace and hides correction actions when permission is absent", async () => {
+    const module = await loadWorkspace();
+    expect(module?.SalesWorkspace).toBeTypeOf("function");
+    if (!module?.SalesWorkspace) return;
+    const base = { sales, selectedId: null, loading: false, onSelect: () => undefined, onSearch: () => undefined };
+    const allowed = renderToStaticMarkup(React.createElement(module.SalesWorkspace, { ...base, canProcessReturns: true }));
+    const readonly = renderToStaticMarkup(React.createElement(module.SalesWorkspace, { ...base, canProcessReturns: false }));
+    for (const label of ["Search sales", "Status", "Payment", "Customer", "Walk-in customer", "Kojo Trading"]) expect(allowed).toContain(label);
+    expect(allowed).toContain("Process return / refund");
+    expect(readonly).not.toContain("Process return / refund");
+  });
+
+  it("keeps command controls phone-sized and desktop filters in one command surface", () => {
+    const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+    const css = fs.readFileSync(path.join(appRoot, "sales-returns.css"), "utf8");
+    expect(css).toMatch(/sales-commandbar[\s\S]*min-height:\s*48px/);
+    expect(css).toMatch(/sales-commandbar[\s\S]*font-size:\s*15px/);
+    expect(css).toMatch(/grid-template-columns:[^;]*(?:minmax|auto)/);
+  });
+});

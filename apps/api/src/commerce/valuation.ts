@@ -60,6 +60,23 @@ async function ensureValuationRow(
   );
 }
 
+export async function valuationSnapshotForUpdate(
+  client: DatabaseClient,
+  context: Context,
+  itemId: string,
+  location: ValuationLocation,
+): Promise<{ quantity: number; valueMinor: number }> {
+  await ensureValuationRow(client, context, itemId, location);
+  const result = await client.query<{ quantity: string; value_minor: string }>(
+    `SELECT quantity,value_minor FROM inventory_valuations
+     WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND location_type=$4 FOR UPDATE`,
+    [context.businessId, context.branchId, itemId, location],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("Inventory valuation row could not be loaded");
+  return { quantity: Number(row.quantity), valueMinor: safeMinor(Number(row.value_minor)) };
+}
+
 export async function adjustValuation(
   client: DatabaseClient,
   context: Context,
