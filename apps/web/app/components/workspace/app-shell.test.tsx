@@ -1,5 +1,5 @@
 import fs from "node:fs"; import path from "node:path"; import {fileURLToPath} from "node:url"; import {describe,expect,it} from "vitest";
-import {isWorkspaceNavActive,visibleWorkspaceNav,workspaceNavigation,mobileWorkspaceNav,mobileMoreNav} from "./workspace-navigation";
+import {isWorkspaceNavActive,visibleWorkspaceNav,workspaceNavigation,mobileWorkspaceNav,mobileMoreNav,isMobileMoreActive} from "./workspace-navigation";
 const hrefs=(role:string)=>mobileWorkspaceNav(role).map((item)=>item.href);
 describe("TradeOS application shell navigation",()=>{
  it("uses real workspace routes",()=>{expect(workspaceNavigation.map(i=>i.href)).toEqual(["/dashboard","/sell","/sales","/customers","/purchases","/inventory","/catalog","/returns","/cashbook","/operations","/reports"]);});
@@ -7,5 +7,6 @@ describe("TradeOS application shell navigation",()=>{
  it("keeps existing role route visibility authoritative",()=>{expect(visibleWorkspaceNav("OWNER")).toHaveLength(11);expect(visibleWorkspaceNav("VIEWER").map(i=>i.href)).not.toContain("/sell");});
  it("derives exact role-aware phone priorities",()=>{expect(hrefs("OWNER")).toEqual(["/dashboard","/sell","/cashbook","/inventory","#more"]);expect(hrefs("MANAGER")).toEqual(["/dashboard","/sell","/cashbook","/inventory","#more"]);expect(hrefs("CASHIER")).toEqual(["/dashboard","/sell","/sales","/cashbook","#more"]);expect(hrefs("INVENTORY")).toEqual(["/dashboard","/inventory","/purchases","/catalog","#more"]);expect(hrefs("ACCOUNTANT")).toEqual(["/dashboard","/cashbook","/customers","/reports","#more"]);expect(hrefs("VIEWER")).toEqual(["/dashboard","/sales","/inventory","/reports","#more"]);});
  it("fails closed for unknown roles and More contains only authorized leftovers",()=>{expect(hrefs("UNKNOWN")).toEqual(["#more"]);expect(mobileMoreNav("UNKNOWN")).toEqual([]);for(const item of mobileMoreNav("CASHIER")) expect(visibleWorkspaceNav("CASHIER").map(i=>i.href)).toContain(item.href);});
+ it("marks More active when the current route lives under More",()=>{expect(isMobileMoreActive("OWNER","/customers")).toBe(true);expect(isMobileMoreActive("OWNER","/sell")).toBe(false);expect(isMobileMoreActive("UNKNOWN","/customers")).toBe(false);});
  it("keeps route-driven aria state in shell source",()=>{const dir=path.dirname(fileURLToPath(import.meta.url));const source=fs.readFileSync(path.join(dir,"app-shell.tsx"),"utf8");expect(source).toContain("usePathname()");expect(source).toContain('aria-current={active ? "page" : undefined}');});
 });

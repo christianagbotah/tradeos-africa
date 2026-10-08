@@ -71,3 +71,7 @@ export function mobileMoreNav(role: string): WorkspaceNavItem[] {
   const direct = new Set(mobileWorkspaceNav(role).filter((item) => item.href !== "#more").map((item) => item.href));
   return visibleWorkspaceNav(role).filter((item) => !direct.has(item.href));
 }
+
+export function isMobileMoreActive(role: string, pathname: string): boolean {
+  return mobileMoreNav(role).some((item) => isWorkspaceNavActive(pathname, item.href));
+}
