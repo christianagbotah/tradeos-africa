@@ -8,12 +8,13 @@ const route = (name: string) => fs.readFileSync(path.join(appRoot, "(workspace)"
 
 describe("workspace route composition", () => {
   it("mounts one intended major feature per primary route", () => {
-    expect(route("sell")).toContain("<QuickSale");
+    expect(route("sell")).toContain("<PosWorkspace");
+    expect(route("sell")).not.toContain("<QuickSale");
     expect(route("sales")).toMatch(/<SalesAndReturns[\s\S]*view="sales"/);
     expect(route("customers")).toContain("<CustomersCredit");
     expect(route("purchases")).toMatch(/<PurchasesInventory[\s\S]*view="purchases"/);
     expect(route("inventory")).toMatch(/<PurchasesInventory[\s\S]*view="inventory"/);
-    expect(route("catalog")).toContain("<CatalogStarter");
+    expect(route("catalog")).toContain("<CatalogWorkspace");
     expect(route("returns")).toMatch(/<SalesAndReturns[\s\S]*view="returns"/);
     expect(route("cashbook")).toContain("<CashbookExpenses");
     expect(route("operations")).toContain("<OperationsReconciliation");

@@ -1,3 +1,14 @@
+export class ClientApiError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly code: string | null,
+  ) {
+    super(message);
+    this.name = "ClientApiError";
+  }
+}
+
 export async function clientApi<T = unknown>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -16,8 +27,10 @@ export async function readResponse<T>(response: Response): Promise<T> {
     body = null;
   }
   if (!response.ok) {
-    const candidate = body as { message?: unknown } | null;
-    throw new Error(typeof candidate?.message === "string" ? candidate.message : `Request failed (${response.status})`);
+    const candidate = body as { error?: unknown; message?: unknown } | null;
+    const message = typeof candidate?.message === "string" ? candidate.message : `Request failed (${response.status})`;
+    const code = typeof candidate?.error === "string" ? candidate.error : null;
+    throw new ClientApiError(message, response.status, code);
   }
   return body as T;
 }

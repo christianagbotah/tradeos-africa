@@ -46,6 +46,8 @@ export type CatalogItem = {
   trackStock: boolean;
   taxCategory: string | null;
   active: boolean;
+  createdAt: string;
+  updatedAt: string;
   units: CatalogUnit[];
   conversions: Array<{ fromUnitCode: string; toUnitCode: string; factor: number }>;
 };

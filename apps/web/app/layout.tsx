@@ -1,6 +1,7 @@
-import "./purchases-inventory.css";
 import type { Metadata, Viewport } from "next";
+import "./tradeos-tokens.css";
 import "./globals.css";
+import "./purchases-inventory.css";
 import "./returns.css";
 import "./interactions.css";
 import "./real-app.css";
@@ -8,6 +9,10 @@ import "./sales-returns.css";
 import "./customers-credit.css";
 import "./workspace-shell.css";
 import "./ui-primitives.css";
+import "./dashboard.css";
+import "./catalog.css";
+import "./pos.css";
+import "./pos-workspace.css";
 import "./workspace-polish.css";
 import "./cashbook.css";
 

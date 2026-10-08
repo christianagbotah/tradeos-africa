@@ -9,6 +9,8 @@ const pool = createPool();
 const businessId = "11111111-1111-4111-8111-111111111111";
 const branchId = "22222222-2222-4222-8222-222222222222";
 const whiskyId = "33333333-3333-4333-8333-333333333333";
+const customerId = "44444444-4444-4444-8444-444444444444";
+const inactiveCustomerId = "55555555-5555-4555-8555-555555555555";
 
 beforeEach(async () => {
   await pool.query("TRUNCATE TABLE businesses CASCADE");
@@ -19,6 +21,12 @@ beforeEach(async () => {
   await pool.query(
     `INSERT INTO branches (id,business_id,name,code) VALUES ($1,$2,'Main','MAIN')`,
     [branchId, businessId],
+  );
+  await pool.query(
+    `INSERT INTO customers (id,business_id,name,phone,credit_limit_minor,is_active)
+     VALUES ($1,$3,'Ama Mensah','0240000000',NULL,true),
+            ($2,$3,'Archived Customer','0200000000',NULL,false)`,
+    [customerId, inactiveCustomerId, businessId],
   );
   await seedWhisky();
 });
@@ -54,6 +62,110 @@ describe("offline commerce mutations", () => {
     );
     expect(Number(counts.rows[0]?.sales)).toBe(1);
     expect(Number(counts.rows[0]?.movements)).toBe(1);
+  });
+
+  it("associates named customers with immediate CASH and MOMO sales without creating credit debt", async () => {
+    const cash = await ingestSyncBatch(pool, { mutations: [{
+      clientId: "pos-device",
+      clientMutationId: "named-cash-001",
+      businessId,
+      branchId,
+      mutationType: "SALE_CREATE",
+      occurredAt: new Date().toISOString(),
+      payload: {
+        currencyCode: "GHS",
+        customerId,
+        paymentMethod: "CASH",
+        lines: [{ itemId: whiskyId, quantity: 1, saleUnitCode: "glass" }],
+      },
+    }] });
+    const momo = await ingestSyncBatch(pool, { mutations: [{
+      clientId: "pos-device",
+      clientMutationId: "named-momo-001",
+      businessId,
+      branchId,
+      mutationType: "SALE_CREATE",
+      occurredAt: new Date().toISOString(),
+      payload: {
+        currencyCode: "GHS",
+        customerId,
+        paymentMethod: "MOMO",
+        lines: [{ itemId: whiskyId, quantity: 1, saleUnitCode: "glass" }],
+      },
+    }] });
+
+    expect(cash.mutationResults[0]?.status).toBe("APPLIED");
+    expect(momo.mutationResults[0]?.status).toBe("APPLIED");
+
+    const sales = await pool.query<{ client_mutation_id: string; customer_id: string | null }>(
+      `SELECT client_mutation_id,customer_id FROM sales
+       WHERE business_id=$1 AND client_mutation_id IN ('named-cash-001','named-momo-001')
+       ORDER BY client_mutation_id`, [businessId],
+    );
+    expect(sales.rows).toEqual([
+      { client_mutation_id: "named-cash-001", customer_id: customerId },
+      { client_mutation_id: "named-momo-001", customer_id: customerId },
+    ]);
+
+    const creditEntries = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM customer_account_entries WHERE business_id=$1 AND customer_id=$2`,
+      [businessId, customerId],
+    );
+    expect(Number(creditEntries.rows[0]?.count)).toBe(0);
+  });
+
+  it("keeps Walk-in sales customer-free and rejects invalid customer-credit combinations", async () => {
+    const walkIn = await ingestSyncBatch(pool, { mutations: [{
+      clientId: "pos-device",
+      clientMutationId: "walk-in-cash-001",
+      businessId,
+      branchId,
+      mutationType: "SALE_CREATE",
+      occurredAt: new Date().toISOString(),
+      payload: {
+        currencyCode: "GHS",
+        paymentMethod: "CASH",
+        lines: [{ itemId: whiskyId, quantity: 1, saleUnitCode: "glass" }],
+      },
+    }] });
+    expect(walkIn.mutationResults[0]?.status).toBe("APPLIED");
+    const walkInRow = await pool.query<{ customer_id: string | null }>(
+      `SELECT customer_id FROM sales WHERE business_id=$1 AND client_mutation_id='walk-in-cash-001'`, [businessId],
+    );
+    expect(walkInRow.rows[0]?.customer_id).toBeNull();
+
+    const inactive = await ingestSyncBatch(pool, { mutations: [{
+      clientId: "pos-device",
+      clientMutationId: "inactive-customer-cash-001",
+      businessId,
+      branchId,
+      mutationType: "SALE_CREATE",
+      occurredAt: new Date().toISOString(),
+      payload: {
+        currencyCode: "GHS",
+        customerId: inactiveCustomerId,
+        paymentMethod: "CASH",
+        lines: [{ itemId: whiskyId, quantity: 1, saleUnitCode: "glass" }],
+      },
+    }] });
+    expect(inactive.mutationResults[0]?.status).toBe("REJECTED");
+    expect(inactive.mutationResults[0]?.errorCode).toBe("CUSTOMER_INACTIVE");
+
+    const noCustomerCredit = await ingestSyncBatch(pool, { mutations: [{
+      clientId: "pos-device",
+      clientMutationId: "walk-in-credit-001",
+      businessId,
+      branchId,
+      mutationType: "SALE_CREATE",
+      occurredAt: new Date().toISOString(),
+      payload: {
+        currencyCode: "GHS",
+        paymentMethod: "CUSTOMER_CREDIT",
+        lines: [{ itemId: whiskyId, quantity: 1, saleUnitCode: "glass" }],
+      },
+    }] });
+    expect(noCustomerCredit.mutationResults[0]?.status).toBe("REJECTED");
+    expect(noCustomerCredit.mutationResults[0]?.errorCode).toBe("CUSTOMER_REQUIRED_FOR_CREDIT");
   });
 
   it("returns one sold glass as its historical 50 ml and reverses cash immediately", async () => {

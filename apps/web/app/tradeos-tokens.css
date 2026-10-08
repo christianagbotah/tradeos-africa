@@ -1,0 +1,18 @@
+:root {
+  color-scheme: light;
+  --tos-font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --tos-text-body: 16px; --tos-text-supporting: 14px; --tos-text-meta: 12px;
+  --tos-text-nav: 15px; --tos-text-section: 20px; --tos-text-page: 32px;
+  --tos-space-1: 4px; --tos-space-2: 8px; --tos-space-3: 12px; --tos-space-4: 16px; --tos-space-5: 20px; --tos-space-6: 24px; --tos-space-8: 32px;
+  --tos-radius-sm: 12px; --tos-radius-md: 16px; --tos-radius-lg: 20px;
+  --tos-touch-mobile: 48px; --tos-touch-icon: 44px;
+  --tos-canvas: #f3f5f8; --tos-surface: #ffffff; --tos-surface-soft: #f8fafc; --tos-surface-raised: #ffffff;
+  --tos-text: #101828; --tos-text-strong: #07111f; --tos-text-muted: #667085; --tos-text-soft: #8791a2;
+  --tos-border: #dde3ea; --tos-border-strong: #c8d1dc;
+  --tos-midnight: #0b1424; --tos-midnight-soft: #152238; --tos-gold: #c99935; --tos-gold-soft: #f7efd9;
+  --tos-positive: #168456; --tos-positive-soft: #eaf7f0; --tos-warning: #ad7016; --tos-warning-soft: #fff7e8; --tos-danger: #b84a45; --tos-danger-soft: #fff0ef; --tos-info: #356b94; --tos-info-soft: #eef6fb;
+  --tos-shadow-1: 0 8px 28px rgba(16,24,40,.055); --tos-shadow-2: 0 18px 50px rgba(16,24,40,.12);
+  --tos-motion-fast: 150ms; --tos-motion-medium: 220ms;
+  --tos-breakpoint-compact: 480px; --tos-breakpoint-phone: 768px; --tos-breakpoint-desktop: 1100px;
+}
+@media (prefers-reduced-motion: reduce) { :root { --tos-motion-fast: 0ms; --tos-motion-medium: 0ms; } *,*::before,*::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }

@@ -1,4 +1,4 @@
-export type WorkspaceNavIcon = "dashboard" | "sell" | "sales" | "customers" | "purchases" | "inventory" | "catalog" | "returns" | "cashbook" | "operations" | "reports";
+export type WorkspaceNavIcon = "dashboard" | "sell" | "sales" | "customers" | "purchases" | "inventory" | "catalog" | "returns" | "cashbook" | "operations" | "reports" | "more";
 
 export type WorkspaceNavItem = {
   href: string;
@@ -7,6 +7,8 @@ export type WorkspaceNavItem = {
   group: "Overview" | "Commerce" | "Money" | "Operations" | "Insights";
   roles?: string[];
 };
+
+export type MobileNavItem = WorkspaceNavItem | { href: "#more"; label: "More"; icon: "more"; group: "Overview" };
 
 const allBusinessRoles = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER"];
 
@@ -34,4 +36,42 @@ export function canAccessWorkspaceRoute(role: string, href: string): boolean {
 
 export function isWorkspaceNavActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+const priorities: Record<string, string[]> = {
+  OWNER: ["/dashboard", "/sell", "/cashbook", "/inventory"],
+  ADMIN: ["/dashboard", "/sell", "/cashbook", "/inventory"],
+  MANAGER: ["/dashboard", "/sell", "/cashbook", "/inventory"],
+  CASHIER: ["/dashboard", "/sell", "/sales", "/cashbook"],
+  INVENTORY: ["/dashboard", "/inventory", "/purchases", "/catalog"],
+  ACCOUNTANT: ["/dashboard", "/cashbook", "/customers", "/reports"],
+  VIEWER: ["/dashboard", "/sales", "/inventory", "/reports"],
+};
+
+function mobileLabel(item: WorkspaceNavItem): string {
+  if (item.href === "/dashboard") return "Home";
+  if (item.href === "/cashbook") return "Money";
+  if (item.href === "/inventory") return "Stock";
+  return item.label.replace(" / POS", "").replace(" & expenses", "");
+}
+
+export function mobileWorkspaceNav(role: string): MobileNavItem[] {
+  const visible = visibleWorkspaceNav(role);
+  const byHref = new Map(visible.map((item) => [item.href, item]));
+  const preferred = priorities[role] ?? visible.slice(0, 4).map((item) => item.href);
+  const direct = preferred
+    .map((href) => byHref.get(href))
+    .filter((item): item is WorkspaceNavItem => Boolean(item))
+    .slice(0, 4)
+    .map((item) => ({ ...item, label: mobileLabel(item) }));
+  return [...direct, { href: "#more", label: "More", icon: "more", group: "Overview" }];
+}
+
+export function mobileMoreNav(role: string): WorkspaceNavItem[] {
+  const direct = new Set(mobileWorkspaceNav(role).filter((item) => item.href !== "#more").map((item) => item.href));
+  return visibleWorkspaceNav(role).filter((item) => !direct.has(item.href));
+}
+
+export function isMobileMoreActive(role: string, pathname: string): boolean {
+  return mobileMoreNav(role).some((item) => isWorkspaceNavActive(pathname, item.href));
 }
