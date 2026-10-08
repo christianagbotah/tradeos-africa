@@ -11,6 +11,7 @@ import "./workspace-shell.css";
 import "./ui-primitives.css";
 import "./dashboard.css";
 import "./catalog.css";
+import "./pos.css";
 import "./workspace-polish.css";
 import "./cashbook.css";
 
