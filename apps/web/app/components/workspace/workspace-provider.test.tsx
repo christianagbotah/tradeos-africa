@@ -60,8 +60,9 @@ describe("WorkspaceProvider contract", () => {
     expect(selectInitialBranch(context, "branch-2")?.id).toBe("branch-2");
   });
 
-  it("projects sellable catalog units exactly once", () => {
+  it("projects sellable catalog units exactly once and excludes archived records", () => {
     expect(projectSellableItems(catalog)).toEqual([{ key: "item-1:bottle", itemId: "item-1", name: "Malt", unitCode: "bottle", unitLabel: "Bottle", priceMinor: 1200 }]);
+    expect(projectSellableItems([{ ...catalog[0]!, active: false }])).toEqual([]);
   });
 
   it("persists business and branch scope safely without refetching the session on branch changes", () => {
@@ -71,5 +72,12 @@ describe("WorkspaceProvider contract", () => {
     expect(branchCallback).toMatch(/setBranchId\(branchId\)/);
     expect(branchCallback).toContain("writeWorkspaceBootstrap");
     expect(branchCallback).not.toContain("/api/session/me");
+  });
+
+  it("refreshes the active business after an applied catalog lifecycle mutation", () => {
+    const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "workspace-provider.tsx"), "utf8");
+    expect(source).toContain("mutationAppliedEvent");
+    expect(source).toMatch(/CATALOG_ITEM_CREATE[\s\S]*CATALOG_ITEM_UPDATE[\s\S]*CATALOG_ITEM_ARCHIVE[\s\S]*CATALOG_ITEM_REACTIVATE/);
+    expect(source).toMatch(/addEventListener\(mutationAppliedEvent[\s\S]*refreshBusiness/);
   });
 });
