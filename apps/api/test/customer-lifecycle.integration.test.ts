@@ -131,7 +131,7 @@ describe("customer lifecycle and optimistic concurrency", () => {
     const lifecycleEvents = await pool.query<{ event_type: string; payload: { changes?: Record<string, { before: unknown; after: unknown }> } }>(
       `SELECT event_type,payload FROM audit_events
        WHERE business_id=$1 AND entity_type='CUSTOMER' AND entity_id=$2
-       ORDER BY created_at`,
+       ORDER BY occurred_at,id`,
       [business.businessId, created.id],
     );
     expect(lifecycleEvents.rows.some((row) => row.event_type === "CUSTOMER_DEACTIVATED")).toBe(true);
