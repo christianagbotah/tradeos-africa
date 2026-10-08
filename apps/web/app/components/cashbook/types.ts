@@ -1,4 +1,4 @@
-export type CashbookCategory = { id: string; name: string; active: boolean };
+export type CashbookCategory = { id: string; name: string; active: boolean; system: boolean; createdAt: string; updatedAt: string };
 export type CashbookEntry = { id: string; amountDeltaMinor: number; method: string; entryType: string; occurredAt: string };
 export type CashbookExpense = { id: string; amountMinor: number; categoryName: string; description: string | null; payee: string | null; method: string };
 export type CashbookSummaryData = { inflowMinor: number; outflowMinor: number; netMinor: number };
