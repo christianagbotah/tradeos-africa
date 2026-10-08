@@ -3,6 +3,7 @@
 import React, { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { Button } from "../ui/button";
+import { MasterDataActions, masterDataLifecycleMessage } from "../business/master-data-actions";
 import type { CashbookCategory } from "./types";
 
 const categoryAdminRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
@@ -39,11 +40,10 @@ export function expenseCategoryDraftFor(category: CashbookCategory | null): Expe
 }
 
 export function expenseCategoryMessage(code: string | null | undefined, fallback = "Category change could not be saved."): string {
-  if (code === "STALE_VERSION") return "This category changed on another device. Refresh the latest version before saving again.";
   if (code === "REVISION_REQUIRED") return "Refresh this category before editing so TradeOS can protect newer changes.";
   if (code === "CATEGORY_EXISTS") return "A category with this name already exists.";
   if (code === "OFFLINE_CATEGORY_CHANGE") return "Category changes require an online connection so TradeOS can validate the latest version.";
-  return fallback;
+  return masterDataLifecycleMessage(code, "category", fallback);
 }
 
 export function ExpenseCategoryCard({ businessId, role, categories, onChanged, onMessage }: CardProps) {
@@ -221,7 +221,7 @@ export function ExpenseCategorySheet({ open, businessId, category, role, onClose
             <section>
               <div className="expense-category-section-heading"><strong>Status</strong><span>Historical expenses remain readable after archive</span></div>
               <p className="expense-category-status-copy">{draft.active ? "Active categories can be selected for new expenses." : "Archived categories remain in history but cannot be selected for new expenses."}</p>
-              <Button variant={draft.active ? "danger" : "secondary"} type="button" disabled={busy} onClick={() => void toggleStatus()}>{draft.active ? "Archive category" : "Reactivate category"}</Button>
+              <MasterDataActions entityLabel="category" active={draft.active} canChangeStatus busy={busy} onToggleStatus={toggleStatus} />
             </section>
           ) : null}
 

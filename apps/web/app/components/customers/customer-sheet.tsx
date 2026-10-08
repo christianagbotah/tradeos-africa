@@ -4,6 +4,7 @@ import React, { type FormEvent, useEffect, useRef, useState } from "react";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
+import { MasterDataActions, masterDataLifecycleMessage } from "../business/master-data-actions";
 import {
   customerMoneyToMinor,
   formatCustomerDate,
@@ -55,10 +56,8 @@ export function customerDraftFor(mode: CustomerSheetMode, detail: CustomerDetail
 }
 
 export function customerSheetMessage(code: string | null | undefined, fallback = "Customer change could not be saved."): string {
-  if (code === "STALE_VERSION") return "This customer changed on another device. Reload the latest customer record before saving again.";
   if (code === "OFFLINE_CREDIT_CONTROL") return "Credit settings and customer status require an online connection so TradeOS can verify the latest account state.";
-  if (code === "CUSTOMER_INACTIVE") return "This customer is inactive. Reactivate the customer before recording new sales or payments.";
-  return fallback;
+  return masterDataLifecycleMessage(code, "customer", fallback);
 }
 
 export function CustomerSheet({ mode, detail, open, businessId, branchId, currencyCode, role, onClose, onSaved }: Props) {
@@ -291,7 +290,7 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
                 <label>Credit limit ({currencyCode === "GHS" ? "₵" : currencyCode})<input inputMode="decimal" value={draft.creditLimit} onChange={(event) => setDraft((current) => ({ ...current, creditLimit: event.target.value }))} placeholder="Blank disables Pay later" /></label>
                 <label>Pay-later terms (days)<input inputMode="numeric" min="0" max="3650" value={draft.creditTermsDays} onChange={(event) => setDraft((current) => ({ ...current, creditTermsDays: event.target.value.replace(/\D/g, "") }))} /></label>
               </div>
-              <div className="customer-section-actions split"><Button type="button" variant="secondary" disabled={busy} onClick={() => void saveCredit()}>Update credit settings</Button><Button type="button" variant={customer.active ? "danger" : "secondary"} disabled={busy} onClick={() => void toggleActive()}>{customer.active ? "Deactivate customer" : "Reactivate customer"}</Button></div>
+              <div className="customer-section-actions split"><Button type="button" variant="secondary" disabled={busy} onClick={() => void saveCredit()}>Update credit settings</Button><MasterDataActions entityLabel="customer" active={customer.active} canChangeStatus busy={busy} onToggleStatus={toggleActive} /></div>
             </section> : null}
 
             <section className="customer-sheet-section customer-payment-section">

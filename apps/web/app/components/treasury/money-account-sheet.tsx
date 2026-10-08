@@ -3,6 +3,7 @@
 import React, { type FormEvent, useEffect, useRef, useState } from "react";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { Button } from "../ui/button";
+import { MasterDataActions, masterDataLifecycleMessage } from "../business/master-data-actions";
 import type { MoneyAccount } from "./types";
 
 const adminRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
@@ -73,11 +74,9 @@ export function moneyAccountDraftFor(account: MoneyAccount | null, branchId: str
 }
 
 export function moneyAccountMessage(code: string | null | undefined, fallback = "Money-account change could not be saved."): string {
-  if (code === "STALE_VERSION") return "This money account changed on another device. Refresh the latest version before saving again.";
-  if (code === "ACCOUNT_IS_DEFAULT") return "Choose a replacement default account for every affected payment method before deactivating this account.";
   if (code === "REVISION_REQUIRED") return "Refresh this account before editing so TradeOS can protect newer changes.";
   if (code === "OFFLINE_ACCOUNT_CHANGE") return "Money-account configuration changes require an online connection.";
-  return fallback;
+  return masterDataLifecycleMessage(code, "account", fallback);
 }
 
 export function MoneyAccountSheet({ open, businessId, branchId, currencyCode, role, account, onClose, onSaved, onMessage }: Props) {
@@ -240,7 +239,7 @@ export function MoneyAccountSheet({ open, businessId, branchId, currencyCode, ro
             <section>
               <div className="money-account-section-heading"><strong>Status</strong><span>Historical cashbook entries remain intact</span></div>
               <p className="money-account-status-copy">{draft.active ? "This account can receive new postings." : "This account is inactive for new postings but remains in treasury history."}</p>
-              <Button variant={draft.active ? "danger" : "secondary"} type="button" disabled={busy} onClick={() => void toggleStatus()}>{draft.active ? "Deactivate account" : "Reactivate account"}</Button>
+              <MasterDataActions entityLabel="account" active={draft.active} canChangeStatus busy={busy} lifecycleVerb="deactivate" onToggleStatus={toggleStatus} />
             </section>
           ) : null}
 

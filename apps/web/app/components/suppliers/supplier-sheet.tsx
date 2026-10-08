@@ -4,6 +4,7 @@ import React, { type FormEvent, useEffect, useRef, useState } from "react";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
+import { MasterDataActions, masterDataLifecycleMessage } from "../business/master-data-actions";
 import { supplierCapabilities, type Supplier, type SupplierDetail } from "./supplier-types";
 
 export type SupplierSheetMode = "create" | "edit" | "view";
@@ -54,10 +55,9 @@ export function supplierDraftFor(mode: SupplierSheetMode, supplier: Supplier | n
 }
 
 export function supplierSheetMessage(code: string | null | undefined, fallback = "Supplier change could not be saved."): string {
-  if (code === "STALE_VERSION") return "This supplier changed on another device. Refresh the latest version before saving your changes.";
   if (code === "OFFLINE_STATUS_CHANGE") return "Archive and reactivate actions require an online connection so TradeOS can verify the latest supplier status.";
   if (code === "SUPPLIER_TERMS_FORBIDDEN") return "Your role cannot change supplier payment terms.";
-  return fallback;
+  return masterDataLifecycleMessage(code, "supplier", fallback);
 }
 
 export function SupplierSheet({ mode, supplier, detail, open, businessId, branchId, currencyCode, role, onClose, onChanged }: Props) {
@@ -321,7 +321,7 @@ export function SupplierSheet({ mode, supplier, detail, open, businessId, branch
           {current && capabilities.canChangeStatus ? (
             <section className="supplier-sheet-section supplier-status-section">
               <div className="supplier-section-heading"><div><strong>Status</strong><span>{current.active ? "Archive to prevent new purchase receiving while preserving history." : "Reactivate to make this supplier available for new receiving again."}</span></div></div>
-              <Button variant={current.active ? "danger" : "secondary"} type="button" disabled={busy} onClick={() => void toggleStatus()}>{current.active ? "Archive supplier" : "Reactivate supplier"}</Button>
+              <MasterDataActions entityLabel="supplier" active={current.active} canChangeStatus={capabilities.canChangeStatus} busy={busy} onToggleStatus={toggleStatus} />
             </section>
           ) : null}
 

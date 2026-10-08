@@ -115,7 +115,7 @@ describe("SupplierSheet", () => {
     expect(source).toMatch(/focus\(/);
     expect(source).toMatch(/previous.*active|active.*element/i);
     expect(source).toContain("expectedUpdatedAt");
-    expect(source).toContain("STALE_VERSION");
+    expect(source).toContain("masterDataLifecycleMessage");
     expect(source).toContain("navigator.onLine");
     expect(source).toContain("SUPPLIER_PAYMENT_CREATE");
     expect(source).toContain("enqueueMutation");

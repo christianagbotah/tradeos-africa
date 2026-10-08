@@ -109,7 +109,7 @@ describe("CustomerSheet", () => {
     expect(source).toContain("CUSTOMER_UPDATE");
     expect(source).toContain("enqueueMutation");
     expect(source).toContain("navigator.onLine");
-    expect(source).toContain("STALE_VERSION");
+    expect(source).toContain("masterDataLifecycleMessage");
   });
 
   it("supports durable offline customer profile create/update while keeping credit and status online-only", () => {

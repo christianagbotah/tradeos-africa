@@ -15,6 +15,7 @@ import "./pos.css";
 import "./pos-workspace.css";
 import "./workspace-polish.css";
 import "./cashbook.css";
+import "./master-data.css";
 
 export const metadata: Metadata = {
   title: "TradeOS Africa",
