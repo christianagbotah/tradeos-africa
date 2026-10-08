@@ -30,7 +30,7 @@ const context: BusinessContext = {
 
 const catalog: CatalogItem[] = [{
   id: "item-1",
-  sku: null,
+  sku: "MALT-01",
   name: "Malt",
   kind: "PRODUCT",
   stockUnitCode: "bottle",
@@ -41,7 +41,7 @@ const catalog: CatalogItem[] = [{
   updatedAt: "2026-10-08T08:00:00.000Z",
   units: [
     { code: "bottle", label: "Bottle", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 1200 },
-    { code: "crate", label: "Crate", canPurchase: true, canSell: false, canStock: false, defaultSalePriceMinor: null },
+    { code: "crate", label: "Crate", canPurchase: true, canSell: true, canStock: false, defaultSalePriceMinor: 28800 },
   ],
   conversions: [],
 }];
@@ -62,8 +62,11 @@ describe("WorkspaceProvider contract", () => {
     expect(selectInitialBranch(context, "branch-2")?.id).toBe("branch-2");
   });
 
-  it("projects sellable catalog units exactly once and excludes archived records", () => {
-    expect(projectSellableItems(catalog)).toEqual([{ key: "item-1:bottle", itemId: "item-1", name: "Malt", unitCode: "bottle", unitLabel: "Bottle", priceMinor: 1200 }]);
+  it("projects every active sell unit with POS metadata and excludes archived records", () => {
+    expect(projectSellableItems(catalog)).toEqual([
+      { key: "item-1:bottle", itemId: "item-1", name: "Malt", sku: "MALT-01", kind: "PRODUCT", unitCode: "bottle", unitLabel: "Bottle", priceMinor: 1200, trackStock: true, stockUnitCode: "bottle" },
+      { key: "item-1:crate", itemId: "item-1", name: "Malt", sku: "MALT-01", kind: "PRODUCT", unitCode: "crate", unitLabel: "Crate", priceMinor: 28800, trackStock: true, stockUnitCode: "bottle" },
+    ]);
     expect(projectSellableItems([{ ...catalog[0]!, active: false }])).toEqual([]);
   });
 
