@@ -11,9 +11,19 @@ import {
 } from "./commerce/customer-credit.js";
 import { applyReturnMutation, ReturnMutationError, type ReturnMutationPayload } from "./commerce/returns.js";
 import { applySaleMutation, SaleMutationError, type SaleMutationPayload } from "./commerce/sales.js";
+import { type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
+import {
+  CatalogError,
+  createCatalogItem,
+  updateCatalogItem,
+  type CreateCatalogItemBody,
+  type UpdateCatalogItemBody,
+} from "./catalog-service.js";
 import type { DatabasePool } from "./db.js";
 
 const MAX_BATCH_SIZE = 100;
+const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
+const CATALOG_MUTATIONS = new Set(["CATALOG_ITEM_CREATE", "CATALOG_ITEM_UPDATE", "CATALOG_ITEM_ARCHIVE", "CATALOG_ITEM_REACTIVATE"]);
 type StoredStatus = "RECEIVED" | "APPLIED" | "REJECTED";
 
 export class SyncRequestError extends Error {
@@ -75,6 +85,9 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
         status: prior.status,
         serverReceivedAt: prior.received_at.toISOString(),
         ...(prior.result_payload !== null ? { result: prior.result_payload } : {}),
+        ...(prior.status === "REJECTED" && isErrorPayload(prior.result_payload)
+          ? { errorCode: prior.result_payload.errorCode, errorMessage: prior.result_payload.errorMessage }
+          : {}),
       };
     }
 
@@ -91,7 +104,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   }
 
   try {
-    const result = await applyEconomicMutation(pool, mutation);
+    const result = await applyMutation(pool, mutation);
     await pool.query(
       `UPDATE sync_mutations SET status='APPLIED',result_payload=$4::jsonb,applied_at=now()
        WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3`,
@@ -99,7 +112,12 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     );
     return { clientMutationId: mutation.clientMutationId, status: "APPLIED", serverReceivedAt, result };
   } catch (error) {
-    const code = error instanceof CashbookError || error instanceof SaleMutationError || error instanceof ReturnMutationError || error instanceof CustomerCreditError || error instanceof PurchaseMutationError
+    const code = error instanceof CashbookError
+      || error instanceof SaleMutationError
+      || error instanceof ReturnMutationError
+      || error instanceof CustomerCreditError
+      || error instanceof PurchaseMutationError
+      || error instanceof CatalogError
       ? error.code
       : "MUTATION_APPLY_FAILED";
     const message = error instanceof Error ? error.message : "Unknown mutation application error";
@@ -118,6 +136,46 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       result,
     };
   }
+}
+
+async function applyMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
+  if (CATALOG_MUTATIONS.has(mutation.mutationType)) return applyCatalogMutation(pool, mutation);
+  return applyEconomicMutation(pool, mutation);
+}
+
+async function applyCatalogMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
+  if (typeof mutation.payload !== "object" || mutation.payload === null || Array.isArray(mutation.payload)) {
+    throw new CatalogError("Catalog mutation payload must be an object");
+  }
+  const payload = mutation.payload as Record<string, unknown>;
+  const actorStaffId = requiredPayloadString(payload.actorStaffId, "actorStaffId");
+  const actorRole = requiredCatalogRole(payload.actorRole);
+  const access: BusinessAccess = {
+    membershipId: `sync:${mutation.clientId}`,
+    businessId: mutation.businessId,
+    role: actorRole,
+    staffId: actorStaffId,
+  };
+
+  const { actorStaffId: _ignoredStaff, actorRole: _ignoredRole, ...rest } = payload;
+  if (mutation.mutationType === "CATALOG_ITEM_CREATE") {
+    const item = await createCatalogItem(pool, access, { ...rest, businessId: mutation.businessId } as unknown as CreateCatalogItemBody);
+    return { item };
+  }
+
+  const itemId = requiredPayloadString(rest.itemId, "itemId");
+  const { itemId: _ignoredItemId, ...updateRest } = rest;
+  const active = mutation.mutationType === "CATALOG_ITEM_ARCHIVE"
+    ? false
+    : mutation.mutationType === "CATALOG_ITEM_REACTIVATE"
+      ? true
+      : updateRest.active;
+  const item = await updateCatalogItem(pool, access, itemId, {
+    ...updateRest,
+    businessId: mutation.businessId,
+    ...(active === undefined ? {} : { active }),
+  } as unknown as UpdateCatalogItemBody);
+  return { item };
 }
 
 async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
@@ -158,6 +216,24 @@ async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutatio
     default:
       throw new SyncRequestError(`Unsupported mutationType: ${mutation.mutationType}`);
   }
+}
+
+function requiredPayloadString(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.trim() === "") throw new CatalogError(`${name} is required`);
+  return value.trim();
+}
+
+function requiredCatalogRole(value: unknown): BusinessRole {
+  if (typeof value !== "string" || !CATALOG_WRITE_ROLES.includes(value as BusinessRole)) {
+    throw new CatalogError("actorRole is invalid", 403, "ROLE_FORBIDDEN");
+  }
+  return value as BusinessRole;
+}
+
+function isErrorPayload(value: unknown): value is { errorCode: string; errorMessage: string } {
+  return typeof value === "object" && value !== null
+    && typeof (value as { errorCode?: unknown }).errorCode === "string"
+    && typeof (value as { errorMessage?: unknown }).errorMessage === "string";
 }
 
 function rejection(clientMutationId: string, serverReceivedAt: string, code: string, error: unknown): MutationResult {
