@@ -37,6 +37,8 @@ const catalog: CatalogItem[] = [{
   trackStock: true,
   taxCategory: null,
   active: true,
+  createdAt: "2026-10-08T08:00:00.000Z",
+  updatedAt: "2026-10-08T08:00:00.000Z",
   units: [
     { code: "bottle", label: "Bottle", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 1200 },
     { code: "crate", label: "Crate", canPurchase: true, canSell: false, canStock: false, defaultSalePriceMinor: null },
