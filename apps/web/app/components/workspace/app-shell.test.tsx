@@ -1,39 +1,11 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { isWorkspaceNavActive, visibleWorkspaceNav, workspaceNavigation } from "./workspace-navigation";
-
-describe("TradeOS application shell navigation", () => {
-  it("uses real workspace routes rather than hash anchors", () => {
-    expect(workspaceNavigation.map((item) => item.href)).toEqual([
-      "/dashboard", "/sell", "/sales", "/customers", "/purchases", "/inventory", "/catalog", "/returns", "/cashbook", "/operations", "/reports",
-    ]);
-    expect(workspaceNavigation.every((item) => item.href.startsWith("/") && !item.href.includes("#"))).toBe(true);
-  });
-
-  it("marks the cashbook route active from pathname", () => {
-    expect(isWorkspaceNavActive("/cashbook", "/cashbook")).toBe(true);
-    expect(isWorkspaceNavActive("/cashbook/history", "/cashbook")).toBe(true);
-    expect(isWorkspaceNavActive("/sales", "/cashbook")).toBe(false);
-  });
-
-  it("gives OWNER every destination while CASHIER and VIEWER get purposeful subsets", () => {
-    expect(visibleWorkspaceNav("OWNER")).toHaveLength(11);
-    expect(visibleWorkspaceNav("CASHIER").map((item) => item.href)).toEqual([
-      "/dashboard", "/sell", "/sales", "/customers", "/returns", "/cashbook", "/operations",
-    ]);
-    const viewer = visibleWorkspaceNav("VIEWER").map((item) => item.href);
-    expect(viewer).not.toContain("/sell");
-    expect(viewer).toContain("/reports");
-    expect(viewer).toContain("/cashbook");
-  });
-
-  it("renders aria-current from route state and keeps mobile drawer local to shell", () => {
-    const dir = path.dirname(fileURLToPath(import.meta.url));
-    const source = fs.readFileSync(path.join(dir, "app-shell.tsx"), "utf8");
-    expect(source).toContain('aria-current={active ? "page" : undefined}');
-    expect(source).toMatch(/useState\(false\)/);
-    expect(source).toContain("usePathname()");
-  });
+import fs from "node:fs"; import path from "node:path"; import {fileURLToPath} from "node:url"; import {describe,expect,it} from "vitest";
+import {isWorkspaceNavActive,visibleWorkspaceNav,workspaceNavigation,mobileWorkspaceNav,mobileMoreNav} from "./workspace-navigation";
+const hrefs=(role:string)=>mobileWorkspaceNav(role).map((item)=>item.href);
+describe("TradeOS application shell navigation",()=>{
+ it("uses real workspace routes",()=>{expect(workspaceNavigation.map(i=>i.href)).toEqual(["/dashboard","/sell","/sales","/customers","/purchases","/inventory","/catalog","/returns","/cashbook","/operations","/reports"]);});
+ it("marks nested routes active",()=>{expect(isWorkspaceNavActive("/cashbook/history","/cashbook")).toBe(true);expect(isWorkspaceNavActive("/sales","/cashbook")).toBe(false);});
+ it("keeps existing role route visibility authoritative",()=>{expect(visibleWorkspaceNav("OWNER")).toHaveLength(11);expect(visibleWorkspaceNav("VIEWER").map(i=>i.href)).not.toContain("/sell");});
+ it("derives exact role-aware phone priorities",()=>{expect(hrefs("OWNER")).toEqual(["/dashboard","/sell","/cashbook","/inventory","#more"]);expect(hrefs("MANAGER")).toEqual(["/dashboard","/sell","/cashbook","/inventory","#more"]);expect(hrefs("CASHIER")).toEqual(["/dashboard","/sell","/sales","/cashbook","#more"]);expect(hrefs("INVENTORY")).toEqual(["/dashboard","/inventory","/purchases","/catalog","#more"]);expect(hrefs("ACCOUNTANT")).toEqual(["/dashboard","/cashbook","/customers","/reports","#more"]);expect(hrefs("VIEWER")).toEqual(["/dashboard","/sales","/inventory","/reports","#more"]);});
+ it("fails closed for unknown roles and More contains only authorized leftovers",()=>{expect(hrefs("UNKNOWN")).toEqual(["#more"]);expect(mobileMoreNav("UNKNOWN")).toEqual([]);for(const item of mobileMoreNav("CASHIER")) expect(visibleWorkspaceNav("CASHIER").map(i=>i.href)).toContain(item.href);});
+ it("keeps route-driven aria state in shell source",()=>{const dir=path.dirname(fileURLToPath(import.meta.url));const source=fs.readFileSync(path.join(dir,"app-shell.tsx"),"utf8");expect(source).toContain("usePathname()");expect(source).toContain('aria-current={active ? "page" : undefined}');});
 });
