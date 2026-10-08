@@ -4,9 +4,11 @@ import React, { useMemo, useState } from "react";
 import { catalogCapabilities } from "../../lib/lifecycle-capabilities";
 import type { CatalogItem } from "../../lib/workspace-types";
 import { Button } from "../ui/button";
+import { CatalogItemSheet } from "./catalog-item-sheet";
 import { CatalogList } from "./catalog-list";
 
 export type CatalogFilter = "ALL" | "PRODUCT" | "SERVICE" | "ARCHIVED";
+type EditorState = { mode: "create" | "edit" | "duplicate"; item: CatalogItem | null } | null;
 
 export function filterCatalogItems(items: CatalogItem[], filter: CatalogFilter, query: string): CatalogItem[] {
   const normalizedQuery = query.trim().toLowerCase();
@@ -44,7 +46,7 @@ export function CatalogWorkspace({
   const capabilities = catalogCapabilities(role);
   const [filter, setFilter] = useState<CatalogFilter>("ALL");
   const [query, setQuery] = useState("");
-  const [selectedItem, setSelectedItem] = useState<CatalogItem | null>(null);
+  const [editor, setEditor] = useState<EditorState>(null);
   const visibleItems = useMemo(() => filterCatalogItems(items, filter, query), [filter, items, query]);
 
   const counts = useMemo(() => ({
@@ -67,9 +69,7 @@ export function CatalogWorkspace({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        {capabilities.canCreate ? (
-          <Button type="button" onClick={() => window.dispatchEvent(new CustomEvent("tradeos:catalog-create-requested"))}>Add item</Button>
-        ) : null}
+        {capabilities.canCreate ? <Button type="button" onClick={() => setEditor({ mode: "create", item: null })}>Add item</Button> : null}
       </div>
 
       <div className="catalog-filterbar" role="tablist" aria-label="Catalog filters">
@@ -99,21 +99,24 @@ export function CatalogWorkspace({
         items={visibleItems}
         currencyCode={currencyCode}
         capabilities={capabilities}
-        onOpenItem={setSelectedItem}
+        onOpenItem={(item) => setEditor({ mode: "edit", item })}
       />
 
-      {selectedItem ? (
-        <aside className="catalog-inspector" aria-label={`${selectedItem.name} details`}>
-          <div>
-            <span className="catalog-inspector-kicker">Selected item</span>
-            <strong>{selectedItem.name}</strong>
-            <p>{selectedItem.units.length} configured unit{selectedItem.units.length === 1 ? "" : "s"}. Full editing opens in the item workspace.</p>
-          </div>
-          <Button variant="ghost" type="button" onClick={() => setSelectedItem(null)}>Close</Button>
-        </aside>
-      ) : null}
-
       <button className="catalog-refresh-link" type="button" onClick={() => void onRefresh()}>Refresh catalog</button>
+
+      {editor ? (
+        <CatalogItemSheet
+          mode={editor.mode}
+          item={editor.item}
+          open
+          businessId={businessId}
+          branchId={branchId}
+          currencyCode={currencyCode}
+          role={role}
+          onClose={() => setEditor(null)}
+          onChanged={onRefresh}
+        />
+      ) : null}
     </section>
   );
 }
