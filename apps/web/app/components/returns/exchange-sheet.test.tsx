@@ -80,6 +80,24 @@ describe("ExchangeSheet", () => {
     expect(html).not.toMatch(/Edit original sale|Change original price|Save receipt/);
   });
 
+  it("renders the linked replacement receipt, return correction and provider-processing state after apply", async () => {
+    const module = await loadSheet();
+    expect(module?.ExchangeLinkedResult).toBeTypeOf("function");
+    if (!module?.ExchangeLinkedResult) return;
+    const html = renderToStaticMarkup(React.createElement(module.ExchangeLinkedResult, { result: {
+      exchangeCaseId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      originalSaleId: sale.id,
+      returnCaseId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      replacementSaleId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      returnTotalMinor: 1500,
+      replacementTotalMinor: 2200,
+      netDifferenceMinor: 700,
+      status: "PROCESSING",
+    } }));
+    for (const text of ["Exchange linked", "Replacement receipt", "Return correction", "PROCESSING", "CCCCCCCC", "BBBBBBBB"]) expect(html).toContain(text);
+    expect(html).toMatch(/provider|processing|confirmation/i);
+  });
+
   it("uses one durable EXCHANGE_CREATE mutation and keeps external provider outcomes pending/reviewable", () => {
     const sourcePath = path.join(path.dirname(fileURLToPath(import.meta.url)), "exchange-sheet.tsx");
     expect(fs.existsSync(sourcePath)).toBe(true);

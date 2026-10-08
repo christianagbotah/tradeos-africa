@@ -30,8 +30,6 @@ describe("SaleDetailSheet", () => {
     expect(html).toContain("PARTIALLY REVERSED");
     expect(html).toContain("Process return / refund");
     expect(html).toContain("Exchange items");
-    expect(html).toContain(`mode=exchange`);
-    expect(html).toContain("Exchange items");
     expect(html).toContain("mode=exchange");
     expect(html).not.toContain("Save changes");
     expect(html).not.toContain("Delete sale");
@@ -45,7 +43,6 @@ describe("SaleDetailSheet", () => {
     const html = renderToStaticMarkup(React.createElement(module.SaleDetailSheet, { sale: { ...sale, customer: null }, open: true, canProcessReturns: false, onClose: () => undefined }));
     expect(html).toContain("Walk-in customer");
     expect(html).not.toContain("Process return / refund");
-    expect(html).not.toContain("Exchange items");
     expect(html).not.toContain("Exchange items");
   });
 });

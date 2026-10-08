@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from "react";
 import { Button } from "../ui/button";
 import type { SaleDetail, SaleLine } from "../sales/types";
 
-export type ReturnMode = "RETURN_REFUND" | "REFUND_ONLY";
+export type ReturnMode = "RETURN_REFUND" | "REFUND_ONLY" | "EXCHANGE";
 export type RefundMethod = "ORIGINAL_METHOD" | "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT";
 export type ReturnDisposition = "RESTOCK" | "QUARANTINE" | "DISCARD" | "NOT_RETURNED" | "NOT_APPLICABLE";
 export type ReturnLineDraft = { selected: boolean; quantity: string; disposition: ReturnDisposition };
@@ -85,6 +85,7 @@ export function ReturnRefundSheet(props: Props) {
             <div className="return-sheet-modes">
               <button type="button" className={mode === "RETURN_REFUND" ? "active" : undefined} onClick={() => props.onModeChange("RETURN_REFUND")}><strong>Return + refund</strong><span>Physical product comes back where applicable.</span></button>
               <button type="button" className={mode === "REFUND_ONLY" ? "active" : undefined} onClick={() => props.onModeChange("REFUND_ONLY")}><strong>Refund only</strong><span>Customer keeps the item; stock is unchanged.</span></button>
+              <button type="button" className={mode === "EXCHANGE" ? "active" : undefined} onClick={() => props.onModeChange("EXCHANGE")}><strong>Exchange items</strong><span>Return selected items and choose replacements in one linked correction.</span></button>
             </div>
           </section>
 

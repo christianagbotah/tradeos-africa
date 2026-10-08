@@ -6,6 +6,8 @@ import { SaleDetailSheet } from "./sales/sale-detail-sheet";
 import type { SaleDetail, SaleLine, SaleSummary } from "./sales/types";
 import { ReturnRefundWorkspace } from "./returns/return-refund-workspace";
 import { ReturnRefundSheet, returnSyncMessage, type RefundMethod, type ReturnDisposition as Disposition, type ReturnLineDraft as LineDraft, type ReturnMode } from "./returns/return-refund-sheet";
+import { ExchangeSheet } from "./returns/exchange-sheet";
+import type { PosSellableItem } from "./pos/pos-model";
 import { canAccessWorkspaceRoute } from "./workspace/workspace-navigation";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
@@ -23,6 +25,7 @@ type Props = {
   currencyCode: string;
   view: "sales" | "returns";
   role: string;
+  sellableItems: PosSellableItem[];
 };
 
 function isSalesListCache(value: unknown): value is { sales: SaleSummary[] } {
@@ -33,7 +36,7 @@ function isSaleDetailCache(value: unknown): value is { sale: SaleDetail } {
   return Boolean(sale && typeof sale === "object" && Array.isArray((sale as { lines?: unknown }).lines) && Array.isArray((sale as { payments?: unknown }).payments));
 }
 
-export function SalesAndReturns({ businessId, branchId, currencyCode, view, role }: Props) {
+export function SalesAndReturns({ businessId, branchId, currencyCode, view, role, sellableItems }: Props) {
   const [sales, setSales] = useState<SaleSummary[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -113,7 +116,9 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
 
   useEffect(() => {
     if (view !== "returns" || typeof window === "undefined") return;
-    const saleId = new URLSearchParams(window.location.search).get("saleId");
+    const params = new URLSearchParams(window.location.search);
+    const saleId = params.get("saleId");
+    if (params.get("mode") === "exchange") setMode("EXCHANGE");
     if (saleId) void loadDetail(saleId);
     // loadDetail intentionally follows the current business/branch context.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -123,7 +128,7 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
     const onMutationApplied = (event: Event) => {
       const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
       if (!detail || detail.businessId !== businessId || detail.branchId !== branchId) return;
-      if (!["SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE"].includes(detail.mutationType)) return;
+      if (!["SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE"].includes(detail.mutationType)) return;
       void loadSales(query);
     };
 
@@ -219,7 +224,7 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
         onSelect={(saleId) => void loadDetail(saleId)}
         onSearch={(search) => { setQuery(search); void loadSales(search); }}
       />
-      {selected ? (
+      {selected && mode === "EXCHANGE" ? <ExchangeSheet open sale={selected} catalog={sellableItems} businessId={businessId} branchId={branchId} onClose={() => { setSelected(null); setMode("RETURN_REFUND"); }} onMessage={setMessage} /> : selected ? (
         <ReturnRefundSheet
           sale={selected}
           open

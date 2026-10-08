@@ -83,7 +83,7 @@ export function SaleDetailSheet({ sale, open, canProcessReturns, onClose }: Prop
 
         <footer className="sale-detail-footer">
           <Button variant="ghost" type="button" onClick={onClose}>Close</Button>
-          {canProcessReturns && sale.lines.some((line) => line.quantityReturnable > 0) ? <a className="tos-button tos-button--primary tos-button--default" href={`/returns?saleId=${encodeURIComponent(sale.id)}`}>Process return / refund</a> : null}
+          {canProcessReturns && sale.lines.some((line) => line.quantityReturnable > 0) ? <><a className="tos-button tos-button--secondary tos-button--default" href={`/returns?saleId=${encodeURIComponent(sale.id)}`}>Process return / refund</a><a className="tos-button tos-button--primary tos-button--default" href={`/returns?saleId=${encodeURIComponent(sale.id)}&mode=exchange`}>Exchange items</a></> : null}
         </footer>
       </div>
     </div>
