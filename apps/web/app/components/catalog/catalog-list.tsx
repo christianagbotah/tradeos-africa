@@ -1,20 +1,28 @@
 import React from "react";
 import { MoneyValue } from "../business/money-value";
-import { Button } from "../ui/button";
 import { StatusBadge } from "../ui/status-badge";
 import type { CatalogItem } from "../../lib/workspace-types";
 import type { CatalogCapabilities } from "../../lib/lifecycle-capabilities";
+import { CatalogActions } from "./catalog-actions";
 
 export function CatalogList({
   items,
   currencyCode,
   capabilities,
+  businessId,
+  role,
   onOpenItem,
+  onDuplicateItem,
+  onChanged,
 }: {
   items: CatalogItem[];
   currencyCode: string;
   capabilities: CatalogCapabilities;
+  businessId: string;
+  role: string;
   onOpenItem?: (item: CatalogItem) => void;
+  onDuplicateItem?: (item: CatalogItem) => void;
+  onChanged: () => Promise<void> | void;
 }) {
   if (items.length === 0) {
     return (
@@ -60,7 +68,14 @@ export function CatalogList({
 
             {capabilities.canEdit ? (
               <div className="catalog-row-action">
-                <Button variant="secondary" size="compact" type="button" onClick={() => onOpenItem?.(item)}>Manage</Button>
+                <CatalogActions
+                  item={item}
+                  businessId={businessId}
+                  role={role}
+                  onEdit={() => onOpenItem?.(item)}
+                  onDuplicate={() => onDuplicateItem?.(item)}
+                  onChanged={onChanged}
+                />
               </div>
             ) : null}
           </article>
