@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { QuickSaleItem } from "../quick-sale";
+import type { PosSellableItem } from "../pos/pos-model";
 import {
   getActiveBusinessId,
   mutationAppliedEvent,
@@ -26,7 +26,7 @@ export type WorkspaceContextValue = {
   branchId: string;
   activeBranch: BusinessContext["branches"][number];
   catalog: CatalogItem[];
-  sellableItems: QuickSaleItem[];
+  sellableItems: PosSellableItem[];
   setBusiness: (businessId: string) => Promise<void>;
   setBranch: (branchId: string) => void;
   refreshBusiness: () => Promise<void>;
@@ -40,7 +40,7 @@ export type WorkspaceStore = {
   context: BusinessContext | null;
   branchId: string | null;
   catalog: CatalogItem[];
-  sellableItems: QuickSaleItem[];
+  sellableItems: PosSellableItem[];
   error: string | null;
   setBusiness: (businessId: string) => Promise<void>;
   setBranch: (branchId: string) => void;
@@ -63,16 +63,20 @@ export function selectInitialBranch(context: BusinessContext, currentBranchId: s
     ?? null;
 }
 
-export function projectSellableItems(catalog: CatalogItem[]): QuickSaleItem[] {
+export function projectSellableItems(catalog: CatalogItem[]): PosSellableItem[] {
   return catalog.flatMap((item) => item.units
     .filter((unit) => item.active && unit.canSell && unit.defaultSalePriceMinor !== null)
     .map((unit) => ({
       key: `${item.id}:${unit.code}`,
       itemId: item.id,
       name: item.name,
+      sku: item.sku,
+      kind: item.kind,
       unitCode: unit.code,
       unitLabel: unit.label,
       priceMinor: unit.defaultSalePriceMinor!,
+      trackStock: item.trackStock,
+      stockUnitCode: item.stockUnitCode,
     })));
 }
 
