@@ -93,7 +93,9 @@ describe("financial summary reports", () => {
     expect(report.health.confidence).toBe("LOW");
     expect(report.health.dimensions).toHaveLength(5);
     expect(report.health.insights.map((item:{code:string})=>item.code)).toEqual(expect.arrayContaining(["NEGATIVE_OPERATING_CASH","PAYABLE_COVERAGE","HIGH_RETURNS"]));
-    expect(report.health.workingCapital).toMatchObject({ inventorySnapshotAligned:true, cashAfterPayablesMinor:-1500, netTradeCreditMinor:100 });
+    // This report window is intentionally historical while inventory valuation is a current snapshot.
+    // Health must not blend today's stock value into historical working capital.
+    expect(report.health.workingCapital).toMatchObject({ inventorySnapshotAligned:false, operatingWorkingCapitalMinor:null, inventoryMonths:null, cashAfterPayablesMinor:-1500, netTradeCreditMinor:100 });
     expect(["WATCH","PRESSURED"]).toContain(report.health.workingCapital.status);
     expect(report.health.actions.length).toBeGreaterThan(0);
     expect(report.health.actions.every((item:{href:string})=>item.href.startsWith("/") && !item.href.startsWith("#"))).toBe(true);
