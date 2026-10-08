@@ -13,6 +13,10 @@ The experience must feel modern, fast, trustworthy, intelligent and recognizably
 
 This redesign is a presentation and interaction architecture change. It must preserve proven business behavior including authentication, tenancy, roles, business/branch context, offline-first synchronization, POS and server pricing, bulk-to-small-unit conversions, inventory, purchasing, sales returns/refunds/exchanges, cashbook, treasury, customer credit, receivables/payables, financial reporting, CFO actions, operations/reconciliation and audit behavior.
 
+### Relationship to the 2026-10-07 multi-page UX spec
+
+The 2026-10-07 `tradeos-multipage-ux-design` remains authoritative for the route-first architecture, shared workspace state, business-logic preservation, authorization boundaries and module route map. This 2026-10-08 specification supersedes its visual-system, shell, responsive/mobile-navigation and dashboard-composition guidance wherever the two documents differ. Implementation planning must use this document as the controlling presentation/interaction architecture.
+
 ## 2. Why the current design must change
 
 TradeOS already has a real multi-page route architecture, but the visual and interaction architecture remains transitional.
