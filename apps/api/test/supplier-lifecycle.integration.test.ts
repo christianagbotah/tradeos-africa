@@ -133,7 +133,7 @@ async function register(email: string, deviceKey: string) {
 }
 
 async function createBusiness(accessToken: string) {
-  const response = await app.inject({ method: "POST", url: "/v1/onboarding/business", headers: bearer(accessToken), payload: { name: "Supplier Lifecycle", businessType: "HARDWARE", branchName: "Main" } });
+  const response = await app.inject({ method: "POST", url: "/v1/onboarding/business", headers: bearer(accessToken), payload: { name: "Supplier Lifecycle", businessType: "RETAIL_HARDWARE", branchName: "Main" } });
   expect(response.statusCode).toBe(201);
   const body = response.json<{ business: { id: string }; branch: { id: string } }>();
   return { businessId: body.business.id, branchId: body.branch.id };
