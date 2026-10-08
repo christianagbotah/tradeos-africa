@@ -99,7 +99,11 @@ export function CatalogWorkspace({
         items={visibleItems}
         currencyCode={currencyCode}
         capabilities={capabilities}
+        businessId={businessId}
+        role={role}
         onOpenItem={(item) => setEditor({ mode: "edit", item })}
+        onDuplicateItem={(item) => setEditor({ mode: "duplicate", item })}
+        onChanged={onRefresh}
       />
 
       <button className="catalog-refresh-link" type="button" onClick={() => void onRefresh()}>Refresh catalog</button>
