@@ -9,6 +9,7 @@ import "./sales-returns.css";
 import "./customers-credit.css";
 import "./workspace-shell.css";
 import "./ui-primitives.css";
+import "./dashboard.css";
 import "./workspace-polish.css";
 import "./cashbook.css";
 
