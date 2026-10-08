@@ -24,8 +24,8 @@ describe('treasury accounts, transfers and reconciliation',()=>{
  it('seeds new branches, resolves defaults, routes explicit accounts, rejects invalid accounts and includes account in strict idempotency',async()=>{
   const f=await fixture();expect(f.accounts).toHaveLength(5);
   await withTransaction(pool,c=>recordCashbookEntry(c,f.entry));expect((await pool.query('SELECT money_account_id FROM cashbook_entries')).rows[0].money_account_id).toBe(f.cash);
-  const created=await app.inject({method:'POST',url:'/v1/money-accounts',headers:f.headers,payload:{businessId:f.businessId,name:'Reserve drawer',method:'CASH',kind:'CASH_DRAWER'}});expect(created.statusCode).toBe(201);const reserve=created.json().account.id;
-  expect((await app.inject({method:'PATCH',url:'/v1/money-accounts',headers:f.headers,payload:{businessId:f.businessId,accountId:reserve,name:'Renamed reserve'}})).json().account.name).toBe('Renamed reserve');
+  const created=await app.inject({method:'POST',url:'/v1/money-accounts',headers:f.headers,payload:{businessId:f.businessId,name:'Reserve drawer',method:'CASH',kind:'CASH_DRAWER'}});expect(created.statusCode).toBe(201);const reserveAccount=created.json().account,reserve=reserveAccount.id;
+  expect((await app.inject({method:'PATCH',url:'/v1/money-accounts',headers:f.headers,payload:{businessId:f.businessId,accountId:reserve,expectedUpdatedAt:reserveAccount.updatedAt,name:'Renamed reserve'}})).json().account.name).toBe('Renamed reserve');
   await withTransaction(pool,c=>recordCashbookEntry(c,{...f.entry,moneyAccountId:reserve,idempotencyKey:'reserve'}));
   await expect(withTransaction(pool,c=>recordCashbookEntry(c,{...f.entry,moneyAccountId:reserve}))).rejects.toThrow('conflicts');
   for(const account of [f.bank,randomUUID()])await expect(withTransaction(pool,c=>recordCashbookEntry(c,{...f.entry,moneyAccountId:account,idempotencyKey:randomUUID()}))).rejects.toThrow();
@@ -122,7 +122,9 @@ it('permits business-wide defaults, restricts account/default writes by role and
  const f=await fixture();const second=(await pool.query(`INSERT INTO branches(business_id,name,code) VALUES($1,'Second','SECOND') RETURNING id`,[f.businessId])).rows[0].id;
  const secondCash=(await pool.query(`SELECT id FROM money_accounts WHERE branch_id=$1 AND method='CASH'`,[second])).rows[0].id;
  const create=await app.inject({method:'POST',url:'/v1/money-accounts',headers:f.headers,payload:{businessId:f.businessId,name:'Shared reserve',method:'CASH',kind:'CASH_DRAWER'}});expect(create.statusCode).toBe(201);const shared=create.json().account.id;
- const mapping=await app.inject({method:'PUT',url:'/v1/money-account-defaults',headers:f.headers,payload:{businessId:f.businessId,branchId:f.branchId,method:'CASH',moneyAccountId:shared}});expect(mapping.statusCode).toBe(200);
+ const beforeDefaults=(await app.inject({method:'GET',url:`/v1/money-account-defaults?businessId=${f.businessId}&branchId=${f.branchId}`,headers:f.headers})).json().defaults;
+ const cashDefault=beforeDefaults.find((item:{method:string})=>item.method==='CASH');
+ const mapping=await app.inject({method:'PUT',url:'/v1/money-account-defaults',headers:f.headers,payload:{businessId:f.businessId,branchId:f.branchId,method:'CASH',moneyAccountId:shared,expectedUpdatedAt:cashDefault.updatedAt}});expect(mapping.statusCode).toBe(200);
  await withTransaction(pool,c=>recordCashbookEntry(c,f.entry));expect((await pool.query('SELECT money_account_id FROM cashbook_entries')).rows[0].money_account_id).toBe(shared);
  expect((await app.inject({method:'PUT',url:'/v1/money-account-defaults',headers:f.headers,payload:{businessId:f.businessId,branchId:f.branchId,method:'CASH',moneyAccountId:secondCash}})).statusCode).toBe(400);
  const reconciliation={moneyAccountId:secondCash,type:'CASH_COUNT',periodStart:'2026-01-01',periodEnd:'2026-01-31',observedBalanceMinor:0};
