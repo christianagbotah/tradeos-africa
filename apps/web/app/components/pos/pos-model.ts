@@ -8,6 +8,19 @@ export type PosCatalogSelection = {
   priceMinor: number;
 };
 
+export type PosSellableItem = {
+  key: string;
+  itemId: string;
+  name: string;
+  sku: string | null;
+  kind: "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
+  unitCode: string;
+  unitLabel: string;
+  priceMinor: number;
+  trackStock: boolean;
+  stockUnitCode: string | null;
+};
+
 export type PosLineKey = `${string}:${string}`;
 
 export type CartLine = PosCatalogSelection & {
@@ -24,6 +37,16 @@ export type PosCustomerState = {
 
 export function cartLineKey(itemId: string, saleUnitCode: string): PosLineKey {
   return `${itemId}:${saleUnitCode}`;
+}
+
+export function toPosSelection(item: PosSellableItem): PosCatalogSelection {
+  return {
+    itemId: item.itemId,
+    name: item.name,
+    saleUnitCode: item.unitCode,
+    saleUnitLabel: item.unitLabel,
+    priceMinor: item.priceMinor,
+  };
 }
 
 export function addCartItem(cart: readonly CartLine[], item: PosCatalogSelection): CartLine[] {
