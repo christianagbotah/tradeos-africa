@@ -89,8 +89,8 @@ export async function updateCustomer(
     const updated = await client.query(
       `UPDATE customers
        SET name=$3,phone=$4,email=$5,credit_limit_minor=$6,credit_terms_days=$7,is_active=$8,updated_at=clock_timestamp()
-       WHERE id=$1 AND business_id=$2 AND updated_at=$9::timestamptz`,
-      [customerId, access.businessId, next.name, next.phone, next.email, next.creditLimitMinor, next.creditTermsDays, active, expectedUpdatedAt],
+       WHERE id=$1 AND business_id=$2`,
+      [customerId, access.businessId, next.name, next.phone, next.email, next.creditLimitMinor, next.creditTermsDays, active],
     );
     if (updated.rowCount !== 1) {
       throw new CustomerServiceError("Customer changed on another device. Reload before saving again.", 409, "STALE_VERSION");

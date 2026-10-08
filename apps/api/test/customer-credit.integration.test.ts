@@ -156,13 +156,14 @@ describe("customer credit and receivables", () => {
     const serviceId = await createService(owner.accessToken, business.businessId, 2500);
     const customerResponse = await app.inject({ method:"POST", url:"/v1/customers", headers:bearer(owner.accessToken), payload:{ businessId:business.businessId,name:"Terms Customer",creditLimitMinor:10000,creditTermsDays:30 } });
     expect(customerResponse.statusCode).toBe(201);
-    const customerId = customerResponse.json<{customer:{id:string}}>().customer.id;
+    const customer = customerResponse.json<{customer:{id:string;updatedAt:string}}>().customer;
+    const customerId = customer.id;
 
     const saleOne = await sync(owner.accessToken,{ clientId:"credit-aging-fifo-device",clientMutationId:"terms-sale-1",businessId:business.businessId,branchId:business.branchId,mutationType:"SALE_CREATE",occurredAt:"2026-10-01T00:00:00.000Z",payload:{customerId,paymentMethod:"CUSTOMER_CREDIT",lines:[{itemId:serviceId,quantity:1,saleUnitCode:"service"}]} });
     expect(saleOne.status).toBe("APPLIED");
     const saleOneId=(saleOne.result as {saleId:string}).saleId;
 
-    const termsPatch = await app.inject({ method:"PATCH",url:`/v1/customers/${customerId}`,headers:bearer(owner.accessToken),payload:{businessId:business.businessId,creditTermsDays:5} });
+    const termsPatch = await app.inject({ method:"PATCH",url:`/v1/customers/${customerId}`,headers:bearer(owner.accessToken),payload:{businessId:business.businessId,expectedUpdatedAt:customer.updatedAt,creditTermsDays:5} });
     expect(termsPatch.statusCode).toBe(200);
 
     const saleTwo = await sync(owner.accessToken,{ clientId:"credit-aging-fifo-device",clientMutationId:"terms-sale-2",businessId:business.businessId,branchId:business.branchId,mutationType:"SALE_CREATE",occurredAt:"2026-10-02T00:00:00.000Z",payload:{customerId,paymentMethod:"CUSTOMER_CREDIT",lines:[{itemId:serviceId,quantity:1,saleUnitCode:"service"}]} });
