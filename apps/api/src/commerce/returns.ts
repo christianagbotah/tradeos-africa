@@ -64,7 +64,17 @@ export async function applyReturnMutation(
 ): Promise<ReturnMutationResult> {
   validateReturn(context, payload);
 
-  return withTransaction(pool, async (client) => {
+  return withTransaction(pool, (client) => applyReturnMutationInTransaction(client, context, payload));
+}
+
+export async function applyReturnMutationInTransaction(
+  client: DatabaseClient,
+  context: ReturnMutationContext,
+  payload: ReturnMutationPayload,
+  options: { settleRefund?: boolean; recordedRefundMethod?: "EXCHANGE_CREDIT" } = {},
+): Promise<ReturnMutationResult> {
+  validateReturn(context, payload);
+
     const prior = await client.query<{ id: string; status: string; refund_total_minor: string | number }>(
       `SELECT id,status,refund_total_minor FROM return_cases
        WHERE business_id=$1 AND client_mutation_id=$2`, [context.businessId, context.clientMutationId],
@@ -138,7 +148,7 @@ export async function applyReturnMutation(
       throw error;
     }
 
-    const allocations = await allocateRefund(client, sale.id, plan.refundTotal.minor, payload.refundMethod);
+    const allocations = options.settleRefund === false ? [] : await allocateRefund(client, sale.id, plan.refundTotal.minor, payload.refundMethod);
     const customerCreditRefundMinor = allocations
       .filter((allocation) => allocation.method === "CUSTOMER_CREDIT")
       .reduce((sum, allocation) => sum + allocation.amountMinor, 0);
@@ -163,7 +173,7 @@ export async function applyReturnMutation(
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
       [
         context.businessId,context.branchId,sale.id,sale.customer_id,payload.initiatedByStaffId ?? null,approvedBy,
-        status,payload.reason,payload.refundMethod,sale.currency_code,plan.netRevenueReversalTotal.minor,
+        status,payload.reason,options.recordedRefundMethod ?? payload.refundMethod,sale.currency_code,plan.netRevenueReversalTotal.minor,
         plan.taxReversalTotal.minor,plan.refundTotal.minor,plan.cogsReversalTotal.minor,plan.discardedCostTotal.minor,
         context.clientMutationId,context.occurredAt,pending ? null : context.occurredAt,
       ],
@@ -264,7 +274,6 @@ export async function applyReturnMutation(
       pendingRefundMinor: allocations.filter((a) => a.status === "PENDING").reduce((sum, a) => sum + a.amountMinor, 0),
       idempotentReplay: false,
     };
-  });
 }
 
 function validateReturn(context: ReturnMutationContext, payload: ReturnMutationPayload): void {
@@ -277,7 +286,7 @@ function validateReturn(context: ReturnMutationContext, payload: ReturnMutationP
   }
 }
 
-async function allocateRefund(client: DatabaseClient, saleId: string, total: number, requested: RefundMethod): Promise<RefundAllocation[]> {
+export async function allocateRefund(client: DatabaseClient, saleId: string, total: number, requested: RefundMethod): Promise<RefundAllocation[]> {
   if (requested !== "ORIGINAL_METHOD") {
     return [{ originalPaymentId: null, method: requested, amountMinor: total, status: settlesImmediately(requested) ? "SUCCEEDED" : "PENDING" }];
   }
@@ -309,11 +318,11 @@ async function allocateRefund(client: DatabaseClient, saleId: string, total: num
   return allocations;
 }
 
-function settlesImmediately(method: ConcreteRefundMethod): boolean {
+export function settlesImmediately(method: ConcreteRefundMethod): boolean {
   return method === "CASH" || method === "CUSTOMER_CREDIT";
 }
 
-async function refreshPayments(client: DatabaseClient, saleId: string): Promise<void> {
+export async function refreshPayments(client: DatabaseClient, saleId: string): Promise<void> {
   const payments = await client.query<{ id: string; amount_minor: string | number }>(`SELECT id,amount_minor FROM payments WHERE sale_id=$1 FOR UPDATE`, [saleId]);
   for (const payment of payments.rows) {
     const refunded = await client.query<{ total: string | number }>(

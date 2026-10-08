@@ -20,6 +20,7 @@ import {
 } from "./commerce/customer-credit.js";
 import { applyReturnMutation, ReturnMutationError, type ReturnMutationPayload } from "./commerce/returns.js";
 import { applySaleMutation, SaleMutationError, type SaleMutationPayload } from "./commerce/sales.js";
+import { applyExchangeMutation, ExchangeMutationError, type ExchangeMutationPayload } from "./commerce/exchanges.js";
 import { applyInventoryAdjustmentMutation, InventoryAdjustmentError, type InventoryAdjustmentMutationPayload } from "./commerce/inventory-adjustments.js";
 import { type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
 import { AuthError } from "./auth/security.js";
@@ -146,6 +147,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     const code = error instanceof CashbookError
       || error instanceof SaleMutationError
       || error instanceof ReturnMutationError
+      || error instanceof ExchangeMutationError
       || error instanceof CustomerCreditError
       || error instanceof PurchaseMutationError
       || error instanceof InventoryAdjustmentError
@@ -317,6 +319,8 @@ async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutatio
     case "RETURN_CREATE":
     case "REFUND_CREATE":
       return applyReturnMutation(pool, context, mutation.payload as ReturnMutationPayload);
+    case "EXCHANGE_CREATE":
+      return applyExchangeMutation(pool, context, mutation.payload as ExchangeMutationPayload);
     case "CUSTOMER_PAYMENT_CREATE":
       return applyCustomerPaymentMutation(pool, context, mutation.payload as CustomerPaymentMutationPayload);
     case "INVENTORY_ADJUSTMENT_CREATE":

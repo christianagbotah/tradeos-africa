@@ -145,6 +145,11 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
     return { ...rest, cashierStaffId: access.staffId };
   }
 
+  if (mutation.mutationType === "EXCHANGE_CREATE") {
+    const { initiatedByStaffId: _ignoredInitiator, actorStaffId: _legacyIgnored, ...rest } = payload;
+    return { ...rest, initiatedByStaffId: access.staffId };
+  }
+
   if (mutation.mutationType === "RETURN_CREATE" || mutation.mutationType === "REFUND_CREATE") {
     const { initiatedByStaffId: _ignoredInitiator, approvedByStaffId: _ignoredApprover, ...rest } = payload;
     return {
@@ -196,6 +201,7 @@ function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
       return SALE_ROLES;
     case "RETURN_CREATE":
     case "REFUND_CREATE":
+    case "EXCHANGE_CREATE":
       return RETURN_ROLES;
     case "PURCHASE_RETURN_CREATE":
     case "PURCHASE_RECEIVE_CREATE":

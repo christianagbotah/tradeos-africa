@@ -59,7 +59,17 @@ export async function applySaleMutation(
 ): Promise<SaleMutationResult> {
   validateSale(context, payload);
 
-  return withTransaction(pool, async (client) => {
+  return withTransaction(pool, (client) => applySaleMutationInTransaction(client, context, payload));
+}
+
+export async function applySaleMutationInTransaction(
+  client: DatabaseClient,
+  context: SaleMutationContext,
+  payload: SaleMutationPayload,
+  options: { settlePayments?: boolean } = {},
+): Promise<SaleMutationResult> {
+  validateSale(context, payload);
+
     const prior = await client.query<{ id: string; status: string; total_minor: string | number }>(
       `SELECT id, status, total_minor FROM sales
        WHERE business_id = $1 AND client_mutation_id = $2`,
@@ -193,8 +203,8 @@ export async function applySaleMutation(
     }
 
     const totalMinor = safeMinor(subtotalMinor + taxMinor);
-    const payments = normalizePayments(payload, totalMinor);
-    if (payments.reduce((sum, payment) => sum + payment.amountMinor, 0) !== totalMinor) {
+    const payments = options.settlePayments === false ? [] : normalizePayments(payload, totalMinor);
+    if (options.settlePayments !== false && payments.reduce((sum, payment) => sum + payment.amountMinor, 0) !== totalMinor) {
       throw new SaleMutationError("Payment total does not equal the server-calculated sale total", "PAYMENT_TOTAL_MISMATCH");
     }
     const creditMinor = payments
@@ -249,7 +259,6 @@ export async function applySaleMutation(
     await writeEvent(client, context, payload.cashierStaffId ?? null, saleId, totalMinor);
 
     return { saleId, status: "COMPLETED", totalMinor, idempotentReplay: false };
-  });
 }
 
 function validateSale(context: SaleMutationContext, payload: SaleMutationPayload): void {
