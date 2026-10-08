@@ -103,4 +103,93 @@ describe("unified cashbook and expenses", () => {
     expect((await pool.query(`SELECT DISTINCT actor_staff_id FROM cashbook_entries`)).rows).toEqual([{ actor_staff_id: f.actor }]);
   });
 
+  it("manages expense-category lifecycle with revisions while preserving historical expenses", async () => {
+    const f = await fixture();
+    const listed = await app.inject({ method: "GET", url: `/v1/expense-categories?businessId=${f.businessId}`, headers: f.headers });
+    expect(listed.statusCode).toBe(200);
+    const systemCategory = listed.json().categories.find((category: { system: boolean }) => category.system);
+    expect(systemCategory).toMatchObject({ system: true, active: true });
+    expect(Date.parse(systemCategory.createdAt)).not.toBeNaN();
+    expect(Date.parse(systemCategory.updatedAt)).not.toBeNaN();
+
+    const createdResponse = await app.inject({
+      method: "POST", url: "/v1/expense-categories", headers: f.headers,
+      payload: { businessId: f.businessId, name: "Vehicle fuel" },
+    });
+    expect(createdResponse.statusCode).toBe(201);
+    const created = createdResponse.json().category;
+    expect(created).toMatchObject({ name: "Vehicle fuel", active: true, system: false });
+    expect(Date.parse(created.updatedAt)).not.toBeNaN();
+
+    const missingRevision = await app.inject({
+      method: "PATCH", url: `/v1/expense-categories/${created.id}`, headers: f.headers,
+      payload: { businessId: f.businessId, name: "Fleet fuel" },
+    });
+    expect(missingRevision.statusCode).toBe(400);
+    expect(missingRevision.json().error).toBe("REVISION_REQUIRED");
+
+    await pool.query(`UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1`, [f.businessId]);
+    const cashierDenied = await app.inject({
+      method: "PATCH", url: `/v1/expense-categories/${created.id}`, headers: f.headers,
+      payload: { businessId: f.businessId, expectedUpdatedAt: created.updatedAt, name: "Denied rename" },
+    });
+    expect(cashierDenied.statusCode).toBe(403);
+
+    await pool.query(`UPDATE business_memberships SET role='OWNER' WHERE business_id=$1`, [f.businessId]);
+    const renamedResponse = await app.inject({
+      method: "PATCH", url: `/v1/expense-categories/${created.id}`, headers: f.headers,
+      payload: { businessId: f.businessId, expectedUpdatedAt: created.updatedAt, name: "Fleet fuel" },
+    });
+    expect(renamedResponse.statusCode).toBe(200);
+    const renamed = renamedResponse.json().category;
+    expect(renamed.name).toBe("Fleet fuel");
+
+    const stale = await app.inject({
+      method: "PATCH", url: `/v1/expense-categories/${created.id}`, headers: f.headers,
+      payload: { businessId: f.businessId, expectedUpdatedAt: created.updatedAt, name: "Stale rename" },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error).toBe("STALE_VERSION");
+
+    const expense = { ...f.expense, categoryId: created.id, description: "Truck diesel" };
+    expect((await f.sync("category-history-expense", "EXPENSE_CREATE", expense)).status).toBe("APPLIED");
+
+    const archivedResponse = await app.inject({
+      method: "PATCH", url: `/v1/expense-categories/${created.id}`, headers: f.headers,
+      payload: { businessId: f.businessId, expectedUpdatedAt: renamed.updatedAt, active: false },
+    });
+    expect(archivedResponse.statusCode).toBe(200);
+    const archived = archivedResponse.json().category;
+    expect(archived.active).toBe(false);
+
+    expect((await f.sync("category-archived-expense", "EXPENSE_CREATE", expense)).status).toBe("REJECTED");
+    const history = await app.inject({ method: "GET", url: `/v1/expenses?businessId=${f.businessId}&branchId=${f.branchId}`, headers: f.headers });
+    expect(history.statusCode).toBe(200);
+    expect(history.json().expenses.some((row: { categoryId: string; categoryName: string }) => row.categoryId === created.id && row.categoryName === "Fleet fuel")).toBe(true);
+
+    const lifecycleAudit = await pool.query<{ event_type: string; payload: { changes?: Record<string, { before: unknown; after: unknown }> } }>(
+      `SELECT event_type,payload FROM audit_events WHERE business_id=$1 AND entity_type='EXPENSE_CATEGORY' AND entity_id=$2 ORDER BY occurred_at,id`,
+      [f.businessId, created.id],
+    );
+    const deactivation = lifecycleAudit.rows.find((row) => row.event_type === "EXPENSE_CATEGORY_DEACTIVATED");
+    expect(deactivation?.payload.changes?.active).toEqual({ before: true, after: false });
+
+    const reactivatedResponse = await app.inject({
+      method: "PATCH", url: `/v1/expense-categories/${created.id}`, headers: f.headers,
+      payload: { businessId: f.businessId, expectedUpdatedAt: archived.updatedAt, active: true },
+    });
+    expect(reactivatedResponse.statusCode).toBe(200);
+    expect(reactivatedResponse.json().category.active).toBe(true);
+
+    const systemRenamed = await app.inject({
+      method: "PATCH", url: `/v1/expense-categories/${systemCategory.id}`, headers: f.headers,
+      payload: { businessId: f.businessId, expectedUpdatedAt: systemCategory.updatedAt, name: "General operations", system: false },
+    });
+    expect(systemRenamed.statusCode).toBe(200);
+    expect(systemRenamed.json().category).toMatchObject({ name: "General operations", system: true });
+
+    const deleteAttempt = await app.inject({ method: "DELETE", url: `/v1/expense-categories/${created.id}?businessId=${f.businessId}`, headers: f.headers });
+    expect(deleteAttempt.statusCode).toBe(404);
+  });
+
 });
