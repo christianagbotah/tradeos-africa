@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
+import { SupplierWorkspace } from "./suppliers/supplier-workspace";
+import type { Supplier } from "./suppliers/supplier-types";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
 import {
@@ -21,17 +23,6 @@ type CatalogItem = {
   active: boolean;
   units: Array<{ code: string; label: string; canPurchase: boolean }>;
   conversions: Array<{ fromUnitCode: string; toUnitCode: string; factor: number }>;
-};
-
-type Supplier = {
-  id: string;
-  name: string;
-  phone: string | null;
-  email: string | null;
-  address: string | null;
-  active: boolean;
-  balanceMinor: number;
-  paymentTermsDays: number;
 };
 
 type InventoryItem = {
@@ -82,7 +73,6 @@ type Props = {
 };
 
 const receiveRoles = new Set(["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"]);
-const supplierPaymentRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
 
 type PurchasesInventorySnapshot = { suppliers: Supplier[]; inventory: InventoryItem[]; purchases: PurchaseSummary[] };
 function isPurchasesInventorySnapshot(value: unknown): value is PurchasesInventorySnapshot {
@@ -101,7 +91,6 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   const [returnPurchase, setReturnPurchase] = useState<PurchaseSummary | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const canReceive = receiveRoles.has(role);
-  const canPaySupplier = supplierPaymentRoles.has(role);
 
   const refresh = async () => {
     const sessionEpoch = captureSessionEpoch();
@@ -160,54 +149,17 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
       </div>
 
       {view === "purchases" ? <>
+        <SupplierWorkspace businessId={businessId} branchId={branchId} currencyCode={currencyCode} role={role} suppliers={suppliers} onRefresh={refresh} />
         {canReceive ? (
           <div className="procurement-actions">
-            <SupplierCreate businessId={businessId} canManageTerms={canPaySupplier} onCreated={(supplier) => { setSuppliers((current) => [...current, supplier].sort((a,b) => a.name.localeCompare(b.name))); setMessage("Supplier added."); }} />
             <PurchaseReceipt businessId={businessId} branchId={branchId} currencyCode={currencyCode} suppliers={suppliers.filter((supplier) => supplier.active)} catalog={catalog} onMessage={setMessage} />
           </div>
         ) : <div className="inventory-readonly-note">Your role can view purchase history but cannot receive inventory.</div>}
-        <div className="supplier-balances">{suppliers.map(supplier => <div className="purchase-history-row" key={supplier.id}><div><strong>{supplier.name} · {supplier.balanceMinor < 0 ? "Supplier credit" : "Payable"} {formatMoney(Math.abs(supplier.balanceMinor),currencyCode)}</strong><span>Terms: Net {supplier.paymentTermsDays} day{supplier.paymentTermsDays === 1 ? "" : "s"}</span></div>{canPaySupplier ? <SupplierTerms businessId={businessId} supplier={supplier} onSaved={()=>void refresh()} onMessage={setMessage} /> : null}{canPaySupplier && supplier.balanceMinor > 0 ? <SupplierPayment businessId={businessId} branchId={branchId} supplier={supplier} onMessage={setMessage} /> : null}</div>)}</div>
         <RecentPurchases purchases={purchases} onReturn={canReceive ? setReturnPurchase : undefined} />
         {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={()=>setReturnPurchase(null)} onMessage={setMessage} /> : null}
       </> : <InventoryTable items={inventory} currencyCode={currencyCode} />}
       {message ? <div className="procurement-message">{message}</div> : null}
     </section>
-  );
-}
-
-function SupplierCreate({ businessId, canManageTerms, onCreated }: { businessId: string; canManageTerms: boolean; onCreated: (supplier: Supplier) => void }) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [paymentTermsDays, setPaymentTermsDays] = useState("0");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError(null);
-    try {
-      const result = await clientApi<{ supplier: Supplier }>("/api/tradeos/v1/suppliers", {
-        method: "POST",
-        body: JSON.stringify({ businessId, name: name.trim(), phone: phone.trim() || null, email: email.trim() || null, ...(canManageTerms ? { paymentTermsDays: Number(paymentTermsDays || 0) } : {}) }),
-      });
-      setName(""); setPhone(""); setEmail(""); setPaymentTermsDays("0"); setOpen(false); onCreated(result.supplier);
-    } catch (reason) { setError(messageFrom(reason)); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="supplier-create">
-      <button className="ghost-button" type="button" onClick={() => setOpen((value) => !value)}>{open ? "Close supplier form" : "+ Add supplier"}</button>
-      {open ? <form className="supplier-form" onSubmit={(event) => void submit(event)}>
-        <label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Supplier name" /></label>
-        <label>Phone<input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="optional" /></label>
-        <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="optional" /></label>
-{canManageTerms ? <label>Payment terms (days)<input inputMode="numeric" min="0" max="3650" value={paymentTermsDays} onChange={(event) => setPaymentTermsDays(event.target.value.replace(/\D/g, ""))} /></label> : null}
-        <button className="primary-button" type="submit" disabled={busy}>{busy ? "Saving…" : "Save supplier"}</button>
-        {error ? <span className="form-error supplier-error">{error}</span> : null}
-      </form> : null}
-    </div>
   );
 }
 
@@ -362,27 +314,6 @@ function moneyToMinor(value:string):number {
 function formatMoney(minor:number,currencyCode:string):string { return currencyCode==="GHS"?`₵${(minor/100).toFixed(2)}`:new Intl.NumberFormat(undefined,{style:"currency",currency:currencyCode}).format(minor/100); }
 function formatQuantity(value:number):string { return new Intl.NumberFormat(undefined,{maximumFractionDigits:4}).format(value); }
 function formatDate(value:string):string { return new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short"}).format(new Date(value)); }
-
-function SupplierTerms({ businessId, supplier, onSaved, onMessage }: { businessId: string; supplier: Supplier; onSaved: () => void; onMessage: (message: string | null) => void }) {
-  const [days,setDays]=useState(String(supplier.paymentTermsDays));
-  const [busy,setBusy]=useState(false);
-  useEffect(()=>setDays(String(supplier.paymentTermsDays)),[supplier.id,supplier.paymentTermsDays]);
-  const save=async()=>{ if(busy) return; setBusy(true); onMessage(null); try { await clientApi(`/api/tradeos/v1/suppliers/${supplier.id}`,{method:"PATCH",body:JSON.stringify({businessId,paymentTermsDays:Number(days||0)})}); onMessage("Supplier payment terms updated. New credit purchases will snapshot the new due date."); onSaved(); } catch(error){ onMessage(messageFrom(error)); } finally { setBusy(false); } };
-  return <div className="supplier-terms-inline"><label>Net days<input inputMode="numeric" min="0" max="3650" value={days} onChange={(event)=>setDays(event.target.value.replace(/\D/g,""))} /></label><button type="button" className="text-button" disabled={busy} onClick={()=>void save()}>{busy?"Saving…":"Save terms"}</button></div>;
-}
-
-function SupplierPayment({businessId,branchId,supplier,onMessage}:{businessId:string;branchId:string;supplier:Supplier;onMessage:(message:string)=>void}) {
- const [amount,setAmount]=useState(""); const [method,setMethod]=useState("CASH"); const [busy,setBusy]=useState(false);
- const submit=async(event:FormEvent)=>{
-  event.preventDefault(); const amountMinor=moneyToMinor(amount);
-  if (!Number.isSafeInteger(amountMinor) || amountMinor<=0 || amountMinor>supplier.balanceMinor) {onMessage("Enter a payment within the supplier payable balance.");return;}
-  setBusy(true);
-  try {enqueueMutation({clientId:getOrCreateClientId(),clientMutationId:crypto.randomUUID(),businessId,branchId,mutationType:"SUPPLIER_PAYMENT_CREATE",occurredAt:new Date().toISOString(),payload:{supplierId:supplier.id,amountMinor,method}});
-   setAmount(""); const result=await flushPendingMutations(); onMessage(result.rejected ? "Supplier payment needs review." : "Supplier payment saved; it will post when synchronized.");
-  } catch(error){onMessage(messageFrom(error));} finally{setBusy(false);}
- };
- return <form className="supplier-form" onSubmit={event=>void submit(event)}><label>Payment amount<input required inputMode="decimal" value={amount} onChange={event=>setAmount(event.target.value)} /></label><label>Method<select value={method} onChange={event=>setMethod(event.target.value)}>{["CASH","MOMO","CARD","BANK","OTHER"].map(value=><option key={value}>{value}</option>)}</select></label><button disabled={busy} className="primary-button">Pay supplier</button></form>;
-}
 
 
 type ReturnablePurchaseLine = {id:string;itemName:string;purchaseUnitCode:string;purchaseQuantity:number;stockUnitCode:string;stockQuantity:number;lineCostMinor:number;returnedQuantity:number;remainingQuantity:number;returnedRecoveryMinor:number};
