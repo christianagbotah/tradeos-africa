@@ -23,10 +23,12 @@ describe("workspace route composition", () => {
 
   it("keeps combined mutation sources shared behind presentation view props", () => {
     const purchases = fs.readFileSync(path.join(appRoot, "components", "purchases-inventory.tsx"), "utf8");
+    const purchaseBuilder = fs.readFileSync(path.join(appRoot, "components", "purchases", "purchase-receipt-builder.tsx"), "utf8");
     const sales = fs.readFileSync(path.join(appRoot, "components", "sales-returns.tsx"), "utf8");
     expect(purchases).toMatch(/view:\s*"purchases"\s*\|\s*"inventory"/);
+    expect(purchases).toContain("PurchaseReceiptBuilder");
+    expect(purchaseBuilder).toContain('mutationType: "PURCHASE_RECEIVE_CREATE"');
     expect(sales).toMatch(/view:\s*"sales"\s*\|\s*"returns"/);
-    expect(purchases.match(/PURCHASE_RECEIVE_CREATE/g)?.length).toBe(2);
     expect(sales.match(/RETURN_CREATE/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
