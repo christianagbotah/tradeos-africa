@@ -89,7 +89,8 @@ describe("unified cashbook and expenses", () => {
     for (const suffix of ["&method=CREDIT_NOTE", "&from=garbage", "&limit=0", "&from=2027-01-01&to=2026-01-01"]) expect((await app.inject({ method: "GET", url: url + suffix, headers: f.headers })).statusCode).toBe(400);
     const category = await app.inject({ method: "POST", url: "/v1/expense-categories", headers: f.headers, payload: { businessId: f.businessId, name: "Insurance" } });
     expect(category.statusCode).toBe(201);
-    expect((await app.inject({ method: "PATCH", url: `/v1/expense-categories/${category.json().category.id}`, headers: f.headers, payload: { businessId: f.businessId, active: false } })).json().category.active).toBe(false);
+    const createdCategory = category.json().category;
+    expect((await app.inject({ method: "PATCH", url: `/v1/expense-categories/${createdCategory.id}`, headers: f.headers, payload: { businessId: f.businessId, expectedUpdatedAt: createdCategory.updatedAt, active: false } })).json().category.active).toBe(false);
     await pool.query(`UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1`, [f.businessId]);
     expect((await f.sync("cashier-expense", "EXPENSE_CREATE", f.expense)).status).toBe("APPLIED");
     expect((await f.request("cashier-adjust", "CASHBOOK_ADJUSTMENT_CREATE", adjustment)).statusCode).toBe(403);
