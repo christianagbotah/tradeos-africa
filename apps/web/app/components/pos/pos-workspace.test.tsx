@@ -52,7 +52,7 @@ describe("professional POS workspace", () => {
 
   it("pins sticky mobile Charge and desktop two-pane presentation", () => {
     const root = path.dirname(fileURLToPath(import.meta.url));
-    const css = fs.readFileSync(path.join(root, "../../pos.css"), "utf8");
+    const css = fs.readFileSync(path.join(root, "../../pos-workspace.css"), "utf8");
     expect(css).toContain(".pos-workspace-grid");
     expect(css).toContain("grid-template-columns:minmax(0,1fr) minmax(340px,420px)");
     expect(css).toContain(".pos-charge-bar");
