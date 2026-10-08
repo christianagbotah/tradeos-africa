@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { Button } from "../ui/button";
+import { ActorReasonEvidence, PostedHistoryNote } from "../business/transaction-evidence";
 import type { InventoryDetail } from "./types";
 
 export function InventoryDetailSheet({ open, detail, onClose }: { open: boolean; detail: InventoryDetail | null; onClose: () => void }) {
@@ -20,7 +21,7 @@ export function InventoryDetailSheet({ open, detail, onClose }: { open: boolean;
     <div className="inventory-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="inventory-detail-title">
       <header className="inventory-detail-head"><div><span>Inventory movement history</span><h2 id="inventory-detail-title">{detail?.item.name ?? "Inventory item"}</h2>{detail?.item.sku ? <small>{detail.item.sku} · {detail.item.stockUnitCode}</small> : null}</div><button ref={closeRef} type="button" aria-label="Close inventory history" onClick={onClose}>×</button></header>
       <div className="inventory-detail-scroll">
-        <div className="inventory-derived-note"><strong>Balances are derived from posted movements.</strong><span>Corrections must create new movement events. Existing inventory history is never rewritten.</span></div>
+        <PostedHistoryNote subject="Inventory movement history" correction="new inventory movement events" title="Balances are derived from posted movements." />
         {!detail ? <div className="inventory-empty-modern">Loading movement history…</div> : <>
           <div className="inventory-detail-balances">
             <Balance label="Available" value={detail.item.available} unit={detail.item.stockUnitCode} />
@@ -33,8 +34,7 @@ export function InventoryDetailSheet({ open, detail, onClose }: { open: boolean;
             <div className="inventory-movement-list">{detail.movements.length === 0 ? <div className="inventory-empty-modern">No movement history yet.</div> : detail.movements.map((movement) => <article className="inventory-movement-row" key={movement.id}>
               <div className={movement.quantityDelta >= 0 ? "inventory-movement-quantity positive" : "inventory-movement-quantity negative"}><strong>{movement.quantityDelta > 0 ? "+" : ""}{formatQuantity(movement.quantityDelta)}</strong><span>{movement.stockUnitCode}</span></div>
               <div className="inventory-movement-main"><strong>{title(movement.reason)}</strong><span>{title(movement.location)} · {formatDate(movement.occurredAt)}</span></div>
-              <div className="inventory-movement-meta"><span>Reference</span><strong>{movement.referenceType.replaceAll("_", " ")}</strong><small>{movement.referenceId.slice(0, 12)}</small></div>
-              <div className="inventory-movement-meta"><span>Actor</span><strong>{movement.actorName ?? "System"}</strong></div>
+              <ActorReasonEvidence actor={movement.actorName} reason={movement.reason} reference={`${movement.referenceType.replaceAll("_", " ")} · ${movement.referenceId.slice(0, 12)}`} />
             </article>)}</div>
           </section>
         </>}

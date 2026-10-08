@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { Button } from "../ui/button";
+import { PostedHistoryNote, TransactionStatusBadge } from "../business/transaction-evidence";
 import type { SaleDetail } from "./types";
 
 type Props = {
@@ -51,7 +52,7 @@ export function SaleDetailSheet({ sale, open, canProcessReturns, onClose }: Prop
 
         <div className="sale-detail-scroll">
           <section className="sale-detail-hero">
-            <div><span>Total</span><strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong><small>{humanize(sale.status)}</small></div>
+            <div><span>Total</span><strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong><small><TransactionStatusBadge status={sale.status} label={humanize(sale.status)} /></small></div>
             <div><span>Customer</span><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong><small>{sale.customer?.phone ?? "No customer account attached"}</small></div>
             <div><span>Refunded</span><strong>{formatMoney(refundedMinor, sale.currencyCode)}</strong><small>{refundedMinor > 0 ? "Posted / processing refund evidence below" : "No refund recorded"}</small></div>
           </section>
@@ -73,12 +74,12 @@ export function SaleDetailSheet({ sale, open, canProcessReturns, onClose }: Prop
               <div className="sale-detail-payment" key={payment.id}>
                 <div><strong>{humanize(payment.method)}</strong><span>{payment.providerReference ?? "No provider reference"}</span></div>
                 <div><span>Received</span><strong>{formatMoney(payment.amountMinor, sale.currencyCode)}</strong></div>
-                <div><span>Status</span><strong>{humanize(payment.status)}</strong>{payment.refundedMinor > 0 ? <small>{formatMoney(payment.refundedMinor, sale.currencyCode)} refunded</small> : null}</div>
+                <div><span>Status</span><TransactionStatusBadge status={payment.status} label={humanize(payment.status)} />{payment.refundedMinor > 0 ? <small>{formatMoney(payment.refundedMinor, sale.currencyCode)} refunded</small> : null}</div>
               </div>
             ))}</div>
           </section>
 
-          <section className="sale-detail-history-note"><strong>Immutable transaction history</strong><span>TradeOS never edits or deletes this posted receipt. Corrections are linked returns, refunds or exchanges with their own actor, reason and audit evidence.</span></section>
+          <PostedHistoryNote subject="Sale receipt" correction="returns, refunds or exchanges" title="Immutable transaction history" />
         </div>
 
         <footer className="sale-detail-footer">

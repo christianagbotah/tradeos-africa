@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { Button } from "../ui/button";
+import { ActorReasonEvidence, PostedHistoryNote, TransactionStatusBadge } from "../business/transaction-evidence";
 import type { SaleDetail, SaleLine } from "../sales/types";
 
 export type ReturnMode = "RETURN_REFUND" | "REFUND_ONLY" | "EXCHANGE";
@@ -76,12 +77,13 @@ export function ReturnRefundSheet(props: Props) {
         <div className="return-sheet-scroll">
           <section className="return-sheet-summary">
             <div><span>Original total</span><strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong></div>
-            <div><span>Receipt status</span><strong>{humanize(sale.status)}</strong></div>
+            <div><span>Receipt status</span><TransactionStatusBadge status={sale.status} label={humanize(sale.status)} /></div>
             <div><span>Customer</span><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong></div>
           </section>
 
           <section className="return-sheet-section">
             <div className="return-sheet-section-heading"><div><strong>Correction type</strong><span>TradeOS records a linked correction; the original receipt never changes.</span></div></div>
+            <PostedHistoryNote subject="Original sale" correction="linked returns, refunds or exchanges" />
             <div className="return-sheet-modes">
               <button type="button" className={mode === "RETURN_REFUND" ? "active" : undefined} onClick={() => props.onModeChange("RETURN_REFUND")}><strong>Return + refund</strong><span>Physical product comes back where applicable.</span></button>
               <button type="button" className={mode === "REFUND_ONLY" ? "active" : undefined} onClick={() => props.onModeChange("REFUND_ONLY")}><strong>Refund only</strong><span>Customer keeps the item; stock is unchanged.</span></button>
@@ -106,6 +108,7 @@ export function ReturnRefundSheet(props: Props) {
             <div><span>Refund preview</span><strong>{formatMoney(refundPreviewMinor, sale.currencyCode)}</strong></div>
             <div><span>Selected lines</span><strong>{selectedLineCount}</strong></div>
             <div><span>Audit</span><strong>Actor + reason recorded</strong></div>
+            <ActorReasonEvidence actor="Authenticated staff" reason={reason || "Reason required"} />
           </section>
         </div>
 

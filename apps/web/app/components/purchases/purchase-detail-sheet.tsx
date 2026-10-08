@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { Button } from "../ui/button";
+import { PostedHistoryNote } from "../business/transaction-evidence";
 import type { PurchaseDetail, PurchaseSummary } from "./types";
 
 export function PurchaseDetailSheet({ open, purchase, detail, canReturn, onClose, onReturn }: {
@@ -28,7 +29,7 @@ export function PurchaseDetailSheet({ open, purchase, detail, canReturn, onClose
     <div ref={sheetRef} className="purchase-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="purchase-detail-title">
       <header className="purchase-detail-head"><div><span>Posted purchase receipt</span><h2 id="purchase-detail-title">{purchase.supplierName}</h2><small>{purchase.supplierReference ?? `Receipt ${purchase.id.slice(0, 8)}`}</small></div><button ref={closeRef} type="button" aria-label="Close purchase receipt" onClick={onClose}>×</button></header>
       <div className="purchase-detail-scroll">
-        <div className="purchase-readonly-note"><strong>Recorded receipt is read-only.</strong><span>Corrections are created as linked purchase-return events so stock, supplier balances and audit history remain intact.</span></div>
+        <PostedHistoryNote subject="Purchase receipt" correction="linked purchase-return events" title="Recorded receipt is read-only." />
         <div className="purchase-detail-metrics">
           <div><span>Total</span><strong>{formatMoney(purchase.totalMinor, purchase.currencyCode)}</strong></div>
           <div><span>Settlement</span><strong>{title(purchase.settlementMethod)}</strong></div>
