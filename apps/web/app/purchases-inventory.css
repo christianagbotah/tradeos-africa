@@ -319,3 +319,60 @@
   .inventory-detail-footer { padding-left: 16px; padding-right: 16px; }
   .inventory-detail-footer .tos-button { width: 100%; }
 }
+
+/* Inventory adjustment workflow */
+.inventory-row-actions { display: grid; gap: 8px; min-width: 150px; }
+.inventory-row-actions .tos-button { min-height: 48px; }
+.inventory-adjustment-review,
+.inventory-adjustment-status { margin: 0 20px; display: grid; gap: 4px; padding: 13px 14px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); font-size: 14px; }
+.inventory-adjustment-review { border-color: color-mix(in srgb, var(--tos-danger) 35%, var(--tos-border)); background: color-mix(in srgb, var(--tos-danger) 6%, var(--tos-surface)); }
+.inventory-adjustment-review strong { color: var(--tos-danger); font-size: 15px; }
+.inventory-adjustment-review span,
+.inventory-adjustment-status { color: var(--tos-text-muted); }
+.inventory-adjustment-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; justify-items: end; background: rgb(15 23 42 / 55%); }
+.inventory-adjustment-sheet { width: min(680px,100%); height: 100%; display: grid; grid-template-rows: auto minmax(0,1fr); background: var(--tos-surface); box-shadow: -20px 0 60px rgb(15 23 42 / 18%); }
+.inventory-adjustment-sheet button,
+.inventory-adjustment-sheet input,
+.inventory-adjustment-sheet select,
+.inventory-adjustment-sheet textarea { min-height: 48px; font-size: 15px; }
+.inventory-adjustment-head { display: flex; justify-content: space-between; gap: 16px; padding: 20px 22px; border-bottom: 1px solid var(--tos-border); }
+.inventory-adjustment-head > div { min-width: 0; }
+.inventory-adjustment-head span { color: var(--tos-text-muted); font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .04em; }
+.inventory-adjustment-head h2 { margin: 4px 0; font-size: 24px; }
+.inventory-adjustment-head small { color: var(--tos-text-muted); font-size: 13px; }
+.inventory-adjustment-head > button { min-width: 48px; border: 0; border-radius: 50%; background: var(--tos-surface-soft); font-size: 22px; }
+.inventory-adjustment-body { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 18px; padding: 20px 22px calc(20px + env(safe-area-inset-bottom)); }
+.inventory-adjustment-body > section { display: grid; gap: 12px; }
+.inventory-adjustment-section-heading { display: grid; gap: 3px; }
+.inventory-adjustment-section-heading strong { font-size: 17px; }
+.inventory-adjustment-section-heading span { color: var(--tos-text-muted); font-size: 13px; }
+.inventory-adjustment-actions { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+.inventory-adjustment-actions button { border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); padding: 9px 10px; background: var(--tos-surface); color: var(--tos-text-muted); font-weight: 700; }
+.inventory-adjustment-actions button.active { border-color: var(--tos-gold); background: color-mix(in srgb, var(--tos-gold) 8%, var(--tos-surface)); color: var(--tos-text); }
+.inventory-adjustment-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.inventory-adjustment-fields label { display: grid; gap: 7px; color: var(--tos-text-muted); font-size: 13px; font-weight: 700; }
+.inventory-adjustment-fields input,
+.inventory-adjustment-fields select,
+.inventory-adjustment-fields textarea { width: 100%; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); padding: 10px 12px; background: var(--tos-surface); color: var(--tos-text); }
+.inventory-adjustment-explanation { grid-column: 1 / -1; }
+.inventory-adjustment-explanation > span { font-size: 12px; color: var(--tos-danger); }
+.inventory-adjustment-explanation textarea { min-height: 96px; resize: vertical; }
+.inventory-adjustment-preview { padding: 14px 15px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); background: var(--tos-surface-soft); }
+.inventory-adjustment-preview p { margin: 0; font-size: 15px; line-height: 1.5; }
+.inventory-adjustment-preview small { color: var(--tos-text-muted); font-size: 13px; line-height: 1.45; }
+.inventory-adjustment-message { padding: 12px 13px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); color: var(--tos-text-muted); font-size: 14px; }
+.inventory-adjustment-footer { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 10px; padding-top: 12px; background: var(--tos-surface); }
+.inventory-adjustment-footer .tos-button { min-width: 140px; }
+@media (max-width: 700px) {
+  .inventory-row-actions { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+  .inventory-adjustment-review,
+  .inventory-adjustment-status { margin-inline: 16px; }
+  .inventory-adjustment-sheet { width: 100%; }
+  .inventory-adjustment-head,
+  .inventory-adjustment-body { padding-left: 16px; padding-right: 16px; }
+  .inventory-adjustment-actions { grid-template-columns: 1fr 1fr; }
+  .inventory-adjustment-fields { grid-template-columns: 1fr; }
+  .inventory-adjustment-explanation { grid-column: auto; }
+  .inventory-adjustment-footer { display: grid; grid-template-columns: 1fr 1fr; }
+  .inventory-adjustment-footer .tos-button { min-width: 0; width: 100%; }
+}

@@ -73,7 +73,7 @@ describe("InventoryAdjustmentSheet", () => {
     expect(source).toContain("enqueueMutation");
     expect(source).toContain("flushPendingMutations");
     expect(source).toContain("navigator.onLine");
-    expect(source).not.toMatch(/PATCH[^\n]*inventory|PUT[^\n]*inventory/i);
+    expect(source).not.toMatch(/["'](?:PATCH|PUT)["'][^\n]*inventory/i);
   });
 
   it("keeps adjustment controls touch-safe on phones", () => {

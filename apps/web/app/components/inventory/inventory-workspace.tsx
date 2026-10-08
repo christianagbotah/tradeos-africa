@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Button } from "../ui/button";
+import { getFailedMutations, queueChangedEvent } from "../../lib/offline-sync";
+import { InventoryAdjustmentSheet } from "./inventory-adjustment-sheet";
 import type { InventoryItem } from "./types";
 
 export type InventoryFilter = "ALL" | "EMPTY" | "EXCEPTIONS";
@@ -16,14 +18,28 @@ export function filterInventory(items: InventoryItem[], query: string, filter: I
   });
 }
 
-export function InventoryWorkspace({ items, currencyCode, loadingId, onOpen }: {
+export function InventoryWorkspace({ items, currencyCode, loadingId, onOpen, businessId, branchId, role, onRefresh }: {
   items: InventoryItem[];
   currencyCode: string;
   loadingId: string | null;
   onOpen: (item: InventoryItem) => void;
+  businessId: string;
+  branchId: string;
+  role: string;
+  onRefresh: () => void | Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<InventoryFilter>("ALL");
+  const [adjustmentItem, setAdjustmentItem] = useState<InventoryItem | null>(null);
+  const [failedAdjustments, setFailedAdjustments] = useState(() => failedFor(businessId, branchId));
+  const [message, setMessage] = useState<string | null>(null);
+  const canAdjust = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
+  useEffect(() => {
+    const refreshFailed = () => setFailedAdjustments(failedFor(businessId, branchId));
+    refreshFailed();
+    window.addEventListener(queueChangedEvent, refreshFailed);
+    return () => window.removeEventListener(queueChangedEvent, refreshFailed);
+  }, [businessId, branchId]);
   const visible = useMemo(() => filterInventory(items, query, filter), [items, query, filter]);
   const counts = useMemo(() => ({
     ALL: items.length,
@@ -43,6 +59,8 @@ export function InventoryWorkspace({ items, currencyCode, loadingId, onOpen }: {
         {([ ["ALL", "All"], ["EMPTY", "Empty"], ["EXCEPTIONS", "Exceptions"] ] as const).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={filter === value} className={filter === value ? "active" : undefined} onClick={() => setFilter(value)}><span>{label}</span><strong>{counts[value]}</strong></button>)}
       </div>
     </div>
+    {failedAdjustments.length > 0 ? <div className="inventory-adjustment-review" role="status"><strong>{failedAdjustments.length} inventory adjustment{failedAdjustments.length === 1 ? "" : "s"} needs review</strong><span>{failedAdjustments[0]?.result.errorMessage ?? "Refresh the item and review the rejected quantity before retrying."}</span></div> : null}
+    {message ? <div className="inventory-adjustment-status" role="status">{message}</div> : null}
     <div className="inventory-modern-list">
       {visible.length === 0 ? <div className="inventory-empty-modern"><strong>No inventory items match this view.</strong><span>Change the search or stock-state filter.</span></div> : visible.map((item) => <article className="inventory-row-modern" key={item.id}>
         <div className="inventory-row-identity"><strong>{item.name}</strong><span>{item.sku ?? `Stock unit · ${item.stockUnitCode}`}</span></div>
@@ -51,10 +69,15 @@ export function InventoryWorkspace({ items, currencyCode, loadingId, onOpen }: {
         <StockFact label="Damaged" value={formatQuantity(item.damaged)} alert={item.damaged > 0} />
         <StockFact label="Waste" value={formatQuantity(item.waste)} alert={item.waste > 0} />
         <div className="inventory-row-financial"><span>Average cost</span><strong>{item.averageStockUnitCostMinor === null ? "—" : `${formatMoney(item.averageStockUnitCostMinor, currencyCode)} / ${item.stockUnitCode}`}</strong><small>Inventory value {formatMoney(item.inventoryValueMinor, currencyCode)}</small></div>
-        <Button variant="secondary" type="button" disabled={loadingId === item.id} onClick={() => onOpen(item)}>{loadingId === item.id ? "Opening…" : "Movement history"}</Button>
+        <div className="inventory-row-actions"><Button variant="secondary" type="button" disabled={loadingId === item.id} onClick={() => onOpen(item)}>{loadingId === item.id ? "Opening…" : "Movement history"}</Button>{canAdjust ? <Button type="button" onClick={() => setAdjustmentItem(item)}>Adjust stock</Button> : null}</div>
       </article>)}
     </div>
+    <InventoryAdjustmentSheet open={Boolean(adjustmentItem)} item={adjustmentItem} businessId={businessId} branchId={branchId} role={role} onClose={() => setAdjustmentItem(null)} onQueued={async (nextMessage) => { setMessage(nextMessage); setFailedAdjustments(failedFor(businessId, branchId)); await onRefresh(); }} />
   </section>;
+}
+
+function failedFor(businessId: string, branchId: string) {
+  return getFailedMutations().filter((entry) => entry.mutation.businessId === businessId && entry.mutation.branchId === branchId && entry.mutation.mutationType === "INVENTORY_ADJUSTMENT_CREATE");
 }
 
 function StockFact({ label, value, alert = false }: { label: string; value: string; alert?: boolean }) {

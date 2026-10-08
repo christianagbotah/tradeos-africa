@@ -106,7 +106,7 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
     void refresh();
     const onApplied = (event: Event) => {
       const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
-      if (detail?.businessId === businessId && detail.branchId === branchId && ["PURCHASE_RETURN_CREATE","PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","SALE_CREATE","RETURN_CREATE","REFUND_CREATE"].includes(detail.mutationType)) void refresh();
+      if (detail?.businessId === businessId && detail.branchId === branchId && ["PURCHASE_RETURN_CREATE","PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","SALE_CREATE","RETURN_CREATE","REFUND_CREATE","INVENTORY_ADJUSTMENT_CREATE"].includes(detail.mutationType)) void refresh();
     };
     window.addEventListener(mutationAppliedEvent, onApplied);
     return () => window.removeEventListener(mutationAppliedEvent, onApplied);
@@ -176,7 +176,7 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
       <PurchaseDetailSheet open={Boolean(selectedPurchase)} purchase={selectedPurchase} detail={selectedDetail} canReturn={canReceive} onClose={() => { setSelectedPurchase(null); setSelectedDetail(null); }} onReturn={() => { if (selectedPurchase) setReturnPurchase(selectedPurchase); setSelectedPurchase(null); setSelectedDetail(null); }} />
       {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={() => setReturnPurchase(null)} onMessage={setMessage} /> : null}
     </> : <>
-      <InventoryWorkspace items={inventory} currencyCode={currencyCode} loadingId={inventoryLoadingId} onOpen={(item) => void openInventory(item)} />
+      <InventoryWorkspace items={inventory} currencyCode={currencyCode} loadingId={inventoryLoadingId} onOpen={(item) => void openInventory(item)} businessId={businessId} branchId={branchId} role={role} onRefresh={refresh} />
       <InventoryDetailSheet open={Boolean(selectedInventory)} detail={inventoryDetail} onClose={() => { setSelectedInventory(null); setInventoryDetail(null); }} />
     </>}
     {message ? <div className="procurement-message">{message}</div> : null}
