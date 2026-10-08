@@ -138,8 +138,9 @@ describe("business health rules", () => {
     expect(result.workingCapital.netTradeCreditMinor).toBe(50000);
     expect(result.workingCapital.operatingWorkingCapitalMinor).toBe(170000);
     expect(result.actions[0]?.priority).toBe("URGENT");
-    expect(result.actions.some((item) => item.sourceInsightCode === "PAYABLE_COVERAGE" && item.href === "#purchases")).toBe(true);
-    expect(result.actions.some((item) => item.sourceInsightCode === "RECEIVABLE_PRESSURE" && item.href === "#customers")).toBe(true);
+    expect(result.actions.some((item) => item.sourceInsightCode === "PAYABLE_COVERAGE" && item.href === "/purchases")).toBe(true);
+    expect(result.actions.some((item) => item.sourceInsightCode === "RECEIVABLE_PRESSURE" && item.href === "/customers")).toBe(true);
+    expect(result.actions.every((item) => !item.href.startsWith("#"))).toBe(true);
   });
 
   it("does not fabricate operating working capital for a historical period with a current inventory snapshot", () => {
@@ -157,7 +158,7 @@ describe("business health rules", () => {
     const result = evaluateBusinessHealth(basis());
     expect(result.workingCapital.status).toBe("HEALTHY");
     expect(result.actions).toHaveLength(1);
-    expect(result.actions[0]).toMatchObject({ code: "ACTION_MAINTAIN_RECORDING", priority: "LOW", area: "REPORTS" });
+    expect(result.actions[0]).toMatchObject({ code: "ACTION_MAINTAIN_RECORDING", priority: "LOW", area: "REPORTS", href: "/reports" });
   });
 
   it("returns insufficient data instead of inventing a score for an empty business", () => {

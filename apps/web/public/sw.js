@@ -1,4 +1,4 @@
-const CACHE_NAME = "tradeos-shell-v1";
+const CACHE_NAME = "tradeos-shell-v2";
 const CORE_URLS = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -11,7 +11,16 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(async (keys) => {
+        await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
+        const cache = await caches.open(CACHE_NAME);
+        const requests = await cache.keys();
+        await Promise.all(
+          requests
+            .filter((request) => new URL(request.url).pathname.startsWith("/api/"))
+            .map((request) => cache.delete(request)),
+        );
+      })
       .then(() => self.clients.claim()),
   );
 });
@@ -22,6 +31,10 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // Authenticated/session APIs must always reflect current server authorization.
+  // Feature-level offline caches live in IndexedDB/localStorage and are scoped separately.
+  if (url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(

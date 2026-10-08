@@ -93,21 +93,21 @@ function insight(code: string, severity: BusinessInsightSeverity, title: string,
 }
 
 const actionRouteByInsight: Record<string, { area: CfoActionArea; href: string; navigationLabel: string }> = {
-  OPERATING_LOSS: { area: "PRICING", href: "#catalog", navigationLabel: "Review catalog & prices" },
-  THIN_MARGIN: { area: "PRICING", href: "#catalog", navigationLabel: "Review catalog & prices" },
-  NEGATIVE_OPERATING_CASH: { area: "CASH", href: "#cashbook", navigationLabel: "Open cashbook" },
-  NON_OPERATING_CASH_SUPPORT: { area: "CASH", href: "#cashbook", navigationLabel: "Open cashbook" },
-  LOW_CASH_CONVERSION: { area: "CUSTOMERS", href: "#customers", navigationLabel: "Review customer credit" },
-  PAYABLE_COVERAGE: { area: "CASH", href: "#purchases", navigationLabel: "Review supplier balances" },
-  RECEIVABLE_PRESSURE: { area: "CUSTOMERS", href: "#customers", navigationLabel: "Collect customer balances" },
-  PRODUCT_STOCK_VALUE_MISSING: { area: "INVENTORY", href: "#purchases", navigationLabel: "Review inventory" },
-  INVENTORY_TIEUP: { area: "INVENTORY", href: "#purchases", navigationLabel: "Review inventory" },
-  QUARANTINE_PRESSURE: { area: "INVENTORY", href: "#purchases", navigationLabel: "Review quarantined stock" },
-  RETURN_WASTE: { area: "SALES", href: "#returns", navigationLabel: "Review returns" },
-  HIGH_RETURNS: { area: "SALES", href: "#returns", navigationLabel: "Review returns" },
-  REVENUE_DECLINE: { area: "SALES", href: "#reports", navigationLabel: "Inspect performance" },
-  EXPENSE_PRESSURE: { area: "EXPENSES", href: "#cashbook", navigationLabel: "Review expenses" },
-  BRANCH_MARGIN_GAP: { area: "BRANCHES", href: "#reports", navigationLabel: "Compare branches" },
+  OPERATING_LOSS: { area: "PRICING", href: "/catalog", navigationLabel: "Review catalog & prices" },
+  THIN_MARGIN: { area: "PRICING", href: "/catalog", navigationLabel: "Review catalog & prices" },
+  NEGATIVE_OPERATING_CASH: { area: "CASH", href: "/cashbook", navigationLabel: "Open cashbook" },
+  NON_OPERATING_CASH_SUPPORT: { area: "CASH", href: "/cashbook", navigationLabel: "Open cashbook" },
+  LOW_CASH_CONVERSION: { area: "CUSTOMERS", href: "/customers", navigationLabel: "Review customer credit" },
+  PAYABLE_COVERAGE: { area: "CASH", href: "/purchases", navigationLabel: "Review supplier balances" },
+  RECEIVABLE_PRESSURE: { area: "CUSTOMERS", href: "/customers", navigationLabel: "Collect customer balances" },
+  PRODUCT_STOCK_VALUE_MISSING: { area: "INVENTORY", href: "/inventory", navigationLabel: "Review inventory" },
+  INVENTORY_TIEUP: { area: "INVENTORY", href: "/inventory", navigationLabel: "Review inventory" },
+  QUARANTINE_PRESSURE: { area: "INVENTORY", href: "/inventory", navigationLabel: "Review quarantined stock" },
+  RETURN_WASTE: { area: "SALES", href: "/returns", navigationLabel: "Review returns" },
+  HIGH_RETURNS: { area: "SALES", href: "/returns", navigationLabel: "Review returns" },
+  REVENUE_DECLINE: { area: "SALES", href: "/reports", navigationLabel: "Inspect performance" },
+  EXPENSE_PRESSURE: { area: "EXPENSES", href: "/cashbook", navigationLabel: "Review expenses" },
+  BRANCH_MARGIN_GAP: { area: "BRANCHES", href: "/reports", navigationLabel: "Compare branches" },
 };
 
 function actionPriority(severity: BusinessInsightSeverity): CfoActionPriority {
@@ -142,7 +142,7 @@ function buildCfoActions(insights: BusinessInsight[], hasScore: boolean): CfoAct
     .sort((a,b) => cfoSeverityRank[a.severity] - cfoSeverityRank[b.severity] || (cfoActionImpactRank[a.code] ?? 99) - (cfoActionImpactRank[b.code] ?? 99) || a.code.localeCompare(b.code))
     .slice(0, 5)
     .map((item) => {
-    const route = actionRouteByInsight[item.code] ?? { area: "REPORTS" as const, href: "#reports", navigationLabel: "Review financial report" };
+    const route = actionRouteByInsight[item.code] ?? { area: "REPORTS" as const, href: "/reports", navigationLabel: "Review financial report" };
     return {
       code: `ACTION_${item.code}`,
       sourceInsightCode: item.code,
@@ -165,7 +165,7 @@ function buildCfoActions(insights: BusinessInsight[], hasScore: boolean): CfoAct
     title: "Keep the financial signal complete",
     reason: "No first-generation CFO warning currently requires intervention.",
     action: "Keep sales, purchases, expenses, customer collections and supplier payments fully recorded so TradeOS can detect changes early.",
-    href: "#reports",
+    href: "/reports",
     navigationLabel: "Review financial report",
     evidence: [],
   }];

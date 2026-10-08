@@ -6,6 +6,10 @@ import "./interactions.css";
 import "./real-app.css";
 import "./sales-returns.css";
 import "./customers-credit.css";
+import "./workspace-shell.css";
+import "./ui-primitives.css";
+import "./workspace-polish.css";
+import "./cashbook.css";
 
 export const metadata: Metadata = {
   title: "TradeOS Africa",

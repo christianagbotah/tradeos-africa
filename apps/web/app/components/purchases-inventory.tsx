@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
+import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
+import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
 import {
   enqueueMutation,
   flushPendingMutations,
@@ -76,12 +78,23 @@ type Props = {
   currencyCode: string;
   role: string;
   catalog: CatalogItem[];
+  view: "purchases" | "inventory";
 };
 
 const receiveRoles = new Set(["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"]);
 const supplierPaymentRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
 
-export function PurchasesInventory({ businessId, branchId, currencyCode, role, catalog }: Props) {
+type PurchasesInventorySnapshot = { suppliers: Supplier[]; inventory: InventoryItem[]; purchases: PurchaseSummary[] };
+function isPurchasesInventorySnapshot(value: unknown): value is PurchasesInventorySnapshot {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<PurchasesInventorySnapshot>;
+  return Array.isArray(row.suppliers) && Array.isArray(row.inventory) && Array.isArray(row.purchases);
+}
+function isPurchaseDetail(value: unknown): value is { lines: ReturnablePurchaseLine[] } {
+  return Boolean(value && typeof value === "object" && Array.isArray((value as { lines?: unknown }).lines));
+}
+
+export function PurchasesInventory({ businessId, branchId, currencyCode, role, catalog, view }: Props) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [purchases, setPurchases] = useState<PurchaseSummary[]>([]);
@@ -91,17 +104,33 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   const canPaySupplier = supplierPaymentRoles.has(role);
 
   const refresh = async () => {
+    const sessionEpoch = captureSessionEpoch();
+    const cached = readFeatureCache("purchases-inventory", businessId, branchId, "root", isPurchasesInventorySnapshot);
+    if (cached) {
+      setSuppliers(cached.suppliers);
+      setInventory(cached.inventory);
+      setPurchases(cached.purchases);
+    }
+    if (!navigator.onLine) {
+      setMessage(cached ? "Offline: showing saved suppliers, purchases and inventory for this branch." : "Offline: no saved purchase or inventory data exists for this branch yet.");
+      return;
+    }
     try {
       const [supplierData, inventoryData, purchaseData] = await Promise.all([
         clientApi<{ suppliers: Supplier[] }>(`/api/tradeos/v1/suppliers?businessId=${encodeURIComponent(businessId)}&limit=200`),
         clientApi<{ items: InventoryItem[] }>(`/api/tradeos/v1/inventory?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`),
         clientApi<{ purchases: PurchaseSummary[] }>(`/api/tradeos/v1/purchases?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}&limit=20`),
       ]);
-      setSuppliers(supplierData.suppliers);
-      setInventory(inventoryData.items);
-      setPurchases(purchaseData.purchases);
+      const next: PurchasesInventorySnapshot = { suppliers: supplierData.suppliers, inventory: inventoryData.items, purchases: purchaseData.purchases };
+      if (!isSessionEpochCurrent(sessionEpoch)) return;
+      setSuppliers(next.suppliers);
+      setInventory(next.inventory);
+      setPurchases(next.purchases);
+      writeFeatureCache("purchases-inventory", businessId, branchId, next);
+      setMessage(null);
     } catch (error) {
-      setMessage(messageFrom(error));
+      if (!isSessionEpochCurrent(sessionEpoch)) return;
+      setMessage(cached ? `Showing saved branch data. ${messageFrom(error)}` : messageFrom(error));
     }
   };
 
@@ -121,32 +150,26 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   const lowOrEmpty = useMemo(() => inventory.filter((item) => item.available <= 0).length, [inventory]);
 
   return (
-    <section className="panel purchase-inventory-panel" id="purchases">
+    <section className="panel purchase-inventory-panel" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
       <div className="panel-heading">
-        <div><p className="eyebrow">Procurement · stock receiving</p><h2>Suppliers, purchases & inventory</h2></div>
+        <div>
+          <p className="eyebrow">{view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}</p>
+          <h2>{view === "purchases" ? "Suppliers & purchases" : "Inventory"}</h2>
+        </div>
         <div className="inventory-summary"><span>Tracked products</span><strong>{inventory.length}</strong><small>{lowOrEmpty} empty item{lowOrEmpty === 1 ? "" : "s"}</small></div>
       </div>
 
-      {canReceive ? (
-        <div className="procurement-actions">
-          <SupplierCreate businessId={businessId} canManageTerms={canPaySupplier} onCreated={(supplier) => { setSuppliers((current) => [...current, supplier].sort((a,b) => a.name.localeCompare(b.name))); setMessage("Supplier added."); }} />
-          <PurchaseReceipt
-            businessId={businessId}
-            branchId={branchId}
-            currencyCode={currencyCode}
-            suppliers={suppliers.filter((supplier) => supplier.active)}
-            catalog={catalog}
-            onMessage={setMessage}
-          />
-        </div>
-      ) : <div className="inventory-readonly-note">Your role can view stock and purchase history but cannot receive inventory.</div>}
-
-      <div className="supplier-balances">{suppliers.map(supplier => <div className="purchase-history-row" key={supplier.id}><div><strong>{supplier.name} · {supplier.balanceMinor < 0 ? "Supplier credit" : "Payable"} {formatMoney(Math.abs(supplier.balanceMinor),currencyCode)}</strong><span>Terms: Net {supplier.paymentTermsDays} day{supplier.paymentTermsDays === 1 ? "" : "s"}</span></div>{canPaySupplier ? <SupplierTerms businessId={businessId} supplier={supplier} onSaved={()=>void refresh()} onMessage={setMessage} /> : null}{canPaySupplier && supplier.balanceMinor > 0 ? <SupplierPayment businessId={businessId} branchId={branchId} supplier={supplier} onMessage={setMessage} /> : null}</div>)}</div>
-      <div className="procurement-grid">
-        <InventoryTable items={inventory} currencyCode={currencyCode} />
+      {view === "purchases" ? <>
+        {canReceive ? (
+          <div className="procurement-actions">
+            <SupplierCreate businessId={businessId} canManageTerms={canPaySupplier} onCreated={(supplier) => { setSuppliers((current) => [...current, supplier].sort((a,b) => a.name.localeCompare(b.name))); setMessage("Supplier added."); }} />
+            <PurchaseReceipt businessId={businessId} branchId={branchId} currencyCode={currencyCode} suppliers={suppliers.filter((supplier) => supplier.active)} catalog={catalog} onMessage={setMessage} />
+          </div>
+        ) : <div className="inventory-readonly-note">Your role can view purchase history but cannot receive inventory.</div>}
+        <div className="supplier-balances">{suppliers.map(supplier => <div className="purchase-history-row" key={supplier.id}><div><strong>{supplier.name} · {supplier.balanceMinor < 0 ? "Supplier credit" : "Payable"} {formatMoney(Math.abs(supplier.balanceMinor),currencyCode)}</strong><span>Terms: Net {supplier.paymentTermsDays} day{supplier.paymentTermsDays === 1 ? "" : "s"}</span></div>{canPaySupplier ? <SupplierTerms businessId={businessId} supplier={supplier} onSaved={()=>void refresh()} onMessage={setMessage} /> : null}{canPaySupplier && supplier.balanceMinor > 0 ? <SupplierPayment businessId={businessId} branchId={branchId} supplier={supplier} onMessage={setMessage} /> : null}</div>)}</div>
         <RecentPurchases purchases={purchases} onReturn={canReceive ? setReturnPurchase : undefined} />
-      </div>
-      {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={()=>setReturnPurchase(null)} onMessage={setMessage} /> : null}
+        {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={()=>setReturnPurchase(null)} onMessage={setMessage} /> : null}
+      </> : <InventoryTable items={inventory} currencyCode={currencyCode} />}
       {message ? <div className="procurement-message">{message}</div> : null}
     </section>
   );
@@ -377,7 +400,15 @@ function PurchaseReturn({businessId,branchId,purchase,onClose,onMessage}:{busine
  const [busy,setBusy]=useState(false);
  const [loaded,setLoaded]=useState(false);
  const [loadError,setLoadError]=useState<string | null>(null);
- useEffect(()=>{let active=true; clientApi<{lines:ReturnablePurchaseLine[]}>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then(data=>{if(active){setLines(data.lines);setLoaded(true);}}).catch(error=>{if(active)setLoadError(messageFrom(error));});return ()=>{active=false;};},[businessId,purchase.id]);
+ useEffect(()=>{
+  let active=true;
+  const sessionEpoch=captureSessionEpoch();
+  const cached=readFeatureCache("purchase-detail",businessId,branchId,purchase.id,isPurchaseDetail);
+  if(cached){setLines(cached.lines);setLoaded(true);}
+  if(!navigator.onLine){if(!cached)setLoadError("Offline: this purchase has not been opened on this device yet.");return()=>{active=false;};}
+  clientApi<{lines:ReturnablePurchaseLine[]}>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then(data=>{if(active&&isSessionEpochCurrent(sessionEpoch)){setLines(data.lines);setLoaded(true);setLoadError(null);writeFeatureCache("purchase-detail",businessId,branchId,data,purchase.id);}}).catch(error=>{if(active&&isSessionEpochCurrent(sessionEpoch)&&!cached)setLoadError(messageFrom(error));});
+  return()=>{active=false;};
+ },[businessId,branchId,purchase.id]);
  const preview=lines.reduce((sum,line)=>sum+returnPreview(line,Number(quantities[line.id]||0)),0);
  const submit=async(event:FormEvent)=>{
   event.preventDefault();

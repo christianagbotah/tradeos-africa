@@ -6,6 +6,7 @@ import { mutationAppliedEvent } from "../lib/offline-sync";
 import type { CashForecastResponse, CfoAction as ContractCfoAction, CreditAgingReport } from "@tradeos/contracts";
 import { CashForecastPanel } from "./cash-forecast";
 import { CfoActionCenter } from "./cfo-action-center";
+import { ResponsiveTable } from "./ui/responsive-table";
 
 type Flow = {
   grossRevenueMinor: number; returnsRevenueMinor: number; netRevenueMinor: number;
@@ -76,7 +77,7 @@ function percentage(value: number | null) { return value === null ? "new" : `${v
 function signed(value: number, money: (n: number) => string) { return `${value >= 0 ? "+" : ""}${money(value)}`; }
 function overdueTotal(side: AgingSide) { return side.overdue1To30DaysMinor + side.overdue31To60DaysMinor + side.overdue61To90DaysMinor + side.overdueOver90DaysMinor; }
 
-export function FinancialReports({ businessId, branchId, currencyCode, role, businessTimezone, branchTimezone }: { businessId: string; branchId: string; currencyCode: string; role: string; businessTimezone: string; branchTimezone: string }) {
+export function FinancialReports({ businessId, branchId, currencyCode, role, businessTimezone, branchTimezone, view }: { businessId: string; branchId: string; currencyCode: string; role: string; businessTimezone: string; branchTimezone: string; view: "dashboard" | "reports" }) {
   const [fromDate, setFromDate] = useState(() => dateInZone(branchTimezone, -29));
   const [toDate, setToDate] = useState(() => dateInZone(branchTimezone, 0));
   const [allBranches, setAllBranches] = useState(false);
@@ -165,7 +166,7 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
   const f = report?.flow;
   const p = report?.position;
   return (
-    <section className="panel" id="reports">
+    <section className="panel" id="reports" data-report-view={view}>
       <div className="panel-heading"><div><p className="eyebrow">Owner intelligence</p><h2>Financial performance</h2></div><span>{busy ? "Refreshing…" : allBranches ? "All branches" : "Current branch"}</span></div>
       <div className="form-row triple">
         <label>From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></label>
@@ -231,12 +232,12 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
         </div>
 
         <h3>Daily performance</h3>
-        <table><thead><tr><th>Date</th><th>Net revenue</th><th>Gross profit</th><th>Expenses</th><th>Purchase variance</th><th>Operating profit</th><th>Money net</th><th>Sales</th></tr></thead><tbody>{report.daily.slice(-31).map((d) => <tr key={d.date}><td>{d.date}</td><td>{money(d.netRevenueMinor)}</td><td>{money(d.grossProfitMinor)}</td><td>{money(d.expenseMinor)}</td><td>{signed(d.purchaseReturnVarianceMinor, money)}</td><td>{money(d.operatingProfitMinor)}</td><td>{money(d.cashNetMinor)}</td><td>{d.salesCount}</td></tr>)}</tbody></table>
+        <ResponsiveTable><table><thead><tr><th>Date</th><th>Net revenue</th><th>Gross profit</th><th>Expenses</th><th>Purchase variance</th><th>Operating profit</th><th>Money net</th><th>Sales</th></tr></thead><tbody>{report.daily.slice(-31).map((d) => <tr key={d.date}><td>{d.date}</td><td>{money(d.netRevenueMinor)}</td><td>{money(d.grossProfitMinor)}</td><td>{money(d.expenseMinor)}</td><td>{signed(d.purchaseReturnVarianceMinor, money)}</td><td>{money(d.operatingProfitMinor)}</td><td>{money(d.cashNetMinor)}</td><td>{d.salesCount}</td></tr>)}</tbody></table></ResponsiveTable>
 
         <h3>Top items by net revenue</h3>
-        <table><thead><tr><th>Item</th><th>Sold</th><th>Returned</th><th>Net revenue</th><th>COGS</th><th>Gross profit</th></tr></thead><tbody>{report.topItems.map((item) => <tr key={`${item.itemId}:${item.unitCode}`}><td>{item.itemName}<small> · {item.itemKind}</small></td><td>{item.quantitySold} {item.unitCode}</td><td>{item.quantityReturned} {item.unitCode}</td><td>{money(item.netRevenueMinor)}</td><td>{money(item.netCogsMinor)}</td><td>{money(item.grossProfitMinor)}</td></tr>)}</tbody></table>
+        <ResponsiveTable><table><thead><tr><th>Item</th><th>Sold</th><th>Returned</th><th>Net revenue</th><th>COGS</th><th>Gross profit</th></tr></thead><tbody>{report.topItems.map((item) => <tr key={`${item.itemId}:${item.unitCode}`}><td>{item.itemName}<small> · {item.itemKind}</small></td><td>{item.quantitySold} {item.unitCode}</td><td>{item.quantityReturned} {item.unitCode}</td><td>{money(item.netRevenueMinor)}</td><td>{money(item.netCogsMinor)}</td><td>{money(item.grossProfitMinor)}</td></tr>)}</tbody></table></ResponsiveTable>
 
-        {allBranches ? <><h3>Branch performance</h3><table><thead><tr><th>Branch</th><th>Net revenue</th><th>Gross profit</th><th>Expenses</th><th>Purchase variance</th><th>Operating profit</th><th>Money net</th><th>Receivables</th><th>Payables</th><th>Inventory now</th></tr></thead><tbody>{report.branches.map((b) => <tr key={b.branchId}><td>{b.branchName}</td><td>{money(b.netRevenueMinor)}</td><td>{money(b.grossProfitMinor)}</td><td>{money(b.expenseMinor)}</td><td>{signed(b.purchaseReturnVarianceMinor, money)}</td><td>{money(b.operatingProfitMinor)}</td><td>{money(b.cashNetMinor)}</td><td>{money(b.receivablesMinor)}</td><td>{money(b.payablesMinor)}</td><td>{money(b.inventoryValueMinor)}</td></tr>)}</tbody></table></> : null}
+        {allBranches ? <><h3>Branch performance</h3><ResponsiveTable><table><thead><tr><th>Branch</th><th>Net revenue</th><th>Gross profit</th><th>Expenses</th><th>Purchase variance</th><th>Operating profit</th><th>Money net</th><th>Receivables</th><th>Payables</th><th>Inventory now</th></tr></thead><tbody>{report.branches.map((b) => <tr key={b.branchId}><td>{b.branchName}</td><td>{money(b.netRevenueMinor)}</td><td>{money(b.grossProfitMinor)}</td><td>{money(b.expenseMinor)}</td><td>{signed(b.purchaseReturnVarianceMinor, money)}</td><td>{money(b.operatingProfitMinor)}</td><td>{money(b.cashNetMinor)}</td><td>{money(b.receivablesMinor)}</td><td>{money(b.payablesMinor)}</td><td>{money(b.inventoryValueMinor)}</td></tr>)}</tbody></table></ResponsiveTable></> : null}
       </>}
     </section>
   );

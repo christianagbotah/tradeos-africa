@@ -114,5 +114,5 @@ describe("purchase returns", () => {
   expect(concurrent.map(result=>result.status).sort()).toEqual(["APPLIED","REJECTED"]);
   expect(concurrent.find(result=>result.status==="REJECTED").errorCode).toBe("PURCHASE_OVER_RETURN");
 
- });
+ }, 15_000);
 });

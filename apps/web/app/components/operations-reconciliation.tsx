@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
+import { ResponsiveTable } from "./ui/responsive-table";
 import {
   enqueueMutation,
   flushPendingMutations,
@@ -406,10 +407,14 @@ export function OperationsReconciliation({
   };
 
   const balances = (interval: Interval) => (
-    <table><thead><tr><th>Method</th><th>Opening counted</th><th>Movement</th><th>Expected current</th></tr></thead><tbody>{interval.balances.map((balance) => <tr key={balance.method}><td>{balance.method}</td><td>{money(balance.openingCountedMinor)}</td><td>{money(balance.movementMinor)}</td><td>{money(balance.expectedClosingMinor)}</td></tr>)}</tbody></table>
+    <ResponsiveTable>
+      <table><thead><tr><th>Method</th><th>Opening counted</th><th>Movement</th><th>Expected current</th></tr></thead><tbody>{interval.balances.map((balance) => <tr key={balance.method}><td>{balance.method}</td><td>{money(balance.openingCountedMinor)}</td><td>{money(balance.movementMinor)}</td><td>{money(balance.expectedClosingMinor)}</td></tr>)}</tbody></table>
+    </ResponsiveTable>
   );
   const recent = (items: Interval[], shift: boolean) => (
-    <table><thead><tr><th>{shift ? "Shift opened" : "Business date"}</th><th>Status</th><th>Total variance</th>{methods.map((method) => <th key={method}>{method} variance</th>)}</tr></thead><tbody>{items.map((interval) => { const closed = interval.balances.every((balance) => balance.varianceMinor !== null); const total = interval.balances.reduce((sum, balance) => sum + BigInt(balance.varianceMinor ?? 0), 0n); return <tr key={interval.id}><td>{shift ? new Date(interval.openedAt).toLocaleString() : interval.businessDate}</td><td>{interval.status}</td><td>{closed ? formatMoney(total, currencyCode) : "—"}</td>{methods.map((method) => { const variance = interval.balances.find((balance) => balance.method === method)?.varianceMinor; return <td key={method}>{variance == null ? "—" : money(variance)}</td>; })}</tr>; })}</tbody></table>
+    <ResponsiveTable>
+      <table><thead><tr><th>{shift ? "Shift opened" : "Business date"}</th><th>Status</th><th>Total variance</th>{methods.map((method) => <th key={method}>{method} variance</th>)}</tr></thead><tbody>{items.map((interval) => { const closed = interval.balances.every((balance) => balance.varianceMinor !== null); const total = interval.balances.reduce((sum, balance) => sum + BigInt(balance.varianceMinor ?? 0), 0n); return <tr key={interval.id}><td>{shift ? new Date(interval.openedAt).toLocaleString() : interval.businessDate}</td><td>{interval.status}</td><td>{closed ? formatMoney(total, currencyCode) : "—"}</td>{methods.map((method) => { const variance = interval.balances.find((balance) => balance.method === method)?.varianceMinor; return <td key={method}>{variance == null ? "—" : money(variance)}</td>; })}</tr>; })}</tbody></table>
+    </ResponsiveTable>
   );
 
   const dayCloseQueued = pendingTypes.has("OPERATING_DAY_CLOSE_CREATE");

@@ -1,5 +1,5 @@
-import { TradeOSWebApp } from "./components/tradeos-web-app";
+import { PublicEntry } from "./components/public-entry";
 
 export default function HomePage() {
-  return <TradeOSWebApp />;
+  return <PublicEntry />;
 }
