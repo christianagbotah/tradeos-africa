@@ -197,7 +197,7 @@ async function createInventory(email: string, deviceKey: string, name: string, q
     method: "POST",
     url: "/v1/onboarding/business",
     headers: bearer(accessToken),
-    payload: { name, businessType: "RETAIL", branchName: "Main" },
+    payload: { name, businessType: "RETAIL_HARDWARE", branchName: "Main" },
   });
   expect(onboard.statusCode, onboard.body).toBe(201);
   const businessId = onboard.json<{ business: { id: string } }>().business.id;
