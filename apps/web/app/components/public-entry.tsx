@@ -6,6 +6,7 @@ import { DemoAccountSelect } from "./demo-account-select";
 import { getActiveBusinessId, getOrCreateClientId, setActiveBusinessId } from "../lib/offline-sync";
 import { clearWorkspaceBootstrap, readWorkspaceBootstrap } from "../lib/workspace-bootstrap";
 import { clearFeatureCaches } from "../lib/feature-cache";
+import { finalizePendingLogout, invalidateSessionEpoch, isLogoutPending, markLogoutPending } from "../lib/session-lifecycle";
 import type { BusinessContext, MePayload } from "../lib/workspace-types";
 
 type AuthMode = "login" | "register";
@@ -41,8 +42,18 @@ export function PublicEntry() {
     setError(null);
     setWorkspaceReady(false);
     try {
+      const pendingLogout = await finalizePendingLogout();
+      if (pendingLogout !== "none") {
+        clearWorkspaceBootstrap();
+        clearFeatureCaches();
+        setActiveBusinessId(null);
+        setSession(null);
+        if (pendingLogout === "pending") setError("Sign-out is saved on this device and will finish when the connection is available.");
+        return;
+      }
       const response = await fetch("/api/session/me", { cache: "no-store" });
       if (response.status === 401) {
+        invalidateSessionEpoch();
         clearWorkspaceBootstrap();
         clearFeatureCaches();
         setSession(null);
@@ -117,6 +128,10 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
     setBusy(true);
     setLocalError(null);
     try {
+      if (isLogoutPending()) {
+        const pendingLogout = await finalizePendingLogout();
+        if (pendingLogout === "pending") throw new Error("TradeOS is still finishing your previous sign-out. Reconnect and try again.");
+      }
       const deviceKey = getOrCreateClientId();
       const common = { password, platform: "WEB", deviceKey, appVersion: webVersion() };
       const body = mode === "register"
@@ -247,12 +262,12 @@ function LoadingScreen() {
 }
 
 async function logout(setSession: (value: MePayload | null) => void) {
-  try { await fetch("/api/session/logout", { method: "POST" }); } finally {
-    clearWorkspaceBootstrap();
-    clearFeatureCaches();
-    setActiveBusinessId(null);
-    setSession(null);
-  }
+  markLogoutPending();
+  clearWorkspaceBootstrap();
+  clearFeatureCaches();
+  setActiveBusinessId(null);
+  setSession(null);
+  await finalizePendingLogout();
 }
 
 async function api<T = unknown>(url: string, init?: RequestInit): Promise<T> {

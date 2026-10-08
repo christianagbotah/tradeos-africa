@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
+import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
 import {
   enqueueMutation,
   flushPendingMutations,
@@ -103,6 +104,7 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   const canPaySupplier = supplierPaymentRoles.has(role);
 
   const refresh = async () => {
+    const sessionEpoch = captureSessionEpoch();
     const cached = readFeatureCache("purchases-inventory", businessId, branchId, "root", isPurchasesInventorySnapshot);
     if (cached) {
       setSuppliers(cached.suppliers);
@@ -120,12 +122,14 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
         clientApi<{ purchases: PurchaseSummary[] }>(`/api/tradeos/v1/purchases?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}&limit=20`),
       ]);
       const next: PurchasesInventorySnapshot = { suppliers: supplierData.suppliers, inventory: inventoryData.items, purchases: purchaseData.purchases };
+      if (!isSessionEpochCurrent(sessionEpoch)) return;
       setSuppliers(next.suppliers);
       setInventory(next.inventory);
       setPurchases(next.purchases);
       writeFeatureCache("purchases-inventory", businessId, branchId, next);
       setMessage(null);
     } catch (error) {
+      if (!isSessionEpochCurrent(sessionEpoch)) return;
       setMessage(cached ? `Showing saved branch data. ${messageFrom(error)}` : messageFrom(error));
     }
   };

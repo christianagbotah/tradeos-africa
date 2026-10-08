@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
+import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
 import {
   enqueueMutation,
   flushPendingMutations,
@@ -92,6 +93,7 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view }: Pr
   const [message, setMessage] = useState<string | null>(null);
 
   const loadSales = async (search = query) => {
+    const sessionEpoch = captureSessionEpoch();
     setLoading(true);
     const cacheToken = search.trim().toLowerCase() || "all";
     const cached = readFeatureCache("sales-list", businessId, branchId, cacheToken, isSalesListCache);
@@ -105,13 +107,14 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view }: Pr
       const params = new URLSearchParams({ businessId, branchId, limit: "30" });
       if (search.trim()) params.set("query", search.trim());
       const response = await clientApi<{ sales: SaleSummary[] }>(`/api/tradeos/v1/sales?${params}`);
+      if (!isSessionEpochCurrent(sessionEpoch)) return;
       setSales(response.sales);
       writeFeatureCache("sales-list", businessId, branchId, response, cacheToken);
       setMessage(null);
     } catch (error) {
-      setMessage(cached ? `Showing saved sales. ${error instanceof Error ? error.message : "Live sales are unavailable."}` : error instanceof Error ? error.message : "Sales could not be loaded.");
+      if (isSessionEpochCurrent(sessionEpoch)) setMessage(cached ? `Showing saved sales. ${error instanceof Error ? error.message : "Live sales are unavailable."}` : error instanceof Error ? error.message : "Sales could not be loaded.");
     } finally {
-      setLoading(false);
+      if (isSessionEpochCurrent(sessionEpoch)) setLoading(false);
     }
   };
 
@@ -128,6 +131,7 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view }: Pr
   };
 
   const loadDetail = async (saleId: string) => {
+    const sessionEpoch = captureSessionEpoch();
     setMessage(null);
     const cached = readFeatureCache("sale-detail", businessId, branchId, saleId, isSaleDetailCache);
     if (cached) applySaleDetail(cached.sale);
@@ -139,10 +143,11 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view }: Pr
       const response = await clientApi<{ sale: SaleDetail }>(
         `/api/tradeos/v1/sales/${saleId}?businessId=${encodeURIComponent(businessId)}`,
       );
+      if (!isSessionEpochCurrent(sessionEpoch)) return;
       applySaleDetail(response.sale);
       writeFeatureCache("sale-detail", businessId, branchId, response, saleId);
     } catch (error) {
-      if (!cached) setMessage(error instanceof Error ? error.message : "Sale details could not be loaded.");
+      if (isSessionEpochCurrent(sessionEpoch) && !cached) setMessage(error instanceof Error ? error.message : "Sale details could not be loaded.");
     }
   };
 

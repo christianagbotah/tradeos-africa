@@ -80,4 +80,29 @@ describe("multi-page review regressions", () => {
     expect(sales).toContain('"sales-list"');
     expect(sales).toContain('"sale-detail"');
   });
+  it("guards late private-cache writes with the shared session epoch", () => {
+    const purchases = read("components/purchases-inventory.tsx");
+    const sales = read("components/sales-returns.tsx");
+    expect(purchases).toContain("captureSessionEpoch");
+    expect(purchases).toContain("isSessionEpochCurrent");
+    expect(sales.match(/captureSessionEpoch/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(sales.match(/isSessionEpochCurrent/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("preserves the latest branch intent while same-business refreshes are in flight", () => {
+    const provider = read("components/workspace/workspace-provider.tsx");
+    expect(provider).toContain("branchIntentRef");
+    expect(provider).toMatch(/branchIntentRef\.current = branchId/);
+    expect(provider).toMatch(/selectInitialBranch\(business, branchIntentRef\.current \?\? preferredBranchId\)/);
+  });
+
+  it("offers retry, business recovery and sign-out when workspace loading fails", () => {
+    const provider = read("components/workspace/workspace-provider.tsx");
+    const boundary = read("components/workspace/workspace-boundary.tsx");
+    expect(provider).toContain("retryWorkspace");
+    expect(boundary).toContain("Try again");
+    expect(boundary).toContain("Switch business");
+    expect(boundary).toContain("Sign out");
+  });
+
 });

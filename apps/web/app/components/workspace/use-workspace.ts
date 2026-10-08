@@ -26,5 +26,6 @@ export function useWorkspace(): WorkspaceContextValue {
     setBranch: store.setBranch,
     refreshBusiness: store.refreshBusiness,
     logout: store.logout,
+    retryWorkspace: store.retryWorkspace,
   };
 }

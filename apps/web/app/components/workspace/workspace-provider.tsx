@@ -5,6 +5,7 @@ import type { QuickSaleItem } from "../quick-sale";
 import { getActiveBusinessId, setActiveBusinessId } from "../../lib/offline-sync";
 import { clearWorkspaceBootstrap, readWorkspaceBootstrap, writeWorkspaceBootstrap } from "../../lib/workspace-bootstrap";
 import { clearFeatureCaches } from "../../lib/feature-cache";
+import { finalizePendingLogout, invalidateSessionEpoch, markLogoutPending } from "../../lib/session-lifecycle";
 import type { BusinessContext, CatalogItem, MePayload, Membership } from "../../lib/workspace-types";
 
 export type WorkspaceContextValue = {
@@ -18,6 +19,7 @@ export type WorkspaceContextValue = {
   setBranch: (branchId: string) => void;
   refreshBusiness: () => Promise<void>;
   logout: () => Promise<void>;
+  retryWorkspace: () => Promise<void>;
 };
 
 export type WorkspaceStore = {
@@ -32,6 +34,7 @@ export type WorkspaceStore = {
   setBranch: (branchId: string) => void;
   refreshBusiness: () => Promise<void>;
   logout: () => Promise<void>;
+  retryWorkspace: () => Promise<void>;
 };
 
 export const WorkspaceStoreContext = createContext<WorkspaceStore | null>(null);
@@ -86,6 +89,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const requestGenerationRef = useRef(0);
   const businessIntent = useRef<string | null>(null);
+  const branchIntentRef = useRef<string | null>(null);
 
   const loadBusiness = useCallback(async (businessId: string, preferredBranchId: string | null = null) => {
     const generation = ++requestGenerationRef.current;
@@ -94,8 +98,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       api<{ items: CatalogItem[] }>(`/api/tradeos/v1/catalog/items?businessId=${businessId}`),
     ]);
     if (generation !== requestGenerationRef.current) return null;
-    const selectedBranch = selectInitialBranch(business, preferredBranchId);
+    const selectedBranch = selectInitialBranch(business, branchIntentRef.current ?? preferredBranchId);
     if (!selectedBranch) throw new Error("This business has no active branch.");
+    branchIntentRef.current = selectedBranch.id;
     setContext(business);
     setCatalog(catalogData.items);
     setBranchId(selectedBranch.id);
@@ -105,10 +110,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const loadSession = useCallback(async () => {
     setError(null);
     try {
+      const pendingLogout = await finalizePendingLogout();
+      if (pendingLogout !== "none") {
+        requestGenerationRef.current += 1;
+        businessIntent.current = null;
+        branchIntentRef.current = null;
+        clearWorkspaceBootstrap();
+        clearFeatureCaches();
+        setActiveBusinessId(null);
+        setSession(null);
+        setContext(null);
+        setCatalog([]);
+        setBranchId(null);
+        return;
+      }
       const response = await fetch("/api/session/me", { cache: "no-store" });
       if (response.status === 401) {
         requestGenerationRef.current += 1;
+        invalidateSessionEpoch();
         businessIntent.current = null;
+        branchIntentRef.current = null;
         clearWorkspaceBootstrap();
         clearFeatureCaches();
         setSession(null);
@@ -142,6 +163,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         if (cached) {
           requestGenerationRef.current += 1;
           businessIntent.current = cached.context.business.id;
+          branchIntentRef.current = cached.branchId;
           setSession(cached.session);
           setContext(cached.context);
           setCatalog(cached.catalog);
@@ -162,6 +184,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!session?.memberships.some((membership) => membership.businessId === businessId)) throw new Error("Business is not available to this session.");
     setError(null);
     businessIntent.current = businessId;
+    branchIntentRef.current = null;
     try {
       const loaded = await loadBusiness(businessId);
       if (loaded) {
@@ -171,13 +194,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (reason) {
       if (businessIntent.current === businessId) {
         businessIntent.current = context?.business.id ?? null;
+        branchIntentRef.current = branchId;
         setError(messageFrom(reason));
       }
     }
-  }, [context?.business.id, loadBusiness, session]);
+  }, [branchId, context?.business.id, loadBusiness, session]);
 
   const setBranch = useCallback((branchId: string) => {
     if (!context?.branches.some((branch) => branch.id === branchId && branch.active)) return;
+    branchIntentRef.current = branchId;
     setBranchId(branchId);
     if (session) writeWorkspaceBootstrap({ session, context, branchId, catalog });
   }, [catalog, context, session]);
@@ -189,26 +214,32 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (loaded && session) writeWorkspaceBootstrap({ session, ...loaded });
   }, [branchId, context, loadBusiness, session]);
 
+  const retryWorkspace = useCallback(async () => {
+    setResolved(false);
+    await loadSession();
+  }, [loadSession]);
+
   const logout = useCallback(async () => {
-    try { await fetch("/api/session/logout", { method: "POST" }); } finally {
-      requestGenerationRef.current += 1;
-      businessIntent.current = null;
-      clearWorkspaceBootstrap();
-      clearFeatureCaches();
-      setActiveBusinessId(null);
-      setSession(null);
-      setContext(null);
-      setCatalog([]);
-      setBranchId(null);
-      setResolved(true);
-    }
+    markLogoutPending();
+    requestGenerationRef.current += 1;
+    businessIntent.current = null;
+    branchIntentRef.current = null;
+    clearWorkspaceBootstrap();
+    clearFeatureCaches();
+    setActiveBusinessId(null);
+    setSession(null);
+    setContext(null);
+    setCatalog([]);
+    setBranchId(null);
+    setResolved(true);
+    await finalizePendingLogout();
   }, []);
 
   const sellableItems = useMemo(() => projectSellableItems(catalog), [catalog]);
   const value = useMemo<WorkspaceStore>(() => ({
     resolved, session, context, branchId, catalog, sellableItems, error,
-    setBusiness, setBranch, refreshBusiness, logout,
-  }), [resolved, session, context, branchId, catalog, sellableItems, error, setBusiness, setBranch, refreshBusiness, logout]);
+    setBusiness, setBranch, refreshBusiness, logout, retryWorkspace,
+  }), [resolved, session, context, branchId, catalog, sellableItems, error, setBusiness, setBranch, refreshBusiness, logout, retryWorkspace]);
 
   return <WorkspaceStoreContext.Provider value={value}>{children}</WorkspaceStoreContext.Provider>;
 }
