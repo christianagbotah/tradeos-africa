@@ -34,6 +34,27 @@ describe("InventoryWorkspace", () => {
     expect(html).not.toMatch(/Edit balance|Set stock|Save stock/);
   });
 
+  it("shows adjustment actions only to stock-write roles and surfaces failed adjustments for review", async () => {
+    const module = await loadWorkspace();
+    expect(module?.InventoryWorkspace).toBeTypeOf("function");
+    if (!module?.InventoryWorkspace) return;
+    const base = { items, currencyCode: "GHS", loadingId: null, onOpen: () => undefined, businessId: "business-1", branchId: "branch-1", onRefresh: () => undefined };
+    const owner = renderToStaticMarkup(React.createElement(module.InventoryWorkspace, { ...base, role: "OWNER" }));
+    const inventory = renderToStaticMarkup(React.createElement(module.InventoryWorkspace, { ...base, role: "INVENTORY" }));
+    const accountant = renderToStaticMarkup(React.createElement(module.InventoryWorkspace, { ...base, role: "ACCOUNTANT" }));
+    const viewer = renderToStaticMarkup(React.createElement(module.InventoryWorkspace, { ...base, role: "VIEWER" }));
+    expect(owner).toContain("Adjust stock");
+    expect(inventory).toContain("Adjust stock");
+    expect(accountant).not.toContain("Adjust stock");
+    expect(viewer).not.toContain("Adjust stock");
+    const root = path.dirname(fileURLToPath(import.meta.url));
+    const source = fs.readFileSync(path.join(root, "inventory-workspace.tsx"), "utf8");
+    expect(source).toContain("InventoryAdjustmentSheet");
+    expect(source).toContain("getFailedMutations");
+    expect(source).toContain("queueChangedEvent");
+    expect(source).toContain("needs review");
+  });
+
   it("replaces the legacy internal InventoryTable and keeps phone controls readable", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
     const coordinator = fs.readFileSync(path.join(root, "components", "purchases-inventory.tsx"), "utf8");
