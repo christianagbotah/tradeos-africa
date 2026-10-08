@@ -27,6 +27,7 @@ const SUPPLIER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANA
 const EXPENSE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
 const CASHBOOK_ADJUSTMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
+const INVENTORY_ADJUSTMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
 const CATALOG_MUTATIONS = new Set(["CATALOG_ITEM_CREATE", "CATALOG_ITEM_UPDATE", "CATALOG_ITEM_ARCHIVE", "CATALOG_ITEM_REACTIVATE"]);
 const MASTER_DATA_MUTATIONS = new Set(["CUSTOMER_CREATE", "CUSTOMER_UPDATE", "SUPPLIER_CREATE", "SUPPLIER_UPDATE"]);
 
@@ -135,6 +136,10 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
     const { actorStaffId: _ignored, ...rest } = payload;
     return {...rest,actorStaffId:access.staffId,actorRole:access.role};
   }
+  if (mutation.mutationType === "INVENTORY_ADJUSTMENT_CREATE") {
+    const { actorStaffId: _ignored, ...rest } = payload;
+    return { ...rest, actorStaffId: access.staffId };
+  }
   if (mutation.mutationType === "SALE_CREATE") {
     const { cashierStaffId: _ignored, ...rest } = payload;
     return { ...rest, cashierStaffId: access.staffId };
@@ -186,6 +191,7 @@ function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
     case "MONEY_TRANSFER_CREATE":
     case "MONEY_RECONCILIATION_RESOLVE": return CASHBOOK_ADJUSTMENT_ROLES;
     case "CASHBOOK_ADJUSTMENT_CREATE": return CASHBOOK_ADJUSTMENT_ROLES;
+    case "INVENTORY_ADJUSTMENT_CREATE": return INVENTORY_ADJUSTMENT_ROLES;
     case "SALE_CREATE":
       return SALE_ROLES;
     case "RETURN_CREATE":

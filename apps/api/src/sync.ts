@@ -20,6 +20,7 @@ import {
 } from "./commerce/customer-credit.js";
 import { applyReturnMutation, ReturnMutationError, type ReturnMutationPayload } from "./commerce/returns.js";
 import { applySaleMutation, SaleMutationError, type SaleMutationPayload } from "./commerce/sales.js";
+import { applyInventoryAdjustmentMutation, InventoryAdjustmentError, type InventoryAdjustmentMutationPayload } from "./commerce/inventory-adjustments.js";
 import { type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
 import { AuthError } from "./auth/security.js";
 import {
@@ -147,6 +148,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       || error instanceof ReturnMutationError
       || error instanceof CustomerCreditError
       || error instanceof PurchaseMutationError
+      || error instanceof InventoryAdjustmentError
       || error instanceof CatalogError
       || error instanceof CustomerServiceError
       || error instanceof SupplierServiceError
@@ -317,6 +319,8 @@ async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutatio
       return applyReturnMutation(pool, context, mutation.payload as ReturnMutationPayload);
     case "CUSTOMER_PAYMENT_CREATE":
       return applyCustomerPaymentMutation(pool, context, mutation.payload as CustomerPaymentMutationPayload);
+    case "INVENTORY_ADJUSTMENT_CREATE":
+      return applyInventoryAdjustmentMutation(pool, context, mutation.payload as InventoryAdjustmentMutationPayload);
     default:
       throw new SyncRequestError(`Unsupported mutationType: ${mutation.mutationType}`);
   }
