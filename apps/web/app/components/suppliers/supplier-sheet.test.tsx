@@ -122,6 +122,18 @@ describe("SupplierSheet", () => {
     expect(source).toContain("flushPendingMutations");
   });
 
+  it("queues supplier profile create/update offline while keeping terms and status online-only", () => {
+    const root = path.dirname(fileURLToPath(import.meta.url));
+    const source = fs.readFileSync(path.join(root, "supplier-sheet.tsx"), "utf8");
+    expect(source).toContain("SUPPLIER_CREATE");
+    expect(source).toContain("SUPPLIER_UPDATE");
+    expect(source).toContain("enqueueMutation");
+    expect(source).toContain("flushPendingMutations");
+    expect(source).toContain("expectedUpdatedAt");
+    expect(source).toContain("OFFLINE_STATUS_CHANGE");
+    expect(source).not.toContain("OFFLINE_PROFILE_EDIT");
+  });
+
   it("keeps sheet controls phone-sized", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
     const css = fs.readFileSync(path.join(appRoot, "purchases-inventory.css"), "utf8");

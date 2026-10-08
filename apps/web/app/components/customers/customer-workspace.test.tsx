@@ -45,6 +45,10 @@ describe("CustomerWorkspace", () => {
     expect(source).toContain("CustomerSheet");
     expect(source).toContain("customersChangedEvent");
     expect(source).toContain("mutationAppliedEvent");
+    expect(source).toContain("queueChangedEvent");
+    expect(source).toContain("getFailedMutations");
+    expect(source).toContain("CUSTOMER_CREATE");
+    expect(source).toContain("CUSTOMER_UPDATE");
     expect(source).toContain("Inactive");
     expect(source).toMatch(/Search customers/i);
     const css = fs.readFileSync(path.resolve(root, "../../customers-credit.css"), "utf8");

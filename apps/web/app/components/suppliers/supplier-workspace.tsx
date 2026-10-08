@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../../lib/client-api";
+import { getFailedMutations, mutationAppliedEvent, queueChangedEvent, type AppliedMutationDetail } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
 import { SupplierSheet } from "./supplier-sheet";
 import { supplierCapabilities, type Supplier, type SupplierDetail } from "./supplier-types";
@@ -35,7 +36,32 @@ export function SupplierWorkspace({ businessId, branchId, currencyCode, role, su
   const [query, setQuery] = useState("");
   const [editor, setEditor] = useState<EditorState>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [syncFailure, setSyncFailure] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const refreshFailures = () => {
+      const latest = getFailedMutations().filter((entry) => entry.mutation.businessId === businessId && ["SUPPLIER_CREATE", "SUPPLIER_UPDATE"].includes(entry.mutation.mutationType)).at(-1);
+      if (!latest) { setSyncFailure(null); return; }
+      setSyncFailure(latest.result.errorCode === "STALE_VERSION"
+        ? "A supplier edit could not sync because this supplier changed on another device. Refresh the supplier and review the latest details before retrying."
+        : `Supplier sync needs review: ${latest.result.errorMessage ?? latest.result.errorCode ?? "change rejected"}`);
+    };
+    const onApplied = (event: Event) => {
+      const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
+      if (!detail || detail.businessId !== businessId || !["SUPPLIER_CREATE", "SUPPLIER_UPDATE"].includes(detail.mutationType)) return;
+      refreshFailures();
+      void onRefresh();
+    };
+    refreshFailures();
+    window.addEventListener(mutationAppliedEvent, onApplied);
+    window.addEventListener(queueChangedEvent, refreshFailures);
+    return () => {
+      window.removeEventListener(mutationAppliedEvent, onApplied);
+      window.removeEventListener(queueChangedEvent, refreshFailures);
+    };
+  }, [businessId, onRefresh]);
+
   const visible = useMemo(() => filterSuppliers(suppliers, filter, query), [filter, query, suppliers]);
   const counts = useMemo(() => ({
     ACTIVE: suppliers.filter((supplier) => supplier.active).length,
@@ -101,6 +127,7 @@ export function SupplierWorkspace({ businessId, branchId, currencyCode, role, su
       </div>
 
       {message ? <div className="supplier-workspace-message" role="status">{message}</div> : null}
+      {syncFailure ? <div className="supplier-workspace-message" role="alert">{syncFailure}</div> : null}
 
       {editor ? <SupplierSheet
         mode={editor.mode}

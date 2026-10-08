@@ -124,7 +124,17 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
       const profile = { name: draft.name.trim(), phone: draft.phone.trim() || null, email: draft.email.trim() || null };
       if (mode === "create") {
         if (!navigator.onLine) {
-          setMessage("Creating customers offline will synchronize after the customer master-data sync gate is enabled. Connect to save this new customer now.");
+          enqueueMutation({
+            clientId: getOrCreateClientId(),
+            clientMutationId: crypto.randomUUID(),
+            businessId,
+            mutationType: "CUSTOMER_CREATE",
+            occurredAt: new Date().toISOString(),
+            payload: profile,
+          });
+          setMessage(canSetCredit && (draft.creditLimit.trim() || Number(draft.creditTermsDays || 0) > 0)
+            ? "Customer profile saved offline · pending sync. Credit settings were not queued and must be confirmed online after the customer synchronizes."
+            : "Customer profile saved offline · pending sync.");
           return;
         }
         await clientApi("/api/tradeos/v1/customers", {

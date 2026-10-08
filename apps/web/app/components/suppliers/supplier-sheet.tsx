@@ -56,7 +56,6 @@ export function supplierDraftFor(mode: SupplierSheetMode, supplier: Supplier | n
 export function supplierSheetMessage(code: string | null | undefined, fallback = "Supplier change could not be saved."): string {
   if (code === "STALE_VERSION") return "This supplier changed on another device. Refresh the latest version before saving your changes.";
   if (code === "OFFLINE_STATUS_CHANGE") return "Archive and reactivate actions require an online connection so TradeOS can verify the latest supplier status.";
-  if (code === "OFFLINE_PROFILE_EDIT") return "Supplier edits require an online connection until conflict-safe supplier synchronization is enabled.";
   if (code === "SUPPLIER_TERMS_FORBIDDEN") return "Your role cannot change supplier payment terms.";
   return fallback;
 }
@@ -125,16 +124,40 @@ export function SupplierSheet({ mode, supplier, detail, open, businessId, branch
     setBusy(true);
     setMessage(null);
     try {
-      if (!navigator.onLine) {
-        setMessage(supplierSheetMessage("OFFLINE_PROFILE_EDIT"));
-        return;
-      }
-      const payload = {
-        businessId,
+      const profile = {
         name: draft.name.trim(),
         phone: draft.phone.trim() || null,
         email: draft.email.trim() || null,
         address: draft.address.trim() || null,
+      };
+      if (!navigator.onLine) {
+        if (mode === "create") {
+          enqueueMutation({
+            clientId: getOrCreateClientId(),
+            clientMutationId: crypto.randomUUID(),
+            businessId,
+            mutationType: "SUPPLIER_CREATE",
+            occurredAt: new Date().toISOString(),
+            payload: profile,
+          });
+        } else if (current && draft.expectedUpdatedAt) {
+          enqueueMutation({
+            clientId: getOrCreateClientId(),
+            clientMutationId: crypto.randomUUID(),
+            businessId,
+            mutationType: "SUPPLIER_UPDATE",
+            occurredAt: new Date().toISOString(),
+            payload: { supplierId: current.id, expectedUpdatedAt: draft.expectedUpdatedAt, ...profile },
+          });
+        }
+        setMessage(capabilities.canManageTerms && Number(draft.paymentTermsDays || 0) !== (current?.paymentTermsDays ?? 0)
+          ? "Supplier profile saved offline · pending sync. Payment terms were not queued and must be confirmed online."
+          : "Supplier profile saved offline · pending sync.");
+        return;
+      }
+      const payload = {
+        businessId,
+        ...profile,
         ...(capabilities.canManageTerms ? { paymentTermsDays: Number(draft.paymentTermsDays || 0) } : {}),
       };
       if (mode === "create") {

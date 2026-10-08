@@ -44,6 +44,16 @@ describe("SupplierWorkspace", () => {
     expect(html).toContain("Accra Supplies");
   });
 
+  it("refreshes on supplier profile sync and surfaces failed master-data conflicts", () => {
+    const root = path.dirname(fileURLToPath(import.meta.url));
+    const source = fs.readFileSync(path.join(root, "supplier-workspace.tsx"), "utf8");
+    expect(source).toContain("mutationAppliedEvent");
+    expect(source).toContain("queueChangedEvent");
+    expect(source).toContain("getFailedMutations");
+    expect(source).toContain("SUPPLIER_CREATE");
+    expect(source).toContain("SUPPLIER_UPDATE");
+  });
+
   it("integrates into Purchases while keeping inactive suppliers out of receiving and removing inline terms editor", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
     const source = fs.readFileSync(path.join(appRoot, "components", "purchases-inventory.tsx"), "utf8");

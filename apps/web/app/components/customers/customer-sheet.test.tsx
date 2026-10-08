@@ -112,6 +112,18 @@ describe("CustomerSheet", () => {
     expect(source).toContain("STALE_VERSION");
   });
 
+  it("supports durable offline customer profile create/update while keeping credit and status online-only", () => {
+    const root = path.dirname(fileURLToPath(import.meta.url));
+    const source = fs.readFileSync(path.join(root, "customer-sheet.tsx"), "utf8");
+    expect(source).toContain("CUSTOMER_CREATE");
+    expect(source).toContain("CUSTOMER_UPDATE");
+    expect(source).toContain("enqueueMutation");
+    expect(source).toContain("flushPendingMutations");
+    expect(source).toContain("expectedUpdatedAt");
+    expect(source).toContain("OFFLINE_CREDIT_CONTROL");
+    expect(source).not.toContain("sync gate is enabled");
+  });
+
   it("keeps customer sheet controls phone-sized", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
     const css = fs.readFileSync(path.join(appRoot, "customers-credit.css"), "utf8");

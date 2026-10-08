@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../../lib/client-api";
 import { customersChangedEvent, notifyCustomersChanged } from "../../lib/customer-events";
-import { mutationAppliedEvent, type AppliedMutationDetail } from "../../lib/offline-sync";
+import { getFailedMutations, mutationAppliedEvent, queueChangedEvent, type AppliedMutationDetail } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
 import { CustomerSheet, type CustomerSheetMode } from "./customer-sheet";
 import { formatCustomerMoney, type Customer, type CustomerDetail } from "./customer-types";
@@ -38,6 +38,7 @@ export function CustomerWorkspace({ businessId, branchId, currencyCode, role }: 
   const [filter, setFilter] = useState<CustomerFilter>("ACTIVE");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [syncFailure, setSyncFailure] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState>(null);
   const canCreate = customerWriteRoles.has(role);
   const canRead = customerReadRoles.has(role);
@@ -88,17 +89,28 @@ export function CustomerWorkspace({ businessId, branchId, currencyCode, role }: 
 
   useEffect(() => {
     const onChanged = () => void loadCustomers(query);
+    const refreshFailures = () => {
+      const latest = getFailedMutations().filter((entry) => entry.mutation.businessId === businessId && ["CUSTOMER_CREATE", "CUSTOMER_UPDATE"].includes(entry.mutation.mutationType)).at(-1);
+      if (!latest) { setSyncFailure(null); return; }
+      setSyncFailure(latest.result.errorCode === "STALE_VERSION"
+        ? "A customer edit could not sync because this customer changed on another device. Refresh the customer and review the latest details before retrying."
+        : `Customer sync needs review: ${latest.result.errorMessage ?? latest.result.errorCode ?? "change rejected"}`);
+    };
     const onApplied = (event: Event) => {
       const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
       if (!detail || detail.businessId !== businessId) return;
       if (!["SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE", "CUSTOMER_PAYMENT_CREATE", "CUSTOMER_CREATE", "CUSTOMER_UPDATE"].includes(detail.mutationType)) return;
+      refreshFailures();
       void loadCustomers(query);
     };
+    refreshFailures();
     window.addEventListener(customersChangedEvent, onChanged);
     window.addEventListener(mutationAppliedEvent, onApplied);
+    window.addEventListener(queueChangedEvent, refreshFailures);
     return () => {
       window.removeEventListener(customersChangedEvent, onChanged);
       window.removeEventListener(mutationAppliedEvent, onApplied);
+      window.removeEventListener(queueChangedEvent, refreshFailures);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId, query]);
@@ -153,6 +165,7 @@ export function CustomerWorkspace({ businessId, branchId, currencyCode, role }: 
       </div>
 
       {message ? <div className="customer-workspace-message" role="status">{message}</div> : null}
+      {syncFailure ? <div className="customer-workspace-message" role="alert">{syncFailure}</div> : null}
       <button type="button" className="customer-refresh-link" onClick={() => void loadCustomers(query)}>Refresh customers</button>
 
       {editor ? <CustomerSheet mode={editor.mode} detail={editor.detail} open businessId={businessId} branchId={branchId} currencyCode={currencyCode} role={role} onClose={() => setEditor(null)} onSaved={refreshAfterSave} /> : null}
