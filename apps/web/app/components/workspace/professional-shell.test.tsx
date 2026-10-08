@@ -49,4 +49,25 @@ describe("professional authenticated shell", () => {
     expect((operations.match(/<ResponsiveTable>/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
+  it("uses recognizable navigation icons and keeps account actions obvious", () => {
+    const shell = read("components/workspace/app-shell.tsx");
+    const nav = read("components/workspace/workspace-navigation.ts");
+    expect(nav).toContain("icon:");
+    expect(shell).toContain("WorkspaceNavIcon");
+    expect(shell).toContain('title="Account & sign out"');
+    expect(shell).toContain("workspace-profile-signout");
+  });
+
+  it("polishes intelligence, catalog, operations and returns surfaces with the shared commercial visual language", () => {
+    const css = read("workspace-polish.css");
+    for (const selector of [
+      ".workspace-main .catalog-form",
+      ".workspace-main .ai-panel",
+      ".workspace-main .working-capital-panel",
+      ".workspace-main .cfo-action",
+      ".workspace-main .return-mode",
+      ".workspace-main #operations",
+    ]) expect(css).toContain(selector);
+  });
+
 });

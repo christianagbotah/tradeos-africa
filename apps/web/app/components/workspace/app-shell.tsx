@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { NetworkStatus } from "../network-status";
 import { useWorkspace } from "./use-workspace";
 import { isWorkspaceNavActive, visibleWorkspaceNav } from "./workspace-navigation";
+import { WorkspaceNavIcon } from "./workspace-nav-icon";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -98,7 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               const active = isWorkspaceNavActive(pathname, item.href);
               return (
                 <Link className={active ? "workspace-nav-item active" : "workspace-nav-item"} href={item.href} key={item.href} aria-current={active ? "page" : undefined} onClick={() => setDrawerOpen(false)}>
-                  <span className="workspace-nav-dot" aria-hidden="true" />
+                  <span className="workspace-nav-icon-box"><WorkspaceNavIcon name={item.icon} /></span>
                   <span>{item.label}</span>
                 </Link>
               );
@@ -149,6 +150,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 className="workspace-profile-trigger"
                 type="button"
                 aria-label="Open user menu"
+                title="Account & sign out"
                 aria-haspopup="menu"
                 aria-expanded={profileOpen}
                 onClick={() => setProfileOpen((open) => !open)}

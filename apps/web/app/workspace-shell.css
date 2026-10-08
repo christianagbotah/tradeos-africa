@@ -118,3 +118,9 @@
   .workspace-topbar-title h1 { font-size: 20px; }
   .workspace-content { padding: 16px 14px 28px; }
 }
+
+.workspace-nav-icon-box { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; color: #8d9bb0; background: rgba(255,255,255,.045); transition: color .16s ease, background .16s ease, box-shadow .16s ease; }
+.workspace-nav-icon { width: 17px; height: 17px; }
+.workspace-nav-item:hover .workspace-nav-icon-box { color: #e5ebf3; background: rgba(255,255,255,.08); }
+.workspace-nav-item.active .workspace-nav-icon-box { color: #f0c968; background: rgba(201,152,47,.14); box-shadow: 0 0 0 1px rgba(201,152,47,.12); }
+.workspace-nav-item { padding-block: 7px; }
