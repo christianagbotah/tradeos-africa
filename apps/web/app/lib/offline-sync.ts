@@ -59,6 +59,12 @@ export type AppliedMutationDetail = {
 };
 const maxBatchSize = 100;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const branchOptionalMutationTypes = new Set([
+  "CATALOG_ITEM_CREATE",
+  "CATALOG_ITEM_UPDATE",
+  "CATALOG_ITEM_ARCHIVE",
+  "CATALOG_ITEM_REACTIVATE",
+]);
 
 let inFlight: Promise<FlushSummary> | null = null;
 
@@ -104,7 +110,7 @@ export function getQueueState(): QueueState {
   const activeBusinessId = getActiveBusinessId();
   return {
     pending: pending.length,
-    blocked: pending.filter((mutation) => !isServerReady(mutation) || !activeBusinessId || mutation.businessId !== activeBusinessId).length,
+    blocked: pending.filter((mutation) => !isMutationServerReady(mutation) || !activeBusinessId || mutation.businessId !== activeBusinessId).length,
     failed: readJson<FailedMutation[]>(failedKey, []).length,
   };
 }
@@ -154,7 +160,7 @@ async function performFlush(): Promise<FlushSummary> {
 
   const allPending = readJson<PendingMutation[]>(pendingKey, []);
   const batch = allPending
-    .filter((mutation) => mutation.businessId === activeBusinessId && isServerReady(mutation))
+    .filter((mutation) => mutation.businessId === activeBusinessId && isMutationServerReady(mutation))
     .slice(0, maxBatchSize);
   if (batch.length === 0) return emptySummary();
 
@@ -210,8 +216,12 @@ async function performFlush(): Promise<FlushSummary> {
   return { ...getQueueState(), applied, received, rejected, attempted: batch.length };
 }
 
-function isServerReady(mutation: PendingMutation): boolean {
-  return uuidPattern.test(mutation.businessId) && Boolean(mutation.branchId && uuidPattern.test(mutation.branchId));
+export function isMutationServerReady(
+  mutation: Pick<PendingMutation, "businessId" | "branchId" | "mutationType">,
+): boolean {
+  if (!uuidPattern.test(mutation.businessId)) return false;
+  if (branchOptionalMutationTypes.has(mutation.mutationType)) return true;
+  return Boolean(mutation.branchId && uuidPattern.test(mutation.branchId));
 }
 
 function readJson<T>(key: string, fallback: T): T {
