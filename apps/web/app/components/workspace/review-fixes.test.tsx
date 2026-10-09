@@ -57,7 +57,7 @@ describe("multi-page review regressions", () => {
 
   it("keeps Treasury minimum table width inside a local horizontal scroll wrapper", () => {
     const treasury = read("components/treasury.tsx");
-    const css = read("cashbook.css");
+    const css = read("tradeos-app.css");
     expect(treasury).toContain('className="treasury-table-scroll"');
     expect(css).toMatch(/\.treasury-table-scroll\s*\{[^}]*overflow-x:\s*auto/);
     expect(css).toMatch(/\.treasury-table-scroll\s+table\s*\{[^}]*min-width:\s*680px/);

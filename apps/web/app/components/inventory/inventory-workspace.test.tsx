@@ -58,7 +58,7 @@ describe("InventoryWorkspace", () => {
   it("replaces the legacy internal InventoryTable and keeps phone controls readable", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
     const coordinator = fs.readFileSync(path.join(root, "components", "purchases-inventory.tsx"), "utf8");
-    const css = fs.readFileSync(path.join(root, "purchases-inventory.css"), "utf8");
+    const css = fs.readFileSync(path.join(root, "tradeos-app.css"), "utf8");
     expect(coordinator).toContain("InventoryWorkspace");
     expect(coordinator).toContain("InventoryDetailSheet");
     expect(coordinator).not.toMatch(/function InventoryTable\(/);

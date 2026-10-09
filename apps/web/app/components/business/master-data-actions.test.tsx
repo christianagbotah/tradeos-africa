@@ -61,8 +61,8 @@ describe("shared master-data lifecycle actions", () => {
       "components/cashbook/expense-category-card.tsx",
       "components/treasury/money-account-sheet.tsx",
     ]) expect(fs.readFileSync(path.join(root, file), "utf8")).toContain("MasterDataActions");
-    expect(fs.readFileSync(path.join(root, "layout.tsx"), "utf8")).toContain('import "./master-data.css";');
-    const css = fs.readFileSync(path.join(root, "master-data.css"), "utf8");
+    expect(fs.readFileSync(path.join(root, "layout.tsx"), "utf8")).toContain('import "./tradeos-app.css"');
+    const css = fs.readFileSync(path.join(root, "tradeos-app.css"), "utf8");
     expect(css).toMatch(/master-data-actions[\s\S]*min-height:\s*48px/);
   });
 });

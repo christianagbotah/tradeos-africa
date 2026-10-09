@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const cssPath = path.join(appRoot, "cashbook.css");
+const cssPath = path.join(appRoot, "tradeos-app.css");
 
 function css() {
   expect(fs.existsSync(cssPath)).toBe(true);
@@ -34,7 +34,7 @@ describe("Cashbook responsive layout contract", () => {
 
   it("imports Cashbook CSS and keeps primary Cashbook composition off generic form-row", () => {
     const layout = fs.readFileSync(path.join(appRoot, "layout.tsx"), "utf8");
-    expect(layout).toContain('import "./cashbook.css";');
+    expect(layout).toContain('import "./tradeos-app.css";');
     const files = ["cashbook-summary.tsx", "cashbook-entry-form.tsx", "expense-category-card.tsx", "cashbook-history.tsx"];
     for (const file of files) {
       const source = fs.readFileSync(path.join(appRoot, "components", "cashbook", file), "utf8");

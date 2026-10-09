@@ -77,7 +77,7 @@ describe("multi-page release hardening", () => {
 
   it("contains Treasury and financial-report tables inside local responsive scrollers", () => {
     const treasury = read("app/components/treasury.tsx");
-    const cashbookCss = read("app/cashbook.css");
+    const cashbookCss = read("app/tradeos-app.css");
     const reports = read("app/components/financial-reports.tsx");
     const forecast = read("app/components/cash-forecast.tsx");
     expect(treasury).toContain('className="treasury-table-scroll"');

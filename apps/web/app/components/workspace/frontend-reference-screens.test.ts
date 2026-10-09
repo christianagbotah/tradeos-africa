@@ -55,12 +55,10 @@ describe("frontend reference screens cross-screen contracts", () => {
       "tradeos-tokens.css",
       "ui-primitives.css",
       "workspace-shell.css",
+      "tradeos-app.css",
       "dashboard.css",
       "pos.css",
-      "pos-workspace.css",
       "catalog.css",
-      "sales-returns.css",
-      "purchases-inventory.css",
       "customers-credit.css",
     ];
     for (const file of cssFiles) {

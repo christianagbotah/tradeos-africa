@@ -114,7 +114,7 @@ describe("ExchangeSheet", () => {
 
   it("keeps phone exchange controls at 48px and integrates the catalog projection into the routes", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(appRoot, "sales-returns.css"), "utf8");
+    const css = fs.readFileSync(path.join(appRoot, "tradeos-app.css"), "utf8");
     const salesPage = fs.readFileSync(path.join(appRoot, "(workspace)", "sales", "page.tsx"), "utf8");
     const returnsPage = fs.readFileSync(path.join(appRoot, "(workspace)", "returns", "page.tsx"), "utf8");
     expect(css).toMatch(/exchange-[\s\S]*min-height:\s*48px/);
