@@ -2,6 +2,9 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Button } from "../ui/button";
+import { CommandBar } from "../ui/command-bar";
+import { MobileRecordCard } from "../ui/mobile-record-card";
+import { StatusBadge } from "../ui/status-badge";
 import { getFailedMutations, queueChangedEvent } from "../../lib/offline-sync";
 import { InventoryAdjustmentSheet } from "./inventory-adjustment-sheet";
 import type { InventoryItem } from "./types";
@@ -53,16 +56,20 @@ export function InventoryWorkspace({ items, currencyCode, loadingId, onOpen, bus
       <div><span>Movement-derived stock</span><h3>Branch inventory</h3><p>Balances come from posted movements. Open an item to see why stock changed; TradeOS never edits an on-hand number directly.</p></div>
       <div className="inventory-value-summary"><span>Inventory value</span><strong>{formatMoney(totalValue, currencyCode)}</strong></div>
     </div>
+    <CommandBar ariaLabel="Inventory filters">
     <div className="inventory-commandbar">
       <label className="inventory-search"><span>Search inventory</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Product, SKU or stock unit" /></label>
       <div className="inventory-filterbar" role="tablist" aria-label="Inventory filters">
         {([ ["ALL", "All"], ["EMPTY", "Empty"], ["EXCEPTIONS", "Exceptions"] ] as const).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={filter === value} className={filter === value ? "active" : undefined} onClick={() => setFilter(value)}><span>{label}</span><strong>{counts[value]}</strong></button>)}
       </div>
     </div>
+    </CommandBar>
     {failedAdjustments.length > 0 ? <div className="inventory-adjustment-review" role="status"><strong>{failedAdjustments.length} inventory adjustment{failedAdjustments.length === 1 ? "" : "s"} needs review</strong><span>{failedAdjustments[0]?.result.errorMessage ?? "Refresh the item and review the rejected quantity before retrying."}</span></div> : null}
     {message ? <div className="inventory-adjustment-status" role="status">{message}</div> : null}
     <div className="inventory-modern-list">
-      {visible.length === 0 ? <div className="inventory-empty-modern"><strong>No inventory items match this view.</strong><span>Change the search or stock-state filter.</span></div> : visible.map((item) => <article className="inventory-row-modern" key={item.id}>
+      {visible.length === 0 ? <div className="inventory-empty-modern"><strong>No inventory items match this view.</strong><span>Change the search or stock-state filter.</span></div> : visible.map((item) => (
+        <React.Fragment key={item.id}>
+        <article className="inventory-row-modern inventory-row-modern--desktop">
         <div className="inventory-row-identity"><strong>{item.name}</strong><span>{item.sku ?? `Stock unit · ${item.stockUnitCode}`}</span></div>
         <StockFact label="Available" value={`${formatQuantity(item.available)} ${item.stockUnitCode}`} alert={item.available <= 0} />
         <StockFact label="Quarantine" value={formatQuantity(item.quarantine)} alert={item.quarantine > 0} />
@@ -70,7 +77,26 @@ export function InventoryWorkspace({ items, currencyCode, loadingId, onOpen, bus
         <StockFact label="Waste" value={formatQuantity(item.waste)} alert={item.waste > 0} />
         <div className="inventory-row-financial"><span>Average cost</span><strong>{item.averageStockUnitCostMinor === null ? "—" : `${formatMoney(item.averageStockUnitCostMinor, currencyCode)} / ${item.stockUnitCode}`}</strong><small>Inventory value {formatMoney(item.inventoryValueMinor, currencyCode)}</small></div>
         <div className="inventory-row-actions"><Button variant="secondary" type="button" disabled={loadingId === item.id} onClick={() => onOpen(item)}>{loadingId === item.id ? "Opening…" : "Movement history"}</Button>{canAdjust ? <Button type="button" onClick={() => setAdjustmentItem(item)}>Adjust stock</Button> : null}</div>
-      </article>)}
+      </article>
+      {/* Mobile record-card representation */}
+      <div className="inventory-row-modern--mobile">
+        <MobileRecordCard
+          title={<span>{item.name}</span>}
+          meta={<span>{item.sku ?? `Stock unit · ${item.stockUnitCode}`} · Avail {formatQuantity(item.available)} {item.stockUnitCode}</span>}
+          status={<StatusBadge tone={item.available <= 0 ? "danger" : item.quarantine > 0 || item.damaged > 0 ? "warning" : "positive"}>{item.available <= 0 ? "Empty" : item.quarantine > 0 || item.damaged > 0 ? "Exceptions" : "Healthy"}</StatusBadge>}
+          actions={
+            <>
+              <Button variant="secondary" size="compact" type="button" disabled={loadingId === item.id} onClick={() => onOpen(item)}>{loadingId === item.id ? "Opening…" : "Movement history"}</Button>
+              {canAdjust ? <Button size="compact" type="button" onClick={() => setAdjustmentItem(item)}>Adjust stock</Button> : null}
+            </>
+          }
+        >
+          <p>Quarantine {formatQuantity(item.quarantine)} · Damaged {formatQuantity(item.damaged)} · Waste {formatQuantity(item.waste)}</p>
+          <p>Avg cost {item.averageStockUnitCostMinor === null ? "—" : formatMoney(item.averageStockUnitCostMinor, currencyCode)} · Value {formatMoney(item.inventoryValueMinor, currencyCode)}</p>
+        </MobileRecordCard>
+      </div>
+      </React.Fragment>
+      ))}
     </div>
     <InventoryAdjustmentSheet open={Boolean(adjustmentItem)} item={adjustmentItem} businessId={businessId} branchId={branchId} role={role} onClose={() => setAdjustmentItem(null)} onQueued={async (nextMessage) => { setMessage(nextMessage); setFailedAdjustments(failedFor(businessId, branchId)); await onRefresh(); }} />
   </section>;

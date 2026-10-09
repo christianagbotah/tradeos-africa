@@ -376,3 +376,10 @@
   .inventory-adjustment-footer { display: grid; grid-template-columns: 1fr 1fr; }
   .inventory-adjustment-footer .tos-button { min-width: 0; width: 100%; }
 }
+
+/* Task 7: responsive desktop/mobile inventory row switching */
+.inventory-row-modern--mobile { display: none; }
+@media (max-width: 767px) {
+  .inventory-row-modern--desktop { display: none; }
+  .inventory-row-modern--mobile { display: block; }
+}
