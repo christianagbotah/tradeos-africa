@@ -2,15 +2,15 @@ import fs from "node:fs";import path from "node:path";import {fileURLToPath} fro
 describe("TradeOS dashboard command center",()=>{
  it("puts operating state, pulse, actions and attention ahead of deep analytics",()=>{const s=read("components/dashboard/dashboard-command-center.tsx");for(const phrase of ["Today","Quick actions","Needs attention","Money position"])expect(s).toContain(phrase);expect(s).toContain("BusinessPulse");expect(s).toContain("buildDashboardModel");expect(s).toContain("const visibleAttention");expect(s).toContain("visibleAttention.length");});
  it("removes catalog-count first viewport from route page",()=>{const p=read("(workspace)/dashboard/page.tsx");expect(p).toContain("DashboardCommandCenter");expect(p).not.toContain("Sellable choices");expect(p).not.toContain("Tracked products");expect(p).not.toContain("StatCard");});
- it("has phone-safe typography, touch and overflow contracts",()=>{const css=read("dashboard.css");expect(css).toContain("min-height:var(--tos-touch-mobile)");expect(css).toContain("font-variant-numeric:tabular-nums");expect(css).toContain("minmax(0,1fr)");expect(css).toContain("@media(max-width:480px)");expect(css).toContain("prefers-reduced-motion");expect(css).not.toMatch(/font-size:\s*(9|10)px/);});
+ it("has phone-safe typography, touch and overflow contracts",()=>{const css=read("dashboard.css");expect(css).toMatch(/min-height:\s*var\(--tos-touch-mobile\)/);expect(css).toMatch(/font-variant-numeric:\s*tabular-nums/);expect(css).toContain("minmax(0, 1fr)");expect(css).toMatch(/@media\s*\(\s*max-width:\s*480px\s*\)/);expect(css).toContain("prefers-reduced-motion");expect(css).not.toMatch(/font-size:\s*(9|10)px/);});
 });
 
 // Task 3: role-aware prioritization + intentional state regions
 describe("Dashboard role-aware prioritization", () => {
   it("places business state and exceptions/actions before secondary trends for owners", () => {
     const s = read("components/dashboard/dashboard-command-center.tsx");
-    // Search within the JSX return body, not the import section
-    const bodyStart = s.indexOf("return <div");
+    // Search within the JSX return body — find the first JSX element after return
+    const bodyStart = s.indexOf('className="tos-dashboard"');
     expect(bodyStart).toBeGreaterThan(-1);
     const body = s.slice(bodyStart);
     const todayIdx = body.indexOf('tos-today');
@@ -52,11 +52,22 @@ describe("Dashboard role-aware prioritization", () => {
     expect(s).toContain("tos-today-empty");
   });
 
+  it("promotes Sell CTA for frontline roles instead of leading with owner-only analytics", () => {
+    const s = read("components/dashboard/dashboard-command-center.tsx");
+    expect(s).toContain("frontlineRoles");
+    expect(s).toContain("tos-dashboard-sell-cta");
+  });
+
+  it("hides momentum/trends section for frontline roles", () => {
+    const s = read("components/dashboard/dashboard-command-center.tsx");
+    expect(s).toContain("!isFrontline");
+  });
+
   it("keeps dashboard CSS mobile-first with 48px touch targets and tabular money", () => {
     const css = read("dashboard.css");
-    expect(css).toContain("min-height:var(--tos-touch-mobile)");
-    expect(css).toContain("font-variant-numeric:tabular-nums");
-    expect(css).toContain("minmax(0,1fr)");
-    expect(css).toContain("@media(max-width:480px)");
+    expect(css).toMatch(/min-height:\s*var\(--tos-touch-mobile\)/);
+    expect(css).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    expect(css).toContain("minmax(0, 1fr)");
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*480px\s*\)/);
   });
 });
