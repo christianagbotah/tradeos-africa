@@ -76,10 +76,10 @@ These may remain temporarily on this isolated branch only while their consuming 
 - Replace legacy return styling with a focused Z.ai-aligned module stylesheet
 - Tests: existing returns/exchange tests plus responsive contracts
 
-- [ ] Replace old return list/panel styling with `CommandBar`, `MobileRecordCard`, `StatePanel`, transaction evidence and Z.ai sheet patterns.
-- [ ] Preserve remaining-returnable quantity, disposition, refund destination, reason, processing status, actor/audit evidence and deep links.
-- [ ] Preserve exchange offline queue and linked replacement/return evidence.
-- [ ] Remove obsolete return-specific legacy selectors after tests prove no dependency.
+- [x] Replace old return list/panel styling with `CommandBar`, `MobileRecordCard`, `StatePanel`, transaction evidence and Z.ai sheet patterns.
+- [x] Preserve remaining-returnable quantity, disposition, refund destination, reason, processing status, actor/audit evidence and deep links.
+- [x] Preserve exchange offline queue and linked replacement/return evidence.
+- [x] Remove obsolete return-specific legacy selectors after tests prove no dependency.
 
 ### Task 3: Migrate Purchases + Suppliers
 
