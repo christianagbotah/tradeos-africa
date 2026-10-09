@@ -4,6 +4,8 @@ import React, { useMemo, useState } from "react";
 import { catalogCapabilities } from "../../lib/lifecycle-capabilities";
 import type { CatalogItem } from "../../lib/workspace-types";
 import { Button } from "../ui/button";
+import { CommandBar } from "../ui/command-bar";
+import { StatePanel } from "../ui/state-panel";
 import { CatalogItemSheet } from "./catalog-item-sheet";
 import { CatalogList } from "./catalog-list";
 
@@ -58,7 +60,10 @@ export function CatalogWorkspace({
 
   return (
     <section className="catalog-workspace" data-business-id={businessId} data-branch-id={branchId}>
-      <div className="catalog-commandbar">
+      <CommandBar
+        ariaLabel="Catalog filters"
+        primaryAction={capabilities.canCreate ? <Button type="button" onClick={() => setEditor({ mode: "create", item: null })}>Add item</Button> : undefined}
+      >
         <label className="catalog-search">
           <span>Search catalog</span>
           <input
@@ -69,8 +74,7 @@ export function CatalogWorkspace({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        {capabilities.canCreate ? <Button type="button" onClick={() => setEditor({ mode: "create", item: null })}>Add item</Button> : null}
-      </div>
+      </CommandBar>
 
       <div className="catalog-filterbar" role="tablist" aria-label="Catalog filters">
         {([
@@ -95,16 +99,24 @@ export function CatalogWorkspace({
       <div className="catalog-list-header" aria-hidden="true">
         <span>Item</span><span>Selling</span><span>Stock</span><span>Status</span><span />
       </div>
-      <CatalogList
-        items={visibleItems}
-        currencyCode={currencyCode}
-        capabilities={capabilities}
-        businessId={businessId}
-        role={role}
-        onOpenItem={(item) => setEditor({ mode: "edit", item })}
-        onDuplicateItem={(item) => setEditor({ mode: "duplicate", item })}
-        onChanged={onRefresh}
-      />
+      {visibleItems.length === 0 ? (
+        <StatePanel
+          state="empty"
+          title="No matching catalog items"
+          description="Try another search or filter. Archived items stay out of normal selling until reactivated."
+        />
+      ) : (
+        <CatalogList
+          items={visibleItems}
+          currencyCode={currencyCode}
+          capabilities={capabilities}
+          businessId={businessId}
+          role={role}
+          onOpenItem={(item) => setEditor({ mode: "edit", item })}
+          onDuplicateItem={(item) => setEditor({ mode: "duplicate", item })}
+          onChanged={onRefresh}
+        />
+      )}
 
       <button className="catalog-refresh-link" type="button" onClick={() => void onRefresh()}>Refresh catalog</button>
 

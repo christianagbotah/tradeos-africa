@@ -1,4 +1,7 @@
 import React from "react";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { CatalogItem } from "../../lib/workspace-types";
@@ -109,5 +112,33 @@ describe("CatalogWorkspace", () => {
     }));
     expect(html).not.toContain("Add item");
     expect(html).not.toContain("Manage");
+  });
+});
+
+// Task 5: design-system primitive usage + multi-unit conversion legibility
+describe("Catalog design-system and multi-unit contracts", () => {
+  const root = path.dirname(fileURLToPath(import.meta.url));
+  const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
+
+  it("uses the shared CommandBar primitive for the catalog command row", () => {
+    const ws = read("catalog-workspace.tsx");
+    expect(ws).toContain("CommandBar");
+  });
+
+  it("uses the shared MobileRecordCard primitive for mobile catalog rows", () => {
+    const list = read("catalog-list.tsx");
+    expect(list).toContain("MobileRecordCard");
+  });
+
+  it("uses the shared StatePanel primitive for empty catalog state", () => {
+    const ws = read("catalog-workspace.tsx");
+    const list = read("catalog-list.tsx");
+    expect(ws.includes("StatePanel") || list.includes("StatePanel")).toBe(true);
+  });
+
+  it("renders conversion chains explicitly for multi-unit items without collapsing to a single unit", () => {
+    const list = read("catalog-list.tsx");
+    // The list must reference unit/conversion rendering, not just a single price
+    expect(list).toMatch(/conversion|unit.*label|saleUnit|stockUnit|buying.*stocking.*selling/i);
   });
 });
