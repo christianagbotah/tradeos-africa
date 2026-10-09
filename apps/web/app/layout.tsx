@@ -3,7 +3,6 @@ import "./tradeos-tokens.css";
 import "./globals.css";
 import "./purchases-inventory.css";
 import "./returns.css";
-import "./interactions.css";
 import "./public-entry.css";
 import "./sales-returns.css";
 import "./transaction-evidence.css";

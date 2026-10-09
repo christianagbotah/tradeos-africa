@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { ResponsiveTable } from "./ui/responsive-table";
 import { Button } from "./ui/button";
+import { MoneyInput } from "./ui/money-input";
 import { MobileRecordCard } from "./ui/mobile-record-card";
 import { StatePanel } from "./ui/state-panel";
 import { StatusBadge } from "./ui/status-badge";
@@ -266,8 +267,8 @@ function CountForm({
             const balance = expected?.find((item) => item.method === method);
             if (close && balance && counts[method]) preview = formatMoney(BigInt(parseCount(counts[method]!)) - BigInt(balance.expectedClosingMinor), currencyCode);
           } catch { preview = null; }
-          return <label key={method}>{method} ({currencyCode})
-            <input required={close} inputMode="decimal" placeholder={close ? "Counted closing" : "0.00"} value={counts[method] ?? ""} onChange={(event) => setCounts({ ...counts, [method]: event.target.value })} />
+          return <label key={method}>{method}
+            <MoneyInput currencyCode={currencyCode} required={close} placeholder={close ? "Counted closing" : "0.00"} value={counts[method] ?? ""} onChange={(event) => setCounts({ ...counts, [method]: event.target.value })} />
             {preview !== null ? <small>Preview variance: {preview}</small> : null}
           </label>;
         })}

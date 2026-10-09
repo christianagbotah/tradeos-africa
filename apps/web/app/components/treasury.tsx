@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ClientApiError, clientApi, messageFrom } from "../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId, mutationAppliedEvent } from "../lib/offline-sync";
 import { Button } from "./ui/button";
+import { MoneyInput } from "./ui/money-input";
 import { MobileRecordCard } from "./ui/mobile-record-card";
 import { StatePanel } from "./ui/state-panel";
 import { StatusBadge } from "./ui/status-badge";
@@ -229,7 +230,7 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
           <h4>Transfer funds</h4>
           <label>From<select required value={source} onChange={(event) => setSource(event.target.value)}><option value="">Choose source</option>{eligible.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.method} · {money(item.balanceMinor)}</option>)}</select></label>
           <label>To<select required value={destination} onChange={(event) => setDestination(event.target.value)}><option value="">Choose destination</option>{eligible.filter((item) => item.id !== source).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.method}</option>)}</select></label>
-          <label>Amount<input required value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" /></label>
+          <label>Amount<MoneyInput currencyCode={currencyCode} required value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
           <label>Note<input value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} /></label>
           <Button type="submit">Save transfer</Button>
         </form>
@@ -254,7 +255,7 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
           {elevated ? <label>Type<select value={type} onChange={(event) => { setType(event.target.value); setAccount(""); }}><option>CASH_COUNT</option><option>STATEMENT</option></select></label> : null}
           <label>Period start<input required type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label>
           <label>Period end<input required type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label>
-          <label>Observed balance<input required value={observed} onChange={(event) => setObserved(event.target.value)} inputMode="decimal" /></label>
+          <label>Observed balance<MoneyInput currencyCode={currencyCode} required value={observed} onChange={(event) => setObserved(event.target.value)} /></label>
           <label>Note<input value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} /></label>
           <p>Variances stay open until explicitly resolved. Resolution posts a correction for the exact difference.</p>
           <Button type="submit">Save reconciliation</Button>

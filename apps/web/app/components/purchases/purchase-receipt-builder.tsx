@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { formatMoney, formatMoneyInput, parseMoneyInput } from "@tradeos/contracts";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { messageFrom } from "../../lib/client-api";
 import { Button } from "../ui/button";
+import { MoneyInput } from "../ui/money-input";
 import type { Supplier } from "../suppliers/supplier-types";
 import type { MoneyAccount } from "../treasury/types";
 import type { PurchaseCatalogItem, ReceiptLine } from "./types";
@@ -38,8 +38,8 @@ export function ReceiptLineEditor({ lines, currencyCode, unitsForItem, onChange,
         const unit = unitsForItem(line.itemId).find((candidate) => candidate.code === event.target.value);
         onChange(line.key, { purchaseUnitCode: event.target.value, purchaseUnitLabel: unit?.label ?? event.target.value });
       }}>{unitsForItem(line.itemId).map((unit) => <option key={unit.code} value={unit.code}>{unit.label}</option>)}</select></label>
-      <label>Unit cost<input inputMode="decimal" aria-label={`Unit cost for ${line.itemName}`} value={formatMoneyInput(line.unitCostMinor, currencyCode) ?? ""} onChange={(event) => {
-        const minor = parseMoneyInput(event.target.value, currencyCode) ?? -1;
+      <label>Unit cost<MoneyInput currencyCode={currencyCode} aria-label={`Unit cost for ${line.itemName}`} value={(line.unitCostMinor / 100).toFixed(2)} onChange={(event) => {
+        const minor = moneyToMinor(event.target.value);
         if (minor >= 0) onChange(line.key, { unitCostMinor: minor });
       }} /></label>
       <div className="purchase-line-stock-preview"><span>Stock preview</span><strong>{line.estimatedStockQuantity === null ? "Server will convert" : `+${formatQuantity(line.estimatedStockQuantity)} ${line.stockUnitCode ?? "stock units"}`}</strong></div>
@@ -102,7 +102,7 @@ export function PurchaseReceiptBuilder({ businessId, branchId, currencyCode, sup
   const addLine = () => {
     if (!selectedItem || !unitCode) return;
     const parsedQuantity = Number(quantity);
-    const unitCostMinor = parseMoneyInput(unitCost, currencyCode) ?? -1;
+    const unitCostMinor = moneyToMinor(unitCost);
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || unitCostMinor < 0 || !unitCost.trim()) {
       onMessage("Enter a positive purchase quantity and a valid unit cost.");
       return;
@@ -153,7 +153,7 @@ export function PurchaseReceiptBuilder({ businessId, branchId, currencyCode, sup
         <label>Product<select value={itemId} onChange={(event) => setItemId(event.target.value)}>{purchasable.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Purchase unit<select value={unitCode} onChange={(event) => setUnitCode(event.target.value)}>{purchaseUnits.map((unit) => <option key={unit.code} value={unit.code}>{unit.label}</option>)}</select></label>
         <label>Quantity<input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" /></label>
-        <label>Unit cost<input inputMode="decimal" value={unitCost} onChange={(event) => setUnitCost(event.target.value)} placeholder="0.00" /></label>
+        <label>Unit cost<MoneyInput currencyCode={currencyCode} value={unitCost} onChange={(event) => setUnitCost(event.target.value)} placeholder="0.00" /></label>
         <Button variant="secondary" type="button" onClick={addLine}>Add line</Button>
       </div>
       <ReceiptLineEditor lines={lines} currencyCode={currencyCode} unitsForItem={unitsForItem} onChange={(key, patch) => setLines((current) => current.map((line) => line.key === key ? { ...line, ...recalculateLine(line, patch) } : line))} onRemove={(key) => setLines((current) => current.filter((line) => line.key !== key))} />
@@ -174,5 +174,13 @@ function convertQuantity(item: PurchaseCatalogItem, from: string, to: string, qu
   return null;
 }
 
+function moneyToMinor(value: string): number {
+  const normalized = value.trim().replace(/,/g, "");
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return -1;
+  const [whole, fraction = ""] = normalized.split(".");
+  const minor = Number(BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0")));
+  return Number.isSafeInteger(minor) ? minor : -1;
+}
+function formatMoney(minor: number, currencyCode: string): string { return currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100); }
 function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }
 function formatEditable(value: number): string { return Number.isInteger(value) ? String(value) : String(value); }

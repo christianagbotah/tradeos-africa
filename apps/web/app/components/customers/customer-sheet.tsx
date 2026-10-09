@@ -5,6 +5,7 @@ import { formatMoneyInput } from "@tradeos/contracts";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
+import { MoneyInput } from "../ui/money-input";
 import { MasterDataActions, masterDataLifecycleMessage } from "../business/master-data-actions";
 import {
   customerMoneyToMinor,
@@ -268,7 +269,7 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
           {mode === "create" && canSetCredit ? <section className="customer-sheet-section">
             <div className="customer-section-heading"><div><strong>Credit &amp; terms</strong><span>Optional pay-later settings for this new customer</span></div></div>
             <div className="customer-field-grid">
-              <label>Credit limit ({currencyCode === "GHS" ? "₵" : currencyCode})<input inputMode="decimal" value={draft.creditLimit} onChange={(event) => setDraft((current) => ({ ...current, creditLimit: event.target.value }))} placeholder="Blank disables Pay later" /></label>
+              <label>Credit limit<MoneyInput currencyCode={currencyCode} value={draft.creditLimit} onChange={(event) => setDraft((current) => ({ ...current, creditLimit: event.target.value }))} placeholder="Blank disables Pay later" /></label>
               <label>Pay-later terms (days)<input inputMode="numeric" min="0" max="3650" value={draft.creditTermsDays} onChange={(event) => setDraft((current) => ({ ...current, creditTermsDays: event.target.value.replace(/\D/g, "") }))} /></label>
             </div>
             <p className="customer-lifecycle-note">These terms will apply to future pay-later sales after the customer is created.</p>
@@ -288,7 +289,7 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
             {canControlCredit ? <section className="customer-sheet-section">
               <div className="customer-section-heading"><div><strong>Credit &amp; terms</strong><span>Server-validated controls for future account activity</span></div></div>
               <div className="customer-field-grid">
-                <label>Credit limit ({currencyCode === "GHS" ? "₵" : currencyCode})<input inputMode="decimal" value={draft.creditLimit} onChange={(event) => setDraft((current) => ({ ...current, creditLimit: event.target.value }))} placeholder="Blank disables Pay later" /></label>
+                <label>Credit limit<MoneyInput currencyCode={currencyCode} value={draft.creditLimit} onChange={(event) => setDraft((current) => ({ ...current, creditLimit: event.target.value }))} placeholder="Blank disables Pay later" /></label>
                 <label>Pay-later terms (days)<input inputMode="numeric" min="0" max="3650" value={draft.creditTermsDays} onChange={(event) => setDraft((current) => ({ ...current, creditTermsDays: event.target.value.replace(/\D/g, "") }))} /></label>
               </div>
               <div className="customer-section-actions split"><Button type="button" variant="secondary" disabled={busy} onClick={() => void saveCredit()}>Update credit settings</Button><MasterDataActions entityLabel="customer" active={customer.active} canChangeStatus busy={busy} onToggleStatus={toggleActive} /></div>
@@ -297,7 +298,7 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
             <section className="customer-sheet-section customer-payment-section">
               <div className="customer-section-heading"><div><strong>Receive payment</strong><span>Payments reduce the customer balance without rewriting sales history</span></div></div>
               {!customer.active ? <p className="customer-lifecycle-note">Payments are paused while this customer is inactive. Reactivate the customer before recording new account activity.</p> : canReceivePayment ? <div className="customer-payment-grid">
-                <label>Amount<input inputMode="decimal" value={payment} onChange={(event) => setPayment(event.target.value)} placeholder="0.00" /></label>
+                <label>Amount<MoneyInput currencyCode={currencyCode} value={payment} onChange={(event) => setPayment(event.target.value)} placeholder="0.00" /></label>
                 <label>Method<select value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}><option value="CASH">Cash</option><option value="MOMO">MoMo</option><option value="CARD">Card</option><option value="BANK">Bank</option><option value="OTHER">Other</option></select></label>
                 <label>Reference<input value={providerReference} onChange={(event) => setProviderReference(event.target.value)} placeholder="Optional" /></label>
                 <Button type="button" disabled={busy || customerMoneyToMinor(payment, currencyCode) <= 0} onClick={() => void recordPayment()}>{busy ? "Saving…" : "Receive payment"}</Button>

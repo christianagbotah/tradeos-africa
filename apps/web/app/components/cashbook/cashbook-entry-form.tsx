@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import type { MoneyAccount } from "../treasury";
 import type { CashbookCategory } from "./types";
 import { Button } from "../ui/button";
+import { MoneyInput } from "../ui/money-input";
 
 type Props = {
   currencyCode: string;
@@ -43,7 +44,7 @@ export function CashbookEntryForm(props: Props) {
       <form className="cashbook-entry-form" onSubmit={props.onSubmit}>
         <div className="cashbook-form-grid">
           <label><span>Entry type</span><select value={props.mode} onChange={(e) => props.onModeChange(e.target.value)}><option value="EXPENSE_CREATE">Expense</option>{props.canAdjust ? <option value="CASHBOOK_ADJUSTMENT_CREATE">Balance adjustment</option> : null}</select></label>
-          <label><span>Amount ({props.currencyCode})</span><input required inputMode="decimal" value={props.amount} onChange={(e) => props.onAmountChange(e.target.value)} placeholder="0.00" /></label>
+          <label><span>Amount</span><MoneyInput currencyCode={props.currencyCode} required value={props.amount} onChange={(e) => props.onAmountChange(e.target.value)} placeholder="0.00" /></label>
           <label><span>Payment method</span><select value={props.method} onChange={(e) => props.onMethodChange(e.target.value)}>{props.methods.map((method) => <option key={method}>{method}</option>)}</select></label>
           <label><span>Money account</span><select value={props.moneyAccountId} onChange={(e) => props.onMoneyAccountChange(e.target.value)}><option value="">Branch default</option>{matchingAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
 
