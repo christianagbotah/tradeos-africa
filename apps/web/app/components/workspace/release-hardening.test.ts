@@ -82,8 +82,10 @@ describe("multi-page release hardening", () => {
     const forecast = read("app/components/cash-forecast.tsx");
     expect(treasury).toContain('className="treasury-table-scroll"');
     expect(cashbookCss).toMatch(/\.treasury-table-scroll\s*\{[\s\S]*overflow-x:\s*auto/);
-    expect(reports.match(/<ResponsiveTable>/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(forecast).toContain("<ResponsiveTable>");
+    expect(reports.match(/<ResponsiveTable(?:\s|>)/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(forecast).toContain("<ResponsiveTable");
+    expect(forecast).toContain('className="reports-table--desktop"');
+    expect(forecast).toContain('className="reports-records--mobile"');
     expect(forecast).not.toContain('className="table-scroll"');
   });
 });

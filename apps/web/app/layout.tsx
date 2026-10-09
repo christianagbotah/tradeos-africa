@@ -15,6 +15,7 @@ import "./catalog.css";
 import "./pos.css";
 import "./cashbook.css";
 import "./operations.css";
+import "./reports.css";
 import "./master-data.css";
 
 export const metadata: Metadata = {

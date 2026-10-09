@@ -121,9 +121,9 @@ These may remain temporarily on this isolated branch only while their consuming 
 - Modify: report/cash forecast/CFO presentation components
 - Add focused report styling using Z.ai tokens/primitives
 
-- [ ] Recompose reports around business questions, summaries, drill-down evidence and action-oriented AI insight cards.
-- [ ] Preserve report contracts and multi-branch behavior.
-- [ ] Remove old `ai-panel`, working-capital and CFO skinning from global legacy files.
+- [x] Recompose reports around business questions, summaries, drill-down evidence and action-oriented AI insight cards.
+- [x] Preserve report contracts and multi-branch behavior.
+- [x] Remove old `ai-panel`, working-capital and CFO skinning from global legacy files.
 
 ### Task 7: Remove the legacy frontend layer completely
 
