@@ -42,6 +42,15 @@ describe("Cashbook responsive layout contract", () => {
     }
   });
 
+  it("uses canonical TradeOS tokens and 48px controls instead of a private cashbook skin", () => {
+    const source = css();
+    expect(source).not.toMatch(/--cashbook-(gold|gold-soft|navy|border|muted):/);
+    expect(source).toContain("var(--tos-border)");
+    expect(source).toContain("var(--tos-text-muted)");
+    expect(source).toContain("var(--tos-focus-ring)");
+    expect(source).toMatch(/min-height:\s*48px/);
+  });
+
   it("gives Treasury a Cashbook-scoped presentational hook", () => {
     const treasury = fs.readFileSync(path.join(appRoot, "components", "treasury.tsx"), "utf8");
     expect(treasury).toContain('className="treasury-section"');

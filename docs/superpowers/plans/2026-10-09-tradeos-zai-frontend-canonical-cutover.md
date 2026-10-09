@@ -100,9 +100,9 @@ These may remain temporarily on this isolated branch only while their consuming 
 - Modify: treasury workspace/components as needed
 - Replace legacy cashbook presentation selectors with canonical module styles
 
-- [ ] Rebuild cash position, income/expense entry, accounts, history, reconciliation and treasury surfaces on the Z.ai layout grammar.
-- [ ] Preserve server-authoritative money effects and role permissions.
-- [ ] Remove duplicated `panel`/table/button skinning inherited from old workspace CSS.
+- [x] Rebuild cash position, income/expense entry, accounts, history, reconciliation and treasury surfaces on the Z.ai layout grammar.
+- [x] Preserve server-authoritative money effects and role permissions.
+- [x] Remove duplicated `panel`/table/button skinning inherited from old workspace CSS.
 
 ### Task 5: Migrate Operations
 
