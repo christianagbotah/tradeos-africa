@@ -1,5 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { formatMoney } from "@tradeos/contracts";
+import { useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { SupplierWorkspace } from "./suppliers/supplier-workspace";
 import type { Supplier } from "./suppliers/supplier-types";
@@ -7,20 +6,15 @@ import type { MoneyAccount } from "./treasury/types";
 import { PurchaseReceiptBuilder } from "./purchases/purchase-receipt-builder";
 import { PurchaseWorkspace } from "./purchases/purchase-workspace";
 import { PurchaseDetailSheet } from "./purchases/purchase-detail-sheet";
-import type { PurchaseCatalogItem, PurchaseDetail, PurchaseDetailLine, PurchaseSummary } from "./purchases/types";
+import { PurchaseReturnSheet } from "./purchases/purchase-return-sheet";
+import { StatePanel } from "./ui/state-panel";
+import type { PurchaseCatalogItem, PurchaseDetail, PurchaseSummary } from "./purchases/types";
 import { InventoryWorkspace } from "./inventory/inventory-workspace";
 import { InventoryDetailSheet } from "./inventory/inventory-detail-sheet";
 import type { InventoryDetail, InventoryItem } from "./inventory/types";
-import { PageHeader } from "./ui/page-header";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
-import {
-  enqueueMutation,
-  flushPendingMutations,
-  getOrCreateClientId,
-  mutationAppliedEvent,
-  type AppliedMutationDetail,
-} from "../lib/offline-sync";
+import { mutationAppliedEvent, type AppliedMutationDetail } from "../lib/offline-sync";
 
 type Props = {
   businessId: string;
@@ -165,78 +159,35 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
 
   const lowOrEmpty = useMemo(() => inventory.filter((item) => item.available <= 0).length, [inventory]);
 
-  return <section className="purchase-inventory-workspace" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
-    <PageHeader
-      eyebrow={view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}
-      title={view === "purchases" ? "Suppliers & purchases" : "Inventory"}
-      subtitle={view === "purchases"
-        ? "Receive stock, inspect posted receipts and create linked supplier corrections without editing history."
-        : "Review movement-derived stock, investigate item history and make controlled adjustments for this branch."}
-      status={<div className="inventory-summary"><span>Tracked products</span><strong>{inventory.length}</strong><small>{lowOrEmpty} empty item{lowOrEmpty === 1 ? "" : "s"}</small></div>}
-    />
+  return <section className="purchases-inventory-workspace" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
+    <header className="purchase-inventory-head">
+      <div><p className="purchase-inventory-kicker">{view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}</p><h2>{view === "purchases" ? "Suppliers & purchases" : "Inventory"}</h2></div>
+      <div className="inventory-summary"><span>Tracked products</span><strong>{inventory.length}</strong><small>{lowOrEmpty} empty item{lowOrEmpty === 1 ? "" : "s"}</small></div>
+    </header>
 
     {view === "purchases" ? <>
       <SupplierWorkspace businessId={businessId} branchId={branchId} currencyCode={currencyCode} role={role} suppliers={suppliers} onRefresh={refresh} />
-      {canReceive ? <div className="procurement-actions"><PurchaseReceiptBuilder businessId={businessId} branchId={branchId} currencyCode={currencyCode} suppliers={suppliers.filter((supplier) => supplier.active)} catalog={catalog} accounts={accounts} onMessage={setMessage} /></div> : <div className="inventory-readonly-note">Your role can view purchase history but cannot receive inventory.</div>}
+      {canReceive ? <div className="purchase-receiving-stack"><PurchaseReceiptBuilder businessId={businessId} branchId={branchId} currencyCode={currencyCode} suppliers={suppliers.filter((supplier) => supplier.active)} catalog={catalog} accounts={accounts} onMessage={setMessage} /></div> : <div className="purchase-readonly-note">Your role can view purchase history but cannot receive inventory.</div>}
       <PurchaseWorkspace purchases={purchases} loadingId={detailLoadingId} onOpen={(purchase) => void openPurchase(purchase)} />
       <PurchaseDetailSheet open={Boolean(selectedPurchase)} purchase={selectedPurchase} detail={selectedDetail} canReturn={canReceive} onClose={() => { setSelectedPurchase(null); setSelectedDetail(null); }} onReturn={() => { if (selectedPurchase) setReturnPurchase(selectedPurchase); setSelectedPurchase(null); setSelectedDetail(null); }} />
-      {returnPurchase ? <PurchaseReturn key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={() => setReturnPurchase(null)} onMessage={setMessage} /> : null}
+      {returnPurchase ? <PurchaseReturnSheet key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={() => setReturnPurchase(null)} onMessage={setMessage} /> : null}
     </> : <>
       <InventoryWorkspace items={inventory} currencyCode={currencyCode} loadingId={inventoryLoadingId} onOpen={(item) => void openInventory(item)} businessId={businessId} branchId={branchId} role={role} onRefresh={refresh} />
       <InventoryDetailSheet open={Boolean(selectedInventory)} detail={inventoryDetail} onClose={() => { setSelectedInventory(null); setInventoryDetail(null); }} />
     </>}
-    {message ? <div className="procurement-message">{message}</div> : null}
+    {message ? <StatePanel state={messageState(message)} title={messageTitle(message)} description={message} /> : null}
   </section>;
 }
 
-function returnPreview(line: PurchaseDetailLine, quantity: number): number {
-  const original = BigInt(Math.round(line.purchaseQuantity * 1e8));
-  if (original <= 0n || !Number.isFinite(quantity) || quantity < 0 || quantity > line.remainingQuantity) return 0;
-  const cumulative = BigInt(Math.round(line.returnedQuantity * 1e8)) + BigInt(Math.round(quantity * 1e8));
-  return Number((BigInt(line.lineCostMinor) * cumulative + original / 2n) / original) - line.returnedRecoveryMinor;
+
+function messageState(message: string): "offline" | "error" | "success" {
+  if (message.startsWith("Offline:")) return "offline";
+  if (/needs review|could not|unavailable|failed|error/i.test(message)) return "error";
+  return "success";
 }
 
-function PurchaseReturn({ businessId, branchId, purchase, onClose, onMessage }: { businessId: string; branchId: string; purchase: PurchaseSummary; onClose: () => void; onMessage: (message: string) => void }) {
-  const [lines, setLines] = useState<PurchaseDetailLine[]>([]);
-  const [quantities, setQuantities] = useState<Record<string, string>>({});
-  const [locations, setLocations] = useState<Record<string, string>>({});
-  const [method, setMethod] = useState("CREDIT_NOTE");
-  const [busy, setBusy] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    const sessionEpoch = captureSessionEpoch();
-    const cached = readFeatureCache("purchase-detail", businessId, branchId, purchase.id, isPurchaseDetail);
-    if (cached) { setLines(cached.lines); setLoaded(true); }
-    if (!navigator.onLine) { if (!cached) setLoadError("Offline: this purchase has not been opened on this device yet."); return () => { active = false; }; }
-    clientApi<PurchaseDetail>(`/api/tradeos/v1/purchases/${purchase.id}?businessId=${encodeURIComponent(businessId)}`).then((data) => { if (active && isSessionEpochCurrent(sessionEpoch)) { setLines(data.lines); setLoaded(true); setLoadError(null); writeFeatureCache("purchase-detail", businessId, branchId, data, purchase.id); } }).catch((error) => { if (active && isSessionEpochCurrent(sessionEpoch) && !cached) setLoadError(messageFrom(error)); });
-    return () => { active = false; };
-  }, [businessId, branchId, purchase.id]);
-  const preview = lines.reduce((sum, line) => sum + returnPreview(line, Number(quantities[line.id] || 0)), 0);
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const selected = lines.filter((line) => Number(quantities[line.id] || 0) > 0);
-    if (!selected.length || selected.some((line) => !Number.isFinite(Number(quantities[line.id])) || Number(quantities[line.id]) > line.remainingQuantity)) { onMessage("Choose quantities within the remaining purchased quantities."); return; }
-    setBusy(true);
-    try {
-      enqueueMutation({ clientId: getOrCreateClientId(), clientMutationId: crypto.randomUUID(), businessId, branchId, mutationType: "PURCHASE_RETURN_CREATE", occurredAt: new Date().toISOString(), payload: { originalPurchaseId: purchase.id, supplierId: purchase.supplierId, recoveryMethod: method, lines: selected.map((line) => ({ purchaseLineId: line.id, quantity: Number(quantities[line.id]), sourceLocation: locations[line.id] || "AVAILABLE" })) } });
-      onClose();
-      if (!navigator.onLine) { onMessage("Purchase return saved offline; stock and recovery will post when synchronized."); return; }
-      const result = await flushPendingMutations(); onMessage(result.rejected ? "Purchase return needs review." : "Purchase return saved for synchronization.");
-    } catch (error) { onMessage(messageFrom(error)); } finally { setBusy(false); }
-  };
-  return <form className="purchase-return-sheet" onSubmit={(event) => void submit(event)}>
-    <div className="purchase-receipt-head"><div><span>Purchase correction</span><strong>Return to {purchase.supplierName}</strong></div><button  className="tos-button tos-button--secondary" type="button" onClick={onClose}>Close</button></div>
-    {!loaded ? <p>{loadError || "Loading original purchase…"}</p> : lines.map((line) => <div className="receipt-line-builder" key={line.id}>
-      <div><strong>{line.itemName}</strong><p>Remaining {formatQuantity(line.remainingQuantity)} {line.purchaseUnitCode} · Originally {formatQuantity(line.purchaseQuantity)} {line.purchaseUnitCode} = {formatQuantity(line.stockQuantity)} {line.stockUnitCode}</p></div>
-      <label>Return quantity ({line.purchaseUnitCode})<input type="number" min="0" max={line.remainingQuantity} step="0.00000001" disabled={line.remainingQuantity <= 0} value={quantities[line.id] || ""} onChange={(event) => setQuantities((current) => ({ ...current, [line.id]: event.target.value }))} /></label>
-      <label>Stock source<select value={locations[line.id] || "AVAILABLE"} onChange={(event) => setLocations((current) => ({ ...current, [line.id]: event.target.value }))}><option>AVAILABLE</option><option>QUARANTINE</option></select></label>
-    </div>)}
-    <label>Recovery method<select value={method} onChange={(event) => setMethod(event.target.value)}>{["CREDIT_NOTE","CASH","MOMO","CARD","BANK","OTHER"].map((value) => <option key={value} value={value}>{value === "CREDIT_NOTE" ? "Supplier credit note" : value}</option>)}</select></label>
-    <p>{method === "CREDIT_NOTE" ? "Supplier credit" : "Supplier recovery"} preview: {formatMoney(preview, purchase.currencyCode)}</p>
-    <button  className="tos-button tos-button--primary" disabled={busy || !loaded} type="submit">Save purchase return</button>
-  </form>;
+function messageTitle(message: string): string {
+  if (message.startsWith("Offline:")) return "Offline branch data";
+  if (/needs review|could not|unavailable|failed|error/i.test(message)) return "Action needs attention";
+  return "TradeOS update";
 }
-
-function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }

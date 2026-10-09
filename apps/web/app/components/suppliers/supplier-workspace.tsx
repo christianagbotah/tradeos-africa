@@ -5,6 +5,10 @@ import { formatMoney } from "@tradeos/contracts";
 import { clientApi, messageFrom } from "../../lib/client-api";
 import { getFailedMutations, mutationAppliedEvent, queueChangedEvent, type AppliedMutationDetail } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
+import { CommandBar } from "../ui/command-bar";
+import { MobileRecordCard } from "../ui/mobile-record-card";
+import { StatePanel } from "../ui/state-panel";
+import { StatusBadge } from "../ui/status-badge";
 import { SupplierSheet } from "./supplier-sheet";
 import { supplierCapabilities, type Supplier, type SupplierDetail } from "./supplier-types";
 
@@ -95,17 +99,19 @@ export function SupplierWorkspace({ businessId, branchId, currencyCode, role, su
   return (
     <section className="supplier-workspace" data-business-id={businessId} data-branch-id={branchId}>
       <div className="supplier-commandbar">
-        <label className="supplier-search">
-          <span>Search suppliers</span>
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search suppliers" aria-label="Search suppliers" />
-        </label>
-        {capabilities.canCreate ? <Button type="button" onClick={() => setEditor({ mode: "create", supplier: null, detail: null })}>Add supplier</Button> : null}
+        <CommandBar
+          ariaLabel="Supplier search and actions"
+          primaryAction={capabilities.canCreate ? <Button type="button" onClick={() => setEditor({ mode: "create", supplier: null, detail: null })}>Add supplier</Button> : undefined}
+        >
+          <label className="supplier-search">
+            <span>Search suppliers</span>
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search suppliers" aria-label="Search suppliers" />
+          </label>
+        </CommandBar>
       </div>
 
       <div className="supplier-filterbar" role="tablist" aria-label="Supplier filters">
-        {([[
-          "ACTIVE", "Active",
-        ], ["ARCHIVED", "Archived"], ["ALL", "All"]] as const).map(([value, label]) => (
+        {([["ACTIVE", "Active"], ["ARCHIVED", "Archived"], ["ALL", "All"]] as const).map(([value, label]) => (
           <button key={value} type="button" role="tab" aria-selected={filter === value} className={filter === value ? "active" : undefined} onClick={() => setFilter(value)}>
             <span>{label}</span><strong>{counts[value]}</strong>
           </button>
@@ -113,22 +119,37 @@ export function SupplierWorkspace({ businessId, branchId, currencyCode, role, su
       </div>
 
       <div className="supplier-list">
-        {visible.length === 0 ? <div className="supplier-empty-state"><strong>No suppliers match this view.</strong><span>Change the search or lifecycle filter.</span></div> : visible.map((supplier) => (
-          <article className={supplier.active ? "supplier-row" : "supplier-row supplier-row--archived"} key={supplier.id}>
-            <div className="supplier-row-main">
-              <div className="supplier-avatar">{supplier.name.slice(0, 2).toUpperCase()}</div>
-              <div><strong>{supplier.name}</strong><span>{supplier.phone ?? supplier.email ?? supplier.address ?? "No contact details"}</span></div>
+        {visible.length === 0 ? <StatePanel state="empty" title="No suppliers match this view" description="Change the search or lifecycle filter." /> : visible.map((supplier) => {
+          const contact = supplier.phone ?? supplier.email ?? supplier.address ?? "No contact details";
+          const payable = supplier.balanceMinor < 0 ? `Credit ${formatMoney(-supplier.balanceMinor, currencyCode)}` : formatMoney(supplier.balanceMinor, currencyCode);
+          const actionLabel = loadingId === supplier.id ? "Opening…" : capabilities.canEdit ? "Manage" : "View";
+          return <React.Fragment key={supplier.id}>
+            <article className={supplier.active ? "supplier-row supplier-row--desktop" : "supplier-row supplier-row--desktop supplier-row--archived"}>
+              <div className="supplier-row-main">
+                <div className="supplier-avatar">{supplier.name.slice(0, 2).toUpperCase()}</div>
+                <div><strong>{supplier.name}</strong><span>{contact}</span></div>
+              </div>
+              <div className="supplier-row-fact"><span>Payable</span><strong>{payable}</strong></div>
+              <div className="supplier-row-fact"><span>Terms</span><strong>Net {supplier.paymentTermsDays} day{supplier.paymentTermsDays === 1 ? "" : "s"}</strong></div>
+              <div className="supplier-row-status"><StatusBadge tone={supplier.active ? "positive" : "neutral"}>{supplier.active ? "Active" : "Inactive"}</StatusBadge></div>
+              <Button variant="secondary" type="button" disabled={loadingId === supplier.id} onClick={() => void openSupplier(supplier)}>{actionLabel}</Button>
+            </article>
+            <div className="supplier-row--mobile">
+              <MobileRecordCard
+                title={<span>{supplier.name}</span>}
+                meta={<span>{contact} · Net {supplier.paymentTermsDays} day{supplier.paymentTermsDays === 1 ? "" : "s"}</span>}
+                status={<StatusBadge tone={supplier.active ? "positive" : "neutral"}>{supplier.active ? "Active" : "Inactive"}</StatusBadge>}
+                actions={<Button variant="secondary" type="button" disabled={loadingId === supplier.id} onClick={() => void openSupplier(supplier)}>{actionLabel}</Button>}
+              >
+                <p><strong>{payable}</strong> payable balance</p>
+              </MobileRecordCard>
             </div>
-            <div className="supplier-row-fact"><span>Payable</span><strong>{supplier.balanceMinor < 0 ? `Credit ${formatMoney(-supplier.balanceMinor, currencyCode)}` : formatMoney(supplier.balanceMinor, currencyCode)}</strong></div>
-            <div className="supplier-row-fact"><span>Terms</span><strong>Net {supplier.paymentTermsDays} day{supplier.paymentTermsDays === 1 ? "" : "s"}</strong></div>
-            <div className="supplier-row-status"><span className={supplier.active ? "supplier-status supplier-status--active" : "supplier-status"}>{supplier.active ? "Active" : "Inactive"}</span></div>
-            <Button variant="secondary" type="button" disabled={loadingId === supplier.id} onClick={() => void openSupplier(supplier)}>{loadingId === supplier.id ? "Opening…" : capabilities.canEdit ? "Manage" : "View"}</Button>
-          </article>
-        ))}
+          </React.Fragment>;
+        })}
       </div>
 
-      {message ? <div className="supplier-workspace-message" role="status">{message}</div> : null}
-      {syncFailure ? <div className="supplier-workspace-message" role="alert">{syncFailure}</div> : null}
+      {message ? <StatePanel state={message.startsWith("Offline:") ? "offline" : "error"} title={message.startsWith("Offline:") ? "Offline supplier view" : "Supplier details unavailable"} description={message} /> : null}
+      {syncFailure ? <StatePanel state="error" title="Supplier sync needs review" description={syncFailure} /> : null}
 
       {editor ? <SupplierSheet
         mode={editor.mode}

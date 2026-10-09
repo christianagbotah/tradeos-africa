@@ -89,9 +89,9 @@ These may remain temporarily on this isolated branch only while their consuming 
 - Retire presentation code from `purchases-inventory.tsx` once orchestration is split
 - Replace legacy purchase/inventory styling with focused canonical module styles
 
-- [ ] Recompose purchase receiving, supplier workspace, posted purchase evidence and purchase-return entry points using Z.ai primitives.
-- [ ] Preserve supplier terms, invoice/reference, multi-unit receiving, payment/account and stock conversion behavior.
-- [ ] Delete duplicated old presentation code and selectors only after route-level tests pass.
+- [x] Recompose purchase receiving, supplier workspace, posted purchase evidence and purchase-return entry points using Z.ai primitives.
+- [x] Preserve supplier terms, invoice/reference, multi-unit receiving, payment/account and stock conversion behavior.
+- [x] Delete duplicated old presentation code and selectors only after route-level tests pass.
 
 ### Task 4: Migrate Cashbook + Treasury
 

@@ -142,7 +142,7 @@ export function PurchaseReceiptBuilder({ businessId, branchId, currencyCode, sup
 
   return <section className="purchase-builder">
     <header className="purchase-builder-head"><div><span>Purchase receiving</span><h3>Build receipt</h3><p>Draft quantities, units and costs here. TradeOS validates conversions, stock and accounting when the receipt posts.</p></div><strong>{formatMoney(totalMinor, currencyCode)}</strong></header>
-    {suppliers.length === 0 ? <div className="inventory-readonly-note">Add an active supplier before receiving stock.</div> : purchasable.length === 0 ? <div className="inventory-readonly-note">Configure a tracked product with a purchase unit first.</div> : <>
+    {suppliers.length === 0 ? <div className="purchase-readonly-note">Add an active supplier before receiving stock.</div> : purchasable.length === 0 ? <div className="purchase-readonly-note">Configure a tracked product with a purchase unit first.</div> : <>
       <div className="purchase-builder-context">
         <label>Supplier<select value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
         <label>Settlement<select value={settlementMethod} onChange={(event) => setSettlementMethod(event.target.value)}>{["CASH","MOMO","CARD","BANK","OTHER","SUPPLIER_CREDIT"].map((method) => <option key={method} value={method}>{method === "SUPPLIER_CREDIT" ? "Supplier credit (pay later)" : method}</option>)}</select></label>
