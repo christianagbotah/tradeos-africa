@@ -83,6 +83,25 @@ describe("frontend reference screens cross-screen contracts", () => {
     }
   });
 
+  it("uses only canonical Z.ai workspace CSS at the root", () => {
+    const layout = read("layout.tsx");
+    expect(layout).toContain("./public-entry.css");
+    for (const legacyImport of [
+      "./workspace-polish.css",
+      "./pos-workspace.css",
+      "./real-app.css",
+    ]) {
+      expect(layout).not.toContain(legacyImport);
+    }
+  });
+
+  it("keeps public entry focus styling on defined TradeOS tokens", () => {
+    const css = read("public-entry.css");
+    expect(css).not.toContain("var(--tos-focus)");
+    expect(css).toContain("var(--tos-focus-ring)");
+    expect(css).toContain("var(--tos-gold)");
+  });
+
   it("preserves the GHS currency symbol (₵) in money formatting", () => {
     const posModel = read("components/pos/pos-model.ts");
     const checkout = read("components/pos/checkout-sheet.tsx");

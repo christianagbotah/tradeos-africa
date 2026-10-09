@@ -1,12 +1,20 @@
 import type { Metadata, Viewport } from "next";
 import "./tradeos-tokens.css";
-import "./ui-primitives.css";
+import "./globals.css";
+import "./purchases-inventory.css";
+import "./returns.css";
+import "./interactions.css";
+import "./public-entry.css";
+import "./sales-returns.css";
+import "./transaction-evidence.css";
+import "./customers-credit.css";
 import "./workspace-shell.css";
-import "./tradeos-app.css";
+import "./ui-primitives.css";
 import "./dashboard.css";
 import "./catalog.css";
 import "./pos.css";
-import "./customers-credit.css";
+import "./cashbook.css";
+import "./master-data.css";
 
 export const metadata: Metadata = {
   title: "TradeOS Africa",
