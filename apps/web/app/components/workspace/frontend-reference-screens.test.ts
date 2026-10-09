@@ -72,8 +72,8 @@ describe("frontend reference screens cross-screen contracts", () => {
 
   it("reference-screen containers opt into shrink-safe layouts (min-width:0)", () => {
     const shell = read("workspace-shell.css");
-    expect(shell).toMatch(/\.workspace-main\{[^}]*min-width:\s*0/);
-    expect(shell).toMatch(/\.workspace-content\{[^}]*min-width:\s*0/);
+    expect(shell).toMatch(/\.workspace-main\s*\{[^}]*min-width:\s*0/);
+    expect(shell).toMatch(/\.workspace-content\s*\{[^}]*min-width:\s*0/);
   });
 
   it("keeps the new presentational primitives presentational (no API/workspace deps)", () => {

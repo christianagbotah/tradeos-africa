@@ -52,9 +52,9 @@ describe("TradeOS shell hierarchy and permission presentation", () => {
 
   it("requires content containers to allow shrinking (no overflow at 360px)", () => {
     const css = readSrc("../../workspace-shell.css");
-    expect(css).toMatch(/\.workspace-main\{[^}]*min-width:\s*0/);
-    expect(css).toMatch(/\.workspace-content\{[^}]*min-width:\s*0/);
-    expect(css).not.toMatch(/\.workspace-content\{[^}]*width:\s*\d+px/);
+    expect(css).toMatch(/\.workspace-main\s*\{[^}]*min-width:\s*0/);
+    expect(css).toMatch(/\.workspace-content\s*\{[^}]*min-width:\s*0/);
+    expect(css).not.toMatch(/\.workspace-content\s*\{[^}]*width:\s*\d+px/);
   });
 
   it("includes a mobile breakpoint at or under 768px with safe-area padding", () => {
