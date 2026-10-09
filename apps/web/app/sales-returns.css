@@ -317,3 +317,11 @@
 .exchange-linked-result{display:grid;gap:10px;padding:14px;border:1px solid var(--tos-border);border-radius:var(--tos-radius-md);background:var(--tos-surface-soft)}
 .exchange-linked-result-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.exchange-linked-result-head span{font-size:13px;font-weight:800;letter-spacing:.04em}.exchange-linked-result-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.exchange-linked-result-grid>div{display:grid;gap:4px}.exchange-linked-result-grid span{font-size:13px;color:var(--tos-text-muted)}.exchange-linked-result p{margin:0;font-size:14px;color:var(--tos-text-muted)}
 @media (max-width:767px){.exchange-linked-result-grid{grid-template-columns:1fr}}
+
+/* Task 6: responsive desktop/mobile sales row switching */
+.sales-history-row--mobile { display: none; }
+@media (max-width: 767px) {
+  .sales-history-row--desktop { display: none; }
+  .sales-history-row--mobile { display: block; }
+  .sales-history-head { display: none; }
+}

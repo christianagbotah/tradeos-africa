@@ -45,3 +45,32 @@ describe("SalesWorkspace", () => {
     expect(css).toMatch(/grid-template-columns:[^;]*(?:minmax|auto)/);
   });
 });
+
+// Task 6: mobile record-card + command-bar + state-panel contracts
+describe("Sales design-system and mobile contracts", () => {
+  const root = path.dirname(fileURLToPath(import.meta.url));
+  const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
+
+  it("uses the shared CommandBar primitive for the sales command row", () => {
+    const ws = read("sales-workspace.tsx");
+    expect(ws).toContain("CommandBar");
+  });
+
+  it("uses MobileRecordCard for mobile sales rows rather than relying solely on the desktop table", () => {
+    const ws = read("sales-workspace.tsx");
+    expect(ws).toContain("MobileRecordCard");
+  });
+
+  it("keeps the posted sale evidence immutable (no edit/delete affordance in the detail sheet)", () => {
+    const sheet = read("sale-detail-sheet.tsx");
+    expect(sheet).not.toContain("Save changes");
+    expect(sheet).not.toContain("Delete sale");
+    expect(sheet).not.toContain("Edit sale");
+    expect(sheet).toMatch(/Posted receipt|read only/i);
+  });
+
+  it("uses an accessible status region for offline/cached/error messages", () => {
+    const orchestrator = read("../sales-returns.tsx");
+    expect(orchestrator).toContain('role="status"');
+  });
+});

@@ -2,6 +2,9 @@
 
 import React, { type FormEvent, useMemo, useState } from "react";
 import { Button } from "../ui/button";
+import { CommandBar } from "../ui/command-bar";
+import { MobileRecordCard } from "../ui/mobile-record-card";
+import { StatusBadge } from "../ui/status-badge";
 import type { SaleSummary } from "./types";
 
 export type SalesFilters = {
@@ -49,11 +52,13 @@ export function SalesWorkspace({ sales, selectedId, loading, canProcessReturns, 
   return (
     <section className="sales-workspace" aria-label="Sales history">
       <form className="sales-commandbar" onSubmit={submit}>
+        <CommandBar ariaLabel="Sales filters">
         <label className="sales-command-search"><span>Search sales</span><input type="search" value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="Receipt, customer or phone" /></label>
         <label><span>Status</span><select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value as SalesFilters["status"] }))}><option value="ALL">All statuses</option><option value="COMPLETED">Completed</option><option value="REFUNDED">Refunded / partial</option></select></label>
         <label><span>Payment</span><select value={filters.payment} onChange={(event) => setFilters((current) => ({ ...current, payment: event.target.value }))}><option value="ALL">All payments</option>{paymentMethods.map((method) => <option value={method} key={method}>{humanize(method)}</option>)}</select></label>
         <label><span>Customer</span><select value={filters.customer} onChange={(event) => setFilters((current) => ({ ...current, customer: event.target.value as SalesFilters["customer"] }))}><option value="ALL">All customers</option><option value="WALK_IN">Walk-in customer</option><option value="NAMED">Named customer</option></select></label>
         <Button variant="secondary" type="submit">Search</Button>
+        </CommandBar>
       </form>
 
       <div className="sales-history-shell" aria-busy={loading}>
@@ -62,7 +67,8 @@ export function SalesWorkspace({ sales, selectedId, loading, canProcessReturns, 
         {!loading && visible.length === 0 ? <div className="sales-workspace-empty"><strong>No sales match this view.</strong><span>Change the search or filters to review another receipt.</span></div> : null}
         <div className="sales-history-list">
           {visible.map((sale) => (
-            <article className={selectedId === sale.id ? "sales-history-row active" : "sales-history-row"} key={sale.id}>
+            <React.Fragment key={sale.id}>
+            <article className={selectedId === sale.id ? "sales-history-row sales-history-row--desktop active" : "sales-history-row sales-history-row--desktop"}>
               <button type="button" className="sales-history-open" onClick={() => onSelect(sale.id)}>
                 <div><strong>{shortReceipt(sale.id)}</strong><span>{formatDate(sale.completedAt ?? sale.createdAt)}</span></div>
                 <div><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong><span>{sale.cashierName ? `Served by ${sale.cashierName}` : "Staff sale"}</span></div>
@@ -75,6 +81,23 @@ export function SalesWorkspace({ sales, selectedId, loading, canProcessReturns, 
                 {canProcessReturns ? <a className="tos-button tos-button--ghost tos-button--compact" href={`/returns?saleId=${encodeURIComponent(sale.id)}`}>Process return / refund</a> : null}
               </div>
             </article>
+            {/* Mobile record-card representation */}
+            <div className="sales-history-row--mobile">
+              <MobileRecordCard
+                title={<span>{shortReceipt(sale.id)} · {sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</span>}
+                meta={<span>{formatDate(sale.completedAt ?? sale.createdAt)} · {sale.cashierName ? `Served by ${sale.cashierName}` : "Staff sale"} · {sale.payments.length ? sale.payments.map((payment) => humanize(payment.method)).join(" + ") : "—"}</span>}
+                status={<StatusBadge tone={sale.refundTotalMinor > 0 ? "warning" : "positive"}>{humanize(sale.status)}</StatusBadge>}
+                actions={
+                  <>
+                    <Button variant="secondary" size="compact" type="button" onClick={() => onSelect(sale.id)}>View receipt</Button>
+                    {canProcessReturns ? <a className="tos-button tos-button--ghost tos-button--compact" href={`/returns?saleId=${encodeURIComponent(sale.id)}`}>Process return / refund</a> : null}
+                  </>
+                }
+              >
+                <p><strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong>{sale.refundTotalMinor > 0 ? ` · ${formatMoney(sale.refundTotalMinor, sale.currencyCode)} refunded` : " · No refund"}</p>
+              </MobileRecordCard>
+            </div>
+            </React.Fragment>
           ))}
         </div>
       </div>
