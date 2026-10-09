@@ -71,3 +71,39 @@ describe("professional POS workspace", () => {
     expect(source).toContain("onStatus");
   });
 });
+
+// Task 4: empty-state, totals visibility, accessible status, responsive contracts
+describe("POS flagship touch-first contracts", () => {
+  const root = path.dirname(fileURLToPath(import.meta.url));
+
+  it("renders an intentional empty state when product search yields no matches", () => {
+    const browser = fs.readFileSync(path.join(root, "product-browser.tsx"), "utf8");
+    expect(browser).toContain("pos-browser-empty");
+  });
+
+  it("keeps the running cart total visible in the sticky mobile charge bar", () => {
+    const css = fs.readFileSync(path.join(root, "../../pos-workspace.css"), "utf8");
+    expect(css).toContain(".pos-charge-bar");
+    expect(css).toMatch(/position:\s*fixed|position:fixed/);
+  });
+
+  it("uses an accessible status region for sale sync/pending/error feedback", () => {
+    const ws = fs.readFileSync(path.join(root, "pos-workspace.tsx"), "utf8");
+    expect(ws).toContain("pos-sale-status");
+    expect(ws).toMatch(/role="status"|aria-live/);
+  });
+
+  it("preserves the server-authoritative sale mutation payload (no client-side pricing)", () => {
+    const checkout = fs.readFileSync(path.join(root, "checkout-sheet.tsx"), "utf8");
+    expect(checkout).toContain("SALE_CREATE");
+    expect(checkout).not.toContain("unitPriceMinor");
+    expect(checkout).toContain("enqueueMutation");
+  });
+
+  it("keeps POS CSS mobile-first with 48px touch targets and no tiny control text", () => {
+    const css = fs.readFileSync(path.join(root, "../../pos.css"), "utf8");
+    expect(css).toMatch(/min-height:\s*48px|min-height:var\(--tos-touch-mobile\)/);
+    expect(css).not.toMatch(/font-size:\s*(9|10)px/);
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*(76[0-9]|7[0-5][0-9])px/);
+  });
+});
