@@ -4,3 +4,177 @@
 
 .tos-button{min-height:44px;padding:0 16px;border:1px solid transparent;border-radius:var(--tos-radius-sm);font:inherit;font-weight:800;cursor:pointer;transition:transform var(--tos-motion-fast),background var(--tos-motion-fast),border-color var(--tos-motion-fast)}.tos-button--primary{min-height:var(--tos-touch-mobile);background:var(--tos-midnight);color:#fff}.tos-button--secondary{background:var(--tos-surface);border-color:var(--tos-border);color:var(--tos-text)}.tos-button--ghost{background:transparent;color:var(--tos-text)}.tos-button--danger{background:var(--tos-danger);color:#fff}.tos-button--compact{min-height:40px}.tos-money-value{font-variant-numeric:tabular-nums;white-space:nowrap}.tos-money-value--strong{font-weight:850}.tos-money-value--hero{font-size:clamp(30px,6vw,48px);font-weight:900;letter-spacing:-.04em}.tos-quick-action{min-height:var(--tos-touch-mobile);display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--tos-border);border-radius:var(--tos-radius-md);background:var(--tos-surface);box-shadow:var(--tos-shadow-1)}.tos-quick-action-icon{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:var(--tos-gold-soft);color:#725316;font-weight:900}.tos-quick-action strong,.tos-quick-action small{display:block}.tos-quick-action strong{font-size:15px}.tos-quick-action small{margin-top:2px;color:var(--tos-text-muted);font-size:var(--tos-text-meta)}.tos-attention-item{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--tos-border)}.tos-attention-item:last-child{border-bottom:0}.tos-attention-item strong{font-size:15px}.tos-attention-item p{margin:4px 0 0;color:var(--tos-text-muted);font-size:var(--tos-text-supporting)}.tos-attention-item ul{margin:7px 0 0;padding-left:18px;color:var(--tos-text-soft);font-size:var(--tos-text-meta)}.tos-attention-item>a{min-height:44px;display:inline-flex;align-items:center;font-weight:800;color:#6f5318}.tos-business-pulse{padding:22px;border:1px solid #24334a;border-radius:var(--tos-radius-lg);background:linear-gradient(145deg,var(--tos-midnight),#17263e);color:#fff;box-shadow:var(--tos-shadow-2)}.tos-business-pulse-kicker{color:#e8c66d;font-size:var(--tos-text-meta);font-weight:900;letter-spacing:.09em;text-transform:uppercase}.tos-business-pulse h2{margin:8px 0 0;font-size:clamp(21px,4vw,28px)}.tos-business-pulse p{margin:8px 0 0;color:#d6deea;font-size:15px;line-height:1.55}.tos-pulse-evidence{margin:14px 0 0;padding-left:18px;color:#aebbd0;font-size:var(--tos-text-meta)}.tos-pulse-coverage{display:block;margin-top:12px;color:#93a4bc;font-size:var(--tos-text-meta)}.tos-pulse-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.tos-pulse-actions a{min-height:44px;padding:0 14px;border-radius:12px;background:#fff;color:var(--tos-midnight);display:inline-flex;align-items:center;font-weight:850}
 @media(max-width:767px){.tos-button{min-height:var(--tos-touch-mobile)}.tos-quick-action{min-height:var(--tos-touch-mobile)}}
+
+/* === Task 1: focus-visible + new presentational primitives === */
+/* Visible keyboard focus for all interactive TradeOS controls. */
+.tos-button:focus-visible,
+.tradeos-command-bar button:focus-visible,
+.tradeos-command-bar input:focus-visible,
+.tradeos-command-bar select:focus-visible,
+.tradeos-state-panel__action button:focus-visible,
+.tradeos-mobile-record-card button:focus-visible,
+.tradeos-mobile-record-card a:focus-visible,
+.tradeos-page-toolbar button:focus-visible,
+.tradeos-page-toolbar input:focus-visible,
+.tradeos-page-toolbar select:focus-visible,
+.tradeos-responsive-table a:focus-visible,
+.tradeos-responsive-table button:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+  border-color: var(--tos-gold);
+}
+
+/* CommandBar — desktop command row; reflows to stacked on narrow screens. */
+.tradeos-command-bar {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--tos-space-4);
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface);
+  box-shadow: var(--tos-shadow-1);
+}
+.tradeos-command-bar__controls {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  flex: 1 1 auto;
+}
+.tradeos-command-bar__controls input,
+.tradeos-command-bar__controls select {
+  min-height: 46px;
+  min-width: 0;
+}
+.tradeos-command-bar__primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+@media (max-width: 767px) {
+  .tradeos-command-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px;
+  }
+  .tradeos-command-bar__controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tradeos-command-bar__controls input,
+  .tradeos-command-bar__controls select,
+  .tradeos-command-bar__controls button {
+    width: 100%;
+    min-height: var(--tos-touch-mobile);
+  }
+  .tradeos-command-bar__primary {
+    justify-content: stretch;
+  }
+  .tradeos-command-bar__primary :is(button, a) {
+    flex: 1;
+  }
+}
+
+/* StatePanel — intentional loading/empty/error/offline/success region. */
+.tradeos-state-panel {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tos-space-4);
+  padding: 24px;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-lg);
+  background: var(--tos-surface-soft);
+  text-align: left;
+}
+.tradeos-state-panel__icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--tos-surface);
+  border: 1px solid var(--tos-border);
+}
+.tradeos-state-panel__copy { min-width: 0; flex: 1; }
+.tradeos-state-panel__title {
+  margin: 0;
+  color: var(--tos-text-strong);
+  font-size: var(--tos-text-section);
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+.tradeos-state-panel__description {
+  margin: 6px 0 0;
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-supporting);
+  line-height: 1.55;
+}
+.tradeos-state-panel__action { margin-top: 14px; }
+.tradeos-state-panel--loading { border-color: var(--tos-info-soft); background: var(--tos-info-soft); }
+.tradeos-state-panel--loading .tradeos-state-panel__icon { background: var(--tos-info); border-color: var(--tos-info); }
+.tradeos-state-panel--empty { background: var(--tos-surface-soft); }
+.tradeos-state-panel--error { border-color: var(--tos-danger-soft); background: var(--tos-danger-soft); }
+.tradeos-state-panel--error .tradeos-state-panel__icon { background: var(--tos-danger); border-color: var(--tos-danger); }
+.tradeos-state-panel--offline { border-color: var(--tos-warning-soft); background: var(--tos-warning-soft); }
+.tradeos-state-panel--offline .tradeos-state-panel__icon { background: var(--tos-warning); border-color: var(--tos-warning); }
+.tradeos-state-panel--success { border-color: var(--tos-positive-soft); background: var(--tos-positive-soft); }
+.tradeos-state-panel--success .tradeos-state-panel__icon { background: var(--tos-positive); border-color: var(--tos-positive); }
+@media (max-width: 480px) {
+  .tradeos-state-panel { padding: 18px; gap: 12px; }
+  .tradeos-state-panel__title { font-size: 18px; }
+}
+
+/* MobileRecordCard — touch-friendly mobile list record. */
+.tradeos-mobile-record-card {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface);
+  box-shadow: var(--tos-shadow-1);
+}
+.tradeos-mobile-record-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.tradeos-mobile-record-card__title {
+  min-width: 0;
+  color: var(--tos-text-strong);
+  font-size: 15px;
+  font-weight: 850;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.tradeos-mobile-record-card__status { flex-shrink: 0; }
+.tradeos-mobile-record-card__meta {
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-supporting);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.tradeos-mobile-record-card__body {
+  color: var(--tos-text);
+  font-size: var(--tos-text-body);
+  line-height: 1.5;
+  min-width: 0;
+}
+.tradeos-mobile-record-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.tradeos-mobile-record-card__actions :is(button, a) {
+  min-height: var(--tos-touch-mobile);
+}
