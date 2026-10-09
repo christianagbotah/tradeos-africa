@@ -110,9 +110,9 @@ These may remain temporarily on this isolated branch only while their consuming 
 - Modify: `apps/web/app/components/operations-reconciliation.tsx`
 - Modify: `apps/web/app/(workspace)/operations/page.tsx` only if composition requires
 
-- [ ] Replace old form/table styling with Z.ai command/state/record patterns.
-- [ ] Preserve operating day/shift/reconciliation contracts and permissions.
-- [ ] Remove operations selectors from legacy global styles.
+- [x] Replace old form/table styling with Z.ai command/state/record patterns.
+- [x] Preserve operating day/shift/reconciliation contracts and permissions.
+- [x] Remove operations selectors from legacy global styles.
 
 ### Task 6: Migrate Reports + AI insight surfaces
 
