@@ -294,11 +294,9 @@
 /* === Responsive: very narrow ≤480px === */
 @media (max-width: 480px) {
   .tos-today-support,
+  .tos-quick-grid,
   .tos-momentum-grid {
     grid-template-columns: 1fr;
-  }
-  .tos-quick-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .tos-today-support article:last-child {
     grid-column: auto;
