@@ -36,18 +36,18 @@ describe("CatalogItemSheet", () => {
     expect(module?.catalogDraftFor).toBeTypeOf("function");
     if (!module?.catalogDraftFor) return;
 
-    const create = module.catalogDraftFor("create", null);
+    const create = module.catalogDraftFor("create", null, "GHS");
     expect(create.itemId).toBeNull();
     expect(create.expectedUpdatedAt).toBeNull();
     expect(create.kind).toBe("PRODUCT");
 
-    const edit = module.catalogDraftFor("edit", item);
+    const edit = module.catalogDraftFor("edit", item, "GHS");
     expect(edit.itemId).toBe("malt");
     expect(edit.expectedUpdatedAt).toBe(item.updatedAt);
     expect(edit.name).toBe("Malt");
     expect(edit.units[0]?.label).toBe("Bottle");
 
-    const duplicate = module.catalogDraftFor("duplicate", item);
+    const duplicate = module.catalogDraftFor("duplicate", item, "GHS");
     expect(duplicate.itemId).toBeNull();
     expect(duplicate.expectedUpdatedAt).toBeNull();
     expect(duplicate.name).toContain("Malt");

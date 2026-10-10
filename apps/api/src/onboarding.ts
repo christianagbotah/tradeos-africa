@@ -3,6 +3,11 @@ import { randomUUID } from "node:crypto";
 import type { DatabasePool } from "./db.js";
 import { withTransaction } from "./db.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
+import {
+  getCountry,
+  getCurrencyMeta,
+  isSupportedTimezone,
+} from "@tradeos/contracts";
 
 const BUSINESS_TYPES = [
   "RETAIL_HARDWARE",
@@ -120,14 +125,48 @@ function validateCreateBusiness(body: CreateBusinessBody) {
   }
 
   const branchName = body.branchName?.trim() || "Main";
-  const countryCode = (body.countryCode?.trim() || "GH").toUpperCase();
-  const currencyCode = (body.currencyCode?.trim() || "GHS").toUpperCase();
-  const timezone = body.timezone?.trim() || "Africa/Accra";
-
-  if (!/^[A-Z]{2}$/.test(countryCode)) throw new AuthError("countryCode must contain two letters", 400, "INVALID_COUNTRY");
-  if (!/^[A-Z]{3}$/.test(currencyCode)) throw new AuthError("currencyCode must contain three letters", 400, "INVALID_CURRENCY");
   if (branchName.length > 120) throw new AuthError("Branch name is too long", 400, "INVALID_BRANCH_NAME");
-  if (timezone.length > 80) throw new AuthError("Timezone is too long", 400, "INVALID_TIMEZONE");
+
+  // --- Country: explicit unsupported values are rejected with no silent fallback. ---
+  // For compatibility with existing clients that predate country-aware onboarding,
+  // an omitted country retains the historical Ghana default. The current web UI
+  // always sends an explicit supported country.
+  const countryCodeRaw = body.countryCode?.trim().toUpperCase();
+  const country = getCountry(countryCodeRaw || "GH");
+  if (!country) {
+    throw new AuthError(
+      `Unsupported country code: ${countryCodeRaw}. See the supported countries list.`,
+      400,
+      "UNSUPPORTED_COUNTRY",
+    );
+  }
+  const countryCode = country.countryCode;
+
+  // --- Currency: must be a supported TradeOS currency. ---
+  // Country provides a recommended default, but the user may explicitly choose
+  // another supported currency for cross-border scenarios.
+  const currencyCodeRaw = (body.currencyCode?.trim() || country.defaultCurrencyCode).toUpperCase();
+  const currencyMeta = getCurrencyMeta(currencyCodeRaw);
+  if (!currencyMeta) {
+    throw new AuthError(
+      `Unsupported currency code: ${currencyCodeRaw}. See the supported currencies list.`,
+      400,
+      "UNSUPPORTED_CURRENCY",
+    );
+  }
+  const currencyCode = currencyMeta.currencyCode;
+
+  // --- Timezone: must be a supported IANA timezone. ---
+  // Country supplies suggested timezone(s); user may choose another supported value.
+  const timezoneRaw = body.timezone?.trim() || country.timezones[0];
+  if (!isSupportedTimezone(timezoneRaw)) {
+    throw new AuthError(
+      `Unsupported timezone: ${timezoneRaw}. Use a supported IANA timezone identifier.`,
+      400,
+      "UNSUPPORTED_TIMEZONE",
+    );
+  }
+  const timezone = timezoneRaw;
 
   return { name, businessType: body.businessType, branchName, countryCode, currencyCode, timezone };
 }

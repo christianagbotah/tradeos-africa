@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { formatMoney, parseMoneyInput } from "@tradeos/contracts";
 import { Treasury, type MoneyAccount } from "./treasury";
 import { CashbookSummary } from "./cashbook/cashbook-summary";
 import { CashbookEntryForm } from "./cashbook/cashbook-entry-form";
@@ -128,16 +129,13 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
   }, [businessId, branchId, cacheKey, filter, from, to, canRead]);
 
   if (!canRead) return null;
-  const money = (minor: number) => currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : `${currencyCode} ${(minor / 100).toFixed(2)}`;
+  const money = (minor: number) => formatMoney(minor, currencyCode);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
-      if (!/^-?\d+(\.\d{1,2})?$/.test(amount)) throw new Error("Enter an amount with at most two decimal places.");
-      const negative = amount.startsWith("-");
-      const [whole, fraction = ""] = amount.replace(/^-/, "").split(".");
-      const parsedMinor = Number((BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0"))) * (negative ? -1n : 1n));
-      if (!Number.isSafeInteger(parsedMinor) || parsedMinor === 0 || (mode === "EXPENSE_CREATE" && parsedMinor < 0)) throw new Error("Enter a valid non-zero amount.");
+      const parsedMinor = parseMoneyInput(amount, currencyCode);
+      if (parsedMinor === null || parsedMinor === 0 || (mode === "EXPENSE_CREATE" && parsedMinor < 0)) throw new Error("Enter a valid non-zero amount using the valid decimal precision for this currency.");
       const adjustmentMinor = reason === "OWNER_WITHDRAWAL" ? -Math.abs(parsedMinor)
         : ["OPENING_BALANCE", "OWNER_INJECTION"].includes(reason) ? Math.abs(parsedMinor)
           : parsedMinor;

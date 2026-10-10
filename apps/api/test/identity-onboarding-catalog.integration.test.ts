@@ -321,6 +321,78 @@ describe("identity, onboarding and flexible-unit catalog", () => {
     const newMe = await app.inject({ method: "GET", url: "/v1/me", headers: bearer(refreshed.accessToken) });
     expect(newMe.statusCode).toBe(200);
   });
+
+  it("persists multi-currency onboarding locale data and rejects unsupported values", async () => {
+    const owner = await register("multicurrency@tradeos.test", "multicurrency-device");
+    const headers = bearer(owner.accessToken);
+    const scenarios = [
+      ["GH", "GHS", "Africa/Accra", "Ghana UAT"],
+      ["NG", "NGN", "Africa/Lagos", "Nigeria UAT"],
+      ["KE", "KES", "Africa/Nairobi", "Kenya UAT"],
+      ["SN", "XOF", "Africa/Dakar", "Senegal UAT"],
+      ["TN", "TND", "Africa/Tunis", "Tunisia UAT"],
+    ] as const;
+
+    for (const [countryCode, currencyCode, timezone, name] of scenarios) {
+      const created = await app.inject({
+        method: "POST",
+        url: "/v1/onboarding/business",
+        headers,
+        payload: { name, branchName: "Main", businessType: "RETAIL_HARDWARE", countryCode, currencyCode, timezone },
+      });
+      expect(created.statusCode, created.body).toBe(201);
+      const createdBody = created.json<{ business: { id: string; countryCode: string; currencyCode: string; timezone: string } }>();
+      expect(createdBody.business).toEqual(expect.objectContaining({ countryCode, currencyCode, timezone }));
+
+      const context = await app.inject({ method: "GET", url: `/v1/businesses/${createdBody.business.id}/context`, headers });
+      expect(context.statusCode, context.body).toBe(200);
+      const contextBody = context.json<{ business: { countryCode: string; currencyCode: string; timezone: string }; branches: Array<{ timezone: string }> }>();
+      expect(contextBody.business).toEqual(expect.objectContaining({ countryCode, currencyCode, timezone }));
+      expect(contextBody.branches[0]?.timezone).toBe(timezone);
+
+      const persisted = await pool.query<{ country_code: string; currency_code: string; timezone: string; branch_timezone: string }>(
+        `SELECT b.country_code,b.currency_code,b.timezone,br.timezone AS branch_timezone
+         FROM businesses b JOIN branches br ON br.business_id=b.id AND br.code='MAIN'
+         WHERE b.id=$1`,
+        [createdBody.business.id],
+      );
+      expect(persisted.rows[0]).toEqual({ country_code: countryCode, currency_code: currencyCode, timezone, branch_timezone: timezone });
+    }
+
+    const defaults = await app.inject({
+      method: "POST",
+      url: "/v1/onboarding/business",
+      headers,
+      payload: { name: "Kenya Defaults", branchName: "Main", businessType: "RETAIL_HARDWARE", countryCode: "KE" },
+    });
+    expect(defaults.statusCode, defaults.body).toBe(201);
+    expect(defaults.json().business).toEqual(expect.objectContaining({ countryCode: "KE", currencyCode: "KES", timezone: "Africa/Nairobi" }));
+
+    const override = await app.inject({
+      method: "POST",
+      url: "/v1/onboarding/business",
+      headers,
+      payload: { name: "Cross-border UAT", branchName: "Main", businessType: "DISTRIBUTION", countryCode: "GH", currencyCode: "XOF", timezone: "Africa/Dakar" },
+    });
+    expect(override.statusCode, override.body).toBe(201);
+    expect(override.json().business).toEqual(expect.objectContaining({ countryCode: "GH", currencyCode: "XOF", timezone: "Africa/Dakar" }));
+
+    for (const [payload, expectedCode] of [
+      [{ countryCode: "XX", currencyCode: "GHS", timezone: "Africa/Accra" }, "UNSUPPORTED_COUNTRY"],
+      [{ countryCode: "GH", currencyCode: "USD", timezone: "Africa/Accra" }, "UNSUPPORTED_CURRENCY"],
+      [{ countryCode: "GH", currencyCode: "GHS", timezone: "Mars/Olympus" }, "UNSUPPORTED_TIMEZONE"],
+    ] as const) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/onboarding/business",
+        headers,
+        payload: { name: "Invalid Locale", branchName: "Main", businessType: "OTHER", ...payload },
+      });
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error).toBe(expectedCode);
+    }
+  });
+
 });
 
 async function register(email: string, deviceKey: string): Promise<{ accessToken: string; refreshToken: string }> {

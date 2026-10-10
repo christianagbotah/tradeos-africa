@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { SupplierWorkspace } from "./suppliers/supplier-workspace";
 import type { Supplier } from "./suppliers/supplier-types";
@@ -238,5 +239,4 @@ function PurchaseReturn({ businessId, branchId, purchase, onClose, onMessage }: 
   </form>;
 }
 
-function formatMoney(minor: number, currencyCode: string): string { return currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100); }
 function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }

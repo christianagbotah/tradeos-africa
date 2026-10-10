@@ -1,6 +1,7 @@
 "use client";
 
 import React, { type FormEvent, useEffect, useRef, useState } from "react";
+import { formatMoneyInput } from "@tradeos/contracts";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
@@ -40,7 +41,7 @@ const profileWriteRoles = new Set(["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALE
 const creditControlRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
 const customerPaymentRoles = new Set(["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"]);
 
-export function customerDraftFor(mode: CustomerSheetMode, detail: CustomerDetail | null): CustomerDraft {
+export function customerDraftFor(mode: CustomerSheetMode, detail: CustomerDetail | null, currencyCode: string): CustomerDraft {
   if (mode === "create" || !detail) {
     return { expectedUpdatedAt: null, name: "", phone: "", email: "", creditLimit: "", creditTermsDays: "0" };
   }
@@ -50,7 +51,7 @@ export function customerDraftFor(mode: CustomerSheetMode, detail: CustomerDetail
     name: customer.name,
     phone: customer.phone ?? "",
     email: customer.email ?? "",
-    creditLimit: customer.creditLimitMinor === null ? "" : (customer.creditLimitMinor / 100).toFixed(2),
+    creditLimit: customer.creditLimitMinor === null ? "" : formatMoneyInput(customer.creditLimitMinor, currencyCode) ?? "",
     creditTermsDays: String(customer.creditTermsDays),
   };
 }
@@ -62,7 +63,7 @@ export function customerSheetMessage(code: string | null | undefined, fallback =
 
 export function CustomerSheet({ mode, detail, open, businessId, branchId, currencyCode, role, onClose, onSaved }: Props) {
   const customer = detail?.customer ?? null;
-  const [draft, setDraft] = useState<CustomerDraft>(() => customerDraftFor(mode, detail));
+  const [draft, setDraft] = useState<CustomerDraft>(() => customerDraftFor(mode, detail, currencyCode));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [payment, setPayment] = useState("");
@@ -78,11 +79,11 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
 
   useEffect(() => {
     if (!open) return;
-    setDraft(customerDraftFor(mode, detail));
+    setDraft(customerDraftFor(mode, detail, currencyCode));
     setPayment("");
     setProviderReference("");
     setMessage(null);
-  }, [detail, mode, open]);
+  }, [currencyCode, detail, mode, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -142,7 +143,7 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
             businessId,
             ...profile,
             ...(canSetCredit ? {
-              creditLimitMinor: draft.creditLimit.trim() ? customerMoneyToMinor(draft.creditLimit) : null,
+              creditLimitMinor: draft.creditLimit.trim() ? customerMoneyToMinor(draft.creditLimit, currencyCode) : null,
               creditTermsDays: Number(draft.creditTermsDays || 0),
             } : {}),
           }),
@@ -188,7 +189,7 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
         body: JSON.stringify({
           businessId,
           expectedUpdatedAt: draft.expectedUpdatedAt,
-          creditLimitMinor: draft.creditLimit.trim() ? customerMoneyToMinor(draft.creditLimit) : null,
+          creditLimitMinor: draft.creditLimit.trim() ? customerMoneyToMinor(draft.creditLimit, currencyCode) : null,
           creditTermsDays: Number(draft.creditTermsDays || 0),
         }),
       });
@@ -219,7 +220,7 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
 
   const recordPayment = async () => {
     if (!customer || !canReceivePayment || busy) return;
-    const amountMinor = customerMoneyToMinor(payment);
+    const amountMinor = customerMoneyToMinor(payment, currencyCode);
     if (amountMinor <= 0) return;
     setBusy(true); setMessage(null);
     try {
@@ -299,7 +300,7 @@ export function CustomerSheet({ mode, detail, open, businessId, branchId, curren
                 <label>Amount<input inputMode="decimal" value={payment} onChange={(event) => setPayment(event.target.value)} placeholder="0.00" /></label>
                 <label>Method<select value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}><option value="CASH">Cash</option><option value="MOMO">MoMo</option><option value="CARD">Card</option><option value="BANK">Bank</option><option value="OTHER">Other</option></select></label>
                 <label>Reference<input value={providerReference} onChange={(event) => setProviderReference(event.target.value)} placeholder="Optional" /></label>
-                <Button type="button" disabled={busy || customerMoneyToMinor(payment) <= 0} onClick={() => void recordPayment()}>{busy ? "Saving…" : "Receive payment"}</Button>
+                <Button type="button" disabled={busy || customerMoneyToMinor(payment, currencyCode) <= 0} onClick={() => void recordPayment()}>{busy ? "Saving…" : "Receive payment"}</Button>
               </div> : <p className="customer-lifecycle-note">Your role can view this account history but cannot record customer payments.</p>}
             </section>
 

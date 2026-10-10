@@ -8,6 +8,16 @@ import { clearWorkspaceBootstrap, readWorkspaceBootstrap } from "../lib/workspac
 import { clearFeatureCaches } from "../lib/feature-cache";
 import { finalizePendingLogout, invalidateSessionEpoch, isLogoutPending, markLogoutPending } from "../lib/session-lifecycle";
 import type { BusinessContext, MePayload } from "../lib/workspace-types";
+import {
+  SUPPORTED_COUNTRIES,
+  SUPPORTED_CURRENCIES,
+  SUPPORTED_TIMEZONES,
+  getCountry,
+  getCurrencyMeta,
+  isSupportedCurrency,
+  isSupportedCountry,
+  isSupportedTimezone,
+} from "@tradeos/contracts";
 
 type AuthMode = "login" | "register";
 type PublicEntryMode =
@@ -147,39 +157,159 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
   };
 
   return (
-    <main className="auth-shell">
-      <section className="auth-story">
-        <div className="brand-lockup auth-brand"><div className="brand-mark">T</div><div><strong>TradeOS</strong><span>Africa</span></div></div>
-        <p  className="tradeos-kicker">One operating system for everyday business</p>
-        <h1>From a single chair or food stand to a multi-branch company.</h1>
-        <p>Sell, track stock, manage services and credit, work offline, and understand what is happening in plain business language.</p>
-        <div className="auth-points"><span>Offline-first</span><span>Bulk → unit selling</span><span>Services + consumables</span><span>Returns & refunds</span></div>
-      </section>
+    <main className="auth-page">
+      {/* ===== Left: brand / story panel ===== */}
+      <aside className="auth-aside">
+        <div className="auth-aside-glow auth-aside-glow--gold" />
+        <div className="auth-aside-glow auth-aside-glow--green" />
 
-      <section className="auth-card">
-        <div className="auth-tabs">
-          <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
-          <button className={mode === "register" ? "active" : ""} type="button" onClick={() => setMode("register")}>Create account</button>
+        <div className="auth-aside-top">
+          <div className="auth-card-brand">
+            <div className="auth-mark">T</div>
+            <div className="auth-brand-text">
+              <strong>TradeOS</strong>
+              <span>Africa</span>
+            </div>
+          </div>
         </div>
-        <div><p  className="tradeos-kicker">{mode === "login" ? "Welcome back" : "Start your business"}</p><h2>{mode === "login" ? "Sign in to TradeOS" : "Create your owner account"}</h2></div>
-        <form className="stack-form" onSubmit={(event) => void submit(event)}>
-          {mode === "register" ? (
-            <label>Full name<input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" /></label>
-          ) : (
-            <DemoAccountSelect selectedId={demoAccountId} onSelect={(account) => {
-              setDemoAccountId(account?.id ?? "");
-              if (!account) return;
-              setIdentifier(account.email);
-              setPassword(account.password);
-              setLocalError(null);
-            }} />
-          )}
-          <label>Email or phone<input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233…" /></label>
-          <label>Password<input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" /></label>
-          {localError ? <div className="form-error">{localError}</div> : null}
-          <button  className="tos-button tos-button--primary auth-submit" type="submit" disabled={busy}>{busy ? "Working…" : mode === "login" ? "Sign in" : "Create account"}</button>
-        </form>
-        <small className="security-note">Your browser session uses HttpOnly cookies; TradeOS access tokens are not exposed to page JavaScript.</small>
+
+        <div className="auth-aside-body">
+          <p className="auth-aside-eyebrow">The business OS for African trade</p>
+          <h2 className="auth-aside-headline">
+            Run your whole business from your pocket.
+          </h2>
+          <p className="auth-aside-sub">
+            Sells, stocks, and reconciles — even when the network drops. One ledger from waakye spot to wholesale.
+          </p>
+          <ul className="auth-aside-points">
+            <li>
+              <span className="auth-aside-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
+              <span>Track every sale, shift, and balance in real time</span>
+            </li>
+            <li>
+              <span className="auth-aside-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
+              <span>Works offline — syncs the moment you reconnect</span>
+            </li>
+            <li>
+              <span className="auth-aside-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
+              <span>POS, inventory, cashbook &amp; reports in one place</span>
+            </li>
+          </ul>
+        </div>
+
+        <div className="auth-aside-quote">
+          <p className="auth-aside-quote-eyebrow">Built for how Africa trades</p>
+          <p className="auth-aside-quote-copy">
+            From the waakye spot to the wholesale distributor, TradeOS adapts to your workflow —
+            retail, food, salon, drinking spot, washing bay, car park, distribution and services.
+          </p>
+        </div>
+      </aside>
+
+      {/* ===== Right: form panel ===== */}
+      <section className="auth-main">
+        <div className="auth-main-inner">
+          <div className="auth-main-brand">
+            <div className="auth-mark">T</div>
+            <div className="auth-brand-text">
+              <strong>TradeOS</strong>
+              <span>Africa</span>
+            </div>
+          </div>
+
+          <div className="auth-card-head">
+            <h1 className="auth-card-title">
+              {mode === "login" ? "Welcome back" : "Create account"}
+            </h1>
+            <p className="auth-card-subtitle">
+              {mode === "login"
+                ? "Sign in to run your business"
+                : "Start your business journey today"}
+            </p>
+          </div>
+
+          <div className="auth-switch">
+            <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
+            <button className={mode === "register" ? "active" : ""} type="button" onClick={() => setMode("register")}>Register</button>
+          </div>
+
+          <form className="auth-card-form" onSubmit={(event) => void submit(event)}>
+            {mode === "register" ? (
+              <label className="auth-input">
+                <span>Full name</span>
+                <span className="auth-input-field">
+                  <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                  <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" autoComplete="name" />
+                </span>
+              </label>
+            ) : (
+              <div className="auth-input">
+                <span>Demo account</span>
+                <span className="auth-input-field">
+                  <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M6 21v-1a6 6 0 0 1 12 0v1" /></svg>
+                  <DemoAccountSelect hideLabel selectedId={demoAccountId} onSelect={(account) => {
+                    setDemoAccountId(account?.id ?? "");
+                    if (!account) return;
+                    setIdentifier(account.email);
+                    setPassword(account.password);
+                    setLocalError(null);
+                  }} />
+                </span>
+              </div>
+            )}
+            <label className="auth-input">
+              <span>Email or phone</span>
+              <span className="auth-input-field">
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></svg>
+                <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233" autoComplete="email" />
+              </span>
+            </label>
+            <label className="auth-input">
+              <span>Password</span>
+              <span className="auth-input-field">
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
+              </span>
+            </label>
+            {mode === "login" ? (
+              <div className="auth-form-aux">
+                <a className="auth-forgot" href="#" onClick={(event) => { event.preventDefault(); setLocalError("Password reset is not available in this build. Contact your workspace admin."); }}>Forgot password?</a>
+              </div>
+            ) : null}
+            {localError ? <div className="auth-card-error">{localError}</div> : null}
+            <button className="auth-card-submit" type="submit" disabled={busy}>
+              {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
+              {!busy && (
+                <svg className="auth-submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
+              )}
+            </button>
+          </form>
+
+          <div className="auth-trust">
+            <span className="auth-trust-item">
+              <span className="auth-trust-dot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </span>
+              Offline-first
+            </span>
+            <span className="auth-trust-item">
+              <span className="auth-trust-dot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </span>
+              Multi-currency
+            </span>
+            <span className="auth-trust-item">
+              <span className="auth-trust-dot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </span>
+              Works without internet
+            </span>
+          </div>
+
+          <p className="auth-card-foot">
+            TradeOS Africa · Built for African businesses
+          </p>
+        </div>
       </section>
     </main>
   );
@@ -189,17 +319,48 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
   const [name, setName] = useState("");
   const [branchName, setBranchName] = useState("Main");
   const [businessType, setBusinessType] = useState<(typeof businessTypes)[number][0]>("RETAIL_HARDWARE");
+  const [countryCode, setCountryCode] = useState("GH");
+  const [currencyCode, setCurrencyCode] = useState("GHS");
+  const [timezone, setTimezone] = useState("Africa/Accra");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const country = getCountry(countryCode);
+  const currencyMeta = getCurrencyMeta(currencyCode);
+
+  // When country changes: preselect the recommended currency + timezone,
+  // but the user can explicitly override either one before submitting.
+  const onCountryChange = (code: string) => {
+    setCountryCode(code);
+    const c = getCountry(code);
+    if (c) {
+      setCurrencyCode(c.defaultCurrencyCode);
+      const suggestedTz = c.timezones[0];
+      if (suggestedTz) setTimezone(suggestedTz);
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
+      // Guard: never submit if country/currency/timezone are unsupported.
+      if (!isSupportedCountry(countryCode)) {
+        setError("Please select a supported country.");
+        return;
+      }
+      if (!isSupportedCurrency(currencyCode)) {
+        setError("Please select a supported currency.");
+        return;
+      }
+      if (!isSupportedTimezone(timezone)) {
+        setError("Please select a supported timezone.");
+        return;
+      }
       await api("/api/tradeos/v1/onboarding/business", {
         method: "POST",
-        body: JSON.stringify({ name, branchName, businessType }),
+        body: JSON.stringify({ name, branchName, businessType, countryCode, currencyCode, timezone }),
       });
       onCreated();
     } catch (reason) {
@@ -210,47 +371,123 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
   };
 
   return (
-    <main className="setup-shell">
-      <header className="setup-topbar">
-        <div className="brand-lockup"><div className="brand-mark">T</div><div><strong>TradeOS</strong><span>Africa</span></div></div>
-        <button  className="tos-button tos-button--ghost" type="button" onClick={onLogout}>Sign out</button>
-      </header>
-      <section className="setup-card wide">
-        <p  className="tradeos-kicker">Welcome, {userName}</p>
-        <h1>Create your first business</h1>
-        <p className="setup-copy">Choose what best describes the business. TradeOS will use the same strong commerce engine while tailoring the workflow and language.</p>
-        <form onSubmit={(event) => void submit(event)}>
-          <div className="tradeos-form-row">
-            <label>Business name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Akosua's Waakye" /></label>
-            <label>Branch name<input required value={branchName} onChange={(event) => setBranchName(event.target.value)} placeholder="Main" /></label>
+    <main className="onboarding-shell">
+      <header className="onboarding-topbar">
+        <div className="auth-card-brand">
+          <div className="auth-mark">T</div>
+          <div>
+            <strong>TradeOS</strong>
+            <span>Africa</span>
           </div>
+        </div>
+        <button className="tos-button tos-button--ghost" type="button" onClick={onLogout}>Sign out</button>
+      </header>
+
+      <section className="onboarding-card">
+        <div className="onboarding-header">
+          <p className="tradeos-page-eyebrow">Welcome, {userName}</p>
+          <h1>Create your first business</h1>
+          <p className="onboarding-description">Choose what best describes the business. TradeOS will use the same strong commerce engine while tailoring the workflow and language.</p>
+        </div>
+
+        <form className="onboarding-form" onSubmit={(event) => void submit(event)}>
+          <div className="tradeos-form-row">
+            <label className="auth-input">
+              <span>Business name</span>
+              <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Akosua's Waakye" />
+            </label>
+            <label className="auth-input">
+              <span>Branch name</span>
+              <input required value={branchName} onChange={(event) => setBranchName(event.target.value)} placeholder="Main" />
+            </label>
+          </div>
+
           <div className="business-type-grid">
             {businessTypes.map(([id, label, detail]) => (
               <button type="button" key={id} className={businessType === id ? "business-type selected" : "business-type"} onClick={() => setBusinessType(id)}>
-                <strong>{label}</strong><span>{detail}</span>
+                <strong>{label}</strong>
+                <span>{detail}</span>
               </button>
             ))}
           </div>
-          {error ? <div className="form-error">{error}</div> : null}
-          <button  className="tos-button tos-button--primary setup-submit" type="submit" disabled={busy}>{busy ? "Creating…" : "Create business"}</button>
+
+          <div className="onboarding-locale-grid">
+            <label className="auth-input">
+              <span>Country</span>
+              <span className="auth-input-field">
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
+                <select value={countryCode} onChange={(event) => onCountryChange(event.target.value)} aria-label="Country">
+                  {SUPPORTED_COUNTRIES.map((c) => (
+                    <option key={c.countryCode} value={c.countryCode}>{c.flag}  {c.country}</option>
+                  ))}
+                </select>
+              </span>
+            </label>
+
+            <label className="auth-input">
+              <span>Base currency</span>
+              <span className="auth-input-field">
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                <select value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value)} aria-label="Base currency">
+                  {SUPPORTED_CURRENCIES.map((cur) => (
+                    <option key={cur.currencyCode} value={cur.currencyCode}>{cur.symbol}  {cur.currencyCode} — {cur.name}</option>
+                  ))}
+                </select>
+              </span>
+            </label>
+
+            <label className="auth-input">
+              <span>Timezone</span>
+              <span className="auth-input-field">
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                <select value={timezone} onChange={(event) => setTimezone(event.target.value)} aria-label="Timezone">
+                  {SUPPORTED_TIMEZONES.map((tz) => (
+                    <option key={tz} value={tz}>{tz}</option>
+                  ))}
+                </select>
+              </span>
+            </label>
+
+            {country && currencyMeta ? (
+              <div className="onboarding-currency-chip">
+                <span className="onboarding-currency-symbol">{currencyMeta.symbol}</span>
+                <span className="onboarding-currency-meta">
+                  <strong>{currencyMeta.currencyCode}</strong>
+                  <span>{currencyMeta.name} · {currencyMeta.decimalPlaces} dp</span>
+                </span>
+              </div>
+            ) : (
+              <div className="onboarding-currency-chip onboarding-currency-chip--error">
+                <span className="onboarding-currency-meta">
+                  <strong>Unsupported</strong>
+                  <span>Select a supported country</span>
+                </span>
+              </div>
+            )}
+          </div>
+
+          {error ? <div className="auth-card-error">{error}</div> : null}
+
+          <button className="tos-button tos-button--primary onboarding-submit" type="submit" disabled={busy}>
+            {busy ? "Creating…" : "Create business"}
+          </button>
         </form>
       </section>
     </main>
   );
 }
 
-
 function WorkspaceRecoveryScreen({ message, onRetry, onLogout }: { message: string; onRetry: () => void; onLogout: () => void }) {
   return (
     <main className="loading-shell workspace-recovery-shell">
-      <div className="brand-mark">T</div>
+      <div className="auth-mark">T</div>
       <div className="workspace-recovery-card">
-        <p  className="tradeos-kicker">Workspace unavailable</p>
+        <p className="tradeos-page-eyebrow">Workspace unavailable</p>
         <h1>TradeOS could not open your business workspace.</h1>
         <p>{message}</p>
         <div className="workspace-recovery-actions">
-          <button  className="tos-button tos-button--primary" type="button" onClick={onRetry}>Try again</button>
-          <button  className="tos-button tos-button--secondary" type="button" onClick={onLogout}>Sign out</button>
+          <button className="tos-button tos-button--primary" type="button" onClick={onRetry}>Try again</button>
+          <button className="tos-button tos-button--secondary" type="button" onClick={onLogout}>Sign out</button>
         </div>
       </div>
     </main>
@@ -258,7 +495,12 @@ function WorkspaceRecoveryScreen({ message, onRetry, onLogout }: { message: stri
 }
 
 function LoadingScreen() {
-  return <main className="loading-shell"><div className="brand-mark">T</div><strong>Loading TradeOS Africa…</strong></main>;
+  return (
+    <main className="loading-shell">
+      <div className="auth-mark">T</div>
+      <strong>Loading TradeOS Africa…</strong>
+    </main>
+  );
 }
 
 async function logout(setSession: (value: MePayload | null) => void) {

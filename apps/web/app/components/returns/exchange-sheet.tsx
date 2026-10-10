@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import type { ExchangeResult } from "@tradeos/contracts";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId, mutationAppliedEvent, type AppliedMutationDetail } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
@@ -280,4 +281,3 @@ function exchangeDisposition(kind: SaleDetail["lines"][number]["itemKind"], sele
   return kind === "SERVICE" ? "NOT_APPLICABLE" : kind === "PREPARED_PRODUCT" ? "DISCARD" : selected;
 }
 function formatQuantity(value: number) { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }
-function formatMoney(minor: number, currencyCode: string) { return currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100); }

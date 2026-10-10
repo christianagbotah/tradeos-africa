@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import Link from "next/link";
 import { BusinessPulse } from "../business/business-pulse";
 import { AttentionItem } from "../business/attention-item";
@@ -145,11 +146,7 @@ export function DashboardCommandCenter({
                 href={a.href}
                 actionLabel={a.actionLabel}
                 evidence={a.amountMinor != null ? [
-                  new Intl.NumberFormat("en-GH", {
-                    style: "currency",
-                    currency: currencyCode,
-                    currencyDisplay: currencyCode === "GHS" ? "narrowSymbol" : "code",
-                  }).format(a.amountMinor / 100).replace("GH₵", "₵"),
+                  formatMoney(a.amountMinor, currencyCode),
                 ] : undefined}
               />
             ))}

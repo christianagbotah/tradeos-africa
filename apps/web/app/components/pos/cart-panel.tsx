@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { formatMoney } from "@tradeos/contracts";
 import type { CartLine, PosLineKey, PosSellableItem } from "./pos-model";
 
 export function CartPanel({
@@ -96,9 +97,4 @@ export function CartPanel({
       </div>
     </section>
   );
-}
-
-function formatMoney(minor: number, currencyCode: string): string {
-  if (currencyCode === "GHS") return `₵${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100);
 }

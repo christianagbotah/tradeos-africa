@@ -1,3 +1,5 @@
+import { formatMoney, parseMoneyInput } from "@tradeos/contracts";
+
 export type Customer = {
   id: string;
   name: string;
@@ -43,16 +45,12 @@ export type CustomerDetail = {
 export type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER";
 
 export function formatCustomerMoney(minor: number, currencyCode: string): string {
-  if (currencyCode === "GHS") return `₵${(minor / 100).toFixed(2)}`;
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100);
+  return formatMoney(minor, currencyCode);
 }
 
-export function customerMoneyToMinor(value: string): number {
-  const normalized = value.trim().replace(/,/g, "");
-  if (!normalized) return 0;
-  const amount = Number(normalized);
-  if (!Number.isFinite(amount) || amount < 0) return 0;
-  return Math.round(amount * 100);
+export function customerMoneyToMinor(value: string, currencyCode: string): number {
+  const minor = parseMoneyInput(value, currencyCode);
+  return minor !== null && minor >= 0 ? minor : 0;
 }
 
 export function formatCustomerDate(value: string): string {

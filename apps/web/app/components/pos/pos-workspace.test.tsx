@@ -29,7 +29,7 @@ describe("professional POS workspace", () => {
     }));
     expect(html).toContain("Walk-in customer");
     expect(html).toContain("Choose customer");
-    expect(html).toContain("Charge ₵0.00");
+    expect(html).toContain("Charge ₵ 0.00");
     expect(html).toContain("disabled");
   });
 
