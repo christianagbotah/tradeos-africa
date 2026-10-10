@@ -88,7 +88,7 @@ export function PosWorkspace({
         </div>
 
         <aside className="pos-sale-pane" aria-label="Current sale cart">
-          <button className="pos-cart-customer" type="button" onClick={() => setCustomerPickerOpen(true)}>
+          <button className="pos-cart-customer" type="button" aria-label="Choose customer" onClick={() => setCustomerPickerOpen(true)}>
             <span className="pos-cart-customer-icon" aria-hidden="true">♙</span>
             <strong>{selectedCustomer?.name ?? "Walk-in Customer"}</strong>
             <span aria-hidden="true">⌄</span>

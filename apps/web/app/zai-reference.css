@@ -544,10 +544,10 @@
   .zai-dashboard-header p { font-size: 13px; line-height: 1.45; }
   .zai-dashboard-header-actions { width: 100%; }
   .zai-dashboard-header-actions .zai-online-pill { display: none; }
-  .zai-date-pill,.zai-new-sale { min-height: 42px; }
+  .zai-date-pill,.zai-new-sale { min-height: 48px; }
   .zai-business-guidance { align-items: flex-start; padding: 12px; }
   .zai-action-rail { margin-left: -12px; margin-right: -12px; padding: 0 12px; }
-  .zai-action-rail a { min-height: 44px; }
+  .zai-action-rail a { min-height: 48px; }
   .zai-ai-actions { margin-left: -12px; margin-right: -12px; border-left: 0; border-right: 0; border-radius: 0; padding: 14px 12px 18px; }
   .zai-ai-actions-heading { align-items: flex-start; }
   .zai-ai-actions-heading span { max-width: 150px; }
