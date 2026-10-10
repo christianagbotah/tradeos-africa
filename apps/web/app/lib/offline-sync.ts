@@ -180,9 +180,10 @@ async function performFlush(): Promise<FlushSummary> {
   if (!Array.isArray(body.mutationResults)) throw new Error("Sync endpoint returned an invalid response");
 
   const byId = new Map(body.mutationResults.map((result) => [result.clientMutationId, result]));
+  const latestPending = readJson<PendingMutation[]>(pendingKey, []);
   const failed = readJson<FailedMutation[]>(failedKey, []);
   const batchIds = new Set(batch.map((mutation) => mutation.clientMutationId));
-  const remaining: PendingMutation[] = allPending.filter((mutation) => !batchIds.has(mutation.clientMutationId));
+  const remaining: PendingMutation[] = latestPending.filter((mutation) => !batchIds.has(mutation.clientMutationId));
   let applied = 0;
   let received = 0;
   let rejected = 0;
