@@ -2379,6 +2379,51 @@ select option {
 .business-type strong { display: block; font-size: 13.5px; font-weight: 750; }
 .business-type span { display: block; margin-top: 5px; font-size: 11.5px; line-height: 1.45; color: #6b7a55; }
 
+/* Country + currency selector block (onboarding) */
+.onboarding-country-block {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+.onboarding-currency-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1.5px solid #e2dfd4;
+  border-radius: 12px;
+  background: #faf9f4;
+  min-height: 50px;
+  white-space: nowrap;
+}
+.onboarding-currency-symbol {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--tos-gold, #c9903a);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.onboarding-currency-meta {
+  display: grid;
+  gap: 1px;
+}
+.onboarding-currency-meta strong {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0a1f14;
+  letter-spacing: 0.02em;
+}
+.onboarding-currency-meta span {
+  font-size: 11px;
+  color: #7a8a60;
+}
+
+@media (max-width: 480px) {
+  .onboarding-country-block { grid-template-columns: 1fr; }
+  .onboarding-currency-chip { justify-self: stretch; justify-content: center; }
+}
+
 @media (max-width: 480px) {
   .business-type-grid { grid-template-columns: 1fr; }
   .onboarding-form { padding: 26px 20px; }
