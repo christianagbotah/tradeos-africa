@@ -114,3 +114,58 @@ describe("AsyncQueueSnapshotStorage", () => {
     expect(plain.values.get("tradeos.mobile.queue.v1")).toBe(raw);
   });
 });
+
+describe("MobilePersistence commerce cache", () => {
+  const catalogSnapshot = {
+    fetchedAt: "2026-10-10T23:45:00.000Z",
+    items: [{
+      id: "item-1",
+      businessId: "11111111-1111-4111-8111-111111111111",
+      sku: "CEM-50",
+      name: "Cement 50kg",
+      kind: "PRODUCT" as const,
+      stockUnitCode: "bag",
+      trackStock: true,
+      taxCategory: null,
+      active: true,
+      createdAt: "2026-10-10T00:00:00.000Z",
+      updatedAt: "2026-10-10T00:00:00.000Z",
+      units: [{ code: "bag", label: "Bag", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 12000 }],
+      conversions: [],
+    }],
+  };
+  const inventorySnapshot = {
+    fetchedAt: "2026-10-10T23:45:00.000Z",
+    items: [{
+      id: "item-1", sku: "CEM-50", name: "Cement 50kg", stockUnitCode: "bag",
+      available: 28, quarantine: 1, damaged: 0, waste: 0,
+      inventoryValueMinor: 280000, averageStockUnitCostMinor: 10000, latestStockUnitCostMinor: 10000,
+    }],
+  };
+
+  it("scopes catalog cache by business and inventory cache by business+branch", async () => {
+    const plain = new MemoryStorage();
+    const secure = new MemoryStorage();
+    const persistence = new MobilePersistence(plain, secure, () => "unused");
+
+    await persistence.saveCatalogCache("business-a", catalogSnapshot);
+    await persistence.saveInventoryCache("business-a", "branch-a", inventorySnapshot);
+
+    expect(await persistence.loadCatalogCache("business-a")).toEqual(catalogSnapshot);
+    expect(await persistence.loadCatalogCache("business-b")).toBeNull();
+    expect(await persistence.loadInventoryCache("business-a", "branch-a")).toEqual(inventorySnapshot);
+    expect(await persistence.loadInventoryCache("business-a", "branch-b")).toBeNull();
+    expect(await persistence.loadInventoryCache("business-b", "branch-a")).toBeNull();
+  });
+
+  it("fails closed to no cache when commerce read-model JSON is malformed", async () => {
+    const plain = new MemoryStorage();
+    const secure = new MemoryStorage();
+    const persistence = new MobilePersistence(plain, secure, () => "unused");
+    plain.values.set("tradeos.mobile.catalog.v1:business-a", "{bad json");
+    plain.values.set("tradeos.mobile.inventory.v1:business-a:branch-a", JSON.stringify({ fetchedAt: "bad", items: "nope" }));
+
+    expect(await persistence.loadCatalogCache("business-a")).toBeNull();
+    expect(await persistence.loadInventoryCache("business-a", "branch-a")).toBeNull();
+  });
+});
