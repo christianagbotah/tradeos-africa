@@ -118,6 +118,12 @@ describe("multi-page review regressions", () => {
   });
 
 
+  it("keeps consolidated application CSS comments balanced so migrated styles remain active", () => {
+    const css = read("tradeos-app.css");
+    expect(css.match(/\/\*/g)?.length ?? 0).toBe(css.match(/\*\//g)?.length ?? 0);
+    expect(css).toContain("/* === Migrated feature styles (from deleted legacy CSS files) === */");
+  });
+
   it("keeps frontend source free of batch-rewrite control-character artifacts", () => {
     const offenders: string[] = [];
     const visit = (directory: string) => {

@@ -41,7 +41,7 @@ Final hardening on the restoration branch also covers the interaction regression
 
 Fresh branch verification:
 
-- Web tests: 61 files / 330 tests passed
+- Web tests: 61 files / 331 tests passed
 - Monorepo typecheck: passed
 - Monorepo lint: passed
 - Monorepo production build: passed

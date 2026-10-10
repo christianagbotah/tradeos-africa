@@ -335,7 +335,7 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 
 }
 
-/* === Migrated feature styles (from deleted legacy CSS files) ===
+/* === Migrated feature styles (from deleted legacy CSS files) === */
 
 .purchase-inventory-workspace { margin-top: 18px; }
 .inventory-summary { display: grid; justify-items: end; gap: 2px; }
