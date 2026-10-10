@@ -1378,8 +1378,6 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 }
 
 /* Final authenticated-workspace visual layer. Keeps legacy feature logic while giving every routed module one design language. */
-.workspace-main .tradeos-card,
-
 .workspace-main .tradeos-card {
   min-width: 0;
   margin: 0;
@@ -1587,9 +1585,14 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 @media (max-width: 640px) {
   .workspace-main .catalog-form,
   .workspace-main .tradeos-ai-panel,
-  .workspace-main
-  .workspace-main .working-capital-grid { grid-template-columns: 1fr; }
-  .workspace-main .cfo-action-head { align-items: flex-start; flex-direction: column; }
+  .workspace-main .working-capital-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-main .cfo-action-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .workspace-recovery-switch { display: grid; gap: 7px; margin: 18px 0 4px; color: #526076; font-size: 12px; font-weight: 800; }
