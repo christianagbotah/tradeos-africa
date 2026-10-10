@@ -37,6 +37,15 @@ describe("TradeOS shell hierarchy and permission presentation", () => {
     expect(source).toContain("activeBranch");
   });
 
+  it("keeps the Z.ai desktop business card as a real accessible context switcher", () => {
+    const source = readSrc("app-shell.tsx");
+    expect(source).toContain("workspace-business-card-trigger");
+    expect(source).toContain("workspace-business-switcher");
+    expect(source).toContain("setContextOpen");
+    expect(source).toContain('aria-haspopup="dialog"');
+    expect(source).toContain("{businessBranchSelectors}");
+  });
+
   it("provides an account menu with sign out", () => {
     const source = readSrc("app-shell.tsx");
     expect(source).toContain("workspace-profile-menu");

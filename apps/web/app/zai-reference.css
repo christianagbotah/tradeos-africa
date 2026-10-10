@@ -595,3 +595,52 @@
 .zai-business-guidance .zai-reference-icon,.zai-ai-actions-heading .zai-reference-icon{width:17px;height:17px}
 .zai-ai-actions-heading h2{display:flex;align-items:center;gap:7px}
 .zai-online-pill,.zai-date-pill,.zai-new-sale{display:inline-flex;align-items:center;gap:6px}
+
+/* Z.ai business card remains the desktop context-switching control. */
+.workspace-business-card { position: relative; }
+.workspace-business-card-trigger {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+.workspace-business-card-trigger:focus-visible { border-radius: 10px; }
+.workspace-business-card-copy { min-width: 0; }
+.workspace-business-card-copy strong,
+.workspace-business-card-copy span { display: block; }
+.workspace-business-switcher {
+  position: absolute;
+  z-index: 90;
+  top: 50px;
+  left: 8px;
+  right: 8px;
+  padding: 10px;
+  border: 1px solid var(--zai-line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 32px rgba(11, 31, 23, .2);
+  color: var(--zai-ink);
+}
+.workspace-business-switcher .workspace-context-unit {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: #fff;
+}
+.workspace-business-switcher .workspace-context-field { color: #68766f; }
+.workspace-business-switcher .workspace-context-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid var(--zai-line);
+  background-color: #fff;
+}
+.workspace-business-switcher .workspace-business-name,
+.workspace-business-switcher .workspace-branch-name {
+  color: var(--zai-ink);
+  font-size: 13px;
+  font-weight: 700;
+}

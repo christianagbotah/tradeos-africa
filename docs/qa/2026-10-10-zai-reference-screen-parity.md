@@ -27,7 +27,7 @@ The saved Z.ai reference screenshots under `docs/qa/evidence/tradeos-frontend-fi
 
 ## Automated verification
 
-- Web tests: 61 files / 331 tests passed
+- Web tests: 61 files / 332 tests passed
 - Monorepo typecheck: passed
 - Monorepo lint: passed
 - Production web build: passed
@@ -50,5 +50,7 @@ The audit verifies:
 - opaque native select surfaces
 - no sub-48px visible button/select/summary controls through 768 px
 - no malformed visible shared money inputs
+
+Additional desktop interaction verification confirmed the Z.ai business card opens an opaque context switcher, Escape closes it, and global search routes to the intended workspace while preserving the query.
 
 Evidence is stored under `docs/qa/evidence/zai-reference-parity-final/`.

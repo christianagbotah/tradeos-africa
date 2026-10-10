@@ -61,9 +61,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [globalQuery, setGlobalQuery] = useState("");
   const profileMenuRef = useRef<HTMLDivElement>(null);
+  const businessCardRef = useRef<HTMLElement>(null);
   const { session, context, branchId, activeBranch, setBusiness, setBranch, logout } = useWorkspace();
   const navItems = useMemo(() => visibleWorkspaceNav(context.membership.role), [context.membership.role]);
   const activeBranches = useMemo(() => context.branches.filter((branch) => branch.active), [context.branches]);
@@ -79,13 +81,24 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => { document.removeEventListener("mousedown", onPointerDown); document.removeEventListener("keydown", onKeyDown); };
   }, [profileOpen]);
 
+  useEffect(() => {
+    if (!contextOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (businessCardRef.current && !businessCardRef.current.contains(event.target as Node)) setContextOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setContextOpen(false); };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("mousedown", onPointerDown); document.removeEventListener("keydown", onKeyDown); };
+  }, [contextOpen]);
+
   const businessBranchSelectors = (
     <div className="workspace-context-unit">
       {session.memberships.length > 1 ? (
-        <label className="workspace-context-field"><span>Business</span><select value={context.business.id} onChange={(event) => void setBusiness(event.target.value)}>{session.memberships.map((membership) => <option key={membership.businessId} value={membership.businessId}>{membership.businessName}</option>)}</select></label>
+        <label className="workspace-context-field"><span>Business</span><select value={context.business.id} onChange={(event) => { setContextOpen(false); void setBusiness(event.target.value); }}>{session.memberships.map((membership) => <option key={membership.businessId} value={membership.businessId}>{membership.businessName}</option>)}</select></label>
       ) : <span className="workspace-business-name">{context.business.name}</span>}
       {activeBranches.length > 1 ? (
-        <label className="workspace-context-field"><span>Branch</span><select value={branchId} onChange={(event) => setBranch(event.target.value)}>{activeBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+        <label className="workspace-context-field"><span>Branch</span><select value={branchId} onChange={(event) => { setContextOpen(false); setBranch(event.target.value); }}>{activeBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
       ) : <span className="workspace-branch-name">{activeBranch.name}</span>}
     </div>
   );
@@ -125,12 +138,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="workspace-brand-copy"><strong>TradeOS</strong><span>Africa</span></div>
         </div>
 
-        <section className="workspace-business-card" aria-label="Active business and branch">
-          <div className="workspace-business-card-main">
+        <section ref={businessCardRef} className="workspace-business-card" aria-label="Active business and branch">
+          <button className="workspace-business-card-main workspace-business-card-trigger" type="button" aria-haspopup="dialog" aria-expanded={contextOpen} onClick={() => setContextOpen((open) => !open)}>
             <span className="workspace-business-icon" aria-hidden="true"><ReferenceIcon name="store" /></span>
-            <div><strong>{context.business.name}</strong><span>{activeBranch.name}</span></div>
+            <span className="workspace-business-card-copy"><strong>{context.business.name}</strong><span>{activeBranch.name}</span></span>
             <span aria-hidden="true"><ReferenceIcon name="chevronDown" /></span>
-          </div>
+          </button>
+          {contextOpen ? <div className="workspace-business-switcher" role="dialog" aria-label="Switch business or branch">{businessBranchSelectors}</div> : null}
           <div className="workspace-pack-card">
             <span aria-hidden="true"><ReferenceIcon name="home" /></span>
             <div><strong>{packLabel}</strong><small>Business pack</small></div>
