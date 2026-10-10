@@ -185,7 +185,7 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
         <div className="reports-ai-card tradeos-insight-card">
           <div className="tradeos-card-heading compact"><div><p  className="tradeos-kicker">TradeOS CFO · explainable health</p><h3>Business health</h3></div><span className="tradeos-badge">{report.health.score === null ? "—" : `${report.health.score}/100`} · {report.health.status.replaceAll("_", " ")}</span></div>
           <p>{report.health.headline} <small>Signal confidence: {report.health.confidence.toLowerCase()} · {report.health.algorithmVersion} · this is an operating-health score, not a lending/credit score.</small></p>
-          <div className="metrics-grid">{report.health.dimensions.map((dimension) => <article className="tradeos-stat-card" key={dimension.key}><span>{dimension.label}</span><strong>{dimension.applicable && dimension.score !== null ? `${dimension.score}/100` : "N/A"}</strong><small>{dimension.summary}</small></article>)}</div>
+          <div className="tradeos-stat-grid">{report.health.dimensions.map((dimension) => <article className="tradeos-stat-card" key={dimension.key}><span>{dimension.label}</span><strong>{dimension.applicable && dimension.score !== null ? `${dimension.score}/100` : "N/A"}</strong><small>{dimension.summary}</small></article>)}</div>
 
           <div className="reports-working-capital-card tradeos-capital-card">
             <div className="tradeos-card-heading compact"><div><p  className="tradeos-kicker">Cash conversion</p><h3>Working capital cockpit</h3></div><span className="tradeos-badge">{report.health.workingCapital.status.replaceAll("_", " ")}</span></div>
@@ -218,7 +218,7 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
 
         {forecast ? <CashForecastPanel forecast={forecast} money={money} offlineCached={forecastOfflineCached} /> : <div className="reports-working-capital-card tradeos-capital-card"><p>{busy ? "Calculating the 30-day cash forecast…" : "No saved cash forecast is available yet."}</p></div>}
 
-        <div className="metrics-grid">
+        <div className="tradeos-stat-grid">
           <article className="tradeos-stat-card"><span>Net revenue</span><strong>{money(f.netRevenueMinor)}</strong><small>{percentage(report.comparison.netRevenueChangePercent)} vs previous period</small></article>
           <article className="tradeos-stat-card"><span>Gross profit</span><strong>{money(f.grossProfitMinor)}</strong><small>{percentage(report.comparison.grossProfitChangePercent)} vs previous period</small></article>
           <article className="tradeos-stat-card"><span>Operating profit</span><strong>{money(f.operatingProfitMinor)}</strong><small>{percentage(report.comparison.operatingProfitChangePercent)} vs previous period</small></article>
