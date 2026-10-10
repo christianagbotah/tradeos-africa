@@ -7,10 +7,11 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.
 const read = (file: string) => fs.readFileSync(path.join(appRoot, file), "utf8");
 
 describe("canonical Z.ai frontend boundary", () => {
-  it("removes obsolete legacy presentation files and components", () => {
-    for (const file of ["interactions.css", "real-app.css", "workspace-polish.css", "pos-workspace.css", "tradeos-app.css", "components/catalog-starter.tsx"]) {
+  it("removes obsolete pre-Z.ai presentation files while retaining the proven Z.ai app stylesheet", () => {
+    for (const file of ["interactions.css", "real-app.css", "workspace-polish.css", "pos-workspace.css", "components/catalog-starter.tsx"]) {
       expect(fs.existsSync(path.join(appRoot, file)), file).toBe(false);
     }
+    expect(fs.existsSync(path.join(appRoot, "tradeos-app.css"))).toBe(true);
   });
 
   it("keeps globals as reset/base only, never as an authenticated workspace skin", () => {
@@ -21,18 +22,19 @@ describe("canonical Z.ai frontend boundary", () => {
     expect(css).toContain("var(--tos-font-body)");
   });
 
-  it("loads only canonical/shared or explicitly migrated module styles", () => {
+  it("loads the proven Z.ai shared app stylesheet plus only explicit module overlays", () => {
     const layout = read("layout.tsx");
     expect(layout).not.toContain('import "./interactions.css";');
     for (const legacy of ["real-app.css", "workspace-polish.css", "pos-workspace.css"]) expect(layout).not.toContain(legacy);
-    for (const canonical of ["tradeos-tokens.css", "globals.css", "public-entry.css", "workspace-shell.css", "ui-primitives.css", "dashboard.css", "catalog.css", "pos.css", "sales-returns.css", "returns.css", "purchases-inventory.css", "cashbook.css", "operations.css", "reports.css"]) expect(layout).toContain(canonical);
+    for (const canonical of ["tradeos-tokens.css", "globals.css", "ui-primitives.css", "workspace-shell.css", "tradeos-app.css", "public-entry.css", "dashboard.css", "catalog.css", "pos.css", "sales-returns.css", "returns.css", "purchases-inventory.css", "cashbook.css", "operations.css", "reports.css"]) expect(layout).toContain(canonical);
   });
 
-  it("owns live network/sync presentation in the canonical workspace shell", () => {
+  it("owns live network/sync presentation in the Z.ai workspace shell", () => {
     const shell = read("workspace-shell.css");
-    expect(shell).toContain(".workspace-shell .sync-card");
+    expect(shell).toContain(".workspace-sidebar .sync-card");
     expect(shell).toContain(".workspace-shell .sync-dot");
   });
+
   it("standardizes pointer affordance and opaque select menus", () => {
     const globals = read("globals.css");
     expect(globals).toContain("a[href]");
@@ -41,7 +43,7 @@ describe("canonical Z.ai frontend boundary", () => {
     expect(globals).toContain("summary");
     expect(globals).toMatch(/select\s+option[\s\S]*background-color:\s*var\(--tos-surface\)/);
     const shell = read("workspace-shell.css");
-    expect(shell).toMatch(/\.workspace-context-unit \.workspace-context-field select\s*\{[\s\S]*background-color:\s*var\(--tos-surface\)/);
+    expect(shell).toMatch(/\.workspace-context-field select\s*\{[\s\S]*background-color:\s*var\(--tos-surface\)/);
   });
 
   it("uses a shared currency-prefixed money input with breathing room", () => {
@@ -64,5 +66,4 @@ describe("canonical Z.ai frontend boundary", () => {
     expect(sw).toContain('tradeos-shell-v3-zai-canonical');
     expect(sw).toMatch(/keys\.filter\(\(key\) => key !== CACHE_NAME\)[\s\S]*caches\.delete/);
   });
-
 });
