@@ -10,7 +10,7 @@ const read = (file: string) => fs.readFileSync(path.join(appRoot, file), "utf8")
 describe("public-entry class-contract", () => {
   it("does not use obsolete class names that have no CSS definition", () => {
     const source = read("components/public-entry.tsx");
-    const obsolete = ["stack-form", "setup-shell", "setup-topbar", "setup-card", "setup-copy", "wide", "brand-lockup", "auth-brand", "auth-card", "auth-points", "security-note"];
+    const obsolete = ["stack-form", "setup-shell", "setup-topbar", "setup-card", "setup-copy", "wide", "brand-lockup", "auth-brand", "auth-points", "security-note", "auth-shell", "auth-story", "auth-form-side", "auth-form-body"];
     for (const cls of obsolete) {
       expect(source).not.toContain(`"${cls}"`);
       expect(source).not.toContain(` ${cls} `);

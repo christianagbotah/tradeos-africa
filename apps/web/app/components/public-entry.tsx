@@ -147,82 +147,69 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
   };
 
   return (
-    <main className="auth-shell">
-      <section className="auth-story">
-        <div className="auth-story-lockup">
-          <div className="auth-story-mark">T</div>
-          <div>
+    <main className="auth-page">
+      <div className="auth-glow auth-glow--gold" />
+      <div className="auth-glow auth-glow--green" />
+
+      <div className="auth-card">
+        <div className="auth-card-brand">
+          <div className="auth-mark">T</div>
+          <div className="auth-brand-text">
             <strong>TradeOS</strong>
             <span>Africa</span>
           </div>
         </div>
-        <div className="auth-story-hero">
-          <p className="auth-story-eyebrow">One operating system for everyday business</p>
-          <h1>From a single chair or food stand to a multi-branch company.</h1>
-          <p>Sell, track stock, manage services and credit, work offline, and understand what is happening in plain business language.</p>
+
+        <h1 className="auth-card-title">
+          {mode === "login" ? "Welcome back" : "Create account"}
+        </h1>
+        <p className="auth-card-subtitle">
+          {mode === "login"
+            ? "Sign in to run your business"
+            : "Start your business journey today"}
+        </p>
+
+        <div className="auth-switch">
+          <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
+          <button className={mode === "register" ? "active" : ""} type="button" onClick={() => setMode("register")}>Register</button>
         </div>
-        <ul className="auth-story-list">
-          <li>Offline-first selling</li>
-          <li>Bulk → unit conversions</li>
-          <li>Services + consumables</li>
-          <li>Returns &amp; refunds</li>
-        </ul>
-      </section>
 
-      <section className="auth-form-side">
-        <div className="auth-form">
-          <div className="auth-brand-mobile">
-            <div className="auth-story-mark">T</div>
-            <div>
-              <strong>TradeOS</strong>
-              <span>Africa</span>
-            </div>
-          </div>
-
-          <div className="auth-tabs">
-            <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
-            <button className={mode === "register" ? "active" : ""} type="button" onClick={() => setMode("register")}>Create account</button>
-          </div>
-
-          <div className="auth-form-header">
-            <h2>{mode === "login" ? "Welcome back" : "Start your business"}</h2>
-            <p>{mode === "login" ? "Sign in to your TradeOS workspace" : "Create your owner account"}</p>
-          </div>
-
-          <form className="auth-form-body" onSubmit={(event) => void submit(event)}>
-            {mode === "register" ? (
-              <label className="auth-field">
-                <span>Full name</span>
-                <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" autoComplete="name" />
-              </label>
-            ) : (
-              <div className="auth-field">
-                <DemoAccountSelect selectedId={demoAccountId} onSelect={(account) => {
-                  setDemoAccountId(account?.id ?? "");
-                  if (!account) return;
-                  setIdentifier(account.email);
-                  setPassword(account.password);
-                  setLocalError(null);
-                }} />
-              </div>
-            )}
-            <label className="auth-field">
-              <span>Email or phone</span>
-              <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233…" autoComplete="email" />
+        <form className="auth-card-form" onSubmit={(event) => void submit(event)}>
+          {mode === "register" ? (
+            <label className="auth-input">
+              <span>Full name</span>
+              <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" autoComplete="name" />
             </label>
-            <label className="auth-field">
-              <span>Password</span>
-              <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
+          ) : (
+            <label className="auth-input">
+              <span>Demo account</span>
+              <DemoAccountSelect selectedId={demoAccountId} onSelect={(account) => {
+                setDemoAccountId(account?.id ?? "");
+                if (!account) return;
+                setIdentifier(account.email);
+                setPassword(account.password);
+                setLocalError(null);
+              }} />
             </label>
-            {localError ? <div className="auth-error">{localError}</div> : null}
-            <button className="tos-button tos-button--primary auth-submit" type="submit" disabled={busy}>
-              {busy ? "Working…" : mode === "login" ? "Sign in" : "Create account"}
-            </button>
-          </form>
+          )}
+          <label className="auth-input">
+            <span>Email or phone</span>
+            <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233" autoComplete="email" />
+          </label>
+          <label className="auth-input">
+            <span>Password</span>
+            <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
+          </label>
+          {localError ? <div className="auth-card-error">{localError}</div> : null}
+          <button className="auth-card-submit" type="submit" disabled={busy}>
+            {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
+          </button>
+        </form>
 
-          <p className="auth-security-note">Your session uses HttpOnly cookies. Access tokens are never exposed to page JavaScript.</p>
-        </div>
-      </section>
+        <p className="auth-card-foot">
+          Offline-first · Works without internet · GHS ready
+        </p>
+      </div>
     </main>
   );
 }
@@ -254,8 +241,8 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
   return (
     <main className="onboarding-shell">
       <header className="onboarding-topbar">
-        <div className="auth-story-lockup">
-          <div className="auth-story-mark">T</div>
+        <div className="auth-card-brand">
+          <div className="auth-mark">T</div>
           <div>
             <strong>TradeOS</strong>
             <span>Africa</span>
@@ -273,11 +260,11 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
 
         <form className="onboarding-form" onSubmit={(event) => void submit(event)}>
           <div className="tradeos-form-row">
-            <label className="auth-field">
+            <label className="auth-input">
               <span>Business name</span>
               <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Akosua's Waakye" />
             </label>
-            <label className="auth-field">
+            <label className="auth-input">
               <span>Branch name</span>
               <input required value={branchName} onChange={(event) => setBranchName(event.target.value)} placeholder="Main" />
             </label>
@@ -292,7 +279,7 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
             ))}
           </div>
 
-          {error ? <div className="auth-error">{error}</div> : null}
+          {error ? <div className="auth-card-error">{error}</div> : null}
 
           <button className="tos-button tos-button--primary onboarding-submit" type="submit" disabled={busy}>
             {busy ? "Creating…" : "Create business"}
@@ -306,7 +293,7 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
 function WorkspaceRecoveryScreen({ message, onRetry, onLogout }: { message: string; onRetry: () => void; onLogout: () => void }) {
   return (
     <main className="loading-shell workspace-recovery-shell">
-      <div className="auth-story-mark">T</div>
+      <div className="auth-mark">T</div>
       <div className="workspace-recovery-card">
         <p className="tradeos-page-eyebrow">Workspace unavailable</p>
         <h1>TradeOS could not open your business workspace.</h1>
@@ -323,7 +310,7 @@ function WorkspaceRecoveryScreen({ message, onRetry, onLogout }: { message: stri
 function LoadingScreen() {
   return (
     <main className="loading-shell">
-      <div className="auth-story-mark">T</div>
+      <div className="auth-mark">T</div>
       <strong>Loading TradeOS Africa…</strong>
     </main>
   );
