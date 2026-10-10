@@ -1963,3 +1963,89 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 @media(max-width:767px){.pos-workspace{gap:12px;padding-bottom:86px}.pos-customer-bar{grid-template-columns:44px minmax(0,1fr);min-height:68px;padding:9px 11px}.pos-customer-bar-avatar{width:44px;height:44px}.pos-customer-bar-action{grid-column:1/-1;min-height:48px;justify-content:center}.pos-customer-bar-copy strong,.pos-customer-bar-copy em{white-space:normal}.pos-charge-bar{left:8px;right:8px;bottom:calc(88px + env(safe-area-inset-bottom));min-height:64px}.pos-charge-bar>button{min-width:150px;min-height:50px}.pos-sale-status{grid-template-columns:28px minmax(0,1fr) 44px}}
 @media(max-width:430px){.pos-charge-bar{grid-template-columns:minmax(0,1fr) minmax(148px,auto);gap:8px;padding-left:11px}.pos-charge-bar>button{min-width:148px;padding:0 12px;font-size:14px}.pos-charge-bar>div strong{font-size:17px}}
 @media(max-width:380px){.pos-charge-bar{grid-template-columns:1fr}.pos-charge-bar>div{display:none}.pos-charge-bar>button{width:100%;min-width:0}.pos-workspace{padding-bottom:88px}}
+
+/* === Global fixes: pointer cursor, dropdown opacity, currency spacing === */
+
+/* Pointer cursor on ALL clickable elements */
+a, button, [role="button"], [role="tab"], [role="menuitem"],
+.tos-button, .workspace-nav-item, .pos-unit-choice, .pos-customer-bar,
+.pos-customer-option, .customer-management-row, .catalog-row, .sales-history-row,
+.inventory-row-modern, .tradeos-return-mode, .tradeos-pack-card,
+.customer-filterbar button, .pos-payment-option, .tradeos-stat-card,
+.tradeos-quick-action, .quick-item, .return-mode, .pack-card,
+.customer-refresh-link, .catalog-refresh-link, .pos-desktop-charge,
+.pos-charge-bar button, .workspace-profile-trigger, .workspace-profile-signout,
+.workspace-signout, .pos-sale-status button, .pos-remove-line,
+.auth-demo-grid button, .workspace-more-close, .pos-customer-close,
+.pos-checkout-close, .customer-sheet-close, .workspace-more-signout,
+.nav-item, .catalog-filterbar button, .inventory-filterbar button {
+  cursor: pointer;
+}
+button:disabled, .tos-button:disabled, [aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* Dropdowns/popovers: fully opaque, correct z-index */
+.workspace-profile-dropdown,
+.pos-customer-picker, .pos-checkout-sheet,
+.customer-sheet, .workspace-more-sheet {
+  background: var(--tos-surface);
+  /* Ensure fully opaque */
+  opacity: 1;
+}
+.workspace-profile-dropdown {
+  z-index: 50;
+}
+.pos-customer-backdrop, .pos-checkout-backdrop,
+.customer-sheet-backdrop, .workspace-more-layer {
+  z-index: 100;
+}
+.pos-customer-picker, .pos-checkout-sheet {
+  z-index: 110;
+}
+.workspace-more-sheet {
+  z-index: 100;
+}
+
+/* Native select options: opaque surface (browser-dependent) */
+select option {
+  background: var(--tos-surface);
+  color: var(--tos-text);
+}
+
+/* Currency spacing: ₵  1,250.00 not ₵1,250.00 */
+.tos-money-value,
+.tos-money-value--strong,
+.tos-money-value--hero,
+.money-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Add space after currency symbol in GHS formatting */
+.tos-money-value::before,
+.tos-money-value--strong::before,
+.tos-money-value--hero::before {
+  content: "";
+  display: inline-block;
+  width: 0.15em;
+}
+
+/* Ensure focus-visible on ALL interactive elements */
+*:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+  border-color: var(--tos-gold);
+}
+
+/* Disabled state clarity */
+button:disabled, .tos-button:disabled, input:disabled, select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sheet/dialog backdrop: ensure text behind doesn't show through */
+.pos-customer-backdrop, .pos-checkout-backdrop,
+.customer-sheet-backdrop {
+  background: rgba(7, 17, 31, 0.6);
+  backdrop-filter: blur(3px);
+}

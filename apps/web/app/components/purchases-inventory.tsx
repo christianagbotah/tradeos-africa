@@ -163,9 +163,9 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
 
   const lowOrEmpty = useMemo(() => inventory.filter((item) => item.available <= 0).length, [inventory]);
 
-  return <section className="panel purchase-inventory-panel" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
-    <div className="panel-heading">
-      <div><p className="eyebrow">{view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}</p><h2>{view === "purchases" ? "Suppliers & purchases" : "Inventory"}</h2></div>
+  return <section className="tradeos-card purchase-inventory-tradeos-card" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
+    <div className="tradeos-card-heading">
+      <div><p className="tradeos-kicker">{view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}</p><h2>{view === "purchases" ? "Suppliers & purchases" : "Inventory"}</h2></div>
       <div className="inventory-summary"><span>Tracked products</span><strong>{inventory.length}</strong><small>{lowOrEmpty} empty item{lowOrEmpty === 1 ? "" : "s"}</small></div>
     </div>
 
@@ -221,7 +221,7 @@ function PurchaseReturn({ businessId, branchId, purchase, onClose, onMessage }: 
     } catch (error) { onMessage(messageFrom(error)); } finally { setBusy(false); }
   };
   return <form className="purchase-return-sheet" onSubmit={(event) => void submit(event)}>
-    <div className="purchase-receipt-head"><div><span>Purchase correction</span><strong>Return to {purchase.supplierName}</strong></div><button className="ghost-button" type="button" onClick={onClose}>Close</button></div>
+    <div className="purchase-receipt-head"><div><span>Purchase correction</span><strong>Return to {purchase.supplierName}</strong></div><button className="tos-button tos-button--secondary" type="button" onClick={onClose}>Close</button></div>
     {!loaded ? <p>{loadError || "Loading original purchase…"}</p> : lines.map((line) => <div className="receipt-line-builder" key={line.id}>
       <div><strong>{line.itemName}</strong><p>Remaining {formatQuantity(line.remainingQuantity)} {line.purchaseUnitCode} · Originally {formatQuantity(line.purchaseQuantity)} {line.purchaseUnitCode} = {formatQuantity(line.stockQuantity)} {line.stockUnitCode}</p></div>
       <label>Return quantity ({line.purchaseUnitCode})<input type="number" min="0" max={line.remainingQuantity} step="0.00000001" disabled={line.remainingQuantity <= 0} value={quantities[line.id] || ""} onChange={(event) => setQuantities((current) => ({ ...current, [line.id]: event.target.value }))} /></label>
@@ -229,7 +229,7 @@ function PurchaseReturn({ businessId, branchId, purchase, onClose, onMessage }: 
     </div>)}
     <label>Recovery method<select value={method} onChange={(event) => setMethod(event.target.value)}>{["CREDIT_NOTE","CASH","MOMO","CARD","BANK","OTHER"].map((value) => <option key={value} value={value}>{value === "CREDIT_NOTE" ? "Supplier credit note" : value}</option>)}</select></label>
     <p>{method === "CREDIT_NOTE" ? "Supplier credit" : "Supplier recovery"} preview: {formatMoney(preview, purchase.currencyCode)}</p>
-    <button className="primary-button" disabled={busy || !loaded} type="submit">Save purchase return</button>
+    <button className="tos-button tos-button--primary" disabled={busy || !loaded} type="submit">Save purchase return</button>
   </form>;
 }
 

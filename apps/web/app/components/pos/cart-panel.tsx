@@ -24,7 +24,7 @@ export function CartPanel({
 }) {
   if (cart.length === 0) {
     return (
-      <section className="pos-cart-panel pos-cart-empty" aria-label="Current sale">
+      <section className="pos-cart-tradeos-card pos-cart-empty" aria-label="Current sale">
         <strong>Your sale is empty</strong>
         <span>Tap a product or service to add it.</span>
       </section>
@@ -34,7 +34,7 @@ export function CartPanel({
   const totalMinor = cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0);
 
   return (
-    <section className="pos-cart-panel" aria-label="Current sale">
+    <section className="pos-cart-tradeos-card" aria-label="Current sale">
       <div className="pos-cart-heading">
         <div><span>Current sale</span><strong>{cart.length} line{cart.length === 1 ? "" : "s"}</strong></div>
         <strong>{formatMoney(totalMinor, currencyCode)}</strong>

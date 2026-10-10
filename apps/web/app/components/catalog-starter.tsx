@@ -82,21 +82,21 @@ export function CatalogStarter({ businessId, branchId, currencyCode, onCreated }
   };
 
   return (
-    <section className="panel catalog-starter" id="catalog">
-      <div className="panel-heading"><div><p className="eyebrow">Real catalog</p><h2>Add a product or service</h2></div><span className="workflow-badge">Flexible units</span></div>
+    <section className="tradeos-card catalog-starter" id="catalog">
+      <div className="tradeos-card-heading"><div><p className="tradeos-kicker">Real catalog</p><h2>Add a product or service</h2></div><span className="tradeos-badge">Flexible units</span></div>
       <div className="starter-tabs">
         <button className={mode === "simple" ? "active" : ""} type="button" onClick={() => setMode("simple")}>Simple product</button>
         <button className={mode === "bulk" ? "active" : ""} type="button" onClick={() => setMode("bulk")}>Buy bulk · sell smaller</button>
         <button className={mode === "service" ? "active" : ""} type="button" onClick={() => setMode("service")}>Service</button>
       </div>
       <form className="catalog-form" onSubmit={(event) => void submit(event)}>
-        <div className="form-row">
+        <div className="tradeos-form-row">
           <label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder={mode === "service" ? "Standard haircut" : mode === "bulk" ? "750ml Whisky" : "Malt"} /></label>
           <label>Sale price ({currencyCode === "GHS" ? "₵" : currencyCode})<input required inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="18.00" /></label>
         </div>
 
         {mode === "simple" ? (
-          <div className="form-row">
+          <div className="tradeos-form-row">
             <label>Unit<input required value={simpleUnit} onChange={(event) => setSimpleUnit(event.target.value)} placeholder="piece" /></label>
             <label>Opening stock (optional)<input inputMode="decimal" value={openingStock} onChange={(event) => setOpeningStock(event.target.value)} placeholder="24" /></label>
           </div>
@@ -104,12 +104,12 @@ export function CatalogStarter({ businessId, branchId, currencyCode, onCreated }
 
         {mode === "bulk" ? (
           <>
-            <div className="form-row triple">
+            <div className="tradeos-form-row triple">
               <label>Buy as<input required value={purchaseUnit} onChange={(event) => setPurchaseUnit(event.target.value)} placeholder="bottle" /></label>
               <label>Track stock as<input required value={stockUnit} onChange={(event) => setStockUnit(event.target.value)} placeholder="ml" /></label>
               <label>Sell as<input required value={saleUnit} onChange={(event) => setSaleUnit(event.target.value)} placeholder="glass" /></label>
             </div>
-            <div className="form-row triple">
+            <div className="tradeos-form-row triple">
               <label>1 {purchaseUnit || "purchase unit"} = how many {stockUnit || "stock units"}?<input required inputMode="decimal" value={purchaseFactor} onChange={(event) => setPurchaseFactor(event.target.value)} /></label>
               <label>1 {saleUnit || "sale unit"} = how many {stockUnit || "stock units"}?<input required inputMode="decimal" value={saleFactor} onChange={(event) => setSaleFactor(event.target.value)} /></label>
               <label>Opening stock in {stockUnit || "stock units"}<input inputMode="decimal" value={openingStock} onChange={(event) => setOpeningStock(event.target.value)} placeholder="750" /></label>
@@ -120,7 +120,7 @@ export function CatalogStarter({ businessId, branchId, currencyCode, onCreated }
 
         {mode === "service" ? <p className="conversion-preview">Services do not create stock themselves. Recipe/service consumables such as blades, shampoo or chemicals will be attached in the next catalog layer.</p> : null}
         {message ? <div className={message.startsWith("Item created") ? "form-success" : "form-error"}>{message}</div> : null}
-        <button className="primary-button" type="submit" disabled={busy || priceMinor === null}>{busy ? "Saving…" : "Add to catalog"}</button>
+        <button className="tos-button tos-button--primary" type="submit" disabled={busy || priceMinor === null}>{busy ? "Saving…" : "Add to catalog"}</button>
       </form>
     </section>
   );

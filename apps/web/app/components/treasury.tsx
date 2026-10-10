@@ -165,7 +165,7 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
         {elevated ? <Button type="button" onClick={() => setEditor(null)}>Add money account</Button> : null}
       </div>
 
-      <div className="form-row">{methods.map((method) => <p key={method}>{method}: {money(accounts.filter((item) => item.method === method).reduce((sum, item) => sum + item.balanceMinor, 0))}</p>)}</div>
+      <div className="tradeos-form-row">{methods.map((method) => <p key={method}>{method}: {money(accounts.filter((item) => item.method === method).reduce((sum, item) => sum + item.balanceMinor, 0))}</p>)}</div>
 
       <div className="treasury-table-scroll">
         <table>

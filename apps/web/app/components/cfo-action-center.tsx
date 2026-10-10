@@ -157,8 +157,8 @@ export function CfoActionCenter({
 
   return (
     <div className="cfo-action-center">
-      <div className="panel-heading compact">
-        <div><p className="eyebrow">TradeOS CFO · prioritized next moves</p><h3>What needs my attention today?</h3></div>
+      <div className="tradeos-card-heading compact">
+        <div><p className="tradeos-kicker">TradeOS CFO · prioritized next moves</p><h3>What needs my attention today?</h3></div>
         <span>{items.length} action{items.length === 1 ? "" : "s"}{offlineCached ? " · saved" : ""}</span>
       </div>
       {top ? (
@@ -166,7 +166,7 @@ export function CfoActionCenter({
       ) : <p>No action is generated until TradeOS has enough operating evidence.</p>}
       {items.length ? <div className="cfo-action-list">{items.map((item) => (
         <article className="cfo-action" key={item.code}>
-          <div className="cfo-action-head"><div><span className={`cfo-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span>{item.area.replaceAll("_", " ")}</span></div><Link className="ghost-button" href={item.href}>{item.navigationLabel}</Link></div>
+          <div className="cfo-action-head"><div><span className={`cfo-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span>{item.area.replaceAll("_", " ")}</span></div><Link className="tos-button tos-button--secondary" href={item.href}>{item.navigationLabel}</Link></div>
           <strong>{item.title}</strong>
           <p>{item.reason}</p>
           {item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${evidenceValue(row, money)}`).join(" · ")}</p> : null}
