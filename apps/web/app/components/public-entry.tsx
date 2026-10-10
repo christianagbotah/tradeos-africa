@@ -160,14 +160,16 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
           </div>
         </div>
 
-        <h1 className="auth-card-title">
-          {mode === "login" ? "Welcome back" : "Create account"}
-        </h1>
-        <p className="auth-card-subtitle">
-          {mode === "login"
-            ? "Sign in to run your business"
-            : "Start your business journey today"}
-        </p>
+        <div className="auth-card-head">
+          <h1 className="auth-card-title">
+            {mode === "login" ? "Welcome back" : "Create account"}
+          </h1>
+          <p className="auth-card-subtitle">
+            {mode === "login"
+              ? "Sign in to run your business"
+              : "Start your business journey today"}
+          </p>
+        </div>
 
         <div className="auth-switch">
           <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
@@ -178,36 +180,77 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
           {mode === "register" ? (
             <label className="auth-input">
               <span>Full name</span>
-              <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" autoComplete="name" />
+              <span className="auth-input-field">
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" autoComplete="name" />
+              </span>
             </label>
           ) : (
-            <label className="auth-input">
+            <div className="auth-input">
               <span>Demo account</span>
-              <DemoAccountSelect selectedId={demoAccountId} onSelect={(account) => {
-                setDemoAccountId(account?.id ?? "");
-                if (!account) return;
-                setIdentifier(account.email);
-                setPassword(account.password);
-                setLocalError(null);
-              }} />
-            </label>
+              <span className="auth-input-field">
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M6 21v-1a6 6 0 0 1 12 0v1" /></svg>
+                <DemoAccountSelect hideLabel selectedId={demoAccountId} onSelect={(account) => {
+                  setDemoAccountId(account?.id ?? "");
+                  if (!account) return;
+                  setIdentifier(account.email);
+                  setPassword(account.password);
+                  setLocalError(null);
+                }} />
+              </span>
+            </div>
           )}
           <label className="auth-input">
             <span>Email or phone</span>
-            <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233" autoComplete="email" />
+            <span className="auth-input-field">
+              <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></svg>
+              <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233" autoComplete="email" />
+            </span>
           </label>
           <label className="auth-input">
             <span>Password</span>
-            <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
+            <span className="auth-input-field">
+              <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+              <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
+            </span>
           </label>
+          {mode === "login" ? (
+            <div className="auth-form-aux">
+              <a className="auth-forgot" href="#" onClick={(event) => { event.preventDefault(); setLocalError("Password reset is not available in this build. Contact your workspace admin."); }}>Forgot password?</a>
+            </div>
+          ) : null}
           {localError ? <div className="auth-card-error">{localError}</div> : null}
           <button className="auth-card-submit" type="submit" disabled={busy}>
             {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
+            {!busy && (
+              <svg className="auth-submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
+            )}
           </button>
         </form>
 
+        <div className="auth-trust">
+          <span className="auth-trust-item">
+            <span className="auth-trust-dot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </span>
+            Offline-first
+          </span>
+          <span className="auth-trust-item">
+            <span className="auth-trust-dot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </span>
+            GHS ready
+          </span>
+          <span className="auth-trust-item">
+            <span className="auth-trust-dot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </span>
+            Works without internet
+          </span>
+        </div>
+
         <p className="auth-card-foot">
-          Offline-first · Works without internet · GHS ready
+          TradeOS Africa · Built for African businesses
         </p>
       </div>
     </main>
