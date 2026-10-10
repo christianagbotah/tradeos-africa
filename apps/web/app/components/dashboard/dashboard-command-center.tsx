@@ -11,6 +11,16 @@ import { dashboardAttentionForRole, dashboardCanViewReports } from "./dashboard-
 
 const frontlineRoles = new Set(["CASHIER", "SALES", "STAFF"]);
 
+type DashboardAiItem = {
+  id: string;
+  priority: "critical" | "warning" | "info";
+  title: string;
+  detail: string;
+  href: string;
+  actionLabel: string;
+  amountMinor?: number | null;
+};
+
 const businessGuidance = (businessType: string) => {
   const type = businessType.toUpperCase();
   if (type.includes("FOOD")) return ["Food / Hospitality", "Watch ingredients, wastage and today's cash position."] as const;
@@ -62,14 +72,24 @@ export function DashboardCommandCenter({
     canCustomers ? { href: "/customers", label: "Send reminders", icon: "↩" } : null,
   ].filter((item): item is { href: string; label: string; icon: string } => Boolean(item));
 
-  const aiItems = visibleAttention.length ? visibleAttention : [{
-    id: "pulse",
-    priority: "info" as const,
-    title: model.pulse.headline,
-    detail: model.pulse.summary,
-    href: dashboardCanViewReports(role) ? "/reports" : "/dashboard",
-    actionLabel: dashboardCanViewReports(role) ? "See report" : "Review dashboard",
-  }];
+  const aiItems: DashboardAiItem[] = visibleAttention.length
+    ? visibleAttention.map((item) => ({
+        id: item.id,
+        priority: item.priority,
+        title: item.title,
+        detail: item.detail,
+        href: item.href ?? "/dashboard",
+        actionLabel: item.actionLabel,
+        amountMinor: item.amountMinor,
+      }))
+    : [{
+        id: "pulse",
+        priority: "info",
+        title: model.pulse.headline,
+        detail: model.pulse.summary,
+        href: dashboardCanViewReports(role) ? "/reports" : "/dashboard",
+        actionLabel: dashboardCanViewReports(role) ? "See report" : "Review dashboard",
+      }];
 
   return (
     <div className="tos-dashboard tos-zai-dashboard" data-workspace-route="dashboard">
@@ -107,7 +127,7 @@ export function DashboardCommandCenter({
             <article key={item.id} className={`tos-zai-ai-card tos-zai-ai-card--${item.priority}`}>
               <div className="tos-zai-ai-card-title"><span aria-hidden="true">{item.priority === "critical" ? "!" : item.priority === "warning" ? "△" : "?"}</span><h3>{item.title}</h3></div>
               <p>{item.detail}</p>
-              {"amountMinor" in item && item.amountMinor != null ? <small>{formatMoney(item.amountMinor, currencyCode)}</small> : null}
+              {item.amountMinor != null ? <small>{formatMoney(item.amountMinor, currencyCode)}</small> : null}
               <Link href={item.href}>{item.actionLabel} →</Link>
             </article>
           ))}
