@@ -90,6 +90,24 @@ A temporary production Next server was started on loopback only and pointed at t
 
 The temporary Next process was stopped after the smoke.
 
+## Clean-checkout CI regression and fix
+
+The first GitHub CI run for PR #51 exposed a clean-checkout-only resolver defect that the earlier VPS verification had masked: `@tradeos/client-core` published runtime JavaScript from ignored `packages/client-core/dist/`, and the local worktree already contained that build output from earlier verification. A fresh GitHub checkout did not. Mobile Vitest therefore failed before running tests because `dist/index.js` was absent.
+
+The failure was reproduced locally by deleting `packages/client-core/dist` before running the mobile tests. The fix keeps the existing root package entry build-oriented for Node/desktop consumers and adds a dedicated `@tradeos/client-core/sync-runtime` subpath. That subpath exposes `src/sync-runtime.ts` under the `react-native` condition while retaining the built JavaScript default for Node-compatible consumers. Mobile imports now target that explicit subpath, and `apps/mobile/vitest.config.ts` aliases the subpath to TypeScript source so clean-checkout unit tests do not depend on ignored build output.
+
+Regression proof was then run from a clean runtime state with `packages/client-core/dist` removed:
+
+- mobile Vitest: **4 files / 26 tests passed** without prebuilding client-core;
+- mobile typecheck: **PASS**;
+- Android Expo production export: **PASS** with `client-core/dist` still absent;
+- iOS Expo production export: **PASS** with `client-core/dist` still absent;
+- full root CI-parity gate with `client-core/dist` deleted immediately before `pnpm test`: **PASS, exit code 0**;
+- API integration suite in that same clean-root run: **23 files / 85 tests passed**;
+- full production build after the clean-root test run: **PASS**.
+
+This explicitly covers the condition that failed on GitHub instead of relying on previously generated workspace artifacts.
+
 ## Review findings
 
 A branch-wide security/tenancy review found no Critical or Important issue requiring code changes. Generated Next `next-env.d.ts` changes created by the production build were reverted and are not part of this branch.

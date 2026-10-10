@@ -1,4 +1,4 @@
-import type { QueueSnapshot, QueueSnapshotStorage, QueuedMutation } from "@tradeos/client-core";
+import type { QueueSnapshot, QueueSnapshotStorage, QueuedMutation } from "@tradeos/client-core/sync-runtime";
 
 const DEVICE_KEY = "tradeos.mobile.device.v1";
 const SESSION_KEY = "tradeos.mobile.session.v1";

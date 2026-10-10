@@ -1,4 +1,4 @@
-import type { QueueState } from "@tradeos/client-core";
+import type { QueueState } from "@tradeos/client-core/sync-runtime";
 import { MobileApiError, SessionExpiredError } from "./api-client";
 import {
   MobileRuntimeError,

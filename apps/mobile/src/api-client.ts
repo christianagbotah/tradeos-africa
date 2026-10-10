@@ -1,4 +1,4 @@
-import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core";
+import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
 import { type MobileSessionTokens, MobilePersistence } from "./storage";
 
 export type MobilePlatform = "ANDROID" | "IOS";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core";
+import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
 import { MobileRuntime } from "./runtime";
 import type { MobileBusinessContext, MobileMe, MobileUser } from "./api-client";
 import { AsyncQueueSnapshotStorage, MobilePersistence, type SecureStringStorage, type StringStorage } from "./storage";

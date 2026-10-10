@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FlushSummary, QueueState } from "@tradeos/client-core";
+import type { FlushSummary, QueueState } from "@tradeos/client-core/sync-runtime";
 import { MobileAppModel, safeMobileErrorMessage } from "./app-model";
 import type { MobileBootstrapState } from "./runtime";
 

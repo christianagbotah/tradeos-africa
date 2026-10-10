@@ -4,7 +4,7 @@ import {
   type QueueSnapshotStorage,
   type QueueState,
   type SyncTransport,
-} from "@tradeos/client-core";
+} from "@tradeos/client-core/sync-runtime";
 import {
   SessionExpiredError,
   type MobileApiClient,
