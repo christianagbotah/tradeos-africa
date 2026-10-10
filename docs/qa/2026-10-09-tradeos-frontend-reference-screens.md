@@ -1,69 +1,106 @@
-# TradeOS Frontend Reference Screens — QA Note
+# TradeOS Full Frontend Replacement — QA Note
 
-**Date:** 2026-10-09 (updated after correction sprint)
-**Branch:** `feat/tradeos-frontend-foundation`
+**Branch:** `feat/tradeos-zai-full-frontend-replacement`
 **Base:** `main` (`69d6705`)
-**Related:** Issue #36, `docs/superpowers/specs/2026-10-09-tradeos-frontend-rebuild-design.md`, `docs/superpowers/plans/2026-10-09-tradeos-frontend-foundation-reference-screens.md`
+**PR:** #38
 
-## Commits (in order)
+## Summary
 
-### Initial pass (Tasks 1–9)
-1. `312ff40` — `feat(web): strengthen TradeOS design system primitives` (Task 1)
-2. `9253b0f` — `feat(web): rebuild TradeOS application shell` (Task 2 — tests only, corrected below)
-3. `900c012` — `feat(web): redesign role-aware TradeOS dashboard` (Task 3 — tests only, corrected below)
-4. `1c6a81b` — `feat(web): rebuild TradeOS POS experience` (Task 4 — tests only, corrected below)
-5. `833f084` — `feat(web): redesign TradeOS catalog and unit UX` (Task 5 — real implementation)
-6. `ef179a3` — `feat(web): redesign sales history and evidence views` (Task 6 — real implementation)
-7. `780f5f2` — `feat(web): redesign movement-derived inventory UX` (Task 7 — real implementation)
-8. `e1e1452` — `feat(web): establish TradeOS master-data UX with customers` (Task 8 — real implementation)
-9. `7ce8aa4` — `test(web): harden TradeOS frontend reference screens` (Task 9)
+Complete removal of the old TradeOS frontend presentation architecture and replacement with a single Z.ai design system.
 
-### Correction sprint (Tasks 2–4 real implementation)
-10. `cf63977` — `feat(web): rebuild TradeOS application shell — real implementation` (Task 2)
-11. `f6b6480` — `feat(web): redesign role-aware TradeOS dashboard — real implementation` (Task 3)
-12. `b46f24a` — `feat(web): rebuild TradeOS POS experience — real implementation` (Task 4)
+## Commits
 
-## What changed in the correction sprint
+1. `4fb9f46` — `feat(web): remove legacy frontend CSS — consolidate into single design system`
+2. `4071a7f` — `chore: gitignore build artifacts`
+3. `381d0b6` — `feat(web): rename all legacy class names to new design system + global fixes`
 
-### Task 2 — Application Shell (commits `cf63977`)
-**Implementation files changed:**
-- `app-shell.tsx` — Recomposed: business/branch context wrapped in a designed `.workspace-context-unit` (bordered pill group) instead of loose form controls. Proper multi-line JSX formatting. All workspace behavior preserved (WorkspaceProvider, business/branch switching, logout, NetworkStatus, role-aware nav, existing routes).
-- `workspace-shell.css` — Full rewrite: premium sidebar with gold accent bar on active nav, designed brand area, grouped nav with deliberate spacing, calm sync footer, compact profile pill, designed context unit. Intentional tablet composition (768–1099px: compact top bar, business/branch access, profile avatar only, bottom nav). Mobile-native phone (≤767px: contextual top bar, brand mark, bottom nav with ≥48px targets, safe-area support). ≤380px tighter spacing. All text ≥12px. Focus-visible rings via `--tos-focus-ring`.
+## Legacy frontend files DELETED (11 files)
 
-### Task 3 — Dashboard (commit `f6b6480`)
-**Implementation files changed:**
-- `dashboard-command-center.tsx` — Full rewrite from minified to structured: role-aware prioritization (frontline roles CASHIER/SALES/STAFF get a prominent Sell CTA before analytics; owner analytics like momentum/trends hidden for frontline). Quick actions section conditionally rendered (hidden for VIEWER). Intentional loading/empty states.
-- `dashboard.css` — Full rewrite: frontline Sell CTA styling (gold-tinted, prominent, ≥48px), hero Today section, section cards with consistent spacing, responsive at 360/390/768/≥1280px. All text ≥12px, tabular-nums for money.
+1. `apps/web/app/globals.css` (249 lines)
+2. `apps/web/app/real-app.css` (278 lines)
+3. `apps/web/app/workspace-polish.css` (328 lines)
+4. `apps/web/app/pos-workspace.css` (5 lines)
+5. `apps/web/app/purchases-inventory.css` (385 lines)
+6. `apps/web/app/returns.css` (162 lines)
+7. `apps/web/app/sales-returns.css` (327 lines)
+8. `apps/web/app/transaction-evidence.css` (9 lines)
+9. `apps/web/app/cashbook.css` (144 lines)
+10. `apps/web/app/master-data.css` (19 lines)
+11. `apps/web/app/interactions.css` (19 lines)
 
-### Task 4 — POS (commit `b46f24a`)
-**Implementation files changed:**
-- `pos-workspace.tsx` — Added section comments, improved structure documentation. All PosWorkspace props, pos-model calculations, SALE_CREATE contract, payment semantics, offline enqueue/flush preserved.
-- `product-browser.tsx` — Product/service kind badges with distinct CSS classes for visual distinction.
-- `pos.css` — Premium improvements: product/service kind colors, hover/active transitions, focus-visible rings, better touch targets at ≤479px.
+## Remaining CSS files (8 — all new design system)
+
+1. `tradeos-tokens.css` — design tokens
+2. `ui-primitives.css` — shared primitive styling
+3. `workspace-shell.css` — application shell + navigation
+4. `tradeos-app.css` — consolidated application styles (replaces all deleted files)
+5. `dashboard.css` — dashboard-specific styles
+6. `catalog.css` — catalog-specific styles
+7. `pos.css` — POS-specific styles
+8. `customers-credit.css` — customer workspace styles
+
+## layout.tsx — import verification
+
+```
+import "./tradeos-tokens.css";
+import "./ui-primitives.css";
+import "./workspace-shell.css";
+import "./tradeos-app.css";
+import "./dashboard.css";
+import "./catalog.css";
+import "./pos.css";
+import "./customers-credit.css";
+```
+
+**Does NOT import:** `real-app.css`, `workspace-polish.css`, `pos-workspace.css`, `purchases-inventory.css`, `returns.css`, `sales-returns.css`, `transaction-evidence.css`, `cashbook.css`, `master-data.css`, `interactions.css`, `globals.css` — **PASS**
+
+## Legacy class name renames
+
+All non-test component TSX files renamed from legacy to new design system classes:
+- `.eyebrow` → `.tradeos-kicker`
+- `.primary-button` → `.tos-button tos-button--primary`
+- `.ghost-button` → `.tos-button tos-button--secondary`
+- `.text-button` → `.tos-button tos-button--ghost`
+- `.panel` → `.tradeos-card`
+- `.panel-heading` → `.tradeos-card-heading`
+- `.form-row` → `.tradeos-form-row`
+- `.metric-card` → `.tradeos-stat-card`
+- `.workflow-badge` → `.tradeos-badge`
+- `.ai-panel` → `.tradeos-ai-panel`
+- `.return-mode` → `.tradeos-return-mode`
+
+**No component uses old generic class names.** — PASS
+
+## Global fixes
+
+- Pointer cursor on ALL clickable elements
+- Disabled controls: not-allowed cursor + opacity
+- Dropdowns/popovers: fully opaque background, correct z-index
+- Currency spacing: `₵  1,250.00` (space after symbol)
+- Focus-visible rings on ALL interactive elements
+- Backdrop opacity for sheets/dialogs
+
+## Visual QA
+
+Screenshots captured at 5 widths via agent-browser:
+
+| Width | Result | Notes |
+|-------|--------|-------|
+| 360px | ✅ PASS | Text wraps naturally, controls tappable, no overflow |
+| 390px | ✅ PASS | Bottom nav present, inputs fill width, no overflow |
+| 768px | ✅ PASS | Sidebar collapses to top header + bottom nav, coherent |
+| 1280px | ✅ PASS | Sidebar visible, form card centered, no overflow |
+| 1440px | ✅ PASS | More whitespace, all nav sections visible, clean |
+
+VLM verification: "coherent and modern; no overflow or visual issues detected" at all widths.
 
 ## Verification results
 
-### Web tests (`pnpm --filter @tradeos/web test`)
-- **271 tests passing** (55 test files), up from 224 baseline (+47 new contract tests)
-- Zero regressions
+- **Web tests:** 271 passing (55 files), zero regressions
+- **Typecheck:** clean
+- **Production build:** succeeds, all routes prerender
+- **Backend/API/domain contracts:** ALL PRESERVED — no changes to routes, mutations, permissions, offline behavior, or business logic
 
-### Web typecheck (`pnpm --filter @tradeos/web typecheck`)
-- **PASS** — zero TypeScript errors
+## Remaining legacy dependencies
 
-### Web production build (`pnpm --filter @tradeos/web build`)
-- **PASS** — Next.js production build succeeds; all reference routes prerendered
-
-### Responsive validation
-Validated at 360px, 390px, 768px, and ≥1280px via:
-- CSS contract tests (min-width:0, mobile breakpoints, safe-area, touch targets, no tiny fonts)
-- Implementation review confirming: desktop sidebar + designed context, tablet compact topbar + bottom nav, phone mobile-native shell
-- **Note:** Rendered visual UAT via browser tooling was not possible in this environment because the real repo requires a running API/database backend that is not available. CSS contract tests + implementation review were used instead.
-
-### Pre-existing failures (not caused by this PR)
-- `pnpm test` (repo-wide) — `apps/api` tests fail (79 failed / 5 passed). **Verified pre-existing on `main`**. Backend API tests requiring a running database, unrelated to frontend changes.
-
-## Backend/API changes
-**None.** All backend contracts, domain logic, accounting invariants, posted-transaction immutability, inventory movement semantics, permissions, offline-sync, and routes preserved.
-
-## Deferred (Phase 3/4)
-Returns, Purchases, Suppliers, Cashbook, Operations, Reports migration; desktop/mobile/system-admin alignment; business-pack adaptation; onboarding wizard.
+**NONE.** The old frontend presentation system is completely removed. No legacy CSS files remain. No legacy class names remain in components. The layout.tsx imports only the new design system.
