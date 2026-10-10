@@ -982,6 +982,16 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 .return-sheet-header small { color: var(--tos-text-muted); font-size: 13px; }
 .return-sheet-close { width: 48px; height: 48px; flex: 0 0 48px; border: 0; border-radius: 999px; background: var(--tos-surface-soft); color: var(--tos-text); font-size: 24px; }
 .return-sheet-scroll { min-height: 0; overflow: auto; padding: 20px 22px; display: grid; gap: 18px; align-content: start; }
+.return-original-evidence { display: grid; gap: 13px; padding: 16px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-lg); background: linear-gradient(180deg, var(--tos-surface), var(--tos-surface-soft)); }
+.return-original-evidence-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.return-original-evidence-head > div { min-width: 0; display: grid; gap: 3px; }
+.return-original-evidence-head > div > span { color: #7b5a18; font-size: 11px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; }
+.return-original-evidence-head > div > strong { color: var(--tos-text-strong); font-size: 20px; letter-spacing: -.02em; }
+.return-original-evidence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.return-original-evidence-grid > div { min-width: 0; display: grid; gap: 4px; padding: 11px 12px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); background: var(--tos-surface); }
+.return-original-evidence-grid span { color: var(--tos-text-muted); font-size: 12px; }
+.return-original-evidence-grid strong { overflow-wrap: anywhere; color: var(--tos-text-strong); font-size: 15px; }
+.return-original-evidence > p { margin: 0; color: var(--tos-text-muted); font-size: 13px; line-height: 1.5; }
 .return-sheet-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .return-sheet-summary > div, .return-sheet-preview > div { padding: 15px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); background: var(--tos-surface-soft); display: grid; gap: 4px; }
 .return-sheet-summary span, .return-sheet-preview span, .return-line-amount span, .return-stock-effect span { color: var(--tos-text-muted); font-size: 12px; }
@@ -1007,9 +1017,14 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 .return-line-check small { color: var(--tos-text-muted); font-size: 12px; font-weight: 500; }
 .return-stock-effect, .return-line-amount { min-height: 48px; display: grid; gap: 4px; align-content: center; }
 .return-refund-fields { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(260px, 1.3fr); gap: 12px; }
+.return-consequence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.return-consequence-grid > div { min-width: 0; display: grid; gap: 4px; padding: 14px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); background: var(--tos-surface-soft); }
+.return-consequence-grid span { color: var(--tos-text-muted); font-size: 12px; font-weight: 750; }
+.return-consequence-grid strong { color: var(--tos-text-strong); font-size: 17px; }
+.return-consequence-grid small { color: var(--tos-text-muted); font-size: 12px; line-height: 1.45; }
 .return-sheet-preview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .return-sheet-preview strong { font-size: 17px; }
-.return-sheet-footer { border-top: 1px solid var(--tos-border); border-bottom: 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+.return-sheet-footer { border-top: 1px solid var(--tos-border); border-bottom: 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); background: var(--tos-surface); box-shadow: 0 -10px 26px rgba(15, 23, 42, .06); }
 .return-sheet-footer .tos-button { min-height: 48px; }
 
 
@@ -1025,7 +1040,7 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 }
 
 @media (max-width: 760px) {
-  .return-sheet-summary, .return-sheet-preview { grid-template-columns: 1fr; }
+  .return-sheet-summary, .return-sheet-preview, .return-original-evidence-grid, .return-consequence-grid { grid-template-columns: 1fr; }
   .return-sheet-line { grid-template-columns: 1fr 90px; }
   .return-sheet-line > :nth-child(3), .return-sheet-line > :nth-child(4) { grid-column: 1 / -1; }
 }

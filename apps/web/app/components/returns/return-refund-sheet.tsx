@@ -76,19 +76,29 @@ export function ReturnRefundSheet(props: Props) {
         </header>
 
         <div className="return-sheet-scroll">
-          <section className="return-sheet-summary">
-            <div><span>Original total</span><strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong></div>
-            <div><span>Receipt status</span><TransactionStatusBadge status={sale.status} label={humanize(sale.status)} /></div>
-            <div><span>Customer</span><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong></div>
+          <section className="return-original-evidence" aria-label="Original posted sale evidence">
+            <div className="return-original-evidence-head">
+              <div>
+                <span>Posted receipt · read only</span>
+                <strong>{shortReceipt(sale.id)}</strong>
+              </div>
+              <TransactionStatusBadge status={sale.status} label={humanize(sale.status)} />
+            </div>
+            <div className="return-original-evidence-grid">
+              <div><span>Original total</span><strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong></div>
+              <div><span>Sold at</span><strong>{formatDate(sale.completedAt ?? sale.createdAt)}</strong></div>
+              <div><span>Customer</span><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong></div>
+            </div>
+            <p>This correction will be linked to the original sale. Posted receipt values remain unchanged.</p>
           </section>
 
           <section className="return-sheet-section">
             <div className="return-sheet-section-heading"><div><strong>Correction type</strong><span>TradeOS records a linked correction; the original receipt never changes.</span></div></div>
             <PostedHistoryNote subject="Original sale" correction="linked returns, refunds or exchanges" />
             <div className="return-sheet-modes">
-              <button type="button" className={mode === "RETURN_REFUND" ? "active" : undefined} onClick={() => props.onModeChange("RETURN_REFUND")}><strong>Return + refund</strong><span>Physical product comes back where applicable.</span></button>
-              <button type="button" className={mode === "REFUND_ONLY" ? "active" : undefined} onClick={() => props.onModeChange("REFUND_ONLY")}><strong>Refund only</strong><span>Customer keeps the item; stock is unchanged.</span></button>
-              <button type="button" className={mode === "EXCHANGE" ? "active" : undefined} onClick={() => props.onModeChange("EXCHANGE")}><strong>Exchange items</strong><span>Return selected items and choose replacements in one linked correction.</span></button>
+              <button type="button" aria-pressed={mode === "RETURN_REFUND"} className={mode === "RETURN_REFUND" ? "active" : undefined} onClick={() => props.onModeChange("RETURN_REFUND")}><strong>Return + refund</strong><span>Physical product comes back where applicable.</span></button>
+              <button type="button" aria-pressed={mode === "REFUND_ONLY"} className={mode === "REFUND_ONLY" ? "active" : undefined} onClick={() => props.onModeChange("REFUND_ONLY")}><strong>Refund only</strong><span>Customer keeps the item; stock is unchanged.</span></button>
+              <button type="button" aria-pressed={mode === "EXCHANGE"} className={mode === "EXCHANGE" ? "active" : undefined} onClick={() => props.onModeChange("EXCHANGE")}><strong>Exchange items</strong><span>Return selected items and choose replacements in one linked correction.</span></button>
             </div>
           </section>
 
@@ -97,11 +107,27 @@ export function ReturnRefundSheet(props: Props) {
             <div className="return-sheet-lines">{sale.lines.map((line) => <ReturnLine key={line.id} line={line} currencyCode={sale.currencyCode} draft={drafts[line.id]} mode={mode} onChange={(patch) => props.onDraftChange(line.id, patch)} />)}</div>
           </section>
 
+          <section className="return-sheet-section return-consequence-section" aria-label="Correction consequences">
+            <div className="return-sheet-section-heading"><div><strong>What this correction will do</strong><span>Preview the operational effect before recording the correction.</span></div></div>
+            <div className="return-consequence-grid">
+              <div>
+                <span>Stock outcome</span>
+                <strong>{stockOutcome(mode, sale.lines, drafts)}</strong>
+                <small>{mode === "REFUND_ONLY" ? "The customer keeps the item; inventory is not increased." : "Product stock follows the selected disposition. Services never create stock."}</small>
+              </div>
+              <div>
+                <span>Refund outcome</span>
+                <strong>{formatMoney(refundPreviewMinor, sale.currencyCode)}</strong>
+                <small>Final financial, tax, cash and provider effects are validated by TradeOS when the correction syncs.</small>
+              </div>
+            </div>
+          </section>
+
           <section className="return-sheet-section">
             <div className="return-sheet-section-heading"><div><strong>Refund destination</strong><span>Cash and customer credit settle immediately. MoMo, card and bank reversals remain processing until the provider confirms them.</span></div></div>
             <div className="return-refund-fields">
               <label>Refund method<select value={refundMethod} onChange={(event) => props.onRefundMethodChange(event.target.value as RefundMethod)}><option value="ORIGINAL_METHOD">Original payment method</option><option value="CASH">Cash</option><option value="MOMO">MoMo</option><option value="CARD">Card</option><option value="BANK">Bank</option><option value="CUSTOMER_CREDIT">Customer credit</option></select></label>
-              <label>Reason<input value={reason} onChange={(event) => props.onReasonChange(event.target.value)} placeholder="Why is this return/refund needed?" /></label>
+              <label>Reason<input required aria-required="true" value={reason} onChange={(event) => props.onReasonChange(event.target.value)} placeholder="Why is this return/refund needed?" /></label>
             </div>
           </section>
 
@@ -115,7 +141,7 @@ export function ReturnRefundSheet(props: Props) {
 
         <footer className="return-sheet-footer">
           <Button variant="ghost" type="button" onClick={props.onClose}>Cancel</Button>
-          <Button type="button" disabled={busy || selectedLineCount === 0 || !reason.trim()} onClick={props.onSubmit}>{busy ? "Processing…" : "Process return / refund"}</Button>
+          <Button type="button" disabled={busy || selectedLineCount === 0 || !reason.trim()} onClick={props.onSubmit}>{busy ? "Processing…" : mode === "REFUND_ONLY" ? "Process refund only" : "Process return / refund"}</Button>
         </footer>
       </div>
     </div>
@@ -139,6 +165,16 @@ function DispositionControl({ line, draft, mode, onChange }: { line: SaleLine; d
   if (line.itemKind === "SERVICE") return <div className="return-stock-effect"><span>Stock</span><strong>Not applicable</strong></div>;
   if (line.itemKind === "PREPARED_PRODUCT") return <div className="return-stock-effect"><span>Returned item</span><strong>Discard / waste</strong></div>;
   return <label>Returned stock<select disabled={!draft?.selected} value={draft?.disposition ?? "RESTOCK"} onChange={(event) => onChange(event.target.value as ReturnDisposition)}><option value="RESTOCK">Available stock</option><option value="QUARANTINE">Quarantine / inspect</option><option value="DISCARD">Discard / unusable</option></select></label>;
+}
+
+
+function stockOutcome(mode: ReturnMode, lines: SaleLine[], drafts: Record<string, ReturnLineDraft>): string {
+  if (mode === "REFUND_ONLY") return "Stock unchanged";
+  const selected = lines.filter((line) => drafts[line.id]?.selected);
+  if (selected.length === 0) return "Choose a line to preview stock";
+  if (selected.some((line) => line.itemKind === "PREPARED_PRODUCT")) return "Prepared items → discard / waste";
+  if (selected.every((line) => line.itemKind === "SERVICE")) return "No stock movement for services";
+  return "Selected products follow disposition";
 }
 
 function shortReceipt(id: string): string { return `#${id.slice(0, 8).toUpperCase()}`; }
