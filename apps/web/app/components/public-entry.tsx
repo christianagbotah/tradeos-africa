@@ -171,21 +171,29 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
 
       <section className="auth-form-side">
         <div className="auth-form">
+          <div className="auth-brand-mobile">
+            <div className="auth-story-mark">T</div>
+            <div>
+              <strong>TradeOS</strong>
+              <span>Africa</span>
+            </div>
+          </div>
+
           <div className="auth-tabs">
             <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
             <button className={mode === "register" ? "active" : ""} type="button" onClick={() => setMode("register")}>Create account</button>
           </div>
 
           <div className="auth-form-header">
-            <p className="tradeos-page-eyebrow">{mode === "login" ? "Welcome back" : "Start your business"}</p>
-            <h2>{mode === "login" ? "Sign in to TradeOS" : "Create your owner account"}</h2>
+            <h2>{mode === "login" ? "Welcome back" : "Start your business"}</h2>
+            <p>{mode === "login" ? "Sign in to your TradeOS workspace" : "Create your owner account"}</p>
           </div>
 
           <form className="auth-form-body" onSubmit={(event) => void submit(event)}>
             {mode === "register" ? (
               <label className="auth-field">
                 <span>Full name</span>
-                <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" />
+                <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" autoComplete="name" />
               </label>
             ) : (
               <div className="auth-field">
@@ -200,11 +208,11 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
             )}
             <label className="auth-field">
               <span>Email or phone</span>
-              <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233…" />
+              <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233…" autoComplete="email" />
             </label>
             <label className="auth-field">
               <span>Password</span>
-              <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" />
+              <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
             </label>
             {localError ? <div className="auth-error">{localError}</div> : null}
             <button className="tos-button tos-button--primary auth-submit" type="submit" disabled={busy}>
@@ -212,7 +220,7 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
             </button>
           </form>
 
-          <small className="auth-security-note">Your browser session uses HttpOnly cookies; TradeOS access tokens are not exposed to page JavaScript.</small>
+          <p className="auth-security-note">Your session uses HttpOnly cookies. Access tokens are never exposed to page JavaScript.</p>
         </div>
       </section>
     </main>
