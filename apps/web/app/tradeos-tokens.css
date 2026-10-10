@@ -9,11 +9,26 @@
   --tos-canvas: #f3f5f8; --tos-surface: #ffffff; --tos-surface-soft: #f8fafc; --tos-surface-raised: #ffffff;
   --tos-text: #101828; --tos-text-strong: #07111f; --tos-text-muted: #667085; --tos-text-soft: #8791a2;
   --tos-border: #dde3ea; --tos-border-strong: #c8d1dc;
-  --tos-midnight: #0b1424; --tos-midnight-soft: #152238; --tos-gold: #c99935; --tos-gold-soft: #f7efd9;
+  --tos-midnight: #0b1424; --tos-midnight-soft: #152238; --tos-gold: #c99935; --tos-gold-soft: #f7efd9; --tos-gold-border: #e5cd92;
   --tos-positive: #168456; --tos-positive-soft: #eaf7f0; --tos-warning: #ad7016; --tos-warning-soft: #fff7e8; --tos-danger: #b84a45; --tos-danger-soft: #fff0ef; --tos-info: #356b94; --tos-info-soft: #eef6fb;
   --tos-focus-ring: 0 0 0 3px rgba(201, 153, 53, 0.45);
-  --tos-shadow-1: 0 8px 28px rgba(16,24,40,.055); --tos-shadow-2: 0 18px 50px rgba(16,24,40,.12);
+  --tos-shadow-1: 0 8px 28px rgba(16,24,40,.055); --tos-shadow-2: 0 18px 50px rgba(16,24,40,.12); --tos-shadow-3: var(--tos-shadow-2);
   --tos-motion-fast: 150ms; --tos-motion-medium: 220ms;
   --tos-breakpoint-compact: 480px; --tos-breakpoint-phone: 768px; --tos-breakpoint-desktop: 1100px;
 }
+
+/* Canonical interaction safeguards shared across the recovered Z.ai UI. */
+a[href],
+button:not(:disabled),
+select:not(:disabled),
+summary,
+[role="button"]:not([aria-disabled="true"]),
+[role="menuitem"]:not([aria-disabled="true"]) { cursor: pointer; }
+button:disabled,
+select:disabled,
+[aria-disabled="true"] { cursor: not-allowed; }
+select { background-color: var(--tos-surface); color: var(--tos-text); }
+select option,
+select optgroup { background-color: var(--tos-surface); color: var(--tos-text); }
+
 @media (prefers-reduced-motion: reduce) { :root { --tos-motion-fast: 0ms; --tos-motion-medium: 0ms; } *,*::before,*::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
