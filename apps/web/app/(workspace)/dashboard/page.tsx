@@ -1,2 +1,20 @@
-"use client";import {DashboardCommandCenter}from "../../components/dashboard/dashboard-command-center";import{useWorkspace}from "../../components/workspace/use-workspace";
-export default function DashboardPage(){const{context,branchId,activeBranch}=useWorkspace();return <DashboardCommandCenter businessId={context.business.id} businessName={context.business.name} branchId={branchId} branchName={activeBranch.name} currencyCode={context.business.currencyCode} role={context.membership.role} branchTimezone={activeBranch.timezone}/>;}
+"use client";
+
+import { DashboardCommandCenter } from "../../components/dashboard/dashboard-command-center";
+import { useWorkspace } from "../../components/workspace/use-workspace";
+
+export default function DashboardPage() {
+  const { context, branchId, activeBranch } = useWorkspace();
+  return (
+    <DashboardCommandCenter
+      businessId={context.business.id}
+      businessName={context.business.name}
+      businessType={context.business.businessType}
+      branchId={branchId}
+      branchName={activeBranch.name}
+      currencyCode={context.business.currencyCode}
+      role={context.membership.role}
+      branchTimezone={activeBranch.timezone}
+    />
+  );
+}
