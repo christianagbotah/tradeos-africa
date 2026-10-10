@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatMoney } from "@tradeos/contracts";
 import { SalesWorkspace } from "./sales/sales-workspace";
 import { SaleDetailSheet } from "./sales/sale-detail-sheet";
@@ -29,6 +29,7 @@ type Props = {
   sellableItems: PosSellableItem[];
 };
 
+
 function isSalesListCache(value: unknown): value is { sales: SaleSummary[] } {
   return Boolean(value && typeof value === "object" && Array.isArray((value as { sales?: unknown }).sales));
 }
@@ -48,6 +49,8 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
   const [reason, setReason] = useState("Customer return");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const detailRequestGenerationRef = useRef(0);
+  const activeSaleIdRef = useRef<string | null>(null);
 
   const loadSales = async (search = query) => {
     const sessionEpoch = captureSessionEpoch();
@@ -75,23 +78,37 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
     }
   };
 
-  const applySaleDetail = (sale: SaleDetail) => {
+  const applySaleDetail = (sale: SaleDetail, preserveDrafts: boolean) => {
     setSelected(sale);
-    setDrafts(Object.fromEntries(sale.lines.map((line) => [
-      line.id,
-      {
-        selected: false,
-        quantity: line.quantityReturnable > 0 ? String(Math.min(1, line.quantityReturnable)) : "0",
-        disposition: defaultDisposition(line.itemKind),
-      },
-    ])));
+    setDrafts((current) => preserveDrafts
+      ? reconcileReturnDrafts(sale, current)
+      : createReturnDrafts(sale));
+  };
+
+  const resetCorrectionState = (initialMode: ReturnMode) => {
+    setMode(initialMode);
+    setRefundMethod("ORIGINAL_METHOD");
+    setReason("Customer return");
+  };
+
+  const closeSelected = () => {
+    activeSaleIdRef.current = null;
+    detailRequestGenerationRef.current += 1;
+    setSelected(null);
+    setDrafts({});
   };
 
   const loadDetail = async (saleId: string) => {
     const sessionEpoch = captureSessionEpoch();
+    detailRequestGenerationRef.current += 1;
+    const requestGeneration = detailRequestGenerationRef.current;
+    activeSaleIdRef.current = saleId;
     setMessage(null);
+    setSelected(null);
+    setDrafts({});
+
     const cached = readFeatureCache("sale-detail", businessId, branchId, saleId, isSaleDetailCache);
-    if (cached) applySaleDetail(cached.sale);
+    if (cached) applySaleDetail(cached.sale, false);
     if (!navigator.onLine) {
       if (!cached) setMessage("Offline: this sale has not been opened on this device yet.");
       return;
@@ -100,17 +117,47 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
       const response = await clientApi<{ sale: SaleDetail }>(
         `/api/tradeos/v1/sales/${saleId}?businessId=${encodeURIComponent(businessId)}`,
       );
-      if (!isSessionEpochCurrent(sessionEpoch)) return;
-      applySaleDetail(response.sale);
+      if (!isSessionEpochCurrent(sessionEpoch)
+        || requestGeneration !== detailRequestGenerationRef.current
+        || activeSaleIdRef.current !== saleId) return;
+      applySaleDetail(response.sale, Boolean(cached));
       writeFeatureCache("sale-detail", businessId, branchId, response, saleId);
     } catch (error) {
-      if (isSessionEpochCurrent(sessionEpoch) && !cached) setMessage(error instanceof Error ? error.message : "Sale details could not be loaded.");
+      if (isSessionEpochCurrent(sessionEpoch)
+        && requestGeneration === detailRequestGenerationRef.current
+        && activeSaleIdRef.current === saleId
+        && !cached) {
+        setMessage(error instanceof Error ? error.message : "Sale details could not be loaded.");
+      }
     }
   };
 
+  const refreshSelectedDetail = async (saleId: string, { resetDrafts = false }: { resetDrafts?: boolean } = {}) => {
+    if (activeSaleIdRef.current !== saleId || !navigator.onLine) return;
+    const sessionEpoch = captureSessionEpoch();
+    detailRequestGenerationRef.current += 1;
+    const requestGeneration = detailRequestGenerationRef.current;
+    try {
+      const response = await clientApi<{ sale: SaleDetail }>(
+        `/api/tradeos/v1/sales/${saleId}?businessId=${encodeURIComponent(businessId)}`,
+      );
+      if (!isSessionEpochCurrent(sessionEpoch)
+        || requestGeneration !== detailRequestGenerationRef.current
+        || activeSaleIdRef.current !== saleId) return;
+      applySaleDetail(response.sale, !resetDrafts);
+      writeFeatureCache("sale-detail", businessId, branchId, response, saleId);
+    } catch {
+      // Background refresh never replaces the user's current correction with an error state.
+    }
+  };
+
+  const openNewCorrection = async (saleId: string, initialMode: ReturnMode = "RETURN_REFUND") => {
+    resetCorrectionState(initialMode);
+    await loadDetail(saleId);
+  };
+
   useEffect(() => {
-    setSelected(null);
-    setDrafts({});
+    closeSelected();
     void loadSales("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId, branchId]);
@@ -119,9 +166,9 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
     if (view !== "returns" || typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const saleId = params.get("saleId");
-    if (params.get("mode") === "exchange") setMode("EXCHANGE");
-    if (saleId) void loadDetail(saleId);
-    // loadDetail intentionally follows the current business/branch context.
+    const requestedMode: ReturnMode = params.get("mode") === "exchange" ? "EXCHANGE" : "RETURN_REFUND";
+    if (saleId) void openNewCorrection(saleId, requestedMode);
+    // Deep-link loading intentionally follows the current business/branch context.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId, branchId, view]);
 
@@ -131,13 +178,14 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
       if (!detail || detail.businessId !== businessId || detail.branchId !== branchId) return;
       if (!["SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE"].includes(detail.mutationType)) return;
       void loadSales(query);
+      if (selected?.id) void refreshSelectedDetail(selected.id);
     };
 
     window.addEventListener(mutationAppliedEvent, onMutationApplied);
     return () => window.removeEventListener(mutationAppliedEvent, onMutationApplied);
-    // loadSales is intentionally scoped to the current search/context.
+    // Refresh follows the current search/context and reconciles any open correction draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [businessId, branchId, query]);
+  }, [businessId, branchId, query, selected?.id]);
 
   const selectedLines = useMemo(() => {
     if (!selected) return [];
@@ -181,7 +229,7 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
 
       if (!navigator.onLine) {
         setMessage("Return/refund saved safely offline. It will process when this device reconnects.");
-        setSelected(null);
+        closeSelected();
         return;
       }
 
@@ -189,7 +237,7 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
       setMessage(returnSyncMessage(summary));
       if (summary.applied > 0) {
         await loadSales();
-        await loadDetail(selected.id);
+        await refreshSelectedDetail(selected.id, { resetDrafts: true });
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The return/refund could not be synchronized.");
@@ -210,7 +258,7 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
           onSelect={(saleId) => void loadDetail(saleId)}
           onSearch={(search) => { setQuery(search); void loadSales(search); }}
         />
-        {selected ? <SaleDetailSheet sale={selected} open canProcessReturns={canProcessReturns} onClose={() => setSelected(null)} /> : null}
+        {selected ? <SaleDetailSheet sale={selected} open canProcessReturns={canProcessReturns} onClose={closeSelected} /> : null}
         {message ? <div className="return-message" role="status">{message}</div> : null}
       </section>
     );
@@ -222,10 +270,10 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
         sales={sales}
         selectedId={selected?.id ?? null}
         loading={loading}
-        onSelect={(saleId) => void loadDetail(saleId)}
+        onSelect={(saleId) => void openNewCorrection(saleId)}
         onSearch={(search) => { setQuery(search); void loadSales(search); }}
       />
-      {selected && mode === "EXCHANGE" ? <ExchangeSheet open sale={selected} catalog={sellableItems} businessId={businessId} branchId={branchId} onClose={() => { setSelected(null); setMode("RETURN_REFUND"); }} onMessage={setMessage} /> : selected ? (
+      {selected && mode === "EXCHANGE" ? <ExchangeSheet open sale={selected} catalog={sellableItems} businessId={businessId} branchId={branchId} onClose={() => { closeSelected(); setMode("RETURN_REFUND"); }} onMessage={setMessage} /> : selected ? (
         <ReturnRefundSheet
           sale={selected}
           open
@@ -236,7 +284,7 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
           busy={busy}
           refundPreviewMinor={refundPreviewMinor}
           selectedLineCount={selectedLines.length}
-          onClose={() => setSelected(null)}
+          onClose={closeSelected}
           onModeChange={setMode}
           onRefundMethodChange={setRefundMethod}
           onReasonChange={setReason}
@@ -249,6 +297,30 @@ export function SalesAndReturns({ businessId, branchId, currencyCode, view, role
   );
 }
 
+
+function createReturnDrafts(sale: SaleDetail): Record<string, LineDraft> {
+  return Object.fromEntries(sale.lines.map((line) => [
+    line.id,
+    {
+      selected: false,
+      quantity: line.quantityReturnable > 0 ? String(Math.min(1, line.quantityReturnable)) : "0",
+      disposition: defaultDisposition(line.itemKind),
+    },
+  ]));
+}
+
+function reconcileReturnDrafts(sale: SaleDetail, current: Record<string, LineDraft>): Record<string, LineDraft> {
+  return Object.fromEntries(sale.lines.map((line) => {
+    const existing = current[line.id];
+    if (!existing) return [line.id, createReturnDrafts({ ...sale, lines: [line] })[line.id]!];
+    if (line.quantityReturnable <= 0) return [line.id, { ...existing, selected: false, quantity: "0" }];
+    const quantity = Number(existing.quantity);
+    const reconciledQuantity = Number.isFinite(quantity) && quantity > 0
+      ? String(Math.min(quantity, line.quantityReturnable))
+      : String(Math.min(1, line.quantityReturnable));
+    return [line.id, { ...existing, quantity: reconciledQuantity }];
+  }));
+}
 
 function resolvedDisposition(kind: SaleLine["itemKind"], mode: ReturnMode, selected: Disposition): Disposition {
   if (kind === "SERVICE") return "NOT_APPLICABLE";

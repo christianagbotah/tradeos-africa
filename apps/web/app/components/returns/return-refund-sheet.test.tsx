@@ -47,3 +47,52 @@ describe("ReturnRefundSheet", () => {
     expect(module.returnSyncMessage({ rejected: 0, received: 0, applied: 1 })).toMatch(/applied|processing|provider/i);
   });
 });
+
+
+describe("ReturnRefundSheet evidence and consequence hierarchy", () => {
+  const baseProps = {
+    sale, open: true, drafts: { l1: { selected: true, quantity: "1", disposition: "RESTOCK" } },
+    refundMethod: "ORIGINAL_METHOD", reason: "Customer return", busy: false,
+    refundPreviewMinor: 15000, selectedLineCount: 1,
+    onClose: () => undefined, onModeChange: () => undefined, onRefundMethodChange: () => undefined,
+    onReasonChange: () => undefined, onDraftChange: () => undefined, onSubmit: () => undefined,
+  };
+
+  it("presents the original receipt as immutable evidence before correction controls", async () => {
+    const module = await loadSheet();
+    expect(module?.ReturnRefundSheet).toBeTypeOf("function");
+    if (!module?.ReturnRefundSheet) return;
+    const html = renderToStaticMarkup(React.createElement(module.ReturnRefundSheet, { ...baseProps, mode: "RETURN_REFUND" }));
+    expect(html).toContain("return-original-evidence");
+    expect(html).toContain("Posted receipt · read only");
+    expect(html).toContain("This correction will be linked to the original sale");
+    expect(html).toContain("Stock outcome");
+    expect(html).toContain("Refund outcome");
+  });
+
+  it("makes refund-only stock behavior explicit, marks reason required, and uses refund-only action copy", async () => {
+    const module = await loadSheet();
+    expect(module?.ReturnRefundSheet).toBeTypeOf("function");
+    if (!module?.ReturnRefundSheet) return;
+    const html = renderToStaticMarkup(React.createElement(module.ReturnRefundSheet, { ...baseProps, mode: "REFUND_ONLY", reason: "" }));
+    expect(html).toContain("Stock unchanged");
+    expect(html).toContain("No stock return");
+    expect(html).toMatch(/Reason[^<]*<input[^>]*required/);
+    expect(html).toContain("Process refund only");
+  });
+
+  it("keeps prepared products on discard/waste rather than available stock", async () => {
+    const module = await loadSheet();
+    expect(module?.ReturnRefundSheet).toBeTypeOf("function");
+    if (!module?.ReturnRefundSheet) return;
+    const preparedSale = { ...sale, lines: [{ ...sale.lines[0], id: "prep-1", itemKind: "PREPARED_PRODUCT", itemName: "Prepared meal" }] };
+    const html = renderToStaticMarkup(React.createElement(module.ReturnRefundSheet, {
+      ...baseProps,
+      sale: preparedSale,
+      drafts: { "prep-1": { selected: true, quantity: "1", disposition: "DISCARD" } },
+      mode: "RETURN_REFUND",
+    }));
+    expect(html).toContain("Discard / waste");
+    expect(html).not.toContain("Available stock</option>");
+  });
+});
