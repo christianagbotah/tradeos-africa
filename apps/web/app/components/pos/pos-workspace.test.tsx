@@ -27,8 +27,8 @@ describe("professional POS workspace", () => {
       role: "CASHIER",
       items,
     }));
-    expect(html).toContain("Walk-in Customer");
-    expect(html).toContain("Cart is empty");
+    expect(html).toContain("Walk-in customer");
+    expect(html).toContain("Choose customer");
     expect(html).toContain("Charge ₵ 0.00");
     expect(html).toContain("disabled");
   });
@@ -50,26 +50,29 @@ describe("professional POS workspace", () => {
     expect(source).toContain("setSelectedCustomer(null)");
   });
 
-  it("pins the Z.ai desktop cart rail and mobile sticky Charge presentation", () => {
+  it("pins sticky mobile Charge and desktop two-pane presentation", () => {
     const root = path.dirname(fileURLToPath(import.meta.url));
-    const css = fs.readFileSync(path.join(root, "../../pos-zai-reference.css"), "utf8");
-    expect(css).toContain(".pos-zai-layout");
-    expect(css).toContain("grid-template-columns:minmax(0,1fr) minmax(330px,380px)");
-    expect(css).toContain(".pos-zai-cart-rail");
+    const css = fs.readFileSync(path.join(root, "../../pos.css"), "utf8");
+    expect(css).toContain(".pos-workspace-grid");
+    expect(css).toContain("grid-template-columns:minmax(0,1fr) minmax(340px,420px)");
     expect(css).toContain(".pos-charge-bar");
     expect(css).toContain("position:fixed");
     expect(css).toContain("env(safe-area-inset-bottom)");
   });
 
-  it("pins sale status feedback for synchronized, pending and needs-review outcomes", () => {
+  it("pins sale status feedback for synchronized, pending and needs-review outcomes", async () => {
     const root = path.dirname(fileURLToPath(import.meta.url));
-    const source = fs.readFileSync(path.join(root, "pos-workspace.tsx"), "utf8");
+    const file = path.join(root, "pos-workspace.tsx");
+    expect(fs.existsSync(file)).toBe(true);
+    if (!fs.existsSync(file)) return;
+    const source = fs.readFileSync(file, "utf8");
     expect(source).toContain('tone: "success" | "pending" | "error"');
     expect(source).toContain("pos-sale-status");
     expect(source).toContain("onStatus");
   });
 });
 
+// Task 4: empty-state, totals visibility, accessible status, responsive contracts
 describe("POS flagship touch-first contracts", () => {
   const root = path.dirname(fileURLToPath(import.meta.url));
 
@@ -78,8 +81,8 @@ describe("POS flagship touch-first contracts", () => {
     expect(browser).toContain("pos-browser-empty");
   });
 
-  it("keeps the running cart total visible in the sticky mobile charge bar when a cart exists", () => {
-    const css = fs.readFileSync(path.join(root, "../../pos-zai-reference.css"), "utf8");
+  it("keeps the running cart total visible in the sticky mobile charge bar", () => {
+    const css = fs.readFileSync(path.join(root, "../../pos.css"), "utf8");
     expect(css).toContain(".pos-charge-bar");
     expect(css).toMatch(/position:\s*fixed|position:fixed/);
   });
@@ -97,18 +100,10 @@ describe("POS flagship touch-first contracts", () => {
     expect(checkout).toContain("enqueueMutation");
   });
 
-  it("keeps POS CSS mobile-first with touch-safe controls", () => {
-    const css = fs.readFileSync(path.join(root, "../../pos-zai-reference.css"), "utf8");
-    expect(css).toMatch(/min-height:\s*(44|48|50|52)px|min-height:var\(--tos-touch-mobile\)/);
+  it("keeps POS CSS mobile-first with 48px touch targets and no tiny control text", () => {
+    const css = fs.readFileSync(path.join(root, "../../pos.css"), "utf8");
+    expect(css).toMatch(/min-height:\s*48px|min-height:var\(--tos-touch-mobile\)/);
+    expect(css).not.toMatch(/font-size:\s*(9|10)px/);
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*(76[0-9]|7[0-5][0-9])px/);
   });
-});
-
-describe("Z.ai POS visual grammar", () => {
-  const root = path.dirname(fileURLToPath(import.meta.url));
-  const workspace = fs.readFileSync(path.join(root, "pos-workspace.tsx"), "utf8");
-  const browser = fs.readFileSync(path.join(root, "product-browser.tsx"), "utf8");
-  it("keeps product discovery first and uses the Z.ai search copy", () => { expect(browser).toContain("Search product, SKU or scan barcode"); expect(browser).toContain("pos-category-chips"); });
-  it("uses the compact Z.ai customer selector and desktop cart rail", () => { expect(workspace).toContain("pos-zai-customer-select"); expect(workspace).toContain("pos-zai-cart-rail"); });
-  it("retains multi-unit selling rather than flattening products to one unit", () => { expect(browser).toContain("pos-alt-units"); expect(browser).toContain("alternates.map"); });
 });

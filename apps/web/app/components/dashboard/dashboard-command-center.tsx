@@ -3,38 +3,25 @@
 import { useMemo } from "react";
 import { formatMoney } from "@tradeos/contracts";
 import Link from "next/link";
+import { BusinessPulse } from "../business/business-pulse";
+import { AttentionItem } from "../business/attention-item";
 import { MoneyValue } from "../business/money-value";
+import { QuickAction } from "../business/quick-action";
 import { canAccessWorkspaceRoute } from "../workspace/workspace-navigation";
 import { buildDashboardModel } from "./dashboard-model";
 import { useDashboardData } from "./dashboard-data";
-import { dashboardAttentionForRole, dashboardCanViewReports } from "./dashboard-actions";
+import { dashboardAttentionForRole, dashboardCanViewReports, dashboardQuickActions } from "./dashboard-actions";
+
+const greeting = (tz: string) => {
+  const h = Number(new Intl.DateTimeFormat("en-GH", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+};
 
 const frontlineRoles = new Set(["CASHIER", "SALES", "STAFF"]);
-
-type DashboardAiItem = {
-  id: string;
-  priority: "critical" | "warning" | "info";
-  title: string;
-  detail: string;
-  href: string;
-  actionLabel: string;
-  amountMinor?: number | null;
-};
-
-const businessGuidance = (businessType: string) => {
-  const type = businessType.toUpperCase();
-  if (type.includes("FOOD")) return ["Food / Hospitality", "Watch ingredients, wastage and today's cash position."] as const;
-  if (type.includes("SALON") || type.includes("BARBER")) return ["Salon / Barber", "Bookings, staff time and consumables are your levers."] as const;
-  if (type.includes("DRINK")) return ["Drinks / Spot", "Keep fast-moving stock visible and protect your cash margin."] as const;
-  if (type.includes("SERVICE")) return ["Services", "Keep jobs moving, collect promptly and protect capacity."] as const;
-  if (type.includes("DISTRIBUT")) return ["Distribution", "Stock turns, receivables and delivery discipline drive the day."] as const;
-  return ["Retail / Provisions", "Stock and credit are your levers — reorder fast, collect gently."] as const;
-};
 
 export function DashboardCommandCenter({
   businessId,
   businessName,
-  businessType,
   branchId,
   branchName,
   currencyCode,
@@ -43,7 +30,6 @@ export function DashboardCommandCenter({
 }: {
   businessId: string;
   businessName: string;
-  businessType: string;
   branchId: string;
   branchName: string;
   currencyCode: string;
@@ -52,134 +38,169 @@ export function DashboardCommandCenter({
 }) {
   const { evidence, busy, message } = useDashboardData({ businessId, branchId, currencyCode, branchTimezone });
   const model = useMemo(() => buildDashboardModel(evidence), [evidence]);
-  const visibleAttention = dashboardAttentionForRole(role, model.attention).slice(0, 3);
+  const actions = dashboardQuickActions(role);
+  const visibleAttention = dashboardAttentionForRole(role, model.attention);
+  const pulseActions = visibleAttention.slice(0, 2).map((a) => ({ href: a.href, label: a.actionLabel }));
   const isFrontline = frontlineRoles.has(role);
   const canSell = canAccessWorkspaceRoute(role, "/sell");
-  const canPurchase = canAccessWorkspaceRoute(role, "/purchases");
-  const canCashbook = canAccessWorkspaceRoute(role, "/cashbook");
-  const canCustomers = canAccessWorkspaceRoute(role, "/customers");
-  const [packLabel, packGuidance] = businessGuidance(businessType);
 
-  const trend = (value: number | null | undefined) => value == null ? "More history needed" : `${value >= 0 ? "↗ +" : "↘ "}${value.toFixed(1)}% · vs yesterday`;
-  const moneyValue = (value: number | null, loadingText = "—") => value == null
-    ? <strong className="tos-zai-kpi-empty">{busy ? "Loading…" : loadingText}</strong>
-    : <MoneyValue minor={value} currencyCode={currencyCode} emphasis="strong" />;
-
-  const quickActions = [
-    canSell ? { href: "/sell", label: "New sale", icon: "⌑" } : null,
-    canPurchase ? { href: "/purchases", label: "Receive stock", icon: "◇" } : null,
-    canCashbook ? { href: "/cashbook", label: "Record expense", icon: "▤" } : null,
-    canCustomers ? { href: "/customers", label: "Send reminders", icon: "↩" } : null,
-  ].filter((item): item is { href: string; label: string; icon: string } => Boolean(item));
-
-  const aiItems: DashboardAiItem[] = visibleAttention.length
-    ? visibleAttention.map((item) => ({
-        id: item.id,
-        priority: item.priority,
-        title: item.title,
-        detail: item.detail,
-        href: item.href ?? "/dashboard",
-        actionLabel: item.actionLabel,
-        amountMinor: item.amountMinor ?? null,
-      }))
-    : [{
-        id: "pulse",
-        priority: "info",
-        title: model.pulse.headline,
-        detail: model.pulse.summary,
-        href: dashboardCanViewReports(role) ? "/reports" : "/dashboard",
-        actionLabel: dashboardCanViewReports(role) ? "See report" : "Review dashboard",
-      }];
+  const money = (label: string, value: number | null) => (
+    <article>
+      <span>{label}</span>
+      {value == null ? <strong>—</strong> : <MoneyValue minor={value} currencyCode={currencyCode} emphasis="strong" />}
+    </article>
+  );
 
   return (
-    <div className="tos-dashboard tos-zai-dashboard" data-workspace-route="dashboard">
-      <header className="tos-zai-dashboard-header">
+    <div className="tos-dashboard" data-workspace-route="dashboard">
+      {/* Greeting + business context */}
+      <header className="tos-dashboard-greeting">
         <div>
-          <h1>Dashboard</h1>
-          <p>{businessName} · {branchName} — Here&apos;s your shop today.</p>
+          <span>{greeting(branchTimezone)}</span>
+          <h1>{businessName}</h1>
+          <p>{branchName} · {model.dataStatus.coverage}</p>
         </div>
-        <div className="tos-zai-dashboard-header-actions">
-          <span className="tos-zai-date-chip">▣ <span>Today</span></span>
-          {canSell ? <Link className="tos-zai-primary-action" href="/sell">⌑ <span>New sale</span></Link> : null}
-        </div>
+        {dashboardCanViewReports(role) ? <Link href="/reports">View reports</Link> : null}
       </header>
 
+      {/* Status message — offline/partial/error */}
       {message ? <p className="tos-dashboard-message" role="status">{message}</p> : null}
 
-      <section className="tos-zai-pack-banner" aria-label={`${packLabel} operating guidance`}>
-        <span aria-hidden="true">✣</span>
-        <p><strong>{packLabel}:</strong> {packGuidance}</p>
-      </section>
-
-      {quickActions.length ? (
-        <nav className="tos-zai-dashboard-actions" aria-label="Quick actions">
-          {quickActions.map((action) => <Link key={action.href} href={action.href}><span aria-hidden="true">{action.icon}</span>{action.label}</Link>)}
-        </nav>
+      {/* Frontline Sell CTA — promoted for cashier/sales roles */}
+      {isFrontline && canSell ? (
+        <Link href="/sell" className="tos-dashboard-sell-cta">
+          <span className="tos-dashboard-sell-cta-icon">→</span>
+          <div>
+            <strong>Start selling</strong>
+            <span>Open the POS to take a new sale</span>
+          </div>
+        </Link>
       ) : null}
 
-      <section className="tos-zai-ai-actions" aria-labelledby="ai-actions-title">
-        <div className="tos-zai-ai-heading">
-          <div><span aria-hidden="true">✣</span><h2 id="ai-actions-title">AI actions for today</h2></div>
-          <small>Suggestions · not accounting records</small>
+      {/* Today — business state (hero metric for owners) */}
+      <section className="tos-today" aria-labelledby="today-title">
+        <div className="tos-today-hero">
+          <span className="tos-section-kicker">Today</span>
+          <h2 id="today-title">Sales</h2>
+          {model.today.netRevenueMinor == null ? (
+            <strong className="tos-today-empty">{busy ? "Loading…" : "—"}</strong>
+          ) : (
+            <MoneyValue minor={model.today.netRevenueMinor} currencyCode={currencyCode} emphasis="hero" />
+          )}
+          {model.today.comparisonText ? (
+            <p>{model.today.comparisonText}</p>
+          ) : (
+            <p>Comparison appears when enough history is available.</p>
+          )}
         </div>
-        <div className="tos-zai-ai-grid">
-          {aiItems.map((item) => (
-            <article key={item.id} className={`tos-zai-ai-card tos-zai-ai-card--${item.priority}`}>
-              <div className="tos-zai-ai-card-title"><span aria-hidden="true">{item.priority === "critical" ? "!" : item.priority === "warning" ? "△" : "?"}</span><h3>{item.title}</h3></div>
-              <p>{item.detail}</p>
-              {item.amountMinor != null ? <small>{formatMoney(item.amountMinor, currencyCode)}</small> : null}
-              <Link href={item.href}>{item.actionLabel} →</Link>
+        <div className="tos-today-support">
+          {money("Gross profit", model.today.grossProfitMinor)}
+          <article>
+            <span>Transactions</span>
+            <strong>{model.today.salesCount ?? "—"}</strong>
+          </article>
+          {money("Net cash movement", model.today.cashNetMinor)}
+        </div>
+      </section>
+
+      {/* Business pulse — AI/operational summary */}
+      <BusinessPulse
+        headline={model.pulse.headline}
+        summary={model.pulse.summary}
+        evidence={model.pulse.evidence}
+        actions={pulseActions}
+        coverage={model.dataStatus.coverage}
+      />
+
+      {/* Quick actions — what should I do next */}
+      {actions.length > 0 ? (
+        <section className="tos-dashboard-section" aria-labelledby="quick-actions-title">
+          <div className="tos-section-heading">
+            <div>
+              <span className="tos-section-kicker">Do it now</span>
+              <h2 id="quick-actions-title">Quick actions</h2>
+            </div>
+          </div>
+          <div className="tos-quick-grid">
+            {actions.map((a) => <QuickAction key={a.href + a.label} {...a} />)}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Needs attention — exceptions */}
+      <section className="tos-dashboard-section" aria-labelledby="attention-title">
+        <div className="tos-section-heading">
+          <div>
+            <span className="tos-section-kicker">Priority</span>
+            <h2 id="attention-title">Needs attention</h2>
+          </div>
+        </div>
+        {visibleAttention.length ? (
+          <div className="tos-attention-list">
+            {visibleAttention.map((a) => (
+              <AttentionItem
+                key={a.id}
+                title={a.title}
+                detail={a.detail}
+                priority={a.priority}
+                href={a.href}
+                actionLabel={a.actionLabel}
+                evidence={a.amountMinor != null ? [
+                  formatMoney(a.amountMinor, currencyCode),
+                ] : undefined}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="tos-dashboard-empty">No urgent exception is visible in the available evidence.</p>
+        )}
+      </section>
+
+      {/* Money position — cash/receivables/payables */}
+      <section className="tos-dashboard-section" aria-labelledby="money-position-title">
+        <div className="tos-section-heading">
+          <div>
+            <span className="tos-section-kicker">Balances</span>
+            <h2 id="money-position-title">Money position</h2>
+          </div>
+        </div>
+        <div className="tos-money-grid">
+          {money("Cash / money accounts", model.moneyPosition.cashMinor)}
+          {money("Receivables", model.moneyPosition.receivablesMinor)}
+          {money("Payables", model.moneyPosition.payablesMinor)}
+        </div>
+      </section>
+
+      {/* Momentum — trends (owner/manager only — not shown for frontline) */}
+      {model.momentum && !isFrontline ? (
+        <section className="tos-dashboard-section" aria-labelledby="momentum-title">
+          <div className="tos-section-heading">
+            <div>
+              <span className="tos-section-kicker">Trend</span>
+              <h2 id="momentum-title">Business momentum</h2>
+            </div>
+            <small>Compared with {model.momentum.baselineLabel}</small>
+          </div>
+          <div className="tos-momentum-grid">
+            <article>
+              <span>Revenue</span>
+              <strong>
+                {model.momentum.revenueChangePercent == null
+                  ? "Not enough history"
+                  : `${model.momentum.revenueChangePercent >= 0 ? "+" : ""}${model.momentum.revenueChangePercent.toFixed(1)}%`}
+              </strong>
             </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="tos-zai-kpi-grid" aria-label="Today business position">
-        <article className="tos-zai-kpi-card">
-          <div className="tos-zai-kpi-head"><span>Today&apos;s sales</span><i aria-hidden="true">↗</i></div>
-          {moneyValue(model.today.netRevenueMinor)}
-          <small className={(model.momentum?.revenueChangePercent ?? 0) < 0 ? "negative" : "positive"}>{trend(model.momentum?.revenueChangePercent)}</small>
-          <p>{model.today.salesCount == null ? "Transaction count unavailable" : `${model.today.salesCount} sale${model.today.salesCount === 1 ? "" : "s"} today`}</p>
-        </article>
-        <article className="tos-zai-kpi-card">
-          <div className="tos-zai-kpi-head"><span>Gross profit</span><i aria-hidden="true">▣</i></div>
-          {moneyValue(model.today.grossProfitMinor)}
-          <small className={(model.momentum?.grossProfitChangePercent ?? 0) < 0 ? "negative" : "positive"}>{trend(model.momentum?.grossProfitChangePercent)}</small>
-          <p>Current-period gross profit evidence</p>
-        </article>
-        <article className="tos-zai-kpi-card">
-          <div className="tos-zai-kpi-head"><span>Cash position</span><i aria-hidden="true">▭</i></div>
-          {moneyValue(model.moneyPosition.cashMinor)}
-          <small>Across available money accounts</small>
-          <p>Cash and settlement position</p>
-        </article>
-        <article className="tos-zai-kpi-card">
-          <div className="tos-zai-kpi-head"><span>Outstanding credit</span><i aria-hidden="true">▤</i></div>
-          {moneyValue(model.moneyPosition.receivablesMinor)}
-          <small>{model.moneyPosition.receivablesMinor && model.moneyPosition.receivablesMinor > 0 ? "Customer balances need follow-up" : "No outstanding credit visible"}</small>
-          <p>Receivables in current evidence</p>
-        </article>
-      </section>
-
-      <section className="tos-zai-dashboard-lower">
-        <article className="tos-zai-analytics-card">
-          <div className="tos-zai-section-title"><div><h2>Sales — today</h2><p>Current activity and gross-profit signal</p></div><span>{model.today.salesCount ?? 0} transactions</span></div>
-          <div className="tos-zai-sales-signal">
-            <div><span>Net revenue</span>{moneyValue(model.today.netRevenueMinor)}</div>
-            <div><span>Gross profit</span>{moneyValue(model.today.grossProfitMinor)}</div>
+            <article>
+              <span>Gross profit</span>
+              <strong>
+                {model.momentum.grossProfitChangePercent == null
+                  ? "Not enough history"
+                  : `${model.momentum.grossProfitChangePercent >= 0 ? "+" : ""}${model.momentum.grossProfitChangePercent.toFixed(1)}%`}
+              </strong>
+            </article>
           </div>
-        </article>
-        <article className="tos-zai-analytics-card">
-          <div className="tos-zai-section-title"><div><h2>Money flow</h2><p>What is available, owed to you and owed out</p></div></div>
-          <div className="tos-zai-money-flow">
-            <div><span>Cash</span>{moneyValue(model.moneyPosition.cashMinor)}</div>
-            <div><span>Receivables</span>{moneyValue(model.moneyPosition.receivablesMinor)}</div>
-            <div><span>Payables</span>{moneyValue(model.moneyPosition.payablesMinor)}</div>
-          </div>
-        </article>
-      </section>
-
-      {isFrontline && canSell ? <Link className="tos-zai-mobile-sell" href="/sell">Start selling</Link> : null}
+        </section>
+      ) : null}
     </div>
   );
 }

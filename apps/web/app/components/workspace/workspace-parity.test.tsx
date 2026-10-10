@@ -6,7 +6,7 @@ import { getPublicEntryMode } from "../public-entry";
 import { visibleWorkspaceNav, workspaceNavigation } from "./workspace-navigation";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const allRoutes = ["/dashboard", "/sell", "/sales", "/returns", "/catalog", "/inventory", "/purchases", "/customers", "/cashbook", "/operations", "/reports"];
+const allRoutes = ["/dashboard", "/sell", "/sales", "/customers", "/purchases", "/inventory", "/catalog", "/returns", "/cashbook", "/operations", "/reports"];
 
 describe("multi-page workspace parity", () => {
   it("represents every primary module with a real route and no hash navigation", () => {
@@ -25,7 +25,7 @@ describe("multi-page workspace parity", () => {
 
   it("keeps VIEWER navigation read-only and away from mutation-first workspaces", () => {
     const viewer = visibleWorkspaceNav("VIEWER").map((item) => item.href);
-    expect(viewer).toEqual(["/dashboard", "/sales", "/inventory", "/purchases", "/customers", "/cashbook", "/operations", "/reports"]);
+    expect(viewer).toEqual(["/dashboard", "/sales", "/customers", "/purchases", "/inventory", "/cashbook", "/operations", "/reports"]);
     expect(viewer).not.toEqual(expect.arrayContaining(["/sell", "/catalog", "/returns"]));
   });
 
