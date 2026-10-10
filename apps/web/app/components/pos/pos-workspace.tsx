@@ -16,6 +16,7 @@ import {
   type PosSellableItem,
 } from "./pos-model";
 import { ProductBrowser } from "./product-browser";
+import { ReferenceIcon, type ReferenceIconName } from "../ui/reference-icon";
 
 export type PosSaleStatus = {
   message: string;
@@ -89,9 +90,9 @@ export function PosWorkspace({
 
         <aside className="pos-sale-pane" aria-label="Current sale cart">
           <button className="pos-cart-customer" type="button" aria-label="Choose customer" onClick={() => setCustomerPickerOpen(true)}>
-            <span className="pos-cart-customer-icon" aria-hidden="true">♙</span>
+            <span className="pos-cart-customer-icon" aria-hidden="true"><ReferenceIcon name="user" /></span>
             <strong>{selectedCustomer?.name ?? "Walk-in Customer"}</strong>
-            <span aria-hidden="true">⌄</span>
+            <span aria-hidden="true"><ReferenceIcon name="chevronDown" /></span>
           </button>
 
           <div className="pos-cart-scroll">
@@ -111,13 +112,13 @@ export function PosWorkspace({
             <div><span>Subtotal</span><strong>{formatMoney(totalMinor, currencyCode)}</strong></div>
             <div className="pos-sale-total"><span>Total</span><strong>{formatMoney(totalMinor, currencyCode)}</strong></div>
             <div className="pos-payment-preview" aria-label="Available payment methods">
-              {[
-                ["Cash", "▣"],
-                ["MoMo", "▯"],
-                ["Bank", "▤"],
-                ["Card", "▭"],
-                ["Credit", "◷"],
-              ].map(([label, icon], index) => <span className={index === 0 ? "active" : ""} key={label}><i aria-hidden="true">{icon}</i>{label}</span>)}
+              {([
+                ["Cash", "cash"],
+                ["MoMo", "phone"],
+                ["Bank", "bank"],
+                ["Card", "card"],
+                ["Credit", "clock"],
+              ] as const satisfies readonly (readonly [string, ReferenceIconName])[]).map(([label, icon], index) => <span className={index === 0 ? "active" : ""} key={label}><i aria-hidden="true"><ReferenceIcon name={icon} /></i>{label}</span>)}
             </div>
             <button className="pos-desktop-charge" type="button" disabled={cart.length === 0} onClick={() => setCheckoutOpen(true)}>
               <span>✓ Charge</span><strong>{formatMoney(totalMinor, currencyCode)}</strong>

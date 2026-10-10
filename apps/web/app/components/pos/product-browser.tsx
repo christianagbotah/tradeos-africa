@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { formatMoney } from "@tradeos/contracts";
 import type { PosSellableItem } from "./pos-model";
+import { ReferenceIcon } from "../ui/reference-icon";
 
 export function filterPosSellables(items: readonly PosSellableItem[], query: string): PosSellableItem[] {
   const normalized = query.trim().toLowerCase();
@@ -53,7 +54,7 @@ export function ProductBrowser({
     <section className="pos-browser" aria-label="Products and services">
       <label className="pos-product-search">
         <span className="sr-only">Find product, SKU or barcode</span>
-        <span className="pos-product-search-icon" aria-hidden="true">⌕</span>
+        <span className="pos-product-search-icon" aria-hidden="true"><ReferenceIcon name="search" /></span>
         <input
           type="search"
           value={query}
@@ -61,7 +62,7 @@ export function ProductBrowser({
           placeholder="Search product, SKU or scan barcode…"
           aria-label="Search product, SKU or scan barcode"
         />
-        <span className="pos-scan-hint" aria-hidden="true">⌁</span>
+        <span className="pos-scan-hint" aria-hidden="true"><ReferenceIcon name="scan" /></span>
       </label>
 
       <div className="pos-category-strip" role="group" aria-label="Filter sellable items">

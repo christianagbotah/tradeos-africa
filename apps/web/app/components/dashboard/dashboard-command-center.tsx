@@ -7,6 +7,7 @@ import { canAccessWorkspaceRoute } from "../workspace/workspace-navigation";
 import { buildDashboardModel, type DashboardAttention } from "./dashboard-model";
 import { useDashboardData } from "./dashboard-data";
 import { dashboardAttentionForRole, dashboardCanViewReports, dashboardQuickActions } from "./dashboard-actions";
+import { ReferenceIcon } from "../ui/reference-icon";
 
 const frontlineRoles = new Set(["CASHIER", "SALES", "STAFF"]);
 
@@ -31,11 +32,11 @@ function actionLabel(href: string, fallback: string) {
 }
 
 function actionIcon(href: string) {
-  if (href === "/sell") return "🛒";
-  if (href === "/purchases") return "◇";
-  if (href === "/cashbook") return "▣";
-  if (href === "/customers") return "↩";
-  return "+";
+  if (href === "/sell") return <ReferenceIcon name="cart" />;
+  if (href === "/purchases") return <ReferenceIcon name="box" />;
+  if (href === "/cashbook") return <ReferenceIcon name="wallet" />;
+  if (href === "/customers") return <ReferenceIcon name="reply" />;
+  return <ReferenceIcon name="sparkles" />;
 }
 
 function evidenceCard(item: DashboardAttention, currencyCode: string) {
@@ -111,16 +112,16 @@ export function DashboardCommandCenter({
           <p>{businessName} · {branchName} — Here&apos;s your shop today.</p>
         </div>
         <div className="zai-dashboard-header-actions">
-          <span className="zai-online-pill">⌁ Online</span>
-          <time className="zai-date-pill" dateTime={new Date().toISOString().slice(0, 10)}>▣ Today</time>
-          {canSell ? <Link className="zai-new-sale" href="/sell">🛒 New sale</Link> : null}
+          <span className="zai-online-pill"><ReferenceIcon name="wifi" /> Online</span>
+          <time className="zai-date-pill" dateTime={new Date().toISOString().slice(0, 10)}><ReferenceIcon name="calendar" /> Today</time>
+          {canSell ? <Link className="zai-new-sale" href="/sell"><ReferenceIcon name="cart" /> New sale</Link> : null}
         </div>
       </header>
 
       {message ? <p className="tos-dashboard-message" role="status">{message}</p> : null}
 
       <section className="zai-business-guidance" aria-label="Business pack guidance">
-        <span aria-hidden="true">✣</span><p><strong>{pack.label}:</strong> {pack.text}</p>
+        <span aria-hidden="true"><ReferenceIcon name="sparkles" /></span><p><strong>{pack.label}:</strong> {pack.text}</p>
       </section>
 
       {actions.length > 0 ? (
@@ -130,7 +131,7 @@ export function DashboardCommandCenter({
       ) : null}
 
       <section className="zai-ai-actions" aria-labelledby="zai-ai-actions-title">
-        <div className="zai-ai-actions-heading"><h2 id="zai-ai-actions-title">✣ AI ACTIONS FOR TODAY</h2><span>Suggestions · not accounting records</span></div>
+        <div className="zai-ai-actions-heading"><h2 id="zai-ai-actions-title"><ReferenceIcon name="sparkles" /> AI ACTIONS FOR TODAY</h2><span>Suggestions · not accounting records</span></div>
         <div className="zai-ai-actions-grid">{aiCards.slice(0, 3)}</div>
       </section>
 

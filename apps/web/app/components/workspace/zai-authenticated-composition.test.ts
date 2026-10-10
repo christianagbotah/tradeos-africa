@@ -40,6 +40,30 @@ describe("Z.ai authenticated composition boundary", () => {
     expect(browser).toContain('placeholder="Search product, SKU or scan barcode…"');
   });
 
+  it("keeps the POS product browser flush under the global shell like the Z.ai reference", () => {
+    const sellPage = read("(workspace)/sell/page.tsx");
+    expect(sellPage).toContain('className="sr-only"');
+    expect(sellPage).not.toContain("Customer-aware selling with editable quantities");
+    expect(sellPage).not.toContain('return <div className="tradeos-page-stack pos-route-page"><PageHeader');
+  });
+
+  it("uses deterministic SVG reference icons instead of font-dependent shell and POS glyphs", () => {
+    const shell = read("components/workspace/app-shell.tsx");
+    const browser = read("components/pos/product-browser.tsx");
+    const pos = read("components/pos/pos-workspace.tsx");
+    expect(shell).toContain("ReferenceIcon");
+    expect(browser).toContain('ReferenceIcon name="search"');
+    expect(browser).toContain('ReferenceIcon name="scan"');
+    expect(pos).toContain('ReferenceIcon name="user"');
+    const cart = read("components/pos/cart-panel.tsx");
+    const css = read("zai-reference.css");
+    expect(cart).toContain('ReferenceIcon name="cart"');
+    expect(css).not.toContain('content: "🛒"');
+    for (const glyph of ["⌕", "⌁", "✣", "♧", "▤", "⌂", "☰", "♙", "▯", "▭", "◷"]) {
+      expect(shell + browser + pos).not.toContain(glyph);
+    }
+  });
+
   it("keeps Z.ai Returns composition instead of the later evidence-card recomposition", () => {
     const workspace = read("components/returns/return-refund-workspace.tsx");
     const refundSheet = read("components/returns/return-refund-sheet.tsx");

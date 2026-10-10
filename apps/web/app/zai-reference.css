@@ -455,7 +455,8 @@
 .pos-cart-customer-icon { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; background: #f5f4ef; color: #68766f; }
 .pos-cart-scroll { min-height: 0; flex: 1; overflow-y: auto; border-top: 1px solid var(--zai-line); }
 .zai-pos-workspace .pos-cart-empty { min-height: 250px; display: grid; place-content: center; gap: 8px; text-align: center; background: #fdfcf9; }
-.zai-pos-workspace .pos-cart-empty::before { content: "🛒"; width: 48px; height: 48px; display: grid; place-items: center; margin: 0 auto 4px; border-radius: 50%; background: #f4f2ed; font-size: 22px; }
+.zai-pos-workspace .pos-cart-empty-icon { width: 48px; height: 48px; display: grid; place-items: center; margin: 0 auto 4px; border-radius: 50%; background: #f4f2ed; color: #6b7770; }
+.zai-pos-workspace .pos-cart-empty-icon .zai-reference-icon { width: 24px; height: 24px; }
 .zai-pos-workspace .pos-cart-empty strong::first-letter { text-transform: uppercase; }
 .pos-sale-summary { padding: 12px; border-top: 1px solid var(--zai-line); }
 .pos-sale-summary > div:not(.pos-payment-preview) { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
@@ -579,3 +580,18 @@
   .zai-pos-workspace { margin-left: -10px; margin-right: -10px; }
   .zai-pos-workspace .pos-browser-pane { padding-left: 10px; padding-right: 10px; }
 }
+
+/* Deterministic line icons used by the Z.ai reference shell and POS. */
+.zai-reference-icon{width:1em;height:1em;display:block;flex:0 0 auto}
+.workspace-global-search .zai-reference-icon,.workspace-utility-icon .zai-reference-icon{width:18px;height:18px}
+.workspace-business-icon .zai-reference-icon,.workspace-pack-card .zai-reference-icon{width:16px;height:16px}
+.workspace-profile-chevron .zai-reference-icon{width:14px;height:14px}
+.workspace-mobile-menu .zai-reference-icon{width:22px;height:22px}
+.workspace-mobile-online .zai-reference-icon{width:17px;height:17px}
+.pos-product-search-icon .zai-reference-icon,.pos-scan-hint .zai-reference-icon{width:20px;height:20px}
+.pos-cart-customer-icon .zai-reference-icon{width:17px;height:17px}
+.pos-payment-preview i .zai-reference-icon{width:16px;height:16px}
+.zai-dashboard-header-actions .zai-reference-icon,.zai-action-rail .zai-reference-icon{width:16px;height:16px}
+.zai-business-guidance .zai-reference-icon,.zai-ai-actions-heading .zai-reference-icon{width:17px;height:17px}
+.zai-ai-actions-heading h2{display:flex;align-items:center;gap:7px}
+.zai-online-pill,.zai-date-pill,.zai-new-sale{display:inline-flex;align-items:center;gap:6px}

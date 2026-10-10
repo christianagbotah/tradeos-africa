@@ -9,6 +9,7 @@ import { isWorkspaceNavActive, visibleWorkspaceNav, type WorkspaceNavItem } from
 import { WorkspaceNavIcon } from "./workspace-nav-icon";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { MobileMoreSheet } from "./mobile-more-sheet";
+import { ReferenceIcon } from "../ui/reference-icon";
 
 const sidebarGroups = ["Operate", "Inventory", "Money & people", "Control & insights"] as const;
 
@@ -105,7 +106,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <button className="workspace-profile-trigger" type="button" aria-label="Open user menu" title="Account & sign out" aria-haspopup="menu" aria-expanded={profileOpen} onClick={() => setProfileOpen((open) => !open)}>
         <span className="workspace-profile-avatar" aria-hidden="true">{userInitials}</span>
         <span className="workspace-profile-copy"><strong>{session.user.displayName}</strong><small>{context.membership.role}</small></span>
-        <span className="workspace-profile-chevron" aria-hidden="true">⌄</span>
+        <span className="workspace-profile-chevron" aria-hidden="true"><ReferenceIcon name="chevronDown" /></span>
       </button>
       {profileOpen ? (
         <div className="workspace-profile-dropdown" role="menu">
@@ -126,12 +127,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <section className="workspace-business-card" aria-label="Active business and branch">
           <div className="workspace-business-card-main">
-            <span className="workspace-business-icon" aria-hidden="true">▤</span>
+            <span className="workspace-business-icon" aria-hidden="true"><ReferenceIcon name="store" /></span>
             <div><strong>{context.business.name}</strong><span>{activeBranch.name}</span></div>
-            <span aria-hidden="true">⌄</span>
+            <span aria-hidden="true"><ReferenceIcon name="chevronDown" /></span>
           </div>
           <div className="workspace-pack-card">
-            <span aria-hidden="true">⌂</span>
+            <span aria-hidden="true"><ReferenceIcon name="home" /></span>
             <div><strong>{packLabel}</strong><small>Business pack</small></div>
             <span>Switch</span>
           </div>
@@ -167,32 +168,32 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <section className="workspace-main">
         <header className="workspace-mobile-header">
-          <button type="button" className="workspace-mobile-menu" aria-label="Open menu" onClick={() => setMoreOpen(true)}>☰</button>
+          <button type="button" className="workspace-mobile-menu" aria-label="Open menu" onClick={() => setMoreOpen(true)}><ReferenceIcon name="menu" /></button>
           <span className="workspace-mobile-mark" aria-hidden="true">T</span>
           <strong>{context.business.name}</strong>
-          <span className="workspace-mobile-online" aria-label="Online status">⌁</span>
+          <span className="workspace-mobile-online" aria-label="Online status"><ReferenceIcon name="wifi" /></span>
         </header>
 
         <header className="workspace-topbar">
           <form className="workspace-global-search" role="search" onSubmit={onGlobalSearch}>
-            <span aria-hidden="true">⌕</span>
+            <span aria-hidden="true"><ReferenceIcon name="search" /></span>
             <input value={globalQuery} onChange={(event) => setGlobalQuery(event.target.value)} placeholder="Search products, sales, customers…" aria-label="Search products, sales, customers" />
             <kbd>/</kbd>
           </form>
           <div className="workspace-topbar-utilities">
-            <Link className="workspace-utility-icon" href="/reports" aria-label="Open AI insights" title="AI insights">✣</Link>
-            <span className="workspace-utility-icon" aria-hidden="true">?</span>
-            <span className="workspace-utility-icon workspace-notification" aria-label="Notifications">♧</span>
+            <Link className="workspace-utility-icon" href="/reports" aria-label="Open AI insights" title="AI insights"><ReferenceIcon name="sparkles" /></Link>
+            <span className="workspace-utility-icon" aria-hidden="true"><ReferenceIcon name="help" /></span>
+            <span className="workspace-utility-icon workspace-notification" aria-label="Notifications"><ReferenceIcon name="bell" /></span>
             {profile}
           </div>
         </header>
 
         <div className="workspace-mobile-search-row">
           <form className="workspace-global-search" role="search" onSubmit={onGlobalSearch}>
-            <span aria-hidden="true">⌕</span>
+            <span aria-hidden="true"><ReferenceIcon name="search" /></span>
             <input value={globalQuery} onChange={(event) => setGlobalQuery(event.target.value)} placeholder="Search products, sales, customers…" aria-label="Search products, sales, customers" />
           </form>
-          <span className="workspace-mobile-online" aria-label="Online status">⌁</span>
+          <span className="workspace-mobile-online" aria-label="Online status"><ReferenceIcon name="wifi" /></span>
         </div>
 
         <div key={`${context.business.id}:${branchId}`} className="workspace-content">{children}</div>
