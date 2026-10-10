@@ -17,24 +17,9 @@ import {
 } from "./pos-model";
 import { ProductBrowser } from "./product-browser";
 
-export type PosSaleStatus = {
-  message: string;
-  tone: "success" | "pending" | "error";
-};
+export type PosSaleStatus = { message: string; tone: "success" | "pending" | "error"; };
 
-export function PosWorkspace({
-  businessId,
-  branchId,
-  currencyCode,
-  role,
-  items,
-}: {
-  businessId: string;
-  branchId: string;
-  currencyCode: string;
-  role: string;
-  items: PosSellableItem[];
-}) {
+export function PosWorkspace({ businessId, branchId, currencyCode, role, items }: { businessId: string; branchId: string; currencyCode: string; role: string; items: PosSellableItem[]; }) {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
@@ -43,135 +28,43 @@ export function PosWorkspace({
   const [status, setStatus] = useState<PosSaleStatus | null>(null);
   const totalMinor = useMemo(() => displayTotalMinor(cart), [cart]);
 
-  const addItem = (item: PosSellableItem) => {
-    setStatus(null);
-    setCart((current) => addCartItem(current, toPosSelection(item)));
-  };
-
-  const increase = (key: PosLineKey) => {
-    setCart((current) => {
-      const line = current.find((candidate) => candidate.key === key);
-      return line ? setCartQuantity(current, key, line.quantity + 1) : current;
-    });
-  };
-
-  const decrease = (key: PosLineKey) => {
-    setCart((current) => {
-      const line = current.find((candidate) => candidate.key === key);
-      if (!line) return current;
-      const next = line.quantity - 1;
-      return next > 0 ? setCartQuantity(current, key, next) : current;
-    });
-  };
-
-  const changeUnit = (key: PosLineKey, unit: PosSellableItem) => {
-    setCart((current) => changeCartUnit(current, key, toPosSelection(unit)));
-  };
-
-  const onStatus = (message: string, tone: "success" | "pending" | "error" = "pending") => {
-    setStatus({ message, tone });
-  };
+  const addItem = (item: PosSellableItem) => { setStatus(null); setCart((current) => addCartItem(current, toPosSelection(item))); };
+  const increase = (key: PosLineKey) => setCart((current) => { const line = current.find((candidate) => candidate.key === key); return line ? setCartQuantity(current, key, line.quantity + 1) : current; });
+  const decrease = (key: PosLineKey) => setCart((current) => { const line = current.find((candidate) => candidate.key === key); if (!line) return current; const next = line.quantity - 1; return next > 0 ? setCartQuantity(current, key, next) : current; });
+  const changeUnit = (key: PosLineKey, unit: PosSellableItem) => setCart((current) => changeCartUnit(current, key, toPosSelection(unit)));
+  const onStatus = (message: string, tone: "success" | "pending" | "error" = "pending") => setStatus({ message, tone });
 
   return (
-    <section className="pos-workspace" aria-label="Sell point of sale">
-      {/* Sale status — accessible region for sync/pending/error */}
-      {status ? (
-        <div className={`pos-sale-status pos-sale-status--${status.tone}`} role="status">
-          <span>{status.tone === "success" ? "✓" : status.tone === "pending" ? "↻" : "!"}</span>
-          <strong>{status.message}</strong>
-          <button type="button" aria-label="Dismiss sale status" onClick={() => setStatus(null)}>×</button>
-        </div>
-      ) : null}
+    <section className="pos-workspace pos-zai-workspace" aria-label="Sell point of sale">
+      {status ? <div className={`pos-sale-status pos-sale-status--${status.tone}`} role="status"><span>{status.tone === "success" ? "✓" : status.tone === "pending" ? "↻" : "!"}</span><strong>{status.message}</strong><button type="button" aria-label="Dismiss sale status" onClick={() => setStatus(null)}>×</button></div> : null}
 
-      {/* Customer bar — compact, accessible, not intrusive */}
-      <button className="pos-customer-bar" type="button" onClick={() => setCustomerPickerOpen(true)}>
-        <span className="pos-customer-bar-avatar" aria-hidden="true">{selectedCustomer ? initials(selectedCustomer.name) : "W"}</span>
-        <span className="pos-customer-bar-copy">
-          <small>Customer</small>
-          <strong>{selectedCustomer?.name ?? "Walk-in customer"}</strong>
-          <em>{selectedCustomer ? selectedCustomer.phone ?? selectedCustomer.email ?? "Named customer" : "No account attached"}</em>
-        </span>
-        <span className="pos-customer-bar-action">Choose customer</span>
-      </button>
-
-      {/* Desktop: product discovery + cart side-by-side; Mobile: stacked with sticky charge */}
-      <div className="pos-workspace-grid">
-        <div className="pos-browser-pane">
-          <ProductBrowser
-            items={items}
-            query={query}
-            currencyCode={currencyCode}
-            onQueryChange={setQuery}
-            onAdd={addItem}
-          />
+      <div className="pos-zai-layout">
+        <div className="pos-zai-browser-pane">
+          <ProductBrowser items={items} query={query} currencyCode={currencyCode} onQueryChange={setQuery} onAdd={addItem} />
         </div>
 
-        <aside className="pos-sale-pane" aria-label="Current sale cart">
-          <CartPanel
-            cart={cart}
-            items={items}
-            currencyCode={currencyCode}
-            onIncrease={increase}
-            onDecrease={decrease}
-            onSetQuantity={(key, quantity) => setCart((current) => setCartQuantity(current, key, quantity))}
-            onRemove={(key) => setCart((current) => removeCartLine(current, key))}
-            onChangeUnit={changeUnit}
-          />
-          {/* Desktop charge button — prominent, always visible */}
-          <button
-            className="pos-desktop-charge"
-            type="button"
-            disabled={cart.length === 0}
-            onClick={() => setCheckoutOpen(true)}
-          >
-            <span>Charge</span>
-            <strong>{formatMoney(totalMinor, currencyCode)}</strong>
+        <aside className="pos-zai-cart-rail" aria-label="Current sale cart">
+          <button className="pos-zai-customer-select" type="button" onClick={() => setCustomerPickerOpen(true)}>
+            <span aria-hidden="true">♙</span>
+            <strong>{selectedCustomer?.name ?? "Walk-in Customer"}</strong>
+            <small>⌄</small>
           </button>
+
+          <CartPanel cart={cart} items={items} currencyCode={currencyCode} onIncrease={increase} onDecrease={decrease} onSetQuantity={(key, quantity) => setCart((current) => setCartQuantity(current, key, quantity))} onRemove={(key) => setCart((current) => removeCartLine(current, key))} onChangeUnit={changeUnit} />
+
+          <div className="pos-zai-checkout-preview">
+            <div className="pos-zai-total-row"><span>Subtotal</span><strong>{formatMoney(totalMinor, currencyCode)}</strong></div>
+            <div className="pos-zai-total-row pos-zai-total-row--total"><span>Total</span><strong>{formatMoney(totalMinor, currencyCode)}</strong></div>
+            <div className="pos-zai-payment-methods" aria-label="Accepted payment methods"><span>Cash</span><span>MoMo</span><span>Bank</span><span>Card</span><span>Credit</span></div>
+            <button className="pos-desktop-charge" type="button" disabled={cart.length === 0} onClick={() => setCheckoutOpen(true)}>Charge {formatMoney(totalMinor, currencyCode)}</button>
+          </div>
         </aside>
       </div>
 
-      {/* Mobile sticky charge bar — always reachable */}
-      <div className="pos-charge-bar">
-        <div>
-          <span>{cart.length} line{cart.length === 1 ? "" : "s"}</span>
-          <strong>{formatMoney(totalMinor, currencyCode)}</strong>
-        </div>
-        <button type="button" disabled={cart.length === 0} onClick={() => setCheckoutOpen(true)}>
-          Charge {formatMoney(totalMinor, currencyCode)}
-        </button>
-      </div>
+      {cart.length > 0 ? <div className="pos-charge-bar"><div><span>{cart.length} line{cart.length === 1 ? "" : "s"}</span><strong>{formatMoney(totalMinor, currencyCode)}</strong></div><button type="button" onClick={() => setCheckoutOpen(true)}>Charge {formatMoney(totalMinor, currencyCode)}</button></div> : null}
 
-      <CustomerPicker
-        businessId={businessId}
-        currencyCode={currencyCode}
-        selectedCustomer={selectedCustomer}
-        role={role}
-        open={customerPickerOpen}
-        onSelect={setSelectedCustomer}
-        onWalkIn={() => setSelectedCustomer(null)}
-        onClose={() => setCustomerPickerOpen(false)}
-      />
-
-      <CheckoutSheet
-        open={checkoutOpen}
-        businessId={businessId}
-        branchId={branchId}
-        currencyCode={currencyCode}
-        cart={cart}
-        customer={selectedCustomer}
-        onClose={() => setCheckoutOpen(false)}
-        onDurablySaved={() => {
-          setCart([]);
-          setQuery("");
-          setSelectedCustomer(null);
-        }}
-        onStatus={onStatus}
-      />
+      <CustomerPicker businessId={businessId} currencyCode={currencyCode} selectedCustomer={selectedCustomer} role={role} open={customerPickerOpen} onSelect={setSelectedCustomer} onWalkIn={() => setSelectedCustomer(null)} onClose={() => setCustomerPickerOpen(false)} />
+      <CheckoutSheet open={checkoutOpen} businessId={businessId} branchId={branchId} currencyCode={currencyCode} cart={cart} customer={selectedCustomer} onClose={() => setCheckoutOpen(false)} onDurablySaved={() => { setCart([]); setQuery(""); setSelectedCustomer(null); }} onStatus={onStatus} />
     </section>
   );
-}
-
-
-function initials(name: string): string {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "C";
 }
