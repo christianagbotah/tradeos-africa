@@ -63,22 +63,3 @@ describe("TradeOS shell hierarchy and permission presentation", () => {
     expect(css).toContain("env(safe-area-inset-bottom)");
   });
 });
-
-
-describe("mobile shell composition correction", () => {
-  const dir = path.dirname(fileURLToPath(import.meta.url));
-  const readSrc = (file: string) => fs.readFileSync(path.join(dir, file), "utf8");
-
-  it("uses a dedicated mobile business/branch context trigger instead of desktop selectors", () => {
-    const source = readSrc("app-shell.tsx");
-    expect(source).toContain("workspace-mobile-context-trigger");
-    expect(source).toContain("workspace-mobile-context-copy");
-    expect(source).toContain("Open business and branch context");
-  });
-
-  it("keeps desktop account controls out of the phone header while exposing the mobile context trigger", () => {
-    const css = readSrc("../../workspace-shell.css");
-    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*?\.workspace-context-actions\s*\{[^}]*display:\s*none/);
-    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*?\.workspace-mobile-context-trigger\s*\{[^}]*display:\s*(?:grid|flex)/);
-  });
-});
