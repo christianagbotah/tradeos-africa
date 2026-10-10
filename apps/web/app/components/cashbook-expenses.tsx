@@ -174,7 +174,7 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
   return (
     <section className="cashbook-page" id="cashbook">
       <header className="cashbook-page-header">
-        <div><p className="eyebrow">Money movements</p><h2>Cashbook & expenses</h2><p>Track real cash movement by branch. Credit is excluded until money actually moves, and cached records remain available offline.</p></div>
+        <div><p  className="tradeos-kicker">Money movements</p><h2>Cashbook & expenses</h2><p>Track real cash movement by branch. Credit is excluded until money actually moves, and cached records remain available offline.</p></div>
         <span className={queued > 0 ? "cashbook-sync-badge pending" : "cashbook-sync-badge"}>{queued > 0 ? `${queued} pending sync` : "Fully synced"}</span>
       </header>
 

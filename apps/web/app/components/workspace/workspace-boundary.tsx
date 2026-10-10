@@ -24,7 +24,7 @@ export function WorkspaceBoundary({ children }: { children: ReactNode }) {
         <main className="loading-shell workspace-recovery-shell">
           <div className="brand-mark">T</div>
           <section className="workspace-recovery-card" aria-live="polite">
-            <p className="eyebrow">Workspace unavailable</p>
+            <p  className="tradeos-kicker">Workspace unavailable</p>
             <h1>TradeOS could not open this business workspace.</h1>
             <p>{store.error}</p>
             {store.session.memberships.length > 1 ? (
@@ -37,8 +37,8 @@ export function WorkspaceBoundary({ children }: { children: ReactNode }) {
               </label>
             ) : null}
             <div className="workspace-recovery-actions">
-              <button className="primary-button" type="button" onClick={() => void store.retryWorkspace()}>Try again</button>
-              <button className="ghost-button" type="button" onClick={() => void store.logout()}>Sign out</button>
+              <button  className="tos-button tos-button--primary" type="button" onClick={() => void store.retryWorkspace()}>Try again</button>
+              <button  className="tos-button tos-button--secondary" type="button" onClick={() => void store.logout()}>Sign out</button>
             </div>
           </section>
         </main>

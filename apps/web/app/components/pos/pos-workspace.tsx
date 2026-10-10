@@ -73,6 +73,7 @@ export function PosWorkspace({
 
   return (
     <section className="pos-workspace" aria-label="Sell point of sale">
+      {/* Sale status — accessible region for sync/pending/error */}
       {status ? (
         <div className={`pos-sale-status pos-sale-status--${status.tone}`} role="status">
           <span>{status.tone === "success" ? "✓" : status.tone === "pending" ? "↻" : "!"}</span>
@@ -81,6 +82,7 @@ export function PosWorkspace({
         </div>
       ) : null}
 
+      {/* Customer bar — compact, accessible, not intrusive */}
       <button className="pos-customer-bar" type="button" onClick={() => setCustomerPickerOpen(true)}>
         <span className="pos-customer-bar-avatar" aria-hidden="true">{selectedCustomer ? initials(selectedCustomer.name) : "W"}</span>
         <span className="pos-customer-bar-copy">
@@ -91,6 +93,7 @@ export function PosWorkspace({
         <span className="pos-customer-bar-action">Choose customer</span>
       </button>
 
+      {/* Desktop: product discovery + cart side-by-side; Mobile: stacked with sticky charge */}
       <div className="pos-workspace-grid">
         <div className="pos-browser-pane">
           <ProductBrowser
@@ -113,6 +116,7 @@ export function PosWorkspace({
             onRemove={(key) => setCart((current) => removeCartLine(current, key))}
             onChangeUnit={changeUnit}
           />
+          {/* Desktop charge button — prominent, always visible */}
           <button
             className="pos-desktop-charge"
             type="button"
@@ -125,6 +129,7 @@ export function PosWorkspace({
         </aside>
       </div>
 
+      {/* Mobile sticky charge bar — always reachable */}
       <div className="pos-charge-bar">
         <div>
           <span>{cart.length} line{cart.length === 1 ? "" : "s"}</span>

@@ -52,9 +52,9 @@ test('tracked launch scripts resolve the repo root and treat dotenv values as li
   }
 
   assert.match(api, /PORT=.*4036/);
-  assert.match(api, /@tradeos\/api start/);
+  assert.match(api, /apps\/api\/dist\/server\.js/);
   assert.match(web, /WEB_PORT=.*3036/);
-  assert.match(web, /@tradeos\/web exec next start/);
+  assert.match(web, /apps\/web\/node_modules\/next\/dist\/bin\/next.*start/);
   assert.doesNotMatch(combined, /\/home\/lightworld\/webapps\/tradeos-staging/);
   assert.doesNotMatch(combined, /(DATABASE_URL|JWT_SECRET|PASSWORD)=['\"][^$]/);
 });
@@ -80,12 +80,12 @@ for (const [name, scriptPath] of [
           '',
         ].join('\n'),
       );
-      const fakePnpm = path.join(fakeBin, 'pnpm');
+      const fakeNode = path.join(fakeBin, 'node');
       fs.writeFileSync(
-        fakePnpm,
+        fakeNode,
         '#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s\\n%s\\n%s\\n" "${DATABASE_URL-}" "${SAFE_LITERAL-}" "${EQUALS_VALUE-}" > "$CAPTURE_FILE"\n',
       );
-      fs.chmodSync(fakePnpm, 0o755);
+      fs.chmodSync(fakeNode, 0o755);
 
       const result = spawnSync('/bin/bash', [scriptPath], {
         cwd: repoRoot,
@@ -109,3 +109,12 @@ for (const [name, scriptPath] of [
     }
   });
 }
+
+test('runtime launchers do not depend on Corepack or pnpm bootstrapping', () => {
+  const api = fs.readFileSync(apiScriptPath, 'utf8');
+  const web = fs.readFileSync(webScriptPath, 'utf8');
+  assert.doesNotMatch(api, /\bpnpm\b/);
+  assert.doesNotMatch(web, /\bpnpm\b/);
+  assert.match(api, /node.*apps\/api\/dist\/server\.js/);
+  assert.match(web, /node.*apps\/web\/node_modules\/next\/dist\/bin\/next.*start/);
+});

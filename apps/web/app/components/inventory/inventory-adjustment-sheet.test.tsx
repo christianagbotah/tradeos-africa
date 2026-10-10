@@ -78,7 +78,7 @@ describe("InventoryAdjustmentSheet", () => {
 
   it("keeps adjustment controls touch-safe on phones", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(appRoot, "purchases-inventory.css"), "utf8");
+    const css = fs.readFileSync(path.join(appRoot, "tradeos-app.css"), "utf8");
     expect(css).toMatch(/inventory-adjustment[\s\S]*min-height:\s*48px/);
     expect(css).toMatch(/inventory-adjustment[\s\S]*font-size:\s*15px/);
   });

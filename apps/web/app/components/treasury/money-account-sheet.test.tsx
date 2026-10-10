@@ -68,7 +68,7 @@ describe("MoneyAccountSheet", () => {
 
   it("keeps money-account sheet controls phone-sized", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(root, "cashbook.css"), "utf8");
+    const css = fs.readFileSync(path.join(root, "tradeos-app.css"), "utf8");
     expect(css).toMatch(/money-account-sheet[\s\S]*min-height:\s*48px/);
   });
 });

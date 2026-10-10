@@ -11,6 +11,7 @@
   --tos-border: #dde3ea; --tos-border-strong: #c8d1dc;
   --tos-midnight: #0b1424; --tos-midnight-soft: #152238; --tos-gold: #c99935; --tos-gold-soft: #f7efd9;
   --tos-positive: #168456; --tos-positive-soft: #eaf7f0; --tos-warning: #ad7016; --tos-warning-soft: #fff7e8; --tos-danger: #b84a45; --tos-danger-soft: #fff0ef; --tos-info: #356b94; --tos-info-soft: #eef6fb;
+  --tos-focus-ring: 0 0 0 3px rgba(201, 153, 53, 0.45);
   --tos-shadow-1: 0 8px 28px rgba(16,24,40,.055); --tos-shadow-2: 0 18px 50px rgba(16,24,40,.12);
   --tos-motion-fast: 150ms; --tos-motion-medium: 220ms;
   --tos-breakpoint-compact: 480px; --tos-breakpoint-phone: 768px; --tos-breakpoint-desktop: 1100px;

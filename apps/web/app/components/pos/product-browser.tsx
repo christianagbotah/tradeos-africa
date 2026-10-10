@@ -57,7 +57,9 @@ export function ProductBrowser({
             return (
               <article className="pos-product-card" key={item.itemId}>
                 <div className="pos-product-card-head">
-                  <span className="pos-product-kind" aria-hidden="true">{item.kind === "SERVICE" ? "S" : "P"}</span>
+                  <span className={`pos-product-kind pos-product-kind--${item.kind === "SERVICE" ? "service" : "product"}`} aria-hidden="true">
+                    {item.kind === "SERVICE" ? "S" : "P"}
+                  </span>
                   <div>
                     <strong>{item.name}</strong>
                     <small>{item.sku ?? (item.kind === "SERVICE" ? "Service" : "Product")}</small>
@@ -78,7 +80,9 @@ export function ProductBrowser({
                   ))}
                 </div>
                 <div className="pos-product-meta">
-                  {item.trackStock ? <span>Stock tracked in {item.stockUnitCode ?? "configured unit"}</span> : <span>{item.kind === "SERVICE" ? "Service · no stock" : "Stock not tracked"}</span>}
+                  {item.trackStock
+                    ? <span>Stock tracked in {item.stockUnitCode ?? "configured unit"}</span>
+                    : <span>{item.kind === "SERVICE" ? "Service · no stock" : "Stock not tracked"}</span>}
                 </div>
               </article>
             );

@@ -58,11 +58,42 @@ describe("InventoryWorkspace", () => {
   it("replaces the legacy internal InventoryTable and keeps phone controls readable", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
     const coordinator = fs.readFileSync(path.join(root, "components", "purchases-inventory.tsx"), "utf8");
-    const css = fs.readFileSync(path.join(root, "purchases-inventory.css"), "utf8");
+    const css = fs.readFileSync(path.join(root, "tradeos-app.css"), "utf8");
     expect(coordinator).toContain("InventoryWorkspace");
     expect(coordinator).toContain("InventoryDetailSheet");
     expect(coordinator).not.toMatch(/function InventoryTable\(/);
     expect(css).toMatch(/inventory-workspace[\s\S]*min-height:\s*48px/);
     expect(css).toMatch(/inventory-row-modern[\s\S]*font-size:\s*15px/);
+  });
+});
+
+// Task 7: design-system primitives + mobile record-card contracts
+describe("Inventory design-system and mobile contracts", () => {
+  const root = path.dirname(fileURLToPath(import.meta.url));
+  const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
+
+  it("uses the shared CommandBar primitive for the inventory command row", () => {
+    const ws = read("inventory-workspace.tsx");
+    expect(ws).toContain("CommandBar");
+  });
+
+  it("uses MobileRecordCard for mobile inventory rows rather than relying solely on the desktop table", () => {
+    const ws = read("inventory-workspace.tsx");
+    expect(ws).toContain("MobileRecordCard");
+  });
+
+  it("never frames inventory as edit-balance (movement-derived invariant)", () => {
+    const ws = read("inventory-workspace.tsx");
+    const detail = read("inventory-detail-sheet.tsx");
+    const adj = read("inventory-adjustment-sheet.tsx");
+    for (const src of [ws, detail, adj]) {
+      expect(src).not.toMatch(/Edit balance|Set stock|Save stock|New balance/);
+    }
+  });
+
+  it("frames adjustments as corrections/reclassifications with reason, not direct balance editing", () => {
+    const adj = read("inventory-adjustment-sheet.tsx");
+    expect(adj).toMatch(/Count correction|Quarantine|Damage|Waste|Explanation|reason/i);
+    expect(adj).toContain("INVENTORY_ADJUSTMENT_CREATE");
   });
 });

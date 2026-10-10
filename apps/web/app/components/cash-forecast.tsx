@@ -22,15 +22,15 @@ export function CashForecastPanel({
   }).format(new Date(forecast.generatedAt));
 
   return (
-    <div className="working-capital-panel cash-forecast-panel" id="cash-forecast">
-      <div className="panel-heading compact">
+    <div className="cash-forecast-card tradeos-capital-card" id="cash-forecast">
+      <div className="tradeos-card-heading compact">
         <div>
-          <p className="eyebrow">TradeOS CFO · forward cash visibility</p>
+          <p  className="tradeos-kicker">TradeOS CFO · forward cash visibility</p>
           <h3>{forecast.horizonDays}-Day Cash Forecast</h3>
         </div>
         <div className="forecast-badges">
-          {offlineCached ? <span className="workflow-badge">Offline cached</span> : null}
-          <span className="workflow-badge">{forecast.confidence.level} confidence</span>
+          {offlineCached ? <span className="tradeos-badge">Offline cached</span> : null}
+          <span className="tradeos-badge">{forecast.confidence.level} confidence</span>
         </div>
       </div>
       <p className="forecast-generated">

@@ -5,6 +5,9 @@ import { clientApi, messageFrom } from "../../lib/client-api";
 import { customersChangedEvent, notifyCustomersChanged } from "../../lib/customer-events";
 import { getFailedMutations, mutationAppliedEvent, queueChangedEvent, type AppliedMutationDetail } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
+import { CommandBar } from "../ui/command-bar";
+import { MobileRecordCard } from "../ui/mobile-record-card";
+import { StatusBadge } from "../ui/status-badge";
 import { CustomerSheet, type CustomerSheetMode } from "./customer-sheet";
 import { formatCustomerMoney, type Customer, type CustomerDetail } from "./customer-types";
 
@@ -132,12 +135,14 @@ export function CustomerWorkspace({ businessId, branchId, currencyCode, role }: 
       </div>
 
       <form className="customer-commandbar" onSubmit={(event) => { event.preventDefault(); void loadCustomers(query); }}>
+        <CommandBar ariaLabel="Customer filters">
         <label className="customer-search">
           <span>Search customers</span>
           <input type="search" aria-label="Search customers" placeholder="Name, phone or email" value={query} onChange={(event) => setQuery(event.target.value)} />
         </label>
         <Button variant="secondary" type="submit" disabled={loading}>{loading ? "Searching…" : "Search"}</Button>
         {canCreate ? <Button type="button" onClick={() => setEditor({ mode: "create", detail: null })}>Add customer</Button> : null}
+        </CommandBar>
       </form>
 
       <div className="customer-filterbar" role="tablist" aria-label="Customer filters">
@@ -154,12 +159,24 @@ export function CustomerWorkspace({ businessId, branchId, currencyCode, role }: 
         {!loading && visibleCustomers.length === 0 ? <div className="customer-empty"><strong>No customers in this view.</strong><span>{query ? "Try another search or filter." : "Add a customer when you need named sales, history or credit."}</span></div> : null}
         <div className="customer-management-list">
           {visibleCustomers.map((customer) => (
-            <button type="button" className={customer.active ? "customer-management-row" : "customer-management-row archived"} key={customer.id} onClick={() => void openCustomer(customer)}>
+            <React.Fragment key={customer.id}>
+            <button type="button" className={customer.active ? "customer-management-row customer-management-row--desktop" : "customer-management-row customer-management-row--desktop archived"} onClick={() => void openCustomer(customer)}>
               <div className="customer-identity"><span className="customer-avatar" aria-hidden="true">{customer.name.slice(0, 1).toUpperCase()}</span><div><strong>{customer.name}</strong><span>{customer.phone ?? customer.email ?? "No contact recorded"}</span></div></div>
               <div className="customer-fact"><span>Balance owed</span><strong className={customer.balanceMinor > 0 ? "debit" : customer.balanceMinor < 0 ? "credit" : undefined}>{customer.balanceMinor < 0 ? `Credit ${formatCustomerMoney(-customer.balanceMinor, currencyCode)}` : formatCustomerMoney(customer.balanceMinor, currencyCode)}</strong></div>
               <div className="customer-fact"><span>Credit</span><strong>{customer.creditLimitMinor === null ? "Pay later off" : `Limit ${formatCustomerMoney(customer.creditLimitMinor, currencyCode)}`}</strong></div>
               <div className="customer-row-status"><span className={customer.active ? "customer-status active" : "customer-status"}>{customer.active ? "Active" : "Inactive"}</span><small>Open details</small></div>
             </button>
+            {/* Mobile record-card representation */}
+            <div className="customer-management-row--mobile">
+              <MobileRecordCard
+                title={<span>{customer.name}</span>}
+                meta={<span>{customer.phone ?? customer.email ?? "No contact recorded"} · Balance {formatCustomerMoney(customer.balanceMinor, currencyCode)}</span>}
+                status={<StatusBadge tone={customer.active ? "positive" : "neutral"}>{customer.active ? "Active" : "Inactive"}</StatusBadge>}
+              >
+                <p>{customer.creditLimitMinor === null ? "Pay later off" : `Credit limit ${formatCustomerMoney(customer.creditLimitMinor, currencyCode)}`}</p>
+              </MobileRecordCard>
+            </div>
+            </React.Fragment>
           ))}
         </div>
       </div>

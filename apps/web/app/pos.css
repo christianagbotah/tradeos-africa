@@ -188,3 +188,93 @@
 @media(min-width:1280px){.pos-product-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 
 @media(prefers-reduced-motion:reduce){.pos-customer-option,.pos-unit-choice,.pos-customer-bar{transition:none}}
+
+/* === Task 4 correction: premium POS visual improvements === */
+
+/* Product kind — distinct colors for product vs service */
+.pos-product-kind--service {
+  background: var(--tos-info);
+  color: #fff;
+}
+.pos-product-kind--product {
+  background: var(--tos-midnight);
+  color: #fff;
+}
+
+/* Product card — improved hover + premium feel */
+.pos-product-card {
+  transition: border-color var(--tos-motion-fast), box-shadow var(--tos-motion-fast);
+}
+.pos-product-card:hover {
+  border-color: var(--tos-border-strong);
+  box-shadow: var(--tos-shadow-1);
+}
+
+/* Unit choice — improved touch + active feedback */
+.pos-unit-choice:active {
+  transform: scale(0.97);
+}
+
+/* Cart line — improved visual hierarchy */
+.pos-cart-line {
+  transition: border-color var(--tos-motion-fast);
+}
+.pos-cart-line:hover {
+  border-color: var(--tos-border-strong);
+}
+
+/* Cart heading — more prominent total */
+.pos-cart-heading > strong {
+  color: var(--tos-gold);
+}
+
+/* Desktop charge — premium button */
+.pos-desktop-charge {
+  transition: transform var(--tos-motion-fast), opacity var(--tos-motion-fast);
+}
+.pos-desktop-charge:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--tos-shadow-2);
+}
+.pos-desktop-charge:not(:disabled):active {
+  transform: translateY(0);
+}
+
+/* Charge bar — improved mobile prominence */
+.pos-charge-bar button {
+  transition: transform var(--tos-motion-fast);
+}
+.pos-charge-bar button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* Focus-visible rings on POS controls */
+.pos-product-search input:focus-visible,
+.pos-unit-choice:focus-visible,
+.pos-qty-button:focus-visible,
+.pos-unit-select:focus-visible,
+.pos-remove-line:focus-visible,
+.pos-customer-bar:focus-visible,
+.pos-desktop-charge:focus-visible,
+.pos-charge-bar button:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+/* Responsive: better product grid at desktop */
+@media (min-width: 1280px) {
+  .pos-product-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Responsive: improved cart controls on phone */
+@media (max-width: 479px) {
+  .pos-product-card {
+    padding: 12px;
+    border-radius: 14px;
+  }
+  .pos-unit-choice {
+    min-height: var(--tos-touch-mobile);
+  }
+}

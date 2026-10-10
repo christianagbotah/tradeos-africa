@@ -8,3 +8,5 @@ coverage/
 !.env.example
 .DS_Store
 *.log
+apps/web/.next/
+apps/web/tsconfig.tsbuildinfo

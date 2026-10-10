@@ -38,7 +38,7 @@ describe("ReturnRefundWorkspace", () => {
 
   it("uses 48px, 15px return search/action controls", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(appRoot, "sales-returns.css"), "utf8");
+    const css = fs.readFileSync(path.join(appRoot, "tradeos-app.css"), "utf8");
     expect(css).toMatch(/return-commandbar[\s\S]*min-height:\s*48px/);
     expect(css).toMatch(/return-commandbar[\s\S]*font-size:\s*15px/);
   });

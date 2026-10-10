@@ -1,6 +1,7 @@
 import React from "react";
 import { MoneyValue } from "../business/money-value";
 import { StatusBadge } from "../ui/status-badge";
+import { MobileRecordCard } from "../ui/mobile-record-card";
 import type { CatalogItem } from "../../lib/workspace-types";
 import type { CatalogCapabilities } from "../../lib/lifecycle-capabilities";
 import { CatalogActions } from "./catalog-actions";
@@ -37,8 +38,11 @@ export function CatalogList({
     <div className="catalog-list" role="list">
       {items.map((item) => {
         const sellUnit = item.units.find((unit) => unit.canSell && unit.defaultSalePriceMinor !== null) ?? null;
+        const stockLabel = item.trackStock ? `Tracked in ${item.stockUnitCode ?? "stock unit"}` : item.kind === "SERVICE" ? "Service · no stock" : "Not tracked";
+        const unitChain = item.units.map((u) => u.label).join(", ");
         return (
-          <article className={`catalog-row${item.active ? "" : " catalog-row--archived"}`} key={item.id} role="listitem">
+          <React.Fragment key={item.id}>
+            <article className={`catalog-row catalog-row--desktop${item.active ? "" : " catalog-row--archived"}`} role="listitem">
             <div className="catalog-row-main">
               <div className="catalog-item-icon" aria-hidden="true">{item.kind === "SERVICE" ? "S" : "P"}</div>
               <div className="catalog-item-copy">
@@ -59,7 +63,7 @@ export function CatalogList({
 
             <div className="catalog-row-fact">
               <span>Stock</span>
-              <strong>{item.trackStock ? `Tracked in ${item.stockUnitCode ?? "stock unit"}` : item.kind === "SERVICE" ? "Service · no stock" : "Not tracked"}</strong>
+              <strong>{stockLabel}</strong>
             </div>
 
             <div className="catalog-row-status">
@@ -79,6 +83,28 @@ export function CatalogList({
               </div>
             ) : null}
           </article>
+          {/* Mobile record-card representation — touch-friendly, shows conversion unit chain */}
+          <div className="catalog-row--mobile" role="listitem">
+            <MobileRecordCard
+              title={<span>{item.name}{item.sku ? ` · ${item.sku}` : ""}</span>}
+              meta={<span>{item.kind === "SERVICE" ? "Service" : item.kind === "PREPARED_PRODUCT" ? "Prepared product" : "Product"} · {unitChain}</span>}
+              status={<StatusBadge tone={item.active ? "positive" : "neutral"}>{item.active ? "Active" : "Archived"}</StatusBadge>}
+            >
+              <p>Selling: {sellUnit ? `${sellUnit.label} · ` : ""}{sellUnit ? <MoneyValue minor={sellUnit.defaultSalePriceMinor!} currencyCode={currencyCode} emphasis="strong" /> : "Not for sale"}</p>
+              <p>Stock: {stockLabel}</p>
+              {capabilities.canEdit ? (
+                <CatalogActions
+                  item={item}
+                  businessId={businessId}
+                  role={role}
+                  onEdit={() => onOpenItem?.(item)}
+                  onDuplicate={() => onDuplicateItem?.(item)}
+                  onChanged={onChanged}
+                />
+              ) : null}
+            </MobileRecordCard>
+          </div>
+          </React.Fragment>
         );
       })}
     </div>

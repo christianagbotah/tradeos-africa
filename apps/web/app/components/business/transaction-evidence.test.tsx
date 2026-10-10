@@ -75,7 +75,7 @@ describe("shared transaction evidence presentation", () => {
 
   it("ships a 15px readable, touch-safe shared evidence style", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(appRoot, "transaction-evidence.css"), "utf8");
+    const css = fs.readFileSync(path.join(appRoot, "tradeos-app.css"), "utf8");
     expect(css).toMatch(/transaction-status-badge[\s\S]*font-size:\s*(?:13|14|15)px/);
     expect(css).toMatch(/transaction-sync-notice[\s\S]*font-size:\s*15px/);
     expect(css).toMatch(/transaction-evidence-action[\s\S]*min-height:\s*48px/);

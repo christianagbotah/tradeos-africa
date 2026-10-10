@@ -55,3 +55,25 @@ describe("CustomerWorkspace", () => {
     expect(css).toMatch(/customer-commandbar[\s\S]*min-height:\s*48px/);
   });
 });
+
+// Task 8: design-system primitives + mobile master-data contracts
+describe("Customer design-system and mobile contracts", () => {
+  const root = path.dirname(fileURLToPath(import.meta.url));
+  const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
+
+  it("uses the shared CommandBar primitive for the customer command row", () => {
+    const ws = read("customer-workspace.tsx");
+    expect(ws).toContain("CommandBar");
+  });
+
+  it("uses MobileRecordCard for mobile customer rows rather than relying solely on the desktop table", () => {
+    const ws = read("customer-workspace.tsx");
+    expect(ws).toContain("MobileRecordCard");
+  });
+
+  it("preserves customer lifecycle and posted-transaction history semantics (no edit of posted history)", () => {
+    const sheet = read("customer-sheet.tsx");
+    expect(sheet).toMatch(/Profile|Credit/i);
+    expect(sheet).not.toMatch(/Delete customer|Edit history/);
+  });
+});
