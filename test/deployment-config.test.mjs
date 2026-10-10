@@ -59,6 +59,12 @@ test('tracked launch scripts resolve the repo root and treat dotenv values as li
   assert.doesNotMatch(combined, /(DATABASE_URL|JWT_SECRET|PASSWORD)=['\"][^$]/);
 });
 
+test('web launcher starts Next from apps/web so the production .next directory resolves correctly', () => {
+  const web = fs.readFileSync(webScriptPath, 'utf8');
+  assert.match(web, /cd "\$ROOT_DIR\/apps\/web"/);
+  assert.doesNotMatch(web, /cd "\$ROOT_DIR"\nexec .*apps\/web\/node_modules\/next\/dist\/bin\/next.*start/);
+});
+
 for (const [name, scriptPath] of [
   ['API', apiScriptPath],
   ['web', webScriptPath],
