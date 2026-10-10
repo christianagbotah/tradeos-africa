@@ -981,6 +981,7 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 .return-sheet-header h2 { margin: 0; font-size: 25px; }
 .return-sheet-header small { color: var(--tos-text-muted); font-size: 13px; }
 .return-sheet-close { width: 48px; height: 48px; flex: 0 0 48px; border: 0; border-radius: 999px; background: var(--tos-surface-soft); color: var(--tos-text); font-size: 24px; }
+.return-refund-sheet :is(button,input,select):focus-visible { outline: none; border-color: var(--tos-gold); box-shadow: var(--tos-focus-ring); }
 .return-sheet-scroll { min-height: 0; overflow: auto; padding: 20px 22px; display: grid; gap: 18px; align-content: start; }
 .return-original-evidence { display: grid; gap: 13px; padding: 16px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-lg); background: linear-gradient(180deg, var(--tos-surface), var(--tos-surface-soft)); }
 .return-original-evidence-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -1060,6 +1061,7 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 .exchange-sheet-header span,.exchange-section-heading span,.exchange-sheet-header small{display:block;color:var(--tos-text-muted);font-size:13px}
 .exchange-sheet-header h2{margin:3px 0;font-size:24px}
 .exchange-sheet-close{min-width:48px;min-height:48px;border:0;background:transparent;font-size:26px;border-radius:var(--tos-radius-md)}
+.exchange-sheet :is(button,input,select):focus-visible { outline: none; border-color: var(--tos-gold); box-shadow: var(--tos-focus-ring); }
 .exchange-sheet-scroll{overflow:auto;padding:20px;display:grid;gap:18px}
 .exchange-original-evidence{display:grid;gap:12px;padding:16px;border:1px solid var(--tos-border);border-radius:var(--tos-radius-lg);background:linear-gradient(180deg,var(--tos-surface),var(--tos-surface-soft))}
 .exchange-original-evidence-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.exchange-original-evidence-head>div{min-width:0;display:grid;gap:3px}.exchange-original-evidence-head span{color:#7b5a18;font-size:11px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.exchange-original-evidence-head>div strong{font-size:20px;color:var(--tos-text-strong)}.exchange-original-evidence-head>strong{font-size:22px;color:var(--tos-text-strong);font-variant-numeric:tabular-nums}
