@@ -12,6 +12,6 @@ describe("Z.ai dashboard visual grammar", () => {
   const source = read("components/dashboard/dashboard-command-center.tsx");
   it("uses the Z.ai page header and action rail", () => { expect(source).toContain("tos-zai-dashboard-header"); expect(source).toContain("tos-zai-dashboard-actions"); for (const label of ["New sale", "Receive stock", "Record expense", "Send reminders"]) expect(source).toContain(label); });
   it("renders AI action cards instead of the later pulse hero", () => { expect(source).toContain("AI actions for today"); expect(source).toContain("tos-zai-ai-actions"); expect(source).toContain("tos-zai-ai-card"); expect(source).not.toContain("<BusinessPulse"); });
-  it("renders the four Z.ai business KPI cards", () => { for (const label of ["Today's sales", "Gross profit", "Cash position", "Outstanding credit"]) expect(source).toContain(label); expect(source).toContain("tos-zai-kpi-grid"); });
+  it("renders the four Z.ai business KPI cards", () => { expect(source).toMatch(/Today(?:'|&apos;)s sales/); for (const label of ["Gross profit", "Cash position", "Outstanding credit"]) expect(source).toContain(label); expect(source).toContain("tos-zai-kpi-grid"); });
   it("keeps guidance adaptive to the configured business type", () => { expect(source).toContain("businessGuidance"); expect(source).toContain("Retail / Provisions"); expect(source).toContain("Food / Hospitality"); });
 });
