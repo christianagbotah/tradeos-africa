@@ -1,7 +1,6 @@
 import React from "react";
 import Link from "next/link";
 import type { CashForecastResponse, CfoAction } from "@tradeos/contracts";
-import { StatusBadge } from "./ui/status-badge";
 
 export type AgingSideSnapshot = {
   totalOpenMinor: number;
@@ -156,24 +155,24 @@ export function CfoActionCenter({
   const elevated = items.filter((item) => item.priority === "URGENT" || item.priority === "HIGH").length;
   const top = items[0] ?? null;
 
-  const tone = (priority: CfoAction["priority"]) => priority === "URGENT" ? "danger" : priority === "HIGH" || priority === "MEDIUM" ? "warning" : "neutral";
-
   return (
-    <section className="reports-cfo-actions">
-      <header className="reports-section-heading">
-        <div><span>TradeOS CFO · prioritized next moves</span><h3>What needs my attention today?</h3></div>
-        <StatusBadge tone={elevated > 0 ? "warning" : "positive"}>{items.length} action{items.length === 1 ? "" : "s"}{offlineCached ? " · saved" : ""}</StatusBadge>
-      </header>
-      {top ? <p className="reports-cfo-summary"><strong>{elevated > 0 ? `${elevated} high-priority item${elevated === 1 ? "" : "s"}.` : "No high-priority warning."}</strong> Start with: {top.title}.</p> : <p className="reports-cfo-summary">No action is generated until TradeOS has enough operating evidence.</p>}
-      {items.length ? <div className="reports-cfo-list">{items.map((item) => (
-        <article className="reports-cfo-action" key={item.code}>
-          <div className="reports-cfo-action-head"><div><StatusBadge tone={tone(item.priority)}>{item.priority}</StatusBadge><span>{item.area.replaceAll("_", " ")}</span></div><Link className="reports-link-button" href={item.href}>{item.navigationLabel}</Link></div>
+    <div className="cfo-action-center">
+      <div className="tradeos-card-heading compact">
+        <div><p  className="tradeos-kicker">TradeOS CFO · prioritized next moves</p><h3>What needs my attention today?</h3></div>
+        <span>{items.length} action{items.length === 1 ? "" : "s"}{offlineCached ? " · saved" : ""}</span>
+      </div>
+      {top ? (
+        <p><strong>{elevated > 0 ? `${elevated} high-priority item${elevated === 1 ? "" : "s"}.` : "No high-priority warning."}</strong> Start with: {top.title}.</p>
+      ) : <p>No action is generated until TradeOS has enough operating evidence.</p>}
+      {items.length ? <div className="cfo-action-list">{items.map((item) => (
+        <article className="cfo-action" key={item.code}>
+          <div className="cfo-action-head"><div><span className={`cfo-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span>{item.area.replaceAll("_", " ")}</span></div><Link  className="tos-button tos-button--secondary" href={item.href}>{item.navigationLabel}</Link></div>
           <strong>{item.title}</strong>
           <p>{item.reason}</p>
           {item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${evidenceValue(row, money)}`).join(" · ")}</p> : null}
           <p><b>Do:</b> {item.action}</p>
         </article>
       ))}</div> : null}
-    </section>
+    </div>
   );
 }
