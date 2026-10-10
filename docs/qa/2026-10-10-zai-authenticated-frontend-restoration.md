@@ -30,22 +30,49 @@ The restored Z.ai components were adjusted only where necessary to call the shar
 
 ## Verification
 
-- Web tests: 59 files / 316 tests passed
-- Typecheck: passed
-- Lint: passed
-- Production build: passed
+Final hardening on the restoration branch also covers the interaction regressions found during rendered QA:
+
+- money-entry controls use the shared spaced currency-prefix input, including Treasury transfers/reconciliation and operating-day/shift counts
+- clickable controls expose pointer affordances while disabled controls remain non-clickable
+- native select/dropdown surfaces are opaque, including the compact business/branch context selector
+- phone/tablet buttons and selects keep a 48px interaction floor through 768px
+- browser `prompt` / `confirm` / `alert` transaction flows remain absent
+- the authenticated web proxy now exposes all report endpoints actually used by Dashboard and Reports: financial summary, credit aging and cash forecast
+
+Fresh branch verification:
+
+- Web tests: 61 files / 330 tests passed
+- Monorepo typecheck: passed
+- Monorepo lint: passed
+- Monorepo production build: passed
 - `git diff --check`: passed
-- Added `zai-authenticated-composition.test.ts` to prevent the later PR #43 shell/cart composition from silently returning
+- `zai-authenticated-composition.test.ts` protects the restored Z.ai shell / Dashboard / POS composition
+- `review-fixes.test.tsx` protects money inputs, dropdown opacity, pointer affordances, 48px tablet targets and report proxy coverage
 
 ### Rendered browser QA
 
-Authenticated demo-owner rendering was checked against the recovery branch at:
+Authenticated demo-owner rendering was re-run against the production build at 360px, 390px, 768px and 1280px for all 11 authenticated routes:
 
-- 360px — Dashboard + Sell/POS
-- 390px — Dashboard + Sell/POS
-- 768px — Dashboard + Sell/POS
-- 1280px — Dashboard + Sell/POS
+- Dashboard
+- Sell / POS
+- Sales
+- Customers
+- Purchases
+- Inventory
+- Catalog
+- Returns
+- Cashbook / Treasury
+- Operations
+- Reports
 
-All eight route/viewport checks reported `scrollWidth === clientWidth` with no horizontal overflow. The Z.ai shell marker, Dashboard marker, POS grid and sticky charge bar were present where expected. The later `workspace-mobile-context-trigger` and `pos-mobile-cart-sheet` overrides were absent.
+The automated browser audit completed **44 route/viewport checks with 0 failures**. It verifies:
 
-Screenshots and machine-readable audit evidence are in `docs/qa/evidence/tradeos-zai-restoration/`.
+- no horizontal page overflow
+- pointer cursor on visible interactive controls
+- no transparent native select surfaces
+- no sub-48px visible buttons/selects/summary controls at 360/390/768
+- every visible shared money input has an 8px currency-prefix gap, visible currency prefix and at least 48px height
+- no `ROUTE_NOT_ALLOWED` / “This TradeOS web route is not exposed” message on authenticated pages
+- mobile More opens as a modal dialog and closes with Escape
+
+Representative screenshots plus the machine-readable 44-check audit are in `docs/qa/evidence/tradeos-zai-restoration-final/`.

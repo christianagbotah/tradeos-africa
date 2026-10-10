@@ -73,6 +73,13 @@ describe("multi-page review regressions", () => {
     expect(forecast).not.toContain('className="table-scroll"');
   });
 
+  it("exposes every report endpoint used by Dashboard and Reports through the authenticated web proxy", () => {
+    const proxy = read("api/tradeos/[...path]/route.ts");
+    expect(proxy).toContain('"v1/reports/financial-summary"');
+    expect(proxy).toContain('"v1/reports/credit-aging"');
+    expect(proxy).toContain('"v1/reports/cash-forecast"');
+  });
+
   it("preserves purchase, inventory, sales and return read data in business/branch-scoped feature caches", () => {
     const purchases = read("components/purchases-inventory.tsx");
     const sales = read("components/sales-returns.tsx");
@@ -160,6 +167,12 @@ describe("multi-page review regressions", () => {
     expect(css).toMatch(/select option,?\s*select optgroup|select option[\s\S]*select optgroup/);
     expect(css).toMatch(/select option[\s\S]*background(?:-color)?:\s*var\(--tos-surface\)/);
     expect(shell).toMatch(/\.workspace-context-unit \.workspace-context-field select\s*\{[^}]*background(?:-color)?:\s*var\(--tos-surface\)/);
+  });
+
+  it("enforces 48px touch targets for buttons and selects through the 768px tablet boundary", () => {
+    const shell = read("workspace-shell.css");
+    expect(shell).toMatch(/@media\s*\(max-width:\s*768px\)[\s\S]*\.workspace-shell button:not\(:disabled\)[\s\S]*min-height:\s*var\(--tos-touch-mobile\)/);
+    expect(shell).toMatch(/@media\s*\(max-width:\s*768px\)[\s\S]*\.workspace-shell select:not\(:disabled\)[\s\S]*min-height:\s*var\(--tos-touch-mobile\)/);
   });
 
   it("does not use browser prompt, confirm or alert flows in application source", () => {

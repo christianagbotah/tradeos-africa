@@ -708,3 +708,18 @@
     display: none;
   }
 }
+
+/* Tablet/phone interaction floor: business controls remain thumb-safe through 768px. */
+@media (max-width: 768px) {
+  .workspace-shell button:not(:disabled),
+  .workspace-shell select:not(:disabled),
+  .workspace-shell summary,
+  .workspace-shell [role="button"]:not([aria-disabled="true"]),
+  .workspace-shell [role="menuitem"]:not([aria-disabled="true"]) {
+    min-height: var(--tos-touch-mobile);
+  }
+
+  .workspace-shell button:not(:disabled) {
+    min-width: var(--tos-touch-mobile);
+  }
+}

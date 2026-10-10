@@ -20,6 +20,8 @@ const exactAllowedPaths = new Set([
   "v1/money-transfers",
   "v1/money-reconciliations",
   "v1/reports/financial-summary",
+  "v1/reports/credit-aging",
+  "v1/reports/cash-forecast",
   "v1/expenses",
   "v1/expense-categories",
 ]);
