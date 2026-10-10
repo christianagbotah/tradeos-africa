@@ -16,7 +16,7 @@ function read(relative: string) {
 describe("multi-page release hardening", () => {
   it("never serves authenticated APIs from the service-worker cache and evicts the old cache generation", () => {
     const sw = read("public/sw.js");
-    expect(sw).toContain('const CACHE_NAME = "tradeos-shell-v2"');
+    expect(sw).toContain('const CACHE_NAME = "tradeos-shell-v3-zai-canonical"');
     expect(sw).toMatch(/url\.pathname\.startsWith\("\/api\/"\)[\s\S]*return/);
     expect(sw).toMatch(/keys\.filter\(\(key\) => key !== CACHE_NAME\)[\s\S]*caches\.delete/);
   });
