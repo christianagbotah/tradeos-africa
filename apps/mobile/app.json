@@ -17,6 +17,9 @@
     "extra": {
       "product": "TradeOS Africa",
       "offlineFirst": true
-    }
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
   }
 }

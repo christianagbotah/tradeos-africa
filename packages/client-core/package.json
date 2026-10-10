@@ -9,6 +9,11 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./sync-runtime": {
+      "types": "./src/sync-runtime.ts",
+      "react-native": "./src/sync-runtime.ts",
+      "default": "./dist/sync-runtime.js"
     }
   },
   "scripts": {
