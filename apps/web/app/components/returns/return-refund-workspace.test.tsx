@@ -43,3 +43,36 @@ describe("ReturnRefundWorkspace", () => {
     expect(css).toMatch(/return-commandbar[\s\S]*font-size:\s*15px/);
   });
 });
+
+
+describe("ReturnRefundWorkspace evidence-first composition", () => {
+  it("uses the shared command, state and mobile-record primitives around immutable sale evidence", async () => {
+    const module = await loadWorkspace();
+    expect(module?.ReturnRefundWorkspace).toBeTypeOf("function");
+    if (!module?.ReturnRefundWorkspace) return;
+    const html = renderToStaticMarkup(React.createElement(module.ReturnRefundWorkspace, { sales, selectedId: sales[1]!.id, loading: false, onSelect: () => undefined, onSearch: () => undefined }));
+    expect(html).toContain("tradeos-command-bar");
+    expect(html).toContain("return-sale-row--desktop");
+    expect(html).toContain("tradeos-mobile-record-card");
+    expect(html).toContain("Original posted sale");
+    expect(html).toContain("Review sale");
+  });
+
+  it("renders intentional loading and empty states through StatePanel", async () => {
+    const module = await loadWorkspace();
+    expect(module?.ReturnRefundWorkspace).toBeTypeOf("function");
+    if (!module?.ReturnRefundWorkspace) return;
+    const loading = renderToStaticMarkup(React.createElement(module.ReturnRefundWorkspace, { sales: [], selectedId: null, loading: true, onSelect: () => undefined, onSearch: () => undefined }));
+    const empty = renderToStaticMarkup(React.createElement(module.ReturnRefundWorkspace, { sales: [], selectedId: null, loading: false, onSelect: () => undefined, onSearch: () => undefined }));
+    expect(loading).toContain("tradeos-state-panel--loading");
+    expect(empty).toContain("tradeos-state-panel--empty");
+  });
+
+  it("uses distinct desktop rows and phone record cards without compressed desktop rows", () => {
+    const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+    const css = fs.readFileSync(path.join(appRoot, "tradeos-app.css"), "utf8");
+    expect(css).toMatch(/\.return-sale-row--mobile\s*\{[^}]*display:\s*none/);
+    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*?\.return-sale-row--desktop\s*\{[^}]*display:\s*none/);
+    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*?\.return-sale-row--mobile\s*\{[^}]*display:\s*block/);
+  });
+});
