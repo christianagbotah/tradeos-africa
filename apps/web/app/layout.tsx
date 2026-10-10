@@ -12,6 +12,7 @@ import "./ui-primitives.css";
 import "./dashboard.css";
 import "./catalog.css";
 import "./pos.css";
+import "./pos-zai-reference.css";
 import "./cashbook.css";
 import "./operations.css";
 import "./reports.css";
