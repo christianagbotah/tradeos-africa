@@ -5,7 +5,7 @@ describe("TradeOS application shell navigation",()=>{
  it("uses real workspace routes",()=>{expect(workspaceNavigation.map(i=>i.href)).toEqual(["/dashboard","/sell","/sales","/customers","/purchases","/inventory","/catalog","/returns","/cashbook","/operations","/reports"]);});
  it("marks nested routes active",()=>{expect(isWorkspaceNavActive("/cashbook/history","/cashbook")).toBe(true);expect(isWorkspaceNavActive("/sales","/cashbook")).toBe(false);});
  it("keeps existing role route visibility authoritative",()=>{expect(visibleWorkspaceNav("OWNER")).toHaveLength(11);expect(visibleWorkspaceNav("VIEWER").map(i=>i.href)).not.toContain("/sell");});
- it("derives exact role-aware phone priorities",()=>{expect(hrefs("OWNER")).toEqual(["/dashboard","/sell","/cashbook","/inventory","#more"]);expect(hrefs("MANAGER")).toEqual(["/dashboard","/sell","/cashbook","/inventory","#more"]);expect(hrefs("CASHIER")).toEqual(["/dashboard","/sell","/sales","/cashbook","#more"]);expect(hrefs("INVENTORY")).toEqual(["/dashboard","/inventory","/purchases","/catalog","#more"]);expect(hrefs("ACCOUNTANT")).toEqual(["/dashboard","/cashbook","/customers","/reports","#more"]);expect(hrefs("VIEWER")).toEqual(["/dashboard","/sales","/inventory","/reports","#more"]);});
+ it("derives exact role-aware phone priorities",()=>{expect(hrefs("OWNER")).toEqual(["/dashboard","/sales","/sell","/catalog","#more"]);expect(hrefs("MANAGER")).toEqual(["/dashboard","/sales","/sell","/catalog","#more"]);expect(hrefs("CASHIER")).toEqual(["/dashboard","/sales","/sell","/cashbook","#more"]);expect(hrefs("INVENTORY")).toEqual(["/dashboard","/inventory","/purchases","/catalog","#more"]);expect(hrefs("ACCOUNTANT")).toEqual(["/dashboard","/sales","/cashbook","/reports","#more"]);expect(hrefs("VIEWER")).toEqual(["/dashboard","/sales","/inventory","/reports","#more"]);});
  it("fails closed for unknown roles and More contains only authorized leftovers",()=>{expect(hrefs("UNKNOWN")).toEqual(["#more"]);expect(mobileMoreNav("UNKNOWN")).toEqual([]);for(const item of mobileMoreNav("CASHIER")) expect(visibleWorkspaceNav("CASHIER").map(i=>i.href)).toContain(item.href);});
  it("marks More active when the current route lives under More",()=>{expect(isMobileMoreActive("OWNER","/customers")).toBe(true);expect(isMobileMoreActive("OWNER","/sell")).toBe(false);expect(isMobileMoreActive("UNKNOWN","/customers")).toBe(false);});
  it("keeps route-driven aria state in shell source",()=>{const dir=path.dirname(fileURLToPath(import.meta.url));const source=fs.readFileSync(path.join(dir,"app-shell.tsx"),"utf8");expect(source).toContain("usePathname()");expect(source).toContain('aria-current={active ? "page" : undefined}');});
@@ -20,7 +20,7 @@ describe("TradeOS shell hierarchy and permission presentation", () => {
     const source = readSrc("app-shell.tsx");
     expect(source).toContain("workspace-nav-group");
     expect(source).toContain("workspace-nav-label");
-    expect(source).toMatch(/groups\s*=/);
+    expect(source).toMatch(/sidebarGroups\s*=/);
   });
 
   it("ensures exactly one active nav item for nested paths", () => {
@@ -35,6 +35,15 @@ describe("TradeOS shell hierarchy and permission presentation", () => {
     const source = readSrc("app-shell.tsx");
     expect(source).toContain("context.business");
     expect(source).toContain("activeBranch");
+  });
+
+  it("keeps the Z.ai desktop business card as a real accessible context switcher", () => {
+    const source = readSrc("app-shell.tsx");
+    expect(source).toContain("workspace-business-card-trigger");
+    expect(source).toContain("workspace-business-switcher");
+    expect(source).toContain("setContextOpen");
+    expect(source).toContain('aria-haspopup="dialog"');
+    expect(source).toContain("{businessBranchSelectors}");
   });
 
   it("provides an account menu with sign out", () => {

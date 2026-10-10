@@ -33,8 +33,9 @@ describe("multi-page review regressions", () => {
     expect(shell).toContain("MobileMoreSheet");
     expect(read("components/workspace/mobile-more-sheet.tsx")).toContain("workspace-more-context");
     expect(shell.match(/<NetworkStatus/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
-    expect(shell.match(/Sign out/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     const moreSheet = read("components/workspace/mobile-more-sheet.tsx");
+    expect(shell).toContain("Sign out");
+    expect(moreSheet).toContain("Sign out");
     expect(moreSheet).toContain('role="dialog"');
     expect(moreSheet).toContain('aria-modal="true"');
     expect(moreSheet).toContain('e.key==="Escape"');

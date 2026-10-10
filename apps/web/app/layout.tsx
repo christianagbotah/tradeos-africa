@@ -7,6 +7,7 @@ import "./dashboard.css";
 import "./catalog.css";
 import "./pos.css";
 import "./customers-credit.css";
+import "./zai-reference.css";
 
 export const metadata: Metadata = {
   title: "TradeOS Africa",
@@ -18,7 +19,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#0f172a",
+  themeColor: "#08261c",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

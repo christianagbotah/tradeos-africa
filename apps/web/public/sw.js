@@ -1,4 +1,4 @@
-const CACHE_NAME = "tradeos-shell-v4-true-zai";
+const CACHE_NAME = "tradeos-shell-v5-zai-reference-parity";
 const CORE_URLS = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

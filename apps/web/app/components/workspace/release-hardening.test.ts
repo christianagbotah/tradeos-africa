@@ -16,7 +16,7 @@ function read(relative: string) {
 describe("multi-page release hardening", () => {
   it("never serves authenticated APIs from the service-worker cache and evicts the old cache generation", () => {
     const sw = read("public/sw.js");
-    expect(sw).toContain('const CACHE_NAME = "tradeos-shell-v4-true-zai"');
+    expect(sw).toContain('const CACHE_NAME = "tradeos-shell-v5-zai-reference-parity"');
     expect(sw).toMatch(/url\.pathname\.startsWith\("\/api\/"\)[\s\S]*return/);
     expect(sw).toMatch(/keys\.filter\(\(key\) => key !== CACHE_NAME\)[\s\S]*caches\.delete/);
   });
@@ -56,8 +56,9 @@ describe("multi-page release hardening", () => {
     expect(shell).toContain("MobileMoreSheet");
     expect(read("app/components/workspace/mobile-more-sheet.tsx")).toContain('className="workspace-more-context"');
     expect(shell.match(/<NetworkStatus \/>/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(shell.match(/Sign out/g)?.length).toBeGreaterThanOrEqual(2);
     const moreSheet = read("app/components/workspace/mobile-more-sheet.tsx");
+    expect(shell).toContain("Sign out");
+    expect(moreSheet).toContain("Sign out");
     expect(moreSheet).toContain('role="dialog"');
     expect(moreSheet).toContain('aria-modal="true"');
     expect(moreSheet).toContain('e.key==="Escape"');

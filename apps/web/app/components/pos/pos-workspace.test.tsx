@@ -27,7 +27,7 @@ describe("professional POS workspace", () => {
       role: "CASHIER",
       items,
     }));
-    expect(html).toContain("Walk-in customer");
+    expect(html).toContain("Walk-in Customer");
     expect(html).toContain("Choose customer");
     expect(html).toContain("Charge ₵ 0.00");
     expect(html).toContain("disabled");

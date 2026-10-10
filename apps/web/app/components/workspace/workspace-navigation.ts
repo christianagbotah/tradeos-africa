@@ -39,12 +39,14 @@ export function isWorkspaceNavActive(pathname: string, href: string): boolean {
 }
 
 const priorities: Record<string, string[]> = {
-  OWNER: ["/dashboard", "/sell", "/cashbook", "/inventory"],
-  ADMIN: ["/dashboard", "/sell", "/cashbook", "/inventory"],
-  MANAGER: ["/dashboard", "/sell", "/cashbook", "/inventory"],
-  CASHIER: ["/dashboard", "/sell", "/sales", "/cashbook"],
+  OWNER: ["/dashboard", "/sales", "/sell", "/catalog"],
+  ADMIN: ["/dashboard", "/sales", "/sell", "/catalog"],
+  MANAGER: ["/dashboard", "/sales", "/sell", "/catalog"],
+  CASHIER: ["/dashboard", "/sales", "/sell", "/cashbook"],
+  SALES: ["/dashboard", "/sales", "/sell", "/customers"],
+  STAFF: ["/dashboard", "/sales", "/sell", "/cashbook"],
   INVENTORY: ["/dashboard", "/inventory", "/purchases", "/catalog"],
-  ACCOUNTANT: ["/dashboard", "/cashbook", "/customers", "/reports"],
+  ACCOUNTANT: ["/dashboard", "/sales", "/cashbook", "/reports"],
   VIEWER: ["/dashboard", "/sales", "/inventory", "/reports"],
 };
 
@@ -52,6 +54,7 @@ function mobileLabel(item: WorkspaceNavItem): string {
   if (item.href === "/dashboard") return "Home";
   if (item.href === "/cashbook") return "Money";
   if (item.href === "/inventory") return "Stock";
+  if (item.href === "/catalog") return "Catalog";
   return item.label.replace(" / POS", "").replace(" & expenses", "");
 }
 

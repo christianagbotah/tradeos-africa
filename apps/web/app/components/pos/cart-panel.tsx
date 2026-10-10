@@ -3,6 +3,7 @@
 import React from "react";
 import { formatMoney } from "@tradeos/contracts";
 import type { CartLine, PosLineKey, PosSellableItem } from "./pos-model";
+import { ReferenceIcon } from "../ui/reference-icon";
 
 export function CartPanel({
   cart,
@@ -26,6 +27,7 @@ export function CartPanel({
   if (cart.length === 0) {
     return (
       <section className="pos-cart-panel pos-cart-empty" aria-label="Current sale">
+        <span className="pos-cart-empty-icon" aria-hidden="true"><ReferenceIcon name="cart" /></span>
         <strong>Your sale is empty</strong>
         <span>Tap a product or service to add it.</span>
       </section>

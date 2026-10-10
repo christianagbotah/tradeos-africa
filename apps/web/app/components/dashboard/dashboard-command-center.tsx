@@ -1,27 +1,59 @@
 "use client";
 
 import { useMemo } from "react";
-import { formatMoney } from "@tradeos/contracts";
 import Link from "next/link";
-import { BusinessPulse } from "../business/business-pulse";
-import { AttentionItem } from "../business/attention-item";
-import { MoneyValue } from "../business/money-value";
-import { QuickAction } from "../business/quick-action";
+import { formatMoney } from "@tradeos/contracts";
 import { canAccessWorkspaceRoute } from "../workspace/workspace-navigation";
-import { buildDashboardModel } from "./dashboard-model";
+import { buildDashboardModel, type DashboardAttention } from "./dashboard-model";
 import { useDashboardData } from "./dashboard-data";
 import { dashboardAttentionForRole, dashboardCanViewReports, dashboardQuickActions } from "./dashboard-actions";
-
-const greeting = (tz: string) => {
-  const h = Number(new Intl.DateTimeFormat("en-GH", { timeZone: tz, hour: "2-digit", hourCycle: "h23" }).format(new Date()));
-  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-};
+import { ReferenceIcon } from "../ui/reference-icon";
 
 const frontlineRoles = new Set(["CASHIER", "SALES", "STAFF"]);
+
+function packCopy(type: string) {
+  const copy: Record<string, { label: string; text: string }> = {
+    RETAIL_HARDWARE: { label: "Retail / Provisions", text: "Stock and credit are your levers — reorder fast, collect gently." },
+    FOOD: { label: "Food / Hospitality", text: "Watch daily sales, ingredient stock and waste before the next rush." },
+    SALON_BARBER: { label: "Salon / Barber", text: "Keep services moving, protect consumable stock and follow up on customer balances." },
+    DRINKING_SPOT: { label: "Drinks / Hospitality", text: "Track fast-moving drinks, selling units and cash position throughout the day." },
+    WASHING_BAY: { label: "Washing bay", text: "Keep service volume, consumables and shift cash visible from opening to close." },
+    CAR_PARK: { label: "Car park", text: "Keep vehicle activity, shift custody and collected cash easy to reconcile." },
+    DISTRIBUTION: { label: "Wholesale / Distribution", text: "Protect stock availability, customer credit and supplier obligations as volume grows." },
+    SERVICES: { label: "Services", text: "Keep jobs, customer balances and operating cash visible in one place." },
+  };
+  return copy[type] ?? { label: "Business workspace", text: "Use today’s evidence to decide what needs action next." };
+}
+
+function actionLabel(href: string, fallback: string) {
+  if (href === "/sell") return "New sale";
+  if (href === "/customers") return "Send reminders";
+  return fallback;
+}
+
+function actionIcon(href: string) {
+  if (href === "/sell") return <ReferenceIcon name="cart" />;
+  if (href === "/purchases") return <ReferenceIcon name="box" />;
+  if (href === "/cashbook") return <ReferenceIcon name="wallet" />;
+  if (href === "/customers") return <ReferenceIcon name="reply" />;
+  return <ReferenceIcon name="sparkles" />;
+}
+
+function evidenceCard(item: DashboardAttention, currencyCode: string) {
+  return (
+    <article className={`zai-ai-action zai-ai-action--${item.priority}`} key={item.id}>
+      <div className="zai-ai-action-title"><span aria-hidden="true">{item.priority === "critical" ? "!" : item.priority === "warning" ? "△" : "○"}</span><strong>{item.title}</strong></div>
+      <p>{item.detail}</p>
+      {item.amountMinor != null ? <small>{formatMoney(item.amountMinor, currencyCode)}</small> : null}
+      <Link href={item.href}>{item.actionLabel} <span aria-hidden="true">→</span></Link>
+    </article>
+  );
+}
 
 export function DashboardCommandCenter({
   businessId,
   businessName,
+  businessType,
   branchId,
   branchName,
   currencyCode,
@@ -30,6 +62,7 @@ export function DashboardCommandCenter({
 }: {
   businessId: string;
   businessName: string;
+  businessType: string;
   branchId: string;
   branchName: string;
   currencyCode: string;
@@ -38,169 +71,88 @@ export function DashboardCommandCenter({
 }) {
   const { evidence, busy, message } = useDashboardData({ businessId, branchId, currencyCode, branchTimezone });
   const model = useMemo(() => buildDashboardModel(evidence), [evidence]);
-  const actions = dashboardQuickActions(role);
-  const visibleAttention = dashboardAttentionForRole(role, model.attention);
-  const pulseActions = visibleAttention.slice(0, 2).map((a) => ({ href: a.href, label: a.actionLabel }));
-  const isFrontline = frontlineRoles.has(role);
+  const actions = dashboardQuickActions(role).slice(0, 4);
+  const visibleAttention = dashboardAttentionForRole(role, model.attention).slice(0, 3);
   const canSell = canAccessWorkspaceRoute(role, "/sell");
+  const isFrontline = frontlineRoles.has(role);
+  const pack = packCopy(businessType);
 
-  const money = (label: string, value: number | null) => (
-    <article>
-      <span>{label}</span>
-      {value == null ? <strong>—</strong> : <MoneyValue minor={value} currencyCode={currencyCode} emphasis="strong" />}
-    </article>
-  );
+  const aiCards: React.ReactNode[] = visibleAttention.map((item) => evidenceCard(item, currencyCode));
+  if (aiCards.length === 0) {
+    aiCards.push(
+      <article className="zai-ai-action zai-ai-action--info" key="quiet-evidence">
+        <div className="zai-ai-action-title"><span aria-hidden="true">✣</span><strong>{model.today.salesCount === 0 ? "No sales recorded yet today" : "No urgent exception right now"}</strong></div>
+        <p>{model.today.salesCount === 0 ? "TradeOS has not received a sale in the current reporting period." : "The available business evidence does not currently show an urgent exception."}</p>
+        <small>{model.dataStatus.coverage}</small>
+        {canSell ? <Link href="/sell">Start a sale <span aria-hidden="true">→</span></Link> : dashboardCanViewReports(role) ? <Link href="/reports">See report <span aria-hidden="true">→</span></Link> : null}
+      </article>,
+    );
+  }
+  if (aiCards.length < 3 && model.momentum && !isFrontline) {
+    aiCards.push(
+      <article className="zai-ai-action zai-ai-action--positive" key="momentum-evidence">
+        <div className="zai-ai-action-title"><span aria-hidden="true">↗</span><strong>Business momentum</strong></div>
+        <p>{model.momentum.revenueChangePercent == null ? "More history is needed before TradeOS can compare revenue reliably." : `Revenue is ${Math.abs(model.momentum.revenueChangePercent).toFixed(1)}% ${model.momentum.revenueChangePercent >= 0 ? "above" : "below"} ${model.momentum.baselineLabel}.`}</p>
+        <small>Evidence from the current reporting period</small>
+        {dashboardCanViewReports(role) ? <Link href="/reports">See report <span aria-hidden="true">→</span></Link> : null}
+      </article>,
+    );
+  }
+
+  const todaySales = model.today.netRevenueMinor == null ? "—" : formatMoney(model.today.netRevenueMinor, currencyCode);
+  const grossProfit = model.today.grossProfitMinor == null ? "—" : formatMoney(model.today.grossProfitMinor, currencyCode);
+  const cashPosition = model.moneyPosition.cashMinor == null ? "—" : formatMoney(model.moneyPosition.cashMinor, currencyCode);
+  const credit = model.moneyPosition.receivablesMinor == null ? "—" : formatMoney(model.moneyPosition.receivablesMinor, currencyCode);
 
   return (
-    <div className="tos-dashboard" data-workspace-route="dashboard">
-      {/* Greeting + business context */}
-      <header className="tos-dashboard-greeting">
+    <div className="zai-dashboard" data-workspace-route="dashboard">
+      <header className="zai-dashboard-header">
         <div>
-          <span>{greeting(branchTimezone)}</span>
-          <h1>{businessName}</h1>
-          <p>{branchName} · {model.dataStatus.coverage}</p>
+          <h1>Dashboard</h1>
+          <p>{businessName} · {branchName} — Here&apos;s your shop today.</p>
         </div>
-        {dashboardCanViewReports(role) ? <Link href="/reports">View reports</Link> : null}
+        <div className="zai-dashboard-header-actions">
+          <span className="zai-online-pill"><ReferenceIcon name="wifi" /> Online</span>
+          <time className="zai-date-pill" dateTime={new Date().toISOString().slice(0, 10)}><ReferenceIcon name="calendar" /> Today</time>
+          {canSell ? <Link className="zai-new-sale" href="/sell"><ReferenceIcon name="cart" /> New sale</Link> : null}
+        </div>
       </header>
 
-      {/* Status message — offline/partial/error */}
       {message ? <p className="tos-dashboard-message" role="status">{message}</p> : null}
 
-      {/* Frontline Sell CTA — promoted for cashier/sales roles */}
-      {isFrontline && canSell ? (
-        <Link href="/sell" className="tos-dashboard-sell-cta">
-          <span className="tos-dashboard-sell-cta-icon">→</span>
-          <div>
-            <strong>Start selling</strong>
-            <span>Open the POS to take a new sale</span>
-          </div>
-        </Link>
-      ) : null}
-
-      {/* Today — business state (hero metric for owners) */}
-      <section className="tos-today" aria-labelledby="today-title">
-        <div className="tos-today-hero">
-          <span className="tos-section-kicker">Today</span>
-          <h2 id="today-title">Sales</h2>
-          {model.today.netRevenueMinor == null ? (
-            <strong className="tos-today-empty">{busy ? "Loading…" : "—"}</strong>
-          ) : (
-            <MoneyValue minor={model.today.netRevenueMinor} currencyCode={currencyCode} emphasis="hero" />
-          )}
-          {model.today.comparisonText ? (
-            <p>{model.today.comparisonText}</p>
-          ) : (
-            <p>Comparison appears when enough history is available.</p>
-          )}
-        </div>
-        <div className="tos-today-support">
-          {money("Gross profit", model.today.grossProfitMinor)}
-          <article>
-            <span>Transactions</span>
-            <strong>{model.today.salesCount ?? "—"}</strong>
-          </article>
-          {money("Net cash movement", model.today.cashNetMinor)}
-        </div>
+      <section className="zai-business-guidance" aria-label="Business pack guidance">
+        <span aria-hidden="true"><ReferenceIcon name="sparkles" /></span><p><strong>{pack.label}:</strong> {pack.text}</p>
       </section>
 
-      {/* Business pulse — AI/operational summary */}
-      <BusinessPulse
-        headline={model.pulse.headline}
-        summary={model.pulse.summary}
-        evidence={model.pulse.evidence}
-        actions={pulseActions}
-        coverage={model.dataStatus.coverage}
-      />
-
-      {/* Quick actions — what should I do next */}
       {actions.length > 0 ? (
-        <section className="tos-dashboard-section" aria-labelledby="quick-actions-title">
-          <div className="tos-section-heading">
-            <div>
-              <span className="tos-section-kicker">Do it now</span>
-              <h2 id="quick-actions-title">Quick actions</h2>
-            </div>
-          </div>
-          <div className="tos-quick-grid">
-            {actions.map((a) => <QuickAction key={a.href + a.label} {...a} />)}
-          </div>
-        </section>
+        <nav className="zai-action-rail" aria-label="Quick business actions">
+          {actions.map((item) => <Link href={item.href} key={item.href}><span aria-hidden="true">{actionIcon(item.href)}</span>{actionLabel(item.href, item.label)}</Link>)}
+        </nav>
       ) : null}
 
-      {/* Needs attention — exceptions */}
-      <section className="tos-dashboard-section" aria-labelledby="attention-title">
-        <div className="tos-section-heading">
-          <div>
-            <span className="tos-section-kicker">Priority</span>
-            <h2 id="attention-title">Needs attention</h2>
-          </div>
-        </div>
-        {visibleAttention.length ? (
-          <div className="tos-attention-list">
-            {visibleAttention.map((a) => (
-              <AttentionItem
-                key={a.id}
-                title={a.title}
-                detail={a.detail}
-                priority={a.priority}
-                href={a.href}
-                actionLabel={a.actionLabel}
-                evidence={a.amountMinor != null ? [
-                  formatMoney(a.amountMinor, currencyCode),
-                ] : undefined}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="tos-dashboard-empty">No urgent exception is visible in the available evidence.</p>
-        )}
+      <section className="zai-ai-actions" aria-labelledby="zai-ai-actions-title">
+        <div className="zai-ai-actions-heading"><h2 id="zai-ai-actions-title"><ReferenceIcon name="sparkles" /> AI ACTIONS FOR TODAY</h2><span>Suggestions · not accounting records</span></div>
+        <div className="zai-ai-actions-grid">{aiCards.slice(0, 3)}</div>
       </section>
 
-      {/* Money position — cash/receivables/payables */}
-      <section className="tos-dashboard-section" aria-labelledby="money-position-title">
-        <div className="tos-section-heading">
-          <div>
-            <span className="tos-section-kicker">Balances</span>
-            <h2 id="money-position-title">Money position</h2>
-          </div>
-        </div>
-        <div className="tos-money-grid">
-          {money("Cash / money accounts", model.moneyPosition.cashMinor)}
-          {money("Receivables", model.moneyPosition.receivablesMinor)}
-          {money("Payables", model.moneyPosition.payablesMinor)}
-        </div>
+      <section className="zai-kpi-grid" aria-label="Today’s business metrics">
+        <article><span>Today&apos;s sales</span><strong>{busy && model.today.netRevenueMinor == null ? "Loading…" : todaySales}</strong><small>{model.today.comparisonText ?? `${model.today.salesCount ?? 0} sales recorded`}</small></article>
+        <article><span>Gross profit</span><strong>{grossProfit}</strong><small>{model.momentum?.grossProfitChangePercent == null ? "Current period" : `${model.momentum.grossProfitChangePercent >= 0 ? "+" : ""}${model.momentum.grossProfitChangePercent.toFixed(1)}% vs ${model.momentum.baselineLabel}`}</small></article>
+        <article><span>Cash position</span><strong>{cashPosition}</strong><small>Across available money accounts</small></article>
+        <article><span>Outstanding credit</span><strong>{credit}</strong><small>{model.moneyPosition.receivablesMinor && model.moneyPosition.receivablesMinor > 0 ? "Customer balances need follow-up" : "No outstanding amount visible"}</small></article>
       </section>
 
-      {/* Momentum — trends (owner/manager only — not shown for frontline) */}
-      {model.momentum && !isFrontline ? (
-        <section className="tos-dashboard-section" aria-labelledby="momentum-title">
-          <div className="tos-section-heading">
-            <div>
-              <span className="tos-section-kicker">Trend</span>
-              <h2 id="momentum-title">Business momentum</h2>
-            </div>
-            <small>Compared with {model.momentum.baselineLabel}</small>
-          </div>
-          <div className="tos-momentum-grid">
-            <article>
-              <span>Revenue</span>
-              <strong>
-                {model.momentum.revenueChangePercent == null
-                  ? "Not enough history"
-                  : `${model.momentum.revenueChangePercent >= 0 ? "+" : ""}${model.momentum.revenueChangePercent.toFixed(1)}%`}
-              </strong>
-            </article>
-            <article>
-              <span>Gross profit</span>
-              <strong>
-                {model.momentum.grossProfitChangePercent == null
-                  ? "Not enough history"
-                  : `${model.momentum.grossProfitChangePercent >= 0 ? "+" : ""}${model.momentum.grossProfitChangePercent.toFixed(1)}%`}
-              </strong>
-            </article>
-          </div>
-        </section>
-      ) : null}
+      <section className="zai-dashboard-lower-grid">
+        <article className="zai-dashboard-panel zai-sales-trend">
+          <div className="zai-dashboard-panel-heading"><div><h2>Sales — last 7 days</h2><p>Daily revenue and gross profit</p></div><span>7d</span></div>
+          <div className="zai-chart-placeholder"><strong>{todaySales}</strong><span>{model.today.salesCount ?? 0} transaction{model.today.salesCount === 1 ? "" : "s"} in the available current-period evidence</span><p>Daily trend points appear here as historical report evidence becomes available.</p></div>
+        </article>
+        <article className="zai-dashboard-panel zai-money-flow">
+          <div className="zai-dashboard-panel-heading"><div><h2>Money flow</h2><p>In vs out today</p></div></div>
+          <dl><div><dt>Net cash movement</dt><dd>{model.today.cashNetMinor == null ? "—" : formatMoney(model.today.cashNetMinor, currencyCode)}</dd></div><div><dt>Receivables</dt><dd>{credit}</dd></div><div><dt>Payables</dt><dd>{model.moneyPosition.payablesMinor == null ? "—" : formatMoney(model.moneyPosition.payablesMinor, currencyCode)}</dd></div></dl>
+          {dashboardCanViewReports(role) ? <Link href="/reports">Open full reports →</Link> : null}
+        </article>
+      </section>
     </div>
   );
 }
