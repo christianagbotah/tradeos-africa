@@ -7,8 +7,6 @@ import { CashbookSummary } from "./cashbook/cashbook-summary";
 import { CashbookEntryForm } from "./cashbook/cashbook-entry-form";
 import { ExpenseCategoryCard } from "./cashbook/expense-category-card";
 import { CashbookHistory } from "./cashbook/cashbook-history";
-import { StatePanel } from "./ui/state-panel";
-import { StatusBadge } from "./ui/status-badge";
 import type { CashbookCategory, CashbookEntry, CashbookExpense, CashbookTotal } from "./cashbook/types";
 import { clientApi, messageFrom } from "../lib/client-api";
 import {
@@ -174,8 +172,8 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
   return (
     <section className="cashbook-page" id="cashbook">
       <header className="cashbook-page-header">
-        <div><p className="cashbook-kicker">Money movements</p><h2>Cashbook & expenses</h2><p>Track real cash movement by branch. Credit is excluded until money actually moves, and cached records remain available offline.</p></div>
-        <StatusBadge tone={queued > 0 ? "warning" : "positive"}>{queued > 0 ? `${queued} pending sync` : "Fully synced"}</StatusBadge>
+        <div><p  className="tradeos-kicker">Money movements</p><h2>Cashbook & expenses</h2><p>Track real cash movement by branch. Credit is excluded until money actually moves, and cached records remain available offline.</p></div>
+        <span className={queued > 0 ? "cashbook-sync-badge pending" : "cashbook-sync-badge"}>{queued > 0 ? `${queued} pending sync` : "Fully synced"}</span>
       </header>
 
       <CashbookSummary
@@ -236,8 +234,8 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
         /> : null}
       </div>
 
-      {message ? <StatePanel state={cashbookMessageState(message)} title={cashbookMessageTitle(message)} description={message} /> : null}
-      {failed.length > 0 ? <StatePanel state="error" title="Cashbook sync needs review" description={failed.map((error) => `Sync rejected: ${error}`).join(" · ")} /> : null}
+      {message ? <div className="cashbook-status-message" role="status">{message}</div> : null}
+      {failed.length > 0 ? <div className="cashbook-sync-errors" role="alert">{failed.map((error, index) => <p className="form-error" key={`${error}-${index}`}>Sync rejected: {error}</p>)}</div> : null}
 
       <section className="cashbook-card cashbook-treasury-card">
         <div className="cashbook-section-heading"><div><span>Accounts & reconciliation</span><h3>Treasury</h3></div></div>
@@ -247,16 +245,4 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
       <CashbookHistory entries={snapshot.entries} expenses={snapshot.expenses} money={money} />
     </section>
   );
-}
-
-function cashbookMessageState(message: string): "offline" | "error" | "success" {
-  if (/offline|saved on this device/i.test(message)) return "offline";
-  if (/error|failed|rejected|could not|unavailable/i.test(message)) return "error";
-  return "success";
-}
-
-function cashbookMessageTitle(message: string): string {
-  if (/offline|saved on this device/i.test(message)) return "Saved for synchronization";
-  if (/error|failed|rejected|could not|unavailable/i.test(message)) return "Cashbook needs attention";
-  return "Cashbook updated";
 }

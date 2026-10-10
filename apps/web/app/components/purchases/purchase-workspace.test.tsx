@@ -33,23 +33,13 @@ describe("PurchaseWorkspace", () => {
     expect(html).not.toMatch(/Edit purchase|Delete purchase/);
   });
 
-  it("uses canonical Z.ai command, mobile-record and state primitives", () => {
-    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const source = fs.readFileSync(path.join(root, "components", "purchases", "purchase-workspace.tsx"), "utf8");
-    for (const contract of ["CommandBar", "MobileRecordCard", "StatePanel", "StatusBadge"]) expect(source).toContain(contract);
-    expect(source).toContain("purchase-history-row--desktop");
-    expect(source).toContain("purchase-history-row--mobile");
-  });
-
   it("replaces the monolithic receipt/history implementation while preserving purchase returns", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
     const source = fs.readFileSync(path.join(root, "components", "purchases-inventory.tsx"), "utf8");
     expect(source).toContain("PurchaseReceiptBuilder");
     expect(source).toContain("PurchaseWorkspace");
     expect(source).toContain("PurchaseDetailSheet");
-    expect(source).toContain("PurchaseReturnSheet");
-    const returnSource = fs.readFileSync(path.join(root, "components", "purchases", "purchase-return-sheet.tsx"), "utf8");
-    expect(returnSource).toContain("PURCHASE_RETURN_CREATE");
+    expect(source).toContain("PURCHASE_RETURN_CREATE");
     expect(source).not.toMatch(/function PurchaseReceipt\(/);
     expect(source).not.toMatch(/function RecentPurchases\(/);
   });

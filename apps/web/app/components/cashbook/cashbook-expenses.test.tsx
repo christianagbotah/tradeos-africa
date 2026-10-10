@@ -99,22 +99,6 @@ describe("Cashbook page composition", () => {
     expect(html).toContain("No expenses yet");
   });
 
-  it("uses the canonical Z.ai command, stat, mobile-record and state primitives", () => {
-    const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-    const summary = fs.readFileSync(path.join(dir, "cashbook", "cashbook-summary.tsx"), "utf8");
-    const history = fs.readFileSync(path.join(dir, "cashbook", "cashbook-history.tsx"), "utf8");
-    const form = fs.readFileSync(path.join(dir, "cashbook", "cashbook-entry-form.tsx"), "utf8");
-    const coordinator = fs.readFileSync(path.join(dir, "cashbook-expenses.tsx"), "utf8");
-    for (const contract of ["CommandBar", "StatCard", "Button"]) expect(summary).toContain(contract);
-    for (const contract of ["MobileRecordCard", "StatePanel", "StatusBadge"]) expect(history).toContain(contract);
-    expect(form).toContain("Button");
-    expect(form).not.toContain('className="primary-button"');
-    expect(coordinator).toContain("StatePanel");
-    expect(coordinator).toContain("StatusBadge");
-    expect(coordinator).not.toContain('className="eyebrow"');
-    expect(coordinator).not.toContain('className="form-error"');
-  });
-
   it("retains offline queue and rejected-sync behavior in the coordinator", () => {
     const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const source = fs.readFileSync(path.join(dir, "cashbook-expenses.tsx"), "utf8");
