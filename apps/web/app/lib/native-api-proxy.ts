@@ -5,6 +5,8 @@ const exactRoutes = new Map<string, ReadonlySet<string>>([
   ["v1/auth/refresh", new Set(["POST"])],
   ["v1/auth/logout", new Set(["POST"])],
   ["v1/me", new Set(["GET"])],
+  ["v1/catalog/items", new Set(["GET"])],
+  ["v1/inventory", new Set(["GET"])],
   ["v1/sync", new Set(["POST"])],
 ]);
 const businessContextPattern = /^v1\/businesses\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/context$/i;

@@ -12,10 +12,14 @@ describe("native mobile API route policy", () => {
     expect(isNativeApiRouteAllowed("POST", "v1/sync")).toBe(true);
     expect(isNativeApiRouteAllowed("GET", "v1/me")).toBe(true);
     expect(isNativeApiRouteAllowed("GET", `v1/businesses/${businessId}/context`)).toBe(true);
+    expect(isNativeApiRouteAllowed("GET", "v1/catalog/items")).toBe(true);
+    expect(isNativeApiRouteAllowed("GET", "v1/inventory")).toBe(true);
 
     expect(isNativeApiRouteAllowed("GET", "v1/auth/login")).toBe(false);
     expect(isNativeApiRouteAllowed("POST", "v1/me")).toBe(false);
-    expect(isNativeApiRouteAllowed("GET", "v1/catalog/items")).toBe(false);
+    expect(isNativeApiRouteAllowed("POST", "v1/catalog/items")).toBe(false);
+    expect(isNativeApiRouteAllowed("PATCH", "v1/catalog/items")).toBe(false);
+    expect(isNativeApiRouteAllowed("POST", "v1/inventory")).toBe(false);
     expect(isNativeApiRouteAllowed("GET", "v1/businesses/not-a-uuid/context")).toBe(false);
     expect(isNativeApiRouteAllowed("DELETE", `v1/businesses/${businessId}/context`)).toBe(false);
   });
@@ -57,6 +61,26 @@ describe("forwardNativeApi", () => {
     expect(response.headers.get("content-type")).toBe("application/json");
     expect(response.headers.get("x-upstream-secret")).toBeNull();
     await expect(response.json()).resolves.toEqual({ accepted: true });
+  });
+
+
+  it("forwards read query strings unchanged", async () => {
+    let observedUrl = "";
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      observedUrl = String(input);
+      return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const request = new NextRequest("https://tradeosafrica.lightworldtech.com/api/mobile/v1/inventory?businessId=one&branchId=two&query=cement", {
+      method: "GET",
+      headers: { authorization: "Bearer mobile-token" },
+    });
+
+    await forwardNativeApi(request, "/v1/inventory?businessId=one&branchId=two&query=cement", {
+      apiBase: "http://127.0.0.1:4036",
+      fetchImpl,
+    });
+
+    expect(observedUrl).toBe("http://127.0.0.1:4036/v1/inventory?businessId=one&branchId=two&query=cement");
   });
 
   it("does not invent an authorization header for public login", async () => {
