@@ -7,13 +7,13 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.
 const coordinator = () => fs.readFileSync(path.join(appRoot, "components", "sales-returns.tsx"), "utf8");
 
 describe("returns correction orchestration", () => {
-  it("starts every newly selected correction with fresh return defaults while allowing an explicit initial mode", () => {
+  it("initializes correction choices once, then reconciles live revalidation without resetting user edits", () => {
     const source = coordinator();
-    expect(source).toContain("openNewCorrection");
-    expect(source).toMatch(/setMode\(initialMode\)/);
-    expect(source).toMatch(/setRefundMethod\("ORIGINAL_METHOD"\)/);
-    expect(source).toMatch(/setReason\("Customer return"\)/);
-    expect(source).toMatch(/onSelect=\{\(saleId\) => void openNewCorrection\(saleId\)\}/);
+    expect(source).toContain("resetCorrectionState");
+    expect(source).toMatch(/openNewCorrection[\s\S]*resetCorrectionState\(initialMode\)[\s\S]*loadDetail\(saleId\)/);
+    expect(source).toMatch(/if \(cached\) applySaleDetail\(cached\.sale, false\)/);
+    expect(source).toMatch(/applySaleDetail\(response\.sale, Boolean\(cached\)\)/);
+    expect(source).not.toContain("resetCorrectionState?: boolean");
   });
 
   it("preserves the exchange deep link by opening that sale with EXCHANGE as the explicit initial mode", () => {
@@ -24,11 +24,22 @@ describe("returns correction orchestration", () => {
     expect(source).toMatch(/requestedMode[\s\S]*"EXCHANGE"[\s\S]*"RETURN_REFUND"/);
   });
 
-  it("refreshes the open sale detail after relevant applied mutations without resetting the active correction draft", () => {
+  it("guards detail responses with active receipt identity and request generation so closed or replaced receipts cannot reopen", () => {
+    const source = coordinator();
+    expect(source).toContain("detailRequestGenerationRef");
+    expect(source).toContain("activeSaleIdRef");
+    expect(source).toContain("closeSelected");
+    expect(source).toMatch(/detailRequestGenerationRef\.current \+= 1/);
+    expect(source).toMatch(/activeSaleIdRef\.current !== saleId/);
+    expect(source).toMatch(/requestGeneration !== detailRequestGenerationRef\.current/);
+  });
+
+  it("refreshes the active receipt through a background-only path that preserves its correction draft", () => {
     const source = coordinator();
     expect(source).toMatch(/\["SALE_CREATE",\s*"RETURN_CREATE",\s*"REFUND_CREATE",\s*"EXCHANGE_CREATE"\]/);
-    expect(source).toMatch(/void loadSales\(query\)[\s\S]*selected\?\.id[\s\S]*void loadDetail\(selected\.id\)/);
-    expect(source).not.toMatch(/selected\?\.id[\s\S]*openNewCorrection\(selected\.id/);
+    expect(source).toContain("refreshSelectedDetail");
+    expect(source).toMatch(/selected\?\.id[\s\S]*refreshSelectedDetail\(selected\.id\)/);
+    expect(source).not.toMatch(/selected\?\.id[\s\S]*void loadDetail\(selected\.id\)/);
   });
 
   it("keeps offline cache, return mutation ownership and route-level permission presentation unchanged", () => {

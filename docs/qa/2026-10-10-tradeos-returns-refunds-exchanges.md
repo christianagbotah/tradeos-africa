@@ -31,6 +31,8 @@ Frontend/business-flow recomposition only. Posted sales remain immutable evidenc
 - A newly selected correction resets stale mode/refund-method/reason state.
 - `?saleId=...&mode=exchange` opens the selected sale explicitly in Exchange mode.
 - Applied Sale/Return/Refund/Exchange mutations refresh the open receipt while reconciling an in-progress draft instead of silently wiping it.
+- Detail requests are generation- and active-receipt-guarded, so late responses cannot reopen a closed receipt or overwrite a newer selection.
+- Same-receipt Exchange revalidation reconciles returnable quantities without resetting the replacement cart, reason, settlement choice, pending mutation identity or linked result.
 
 ## Rendered browser evidence
 

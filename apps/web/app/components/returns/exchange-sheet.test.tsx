@@ -82,6 +82,17 @@ describe("ExchangeSheet", () => {
 
 
 
+
+
+  it("preserves an in-progress exchange draft when the same receipt detail refreshes", () => {
+    const root = path.dirname(fileURLToPath(import.meta.url));
+    const source = fs.readFileSync(path.join(root, "exchange-sheet.tsx"), "utf8");
+    expect(source).toContain("reconcileExchangeReturned");
+    expect(source).toMatch(/\}, \[open, sale\.id\]\);/);
+    expect(source).toMatch(/setLinkedResult\(null\);[\s\S]*pendingMutationId\.current = null;[\s\S]*\}, \[open, sale\.id\]\);/);
+    expect(source).toMatch(/setReturned\(\(current\) => reconcileExchangeReturned\(sale, current\)\);[\s\S]*\}, \[open, sale\]\);/);
+  });
+
   it("presents the immutable original receipt and a numbered return-replace-settle flow", async () => {
     const module = await loadSheet();
     expect(module?.ExchangeSheet).toBeTypeOf("function");

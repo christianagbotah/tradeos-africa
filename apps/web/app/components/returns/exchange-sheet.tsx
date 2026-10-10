@@ -90,11 +90,7 @@ export function ExchangeSheet({ open, sale, catalog, businessId, branchId, onClo
 
   useEffect(() => {
     if (!open) return;
-    setReturned(Object.fromEntries(sale.lines.map((line) => [line.id, {
-      selected: false,
-      quantity: line.quantityReturnable > 0 ? String(Math.min(1, line.quantityReturnable)) : "0",
-      disposition: defaultDisposition(line.itemKind),
-    }])));
+    setReturned(createExchangeReturnedDrafts(sale));
     setCart([]);
     setQuery("");
     setReason("Customer exchange");
@@ -102,6 +98,11 @@ export function ExchangeSheet({ open, sale, catalog, businessId, branchId, onClo
     setMessage(null);
     setLinkedResult(null);
     pendingMutationId.current = null;
+  }, [open, sale.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    setReturned((current) => reconcileExchangeReturned(sale, current));
   }, [open, sale]);
 
   useEffect(() => {
@@ -292,6 +293,28 @@ function isExchangeResult(value: unknown): value is ExchangeResult {
     && typeof candidate.replacementSaleId === "string"
     && typeof candidate.netDifferenceMinor === "number"
     && (candidate.status === "PROCESSING" || candidate.status === "COMPLETED");
+}
+
+function createExchangeReturnedDrafts(sale: SaleDetail): Record<string, ExchangeReturnDraft> {
+  return Object.fromEntries(sale.lines.map((line) => [line.id, {
+    selected: false,
+    quantity: line.quantityReturnable > 0 ? String(Math.min(1, line.quantityReturnable)) : "0",
+    disposition: defaultDisposition(line.itemKind),
+  }]));
+}
+
+function reconcileExchangeReturned(sale: SaleDetail, current: Record<string, ExchangeReturnDraft>): Record<string, ExchangeReturnDraft> {
+  const defaults = createExchangeReturnedDrafts(sale);
+  return Object.fromEntries(sale.lines.map((line) => {
+    const existing = current[line.id];
+    if (!existing) return [line.id, defaults[line.id]!];
+    if (line.quantityReturnable <= 0) return [line.id, { ...existing, selected: false, quantity: "0" }];
+    const quantity = Number(existing.quantity);
+    const reconciledQuantity = Number.isFinite(quantity) && quantity > 0
+      ? String(Math.min(quantity, line.quantityReturnable))
+      : String(Math.min(1, line.quantityReturnable));
+    return [line.id, { ...existing, quantity: reconciledQuantity }];
+  }));
 }
 
 function defaultDisposition(kind: SaleDetail["lines"][number]["itemKind"]): ExchangeDisposition {
