@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
 import { MobileRuntime } from "./runtime";
-import type { MobileBusinessContext, MobileMe, MobileUser } from "./api-client";
+import type { MobileBusinessContext, MobileCatalogResponse, MobileInventoryResponse, MobileMe, MobileUser } from "./api-client";
+import { addCartItem, projectSellableItems } from "./pos-model";
 import { AsyncQueueSnapshotStorage, MobilePersistence, type SecureStringStorage, type StringStorage } from "./storage";
 
 class MemoryStorage implements StringStorage, SecureStringStorage {
@@ -51,6 +52,21 @@ class FakeApi {
     [business2, context(business2, "Second Shop", [{ id: branch2, name: "Tema", code: "MAIN", timezone: "Africa/Accra", active: true }])],
   ]);
   readonly pushes: SyncPushRequest[] = [];
+  catalog: MobileCatalogResponse = { items: [{
+    id: "item-1", businessId: business1, sku: "CEM-50", name: "Cement 50kg", kind: "PRODUCT",
+    stockUnitCode: "bag", trackStock: true, taxCategory: null, active: true,
+    createdAt: "2026-10-10T00:00:00.000Z", updatedAt: "2026-10-10T00:00:00.000Z",
+    units: [{ code: "bag", label: "Bag", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 12000 }], conversions: [],
+  }] };
+  inventory: MobileInventoryResponse = { items: [{
+    id: "item-1", sku: "CEM-50", name: "Cement 50kg", stockUnitCode: "bag", available: 28, quarantine: 0, damaged: 0, waste: 0,
+    inventoryValueMinor: 280000, averageStockUnitCostMinor: 10000, latestStockUnitCostMinor: 10000,
+  }] };
+  commerceError: Error | null = null;
+  pushError: Error | null = null;
+  rejectNextPush: { code: string; message: string } | null = null;
+  catalogCalls = 0;
+  inventoryCalls = 0;
   loginCalls = 0;
   logoutCalls = 0;
 
@@ -61,10 +77,29 @@ class FakeApi {
     if (!value) throw new Error(`missing context ${businessId}`);
     return value;
   }
+  async getCatalog(): Promise<MobileCatalogResponse> {
+    this.catalogCalls += 1;
+    if (this.commerceError) throw this.commerceError;
+    return this.catalog;
+  }
+  async getInventory(): Promise<MobileInventoryResponse> {
+    this.inventoryCalls += 1;
+    if (this.commerceError) throw this.commerceError;
+    return this.inventory;
+  }
   async push(request: SyncPushRequest): Promise<SyncResponse> {
     this.pushes.push(request);
+    if (this.pushError) throw this.pushError;
+    const rejection = this.rejectNextPush;
+    this.rejectNextPush = null;
     return {
-      mutationResults: request.mutations.map((mutation) => ({
+      mutationResults: request.mutations.map((mutation) => rejection ? ({
+        clientMutationId: mutation.clientMutationId,
+        status: "REJECTED" as const,
+        serverReceivedAt: "2026-10-10T22:10:00.000Z",
+        errorCode: rejection.code,
+        errorMessage: rejection.message,
+      }) : ({
         clientMutationId: mutation.clientMutationId,
         status: "APPLIED" as const,
         serverReceivedAt: "2026-10-10T22:10:00.000Z",
@@ -185,5 +220,119 @@ describe("MobileRuntime durable sync", () => {
     expect(api.logoutCalls).toBe(1);
     expect((await runtime.queue.getSnapshot()).pending.map((mutation) => mutation.clientMutationId)).toEqual(["pending-sale"]);
     expect((await runtime.bootstrap()).status).toBe("SIGNED_OUT");
+  });
+});
+
+describe("MobileRuntime commerce", () => {
+  async function readyHarness(api = new FakeApi()) {
+    const harness = createHarness(api);
+    await harness.persistence.saveSession(session);
+    await harness.runtime.bootstrap();
+    return harness;
+  }
+
+  it("loads live catalog and inventory together and persists a last-known cache", async () => {
+    const { runtime, persistence, api } = await readyHarness();
+
+    const commerce = await runtime.loadCommerce(true);
+
+    expect(commerce).toMatchObject({ source: "LIVE", fetchedAt: "2026-10-10T22:30:00.000Z" });
+    expect(commerce.items).toHaveLength(1);
+    expect(commerce.items[0]).toMatchObject({ key: "item-1:bag", availableStock: 28, priceMinor: 12000 });
+    expect(api.catalogCalls).toBe(1);
+    expect(api.inventoryCalls).toBe(1);
+    expect(await persistence.loadCatalogCache(business1)).toMatchObject({ fetchedAt: "2026-10-10T22:30:00.000Z" });
+    expect(await persistence.loadInventoryCache(business1, branch1)).toMatchObject({ fetchedAt: "2026-10-10T22:30:00.000Z" });
+  });
+
+  it("falls back to cached commerce when an online refresh fails", async () => {
+    const api = new FakeApi();
+    const { runtime } = await readyHarness(api);
+    const live = await runtime.loadCommerce(true);
+    api.commerceError = new Error("network down");
+
+    const cached = await runtime.loadCommerce(true);
+
+    expect(cached).toMatchObject({ source: "CACHE", fetchedAt: live.fetchedAt });
+    expect(cached.warning).toMatch(/last-known/i);
+    expect(cached.items).toHaveLength(1);
+  });
+
+  it("uses cache only while offline and explains when no cache exists", async () => {
+    const first = await readyHarness();
+    await first.runtime.loadCommerce(true);
+    first.api.catalogCalls = 0;
+    first.api.inventoryCalls = 0;
+    const cached = await first.runtime.loadCommerce(false);
+    expect(cached.source).toBe("CACHE");
+    expect(first.api.catalogCalls).toBe(0);
+    expect(first.api.inventoryCalls).toBe(0);
+
+    const second = await readyHarness();
+    await expect(second.runtime.loadCommerce(false)).rejects.toThrow(/connect.*once|online.*catalog/i);
+  });
+
+  it("durably captures an offline immediate-payment sale with no price fields", async () => {
+    const { runtime, api } = await readyHarness();
+    const commerce = await runtime.loadCommerce(true);
+    const cart = addCartItem([], commerce.items[0]!);
+    api.pushes.length = 0;
+
+    const result = await runtime.createSale(cart, "CASH", false);
+
+    expect(result).toMatchObject({ outcome: "PENDING", queue: { pending: 1 } });
+    expect(api.pushes).toHaveLength(0);
+    const snapshot = await runtime.queue.getSnapshot();
+    expect(snapshot.pending).toHaveLength(1);
+    expect(snapshot.pending[0]).toMatchObject({ businessId: business1, branchId: branch1, mutationType: "SALE_CREATE" });
+    expect(JSON.stringify(snapshot.pending[0])).not.toContain("priceMinor");
+    expect(JSON.stringify(snapshot.pending[0])).not.toContain("totalMinor");
+  });
+
+  it("flushes an online sale after durable enqueue and reports synchronized", async () => {
+    const { runtime, api } = await readyHarness();
+    const cart = addCartItem([], projectSellableItems(api.catalog.items, api.inventory.items)[0]!);
+
+    const result = await runtime.createSale(cart, "MOMO", true);
+
+    expect(result).toMatchObject({ outcome: "SYNCED", queue: { pending: 0, failed: 0 } });
+    expect(api.pushes).toHaveLength(1);
+    expect(api.pushes[0]!.mutations[0]!.payload).toEqual({
+      currencyCode: "GHS", paymentMethod: "MOMO", lines: [{ itemId: "item-1", saleUnitCode: "bag", quantity: 1 }],
+    });
+  });
+
+  it("moves a server-rejected sale to review instead of deleting evidence", async () => {
+    const api = new FakeApi();
+    api.rejectNextPush = { code: "INSUFFICIENT_STOCK", message: "Stock changed before sync" };
+    const { runtime } = await readyHarness(api);
+    const cart = addCartItem([], projectSellableItems(api.catalog.items, api.inventory.items)[0]!);
+
+    const result = await runtime.createSale(cart, "CARD", true);
+
+    expect(result).toMatchObject({ outcome: "NEEDS_REVIEW", errorCode: "INSUFFICIENT_STOCK", errorMessage: "Stock changed before sync", queue: { failed: 1 } });
+    expect((await runtime.queue.getSnapshot()).failed[0]!.mutation.mutationType).toBe("SALE_CREATE");
+  });
+
+  it("keeps a durably captured sale pending when the network fails during flush", async () => {
+    const api = new FakeApi();
+    api.pushError = new Error("network down");
+    const { runtime } = await readyHarness(api);
+    const cart = addCartItem([], projectSellableItems(api.catalog.items, api.inventory.items)[0]!);
+
+    const result = await runtime.createSale(cart, "BANK", true);
+
+    expect(result).toMatchObject({ outcome: "PENDING", queue: { pending: 1 } });
+    expect((await runtime.queue.getSnapshot()).pending).toHaveLength(1);
+  });
+
+  it("blocks checkout for roles that are not sale-capable before queueing", async () => {
+    const api = new FakeApi();
+    api.me = { ...me, memberships: [{ ...membership("viewer-membership", business1, "Ama Shop"), role: "VIEWER" }] };
+    const { runtime } = await readyHarness(api);
+    const cart = addCartItem([], projectSellableItems(api.catalog.items, api.inventory.items)[0]!);
+
+    await expect(runtime.createSale(cart, "OTHER", false)).rejects.toThrow(/permission|role/i);
+    expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
   });
 });
