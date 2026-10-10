@@ -1,26 +1,73 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { NetworkStatus } from "../network-status";
 import { useWorkspace } from "./use-workspace";
-import { isWorkspaceNavActive, visibleWorkspaceNav } from "./workspace-navigation";
+import { isWorkspaceNavActive, visibleWorkspaceNav, type WorkspaceNavItem } from "./workspace-navigation";
 import { WorkspaceNavIcon } from "./workspace-nav-icon";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { MobileMoreSheet } from "./mobile-more-sheet";
 
+const sidebarGroups = ["Operate", "Inventory", "Money & people", "Control & insights"] as const;
+
+function sidebarGroup(item: WorkspaceNavItem): (typeof sidebarGroups)[number] {
+  if (["/dashboard", "/sell", "/sales", "/returns"].includes(item.href)) return "Operate";
+  if (["/catalog", "/inventory", "/purchases"].includes(item.href)) return "Inventory";
+  if (["/customers", "/cashbook"].includes(item.href)) return "Money & people";
+  return "Control & insights";
+}
+
+function sidebarLabel(item: WorkspaceNavItem) {
+  const labels: Record<string, string> = {
+    "/returns": "Returns",
+    "/catalog": "Catalog",
+    "/customers": "Customers",
+    "/cashbook": "Cashbook",
+    "/operations": "Day & shifts",
+    "/reports": "Reports",
+  };
+  return labels[item.href] ?? item.label;
+}
+
+function businessPackLabel(type: string) {
+  const labels: Record<string, string> = {
+    RETAIL_HARDWARE: "Retail / Provisions",
+    FOOD: "Food / Hospitality",
+    SALON_BARBER: "Salon / Barber",
+    DRINKING_SPOT: "Drinks / Hospitality",
+    WASHING_BAY: "Washing bay",
+    CAR_PARK: "Car park",
+    DISTRIBUTION: "Wholesale / Distribution",
+    SERVICES: "Services",
+  };
+  return labels[type] ?? "Business workspace";
+}
+
+function searchDestination(query: string) {
+  const normalized = query.trim().toLowerCase();
+  if (/customer|credit|debtor|receivable/.test(normalized)) return "/customers";
+  if (/receipt|sale|invoice|refund|return/.test(normalized)) return "/sales";
+  if (/purchase|supplier|receive/.test(normalized)) return "/purchases";
+  if (/expense|cash|momo|bank|money/.test(normalized)) return "/cashbook";
+  if (/stock|inventory|on hand/.test(normalized)) return "/inventory";
+  return "/catalog";
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [globalQuery, setGlobalQuery] = useState("");
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const { session, context, branchId, activeBranch, setBusiness, setBranch, logout } = useWorkspace();
   const navItems = useMemo(() => visibleWorkspaceNav(context.membership.role), [context.membership.role]);
   const activeBranches = useMemo(() => context.branches.filter((branch) => branch.active), [context.branches]);
-  const current = navItems.find((item) => isWorkspaceNavActive(pathname, item.href));
-  const groups = ["Overview", "Commerce", "Money", "Operations", "Insights"] as const;
   const userInitials = session.user.displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "U";
+  const packLabel = businessPackLabel(context.business.businessType);
 
   useEffect(() => {
     if (!profileOpen) return;
@@ -38,7 +85,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       ) : <span className="workspace-business-name">{context.business.name}</span>}
       {activeBranches.length > 1 ? (
         <label className="workspace-context-field"><span>Branch</span><select value={branchId} onChange={(event) => setBranch(event.target.value)}>{activeBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
-      ) : null}
+      ) : <span className="workspace-branch-name">{activeBranch.name}</span>}
     </div>
   );
 
@@ -46,16 +93,53 @@ export function AppShell({ children }: { children: ReactNode }) {
     <>{businessBranchSelectors}<div className="workspace-more-user"><strong>{session.user.displayName}</strong><span>{context.membership.role}</span></div><NetworkStatus /></>
   );
 
+  const onGlobalSearch = (event: FormEvent) => {
+    event.preventDefault();
+    const query = globalQuery.trim();
+    if (!query) return;
+    router.push(`${searchDestination(query)}?q=${encodeURIComponent(query)}`);
+  };
+
+  const profile = (
+    <div className="workspace-profile-menu" ref={profileMenuRef}>
+      <button className="workspace-profile-trigger" type="button" aria-label="Open user menu" title="Account & sign out" aria-haspopup="menu" aria-expanded={profileOpen} onClick={() => setProfileOpen((open) => !open)}>
+        <span className="workspace-profile-avatar" aria-hidden="true">{userInitials}</span>
+        <span className="workspace-profile-copy"><strong>{session.user.displayName}</strong><small>{context.membership.role}</small></span>
+        <span className="workspace-profile-chevron" aria-hidden="true">⌄</span>
+      </button>
+      {profileOpen ? (
+        <div className="workspace-profile-dropdown" role="menu">
+          <div className="workspace-profile-summary"><span>Signed in as</span><strong>{session.user.displayName}</strong><small>{context.business.name} · {activeBranch.name}</small></div>
+          <button className="workspace-profile-signout" type="button" role="menuitem" onClick={() => void logout()}>Sign out</button>
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
-    <main className="workspace-shell">
+    <main className={collapsed ? "workspace-shell sidebar-collapsed" : "workspace-shell"}>
       <aside className="workspace-sidebar">
         <div className="workspace-brand">
-          <div className="brand-mark">T</div>
-          <div><strong>TradeOS</strong><span>Africa</span></div>
+          <div className="brand-mark">T<span className="brand-online-dot" /></div>
+          <div className="workspace-brand-copy"><strong>TradeOS</strong><span>Africa</span></div>
         </div>
+
+        <section className="workspace-business-card" aria-label="Active business and branch">
+          <div className="workspace-business-card-main">
+            <span className="workspace-business-icon" aria-hidden="true">▤</span>
+            <div><strong>{context.business.name}</strong><span>{activeBranch.name}</span></div>
+            <span aria-hidden="true">⌄</span>
+          </div>
+          <div className="workspace-pack-card">
+            <span aria-hidden="true">⌂</span>
+            <div><strong>{packLabel}</strong><small>Business pack</small></div>
+            <span>Switch</span>
+          </div>
+        </section>
+
         <nav className="workspace-nav" aria-label="Primary navigation">
-          {groups.map((group) => {
-            const items = navItems.filter((item) => item.group === group);
+          {sidebarGroups.map((group) => {
+            const items = navItems.filter((item) => sidebarGroup(item) === group);
             if (items.length === 0) return null;
             return (
               <div className="workspace-nav-group" key={group}>
@@ -63,14 +147,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {items.map((item) => {
                   const active = isWorkspaceNavActive(pathname, item.href);
                   return (
-                    <Link
-                      className={active ? "workspace-nav-item active" : "workspace-nav-item"}
-                      href={item.href}
-                      key={item.href}
-                      aria-current={active ? "page" : undefined}
-                    >
+                    <Link className={active ? "workspace-nav-item active" : "workspace-nav-item"} href={item.href} key={item.href} aria-current={active ? "page" : undefined}>
                       <span className="workspace-nav-icon-box"><WorkspaceNavIcon name={item.icon} /></span>
-                      <span>{item.label}</span>
+                      <span>{sidebarLabel(item)}</span>
                     </Link>
                   );
                 })}
@@ -80,51 +159,42 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
         <div className="workspace-sidebar-footer">
           <NetworkStatus />
-          <button className="workspace-signout" type="button" onClick={() => void logout()}>Sign out</button>
+          <button className="workspace-sidebar-collapse" type="button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
+            <span aria-hidden="true">{collapsed ? "›" : "‹"}</span><span>{collapsed ? "Expand" : "Collapse"}</span>
+          </button>
         </div>
       </aside>
 
       <section className="workspace-main">
+        <header className="workspace-mobile-header">
+          <button type="button" className="workspace-mobile-menu" aria-label="Open menu" onClick={() => setMoreOpen(true)}>☰</button>
+          <span className="workspace-mobile-mark" aria-hidden="true">T</span>
+          <strong>{context.business.name}</strong>
+          <span className="workspace-mobile-online" aria-label="Online status">⌁</span>
+        </header>
+
         <header className="workspace-topbar">
-          <div className="workspace-topbar-title">
-            <div className="workspace-mobile-brandmark" aria-hidden="true">T</div>
-            <div>
-              <span className="workspace-breadcrumb">{current?.group ?? "TradeOS"} · {activeBranch.name}</span>
-              <h1>{current?.label ?? context.business.name}</h1>
-            </div>
-          </div>
-          <div className="workspace-context-actions">
-            {businessBranchSelectors}
-            <div className="workspace-profile-menu" ref={profileMenuRef}>
-              <button
-                className="workspace-profile-trigger"
-                type="button"
-                aria-label="Open user menu"
-                title="Account & sign out"
-                aria-haspopup="menu"
-                aria-expanded={profileOpen}
-                onClick={() => setProfileOpen((open) => !open)}
-              >
-                <span className="workspace-profile-avatar" aria-hidden="true">{userInitials}</span>
-                <span className="workspace-profile-copy">
-                  <strong>{session.user.displayName}</strong>
-                  <small>{context.membership.role}</small>
-                </span>
-                <span className="workspace-profile-chevron" aria-hidden="true">⌄</span>
-              </button>
-              {profileOpen ? (
-                <div className="workspace-profile-dropdown" role="menu">
-                  <div className="workspace-profile-summary">
-                    <span>Signed in as</span>
-                    <strong>{session.user.displayName}</strong>
-                    <small>{context.business.name} · {activeBranch.name}</small>
-                  </div>
-                  <button className="workspace-profile-signout" type="button" role="menuitem" onClick={() => void logout()}>Sign out</button>
-                </div>
-              ) : null}
-            </div>
+          <form className="workspace-global-search" role="search" onSubmit={onGlobalSearch}>
+            <span aria-hidden="true">⌕</span>
+            <input value={globalQuery} onChange={(event) => setGlobalQuery(event.target.value)} placeholder="Search products, sales, customers…" aria-label="Search products, sales, customers" />
+            <kbd>/</kbd>
+          </form>
+          <div className="workspace-topbar-utilities">
+            <Link className="workspace-utility-icon" href="/reports" aria-label="Open AI insights" title="AI insights">✣</Link>
+            <span className="workspace-utility-icon" aria-hidden="true">?</span>
+            <span className="workspace-utility-icon workspace-notification" aria-label="Notifications">♧</span>
+            {profile}
           </div>
         </header>
+
+        <div className="workspace-mobile-search-row">
+          <form className="workspace-global-search" role="search" onSubmit={onGlobalSearch}>
+            <span aria-hidden="true">⌕</span>
+            <input value={globalQuery} onChange={(event) => setGlobalQuery(event.target.value)} placeholder="Search products, sales, customers…" aria-label="Search products, sales, customers" />
+          </form>
+          <span className="workspace-mobile-online" aria-label="Online status">⌁</span>
+        </div>
+
         <div key={`${context.business.id}:${branchId}`} className="workspace-content">{children}</div>
       </section>
 
