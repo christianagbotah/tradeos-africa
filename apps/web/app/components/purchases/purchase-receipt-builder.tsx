@@ -5,6 +5,7 @@ import { formatMoney, formatMoneyInput, parseMoneyInput } from "@tradeos/contrac
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { messageFrom } from "../../lib/client-api";
 import { Button } from "../ui/button";
+import { MoneyInput } from "../ui/money-input";
 import type { Supplier } from "../suppliers/supplier-types";
 import type { MoneyAccount } from "../treasury/types";
 import type { PurchaseCatalogItem, ReceiptLine } from "./types";
@@ -38,7 +39,7 @@ export function ReceiptLineEditor({ lines, currencyCode, unitsForItem, onChange,
         const unit = unitsForItem(line.itemId).find((candidate) => candidate.code === event.target.value);
         onChange(line.key, { purchaseUnitCode: event.target.value, purchaseUnitLabel: unit?.label ?? event.target.value });
       }}>{unitsForItem(line.itemId).map((unit) => <option key={unit.code} value={unit.code}>{unit.label}</option>)}</select></label>
-      <label>Unit cost<input inputMode="decimal" aria-label={`Unit cost for ${line.itemName}`} value={formatMoneyInput(line.unitCostMinor, currencyCode) ?? ""} onChange={(event) => {
+      <label>Unit cost<MoneyInput currencyCode={currencyCode} aria-label={`Unit cost for ${line.itemName}`} value={formatMoneyInput(line.unitCostMinor, currencyCode) ?? ""} onChange={(event) => {
         const minor = parseMoneyInput(event.target.value, currencyCode) ?? -1;
         if (minor >= 0) onChange(line.key, { unitCostMinor: minor });
       }} /></label>
@@ -142,7 +143,7 @@ export function PurchaseReceiptBuilder({ businessId, branchId, currencyCode, sup
 
   return <section className="purchase-builder">
     <header className="purchase-builder-head"><div><span>Purchase receiving</span><h3>Build receipt</h3><p>Draft quantities, units and costs here. TradeOS validates conversions, stock and accounting when the receipt posts.</p></div><strong>{formatMoney(totalMinor, currencyCode)}</strong></header>
-    {suppliers.length === 0 ? <div className="inventory-readonly-note">Add an active supplier before receiving stock.</div> : purchasable.length === 0 ? <div className="inventory-readonly-note">Configure a tracked product with a purchase unit first.</div> : <>
+    {suppliers.length === 0 ? <div className="purchase-readonly-note">Add an active supplier before receiving stock.</div> : purchasable.length === 0 ? <div className="purchase-readonly-note">Configure a tracked product with a purchase unit first.</div> : <>
       <div className="purchase-builder-context">
         <label>Supplier<select value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
         <label>Settlement<select value={settlementMethod} onChange={(event) => setSettlementMethod(event.target.value)}>{["CASH","MOMO","CARD","BANK","OTHER","SUPPLIER_CREDIT"].map((method) => <option key={method} value={method}>{method === "SUPPLIER_CREDIT" ? "Supplier credit (pay later)" : method}</option>)}</select></label>
@@ -153,7 +154,7 @@ export function PurchaseReceiptBuilder({ businessId, branchId, currencyCode, sup
         <label>Product<select value={itemId} onChange={(event) => setItemId(event.target.value)}>{purchasable.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>Purchase unit<select value={unitCode} onChange={(event) => setUnitCode(event.target.value)}>{purchaseUnits.map((unit) => <option key={unit.code} value={unit.code}>{unit.label}</option>)}</select></label>
         <label>Quantity<input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" /></label>
-        <label>Unit cost<input inputMode="decimal" value={unitCost} onChange={(event) => setUnitCost(event.target.value)} placeholder="0.00" /></label>
+        <label>Unit cost<MoneyInput currencyCode={currencyCode} value={unitCost} onChange={(event) => setUnitCost(event.target.value)} placeholder="0.00" /></label>
         <Button variant="secondary" type="button" onClick={addLine}>Add line</Button>
       </div>
       <ReceiptLineEditor lines={lines} currencyCode={currencyCode} unitsForItem={unitsForItem} onChange={(key, patch) => setLines((current) => current.map((line) => line.key === key ? { ...line, ...recalculateLine(line, patch) } : line))} onRemove={(key) => setLines((current) => current.filter((line) => line.key !== key))} />

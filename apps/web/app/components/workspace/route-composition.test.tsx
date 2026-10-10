@@ -38,4 +38,10 @@ describe("workspace route composition", () => {
       expect(route(name)).not.toContain("TradeOSWebApp");
     }
   });
+
+  it("keeps the purchases/inventory coordinator free of legacy generic presentation classes", () => {
+    const source = fs.readFileSync(path.join(appRoot, "components", "purchases-inventory.tsx"), "utf8");
+    for (const legacy of ["className=\"panel ", "className=\"panel-heading\"", "className=\"eyebrow\"", "className=\"primary-button\"", "className=\"ghost-button\""]) expect(source).not.toContain(legacy);
+    expect(source).toContain("PurchaseReturnSheet");
+  });
 });

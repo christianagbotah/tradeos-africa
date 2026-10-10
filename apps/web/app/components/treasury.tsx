@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { formatMoney, parseMoneyInput } from "@tradeos/contracts";
 import { ClientApiError, clientApi, messageFrom } from "../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId, mutationAppliedEvent } from "../lib/offline-sync";
 import { Button } from "./ui/button";
+import { MoneyInput } from "./ui/money-input";
+import { MobileRecordCard } from "./ui/mobile-record-card";
+import { StatePanel } from "./ui/state-panel";
+import { StatusBadge } from "./ui/status-badge";
 import { MoneyAccountSheet, moneyAccountMessage } from "./treasury/money-account-sheet";
 import type { MoneyAccount, MoneyAccountDefault, Reconciliation } from "./treasury/types";
 
@@ -35,10 +39,6 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
   const [message, setMessage] = useState("");
   const [version, setVersion] = useState(0);
   const [editor, setEditor] = useState<MoneyAccount | null | undefined>(undefined);
-  const [resolving, setResolving] = useState<Reconciliation | null>(null);
-  const [resolutionNote, setResolutionNote] = useState("");
-  const resolutionDialogRef = useRef<HTMLDivElement>(null);
-  const resolutionInputRef = useRef<HTMLTextAreaElement>(null);
   const [source, setSource] = useState("");
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
@@ -48,40 +48,9 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [note, setNote] = useState("");
+  const [resolutionId, setResolutionId] = useState<string | null>(null);
+  const [resolutionNote, setResolutionNote] = useState("");
   const cacheKey = `tradeos.treasury.v2:${businessId}:${branchId}:${role}`;
-
-  useEffect(() => {
-    if (!resolving) return;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    resolutionInputRef.current?.focus();
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setResolving(null);
-        setResolutionNote("");
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const focusable = Array.from(resolutionDialogRef.current?.querySelectorAll<HTMLElement>(
-        'textarea:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-      ) ?? []);
-      if (!focusable.length) return;
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      previousFocus?.focus();
-    };
-  }, [resolving]);
 
   useEffect(() => {
     setAccounts([]);
@@ -186,6 +155,16 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
     }
   };
 
+  const resolveReconciliation = (reconciliationId: string) => {
+    if (!resolutionNote.trim()) {
+      setMessage("Explain the reconciliation correction before resolving the variance.");
+      return;
+    }
+    queue("MONEY_RECONCILIATION_RESOLVE", { reconciliationId, note: resolutionNote.trim() });
+    setResolutionId(null);
+    setResolutionNote("");
+  };
+
   const eligible = accounts.filter((item) => item.active && (role !== "CASHIER" || (item.branchId === branchId && item.method === "CASH" && item.kind === "CASH_DRAWER")));
   const totalBalance = accounts.reduce((sum, item) => sum + item.balanceMinor, 0);
 
@@ -200,7 +179,7 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
         {elevated ? <Button type="button" onClick={() => setEditor(null)}>Add money account</Button> : null}
       </div>
 
-      <div className="tradeos-form-row">{methods.map((method) => <p key={method}>{method}: {money(accounts.filter((item) => item.method === method).reduce((sum, item) => sum + item.balanceMinor, 0))}</p>)}</div>
+      <div className="treasury-method-balances">{methods.map((method) => <p key={method}>{method}: {money(accounts.filter((item) => item.method === method).reduce((sum, item) => sum + item.balanceMinor, 0))}</p>)}</div>
 
       <div className="treasury-table-scroll">
         <table>
@@ -211,11 +190,24 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
               <td>{item.branchId ? item.branchId === branchId ? "Current branch" : "Other branch" : "Business"}</td>
               <td>{item.method}</td>
               <td>{money(item.balanceMinor)}</td>
-              <td><span className={item.active ? "treasury-status active" : "treasury-status"}>{item.active ? "Active" : "Inactive"}</span></td>
+              <td><StatusBadge tone={item.active ? "positive" : "neutral"}>{item.active ? "Active" : "Inactive"}</StatusBadge></td>
               {elevated ? <td><Button variant="secondary" size="compact" type="button" onClick={() => setEditor(item)}>Edit</Button></td> : null}
             </tr>
           ))}</tbody>
         </table>
+      </div>
+      <div className="treasury-account-list--mobile">
+        {accounts.length === 0 ? <StatePanel state="empty" title="No money accounts yet" description="Add an account to route cash, MoMo, card and bank movements." /> : accounts.map((item) => (
+          <MobileRecordCard
+            key={item.id}
+            title={item.name}
+            meta={`${item.branchId ? item.branchId === branchId ? "Current branch" : "Other branch" : "Business"} · ${item.method}${item.referenceLabel ? ` · ${item.referenceLabel}` : ""}`}
+            status={<StatusBadge tone={item.active ? "positive" : "neutral"}>{item.active ? "Active" : "Inactive"}</StatusBadge>}
+            actions={elevated ? <Button variant="secondary" type="button" onClick={() => setEditor(item)}>Edit account</Button> : undefined}
+          >
+            <p><strong>{money(item.balanceMinor)}</strong> current balance</p>
+          </MobileRecordCard>
+        ))}
       </div>
 
       {elevated ? (
@@ -228,21 +220,7 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
             })}
           </div>
           <p className="treasury-default-note">Deactivate an account only after replacing every default that points to it. TradeOS will block unsafe deactivation with <strong>ACCOUNT_IS_DEFAULT</strong>.</p>
-        {resolving ? (
-      <div ref={resolutionDialogRef} className="treasury-resolution-dialog" role="dialog" aria-modal="true" aria-labelledby="treasury-resolution-title" aria-describedby="treasury-resolution-description">
-        <div className="treasury-resolution-backdrop" aria-hidden="true" onClick={() => { setResolving(null); setResolutionNote(""); }} />
-        <div className="treasury-resolution-card">
-          <h3 id="treasury-resolution-title">Resolve variance with correction</h3>
-          <p id="treasury-resolution-description">Account: {accounts.find((a) => a.id === resolving.moneyAccountId)?.name} · Difference: {money(resolving.differenceMinor)}</p>
-          <label>Required explanation<textarea ref={resolutionInputRef} value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} maxLength={1000} placeholder="Explain the reason for this correction" /></label>
-          <div className="treasury-resolution-actions">
-            <button onClick={() => { setResolving(null); setResolutionNote(""); }}>Cancel</button>
-            <button disabled={!resolutionNote.trim()} onClick={() => { queue("MONEY_RECONCILIATION_RESOLVE", { reconciliationId: resolving.id, note: resolutionNote }); setResolving(null); setResolutionNote(""); }}>Resolve</button>
-          </div>
-        </div>
-      </div>
-    ) : null}
-    </section>
+        </section>
       ) : null}
 
       {elevated ? (
@@ -250,9 +228,9 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
           <h4>Transfer funds</h4>
           <label>From<select required value={source} onChange={(event) => setSource(event.target.value)}><option value="">Choose source</option>{eligible.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.method} · {money(item.balanceMinor)}</option>)}</select></label>
           <label>To<select required value={destination} onChange={(event) => setDestination(event.target.value)}><option value="">Choose destination</option>{eligible.filter((item) => item.id !== source).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.method}</option>)}</select></label>
-          <label>Amount<input required value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" /></label>
+          <label>Amount<MoneyInput currencyCode={currencyCode} required value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
           <label>Note<input value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} /></label>
-          <button>Save transfer</button>
+          <Button type="submit">Save transfer</Button>
         </form>
       ) : null}
 
@@ -275,16 +253,28 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
           {elevated ? <label>Type<select value={type} onChange={(event) => { setType(event.target.value); setAccount(""); }}><option>CASH_COUNT</option><option>STATEMENT</option></select></label> : null}
           <label>Period start<input required type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} /></label>
           <label>Period end<input required type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} /></label>
-          <label>Observed balance<input required value={observed} onChange={(event) => setObserved(event.target.value)} inputMode="decimal" /></label>
+          <label>Observed balance<MoneyInput currencyCode={currencyCode} required value={observed} onChange={(event) => setObserved(event.target.value)} /></label>
           <label>Note<input value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} /></label>
           <p>Variances stay open until explicitly resolved. Resolution posts a correction for the exact difference.</p>
-          <button>Save reconciliation</button>
+          <Button type="submit">Save reconciliation</Button>
         </form>
       ) : null}
 
       <h4>Reconciliations</h4>
-      <div className="treasury-reconciliation-list">{reconciliations.map((item) => <p key={item.id}>{accounts.find((candidate) => candidate.id === item.moneyAccountId)?.name} · {item.status} · Difference {money(item.differenceMinor)} {elevated && item.status === "VARIANCE" ? <button onClick={() => setResolving(item)}>Resolve with correction</button> : null}</p>)}</div>
-      {message ? <p className="treasury-message" role="status">{message}</p> : null}
+      {reconciliations.length === 0 ? <StatePanel state="empty" title="No reconciliations yet" description="Cash counts and statement checks will appear here with any variance that needs resolution." /> : <div className="treasury-reconciliation-list">{reconciliations.map((item) => {
+        const accountName = accounts.find((candidate) => candidate.id === item.moneyAccountId)?.name ?? "Money account";
+        const resolving = resolutionId === item.id;
+        return <article className="treasury-reconciliation-row" key={item.id}>
+          <div><strong>{accountName}</strong><span>Difference {money(item.differenceMinor)}</span></div>
+          <StatusBadge tone={item.status === "VARIANCE" ? "warning" : "positive"}>{item.status.replaceAll("_", " ")}</StatusBadge>
+          {elevated && item.status === "VARIANCE" ? <Button variant="secondary" type="button" onClick={() => { setResolutionId(resolving ? null : item.id); setResolutionNote(""); }}>{resolving ? "Cancel resolution" : "Resolve with correction"}</Button> : null}
+          {resolving ? <div className="treasury-resolution-form">
+            <label>Required explanation<input value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} maxLength={1000} placeholder="Explain why this correction is required" /></label>
+            <Button type="button" disabled={!resolutionNote.trim()} onClick={() => resolveReconciliation(item.id)}>Post exact correction</Button>
+          </div> : null}
+        </article>;
+      })}</div>}
+      {message ? <StatePanel state={/error|failed|blocked|review|explain/i.test(message) ? "error" : /saved on this device/i.test(message) ? "offline" : "success"} title="Treasury update" description={message} /> : null}
 
       {editor !== undefined ? (
         <MoneyAccountSheet

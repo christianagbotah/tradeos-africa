@@ -28,6 +28,14 @@ describe("ReturnRefundWorkspace", () => {
     expect(html).not.toContain("Example original sale");
   });
 
+  it("uses the canonical Z.ai list primitives for desktop, mobile and state feedback", () => {
+    const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+    const source = fs.readFileSync(path.join(appRoot, "components", "returns", "return-refund-workspace.tsx"), "utf8");
+    for (const contract of ["CommandBar", "MobileRecordCard", "StatePanel", "StatusBadge"]) expect(source).toContain(contract);
+    expect(source).toContain("return-sale-row--desktop");
+    expect(source).toContain("return-sale-row--mobile");
+  });
+
   it("requires the obsolete static ReturnsPanel to be retired and deep-link loading to exist", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
     expect(fs.existsSync(path.join(appRoot, "components", "returns-panel.tsx"))).toBe(false);
@@ -36,9 +44,15 @@ describe("ReturnRefundWorkspace", () => {
     expect(coordinator).toContain('get("saleId")');
   });
 
+  it("keeps legacy return presentation out of the Sales stylesheet", () => {
+    const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+    const salesCss = fs.readFileSync(path.join(appRoot, "sales-returns.css"), "utf8");
+    for (const obsolete of [".return-detail", ".returnable-line", ".refund-controls", ".return-action-bar", ".sales-return-grid"]) expect(salesCss).not.toContain(obsolete);
+  });
+
   it("uses 48px, 15px return search/action controls", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(appRoot, "tradeos-app.css"), "utf8");
+    const css = fs.readFileSync(path.join(appRoot, "returns.css"), "utf8");
     expect(css).toMatch(/return-commandbar[\s\S]*min-height:\s*48px/);
     expect(css).toMatch(/return-commandbar[\s\S]*font-size:\s*15px/);
   });

@@ -42,7 +42,7 @@ describe("PurchaseReceiptBuilder", () => {
 
   it("keeps receipt controls phone-sized and does not move accounting math into CSS/UI copy", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(appRoot, "tradeos-app.css"), "utf8");
+    const css = fs.readdirSync(appRoot).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(appRoot, name), "utf8")).join("\n");
     expect(css).toMatch(/purchase-builder[\s\S]*min-height:\s*48px/);
     expect(css).toMatch(/purchase-line-editor[\s\S]*min-height:\s*48px/);
   });

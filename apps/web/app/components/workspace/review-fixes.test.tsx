@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (relative: string) => fs.readFileSync(path.join(appRoot, relative), "utf8");
+const readCanonicalCss = () => fs.readdirSync(appRoot).filter((name) => name.endsWith(".css")).map((name) => read(name)).join("\n");
 
 describe("multi-page review regressions", () => {
   it("keeps authenticated APIs network-only and purges previously cached API responses", () => {
@@ -57,7 +58,7 @@ describe("multi-page review regressions", () => {
 
   it("keeps Treasury minimum table width inside a local horizontal scroll wrapper", () => {
     const treasury = read("components/treasury.tsx");
-    const css = read("tradeos-app.css");
+    const css = readCanonicalCss();
     expect(treasury).toContain('className="treasury-table-scroll"');
     expect(css).toMatch(/\.treasury-table-scroll\s*\{[^}]*overflow-x:\s*auto/);
     expect(css).toMatch(/\.treasury-table-scroll\s+table\s*\{[^}]*min-width:\s*680px/);
@@ -124,30 +125,27 @@ describe("multi-page review regressions", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("makes the Treasury resolution dialog keyboard-safe and touch-safe", () => {
+  it("keeps canonical Treasury reconciliation explicit and touch-safe without browser dialogs", () => {
     const treasury = read("components/treasury.tsx");
-    const css = read("tradeos-app.css");
-    expect(treasury).toContain('aria-labelledby="treasury-resolution-title"');
-    expect(treasury).toContain('id="treasury-resolution-title"');
-    expect(treasury).toContain("resolutionInputRef");
-    expect(treasury).toMatch(/e\.key === "Escape"/);
-    expect(treasury).toContain(".focus()");
-    expect(css).toMatch(/\.treasury-resolution-actions button\s*\{[^}]*min-height:\s*48px/);
+    const css = readCanonicalCss();
+    expect(treasury).toContain("treasury-resolution-form");
+    expect(treasury).toContain("Required explanation");
+    expect(treasury).toContain("Post exact correction");
+    expect(treasury).not.toContain("window.prompt(");
+    expect(treasury).not.toContain("window.confirm(");
+    expect(css).toMatch(/\.treasury-resolution-form \.tos-button\s*\{[^}]*min-height:\s*48px/);
   });
 
-  it("recomposes Purchases, Operations and Reports around dedicated page patterns", () => {
+  it("keeps Purchases, Operations and Reports on Z.ai canonical module compositions", () => {
     const purchases = read("components/purchases-inventory.tsx");
     const operations = read("components/operations-reconciliation.tsx");
     const reports = read("components/financial-reports.tsx");
-    expect(purchases).toContain("PageHeader");
-    expect(purchases).toContain('className="purchase-inventory-workspace"');
-    expect(operations).toContain("PageHeader");
+    expect(purchases).toContain('className="purchases-inventory-workspace"');
     expect(operations).toContain('className="operations-workspace"');
-    expect(reports).toContain("PageHeader");
-    expect(reports).toContain("CommandBar");
+    expect(operations).toContain("operations-header");
     expect(reports).toContain('className="reports-workspace"');
-    expect(reports).not.toContain("ai-tradeos-card");
-    expect(reports).not.toContain("working-capital-tradeos-card");
+    expect(reports).toContain("reports-header");
+    expect(reports).toContain("CommandBar");
     expect(purchases).not.toContain("purchase-inventory-tradeos-card");
   });
 });

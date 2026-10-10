@@ -39,7 +39,7 @@ describe("SalesWorkspace", () => {
 
   it("keeps command controls phone-sized and desktop filters in one command surface", () => {
     const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(appRoot, "tradeos-app.css"), "utf8");
+    const css = fs.readdirSync(appRoot).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(appRoot, name), "utf8")).join("\n");
     expect(css).toMatch(/sales-commandbar[\s\S]*min-height:\s*48px/);
     expect(css).toMatch(/sales-commandbar[\s\S]*font-size:\s*15px/);
     expect(css).toMatch(/grid-template-columns:[^;]*(?:minmax|auto)/);

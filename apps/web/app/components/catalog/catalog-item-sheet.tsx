@@ -11,6 +11,7 @@ import {
 } from "../../lib/offline-sync";
 import type { CatalogItem } from "../../lib/workspace-types";
 import { Button } from "../ui/button";
+import { MoneyInput } from "../ui/money-input";
 
 type SheetMode = "create" | "edit" | "duplicate" | "view";
 type DraftUnit = {
@@ -251,7 +252,7 @@ export function CatalogItemSheet({ mode, item, open, businessId, branchId, curre
                 <div className="catalog-unit-row" key={`${index}-${unit.code}`}>
                   <label>Unit label<input disabled={readOnly} value={unit.label} onChange={(event) => updateUnit(index, { label: event.target.value })} /></label>
                   <label className="catalog-check"><input type="checkbox" disabled={readOnly} checked={unit.canSell} onChange={(event) => updateUnit(index, { canSell: event.target.checked })} /> Sell</label>
-                  <label>Price ({currencyCode === "GHS" ? "₵" : currencyCode})<input inputMode="decimal" disabled={readOnly || !unit.canSell} value={unit.price} onChange={(event) => updateUnit(index, { price: event.target.value })} placeholder="0.00" /></label>
+                  <label>Price<MoneyInput currencyCode={currencyCode} disabled={readOnly || !unit.canSell} value={unit.price} onChange={(event) => updateUnit(index, { price: event.target.value })} placeholder="0.00" /></label>
                 </div>
               ))}
             </div>

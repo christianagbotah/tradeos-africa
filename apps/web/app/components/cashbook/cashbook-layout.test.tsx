@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const cssPath = path.join(appRoot, "tradeos-app.css");
+const cssPath = path.join(appRoot, "cashbook.css");
 
 function css() {
   expect(fs.existsSync(cssPath)).toBe(true);
@@ -34,12 +34,21 @@ describe("Cashbook responsive layout contract", () => {
 
   it("imports Cashbook CSS and keeps primary Cashbook composition off generic form-row", () => {
     const layout = fs.readFileSync(path.join(appRoot, "layout.tsx"), "utf8");
-    expect(layout).toContain('import "./tradeos-app.css";');
+    expect(layout).toContain('import "./cashbook.css";');
     const files = ["cashbook-summary.tsx", "cashbook-entry-form.tsx", "expense-category-card.tsx", "cashbook-history.tsx"];
     for (const file of files) {
       const source = fs.readFileSync(path.join(appRoot, "components", "cashbook", file), "utf8");
       expect(source).not.toContain('className="form-row"');
     }
+  });
+
+  it("uses canonical TradeOS tokens and 48px controls instead of a private cashbook skin", () => {
+    const source = css();
+    expect(source).not.toMatch(/--cashbook-(gold|gold-soft|navy|border|muted):/);
+    expect(source).toContain("var(--tos-border)");
+    expect(source).toContain("var(--tos-text-muted)");
+    expect(source).toContain("var(--tos-focus-ring)");
+    expect(source).toMatch(/min-height:\s*48px/);
   });
 
   it("gives Treasury a Cashbook-scoped presentational hook", () => {

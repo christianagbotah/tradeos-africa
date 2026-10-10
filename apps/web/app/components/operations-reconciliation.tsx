@@ -4,7 +4,11 @@ import { useEffect, useState, type FormEvent } from "react";
 import { formatMoney as formatTradeMoney, parseMoneyInput } from "@tradeos/contracts";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { ResponsiveTable } from "./ui/responsive-table";
-import { PageHeader } from "./ui/page-header";
+import { Button } from "./ui/button";
+import { MoneyInput } from "./ui/money-input";
+import { MobileRecordCard } from "./ui/mobile-record-card";
+import { StatePanel } from "./ui/state-panel";
+import { StatusBadge } from "./ui/status-badge";
 import {
   enqueueMutation,
   flushPendingMutations,
@@ -250,30 +254,26 @@ function CountForm({
   };
 
   return (
-    <form onSubmit={submit}>
-      <h3>{title}</h3>
+    <form className="operations-count-form" onSubmit={submit}>
+      <div className="operations-form-heading"><div><span>{day ? "Business day" : "Staff shift"}</span><h3>{title}</h3></div><StatusBadge tone={close ? "warning" : "info"}>{close ? "Closing count" : "Opening count"}</StatusBadge></div>
       {day && !close ? <label>Business date<input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label> : null}
-      <p>{close ? "Count the physical or provider closing balance for all five methods. Variance preview uses the latest synced/cached movements." : "Opening custody snapshots. These balances do not create cashbook movements."}</p>
-      <div className="tradeos-form-row">
+      <p className="operations-form-help">{close ? "Count the physical or provider closing balance for all five methods. Variance preview uses the latest synced/cached movements." : "Opening custody snapshots. These balances do not create cashbook movements."}</p>
+      <div className="operations-count-grid">
         {methods.map((method) => {
           let preview: string | null = null;
           try {
             const balance = expected?.find((item) => item.method === method);
             if (close && balance && counts[method]) preview = formatMoney(BigInt(parseCount(counts[method]!, currencyCode)) - BigInt(balance.expectedClosingMinor), currencyCode);
-          } catch {
-            preview = null;
-          }
-          return (
-            <label key={method}>{method} ({currencyCode})
-              <input required={close} inputMode="decimal" placeholder={close ? "Counted closing" : "0.00"} value={counts[method] ?? ""} onChange={(event) => setCounts({ ...counts, [method]: event.target.value })} />
-              {preview !== null ? <small>Preview variance: {preview}</small> : null}
-            </label>
-          );
+          } catch { preview = null; }
+          return <label key={method}>{method}
+            <MoneyInput currencyCode={currencyCode} required={close} placeholder={close ? "Counted closing" : "0.00"} value={counts[method] ?? ""} onChange={(event) => setCounts({ ...counts, [method]: event.target.value })} />
+            {preview !== null ? <small>Preview variance: {preview}</small> : null}
+          </label>;
         })}
       </div>
-      <label>Note<input maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} /></label>
-      <button type="submit"  className="tos-button tos-button--primary" disabled={disabled}>{title}</button>
-      {error ? <p role="alert">{error}</p> : null}
+      <label>Note<input maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional handover or reconciliation note" /></label>
+      <div className="operations-form-actions"><Button type="submit" disabled={disabled}>{title}</Button></div>
+      {error ? <StatePanel state="error" title="Check the counted balances" description={error} /> : null}
     </form>
   );
 }
@@ -406,44 +406,60 @@ export function OperationsReconciliation({
   };
 
   const balances = (interval: Interval) => (
-    <ResponsiveTable>
-      <table><thead><tr><th>Method</th><th>Opening counted</th><th>Movement</th><th>Expected current</th></tr></thead><tbody>{interval.balances.map((balance) => <tr key={balance.method}><td>{balance.method}</td><td>{money(balance.openingCountedMinor)}</td><td>{money(balance.movementMinor)}</td><td>{money(balance.expectedClosingMinor)}</td></tr>)}</tbody></table>
-    </ResponsiveTable>
+    <>
+      <ResponsiveTable className="operations-balance--desktop">
+        <table><thead><tr><th>Method</th><th>Opening counted</th><th>Movement</th><th>Expected current</th></tr></thead><tbody>{interval.balances.map((balance) => <tr key={balance.method}><td>{balance.method}</td><td>{money(balance.openingCountedMinor)}</td><td>{money(balance.movementMinor)}</td><td>{money(balance.expectedClosingMinor)}</td></tr>)}</tbody></table>
+      </ResponsiveTable>
+      <div className="operations-balance--mobile">{interval.balances.map((balance) => <MobileRecordCard key={balance.method} title={balance.method} meta={`Opening ${money(balance.openingCountedMinor)} · movement ${money(balance.movementMinor)}`} status={<StatusBadge tone="info">Expected</StatusBadge>}><p><strong>{money(balance.expectedClosingMinor)}</strong> current expected balance</p></MobileRecordCard>)}</div>
+    </>
   );
-  const recent = (items: Interval[], shift: boolean) => (
-    <ResponsiveTable>
-      <table><thead><tr><th>{shift ? "Shift opened" : "Business date"}</th><th>Status</th><th>Total variance</th>{methods.map((method) => <th key={method}>{method} variance</th>)}</tr></thead><tbody>{items.map((interval) => { const closed = interval.balances.every((balance) => balance.varianceMinor !== null); const total = interval.balances.reduce((sum, balance) => sum + BigInt(balance.varianceMinor ?? 0), 0n); return <tr key={interval.id}><td>{shift ? new Date(interval.openedAt).toLocaleString() : interval.businessDate}</td><td>{interval.status}</td><td>{closed ? formatMoney(total, currencyCode) : "—"}</td>{methods.map((method) => { const variance = interval.balances.find((balance) => balance.method === method)?.varianceMinor; return <td key={method}>{variance == null ? "—" : money(variance)}</td>; })}</tr>; })}</tbody></table>
-    </ResponsiveTable>
-  );
+
+  const recent = (items: Interval[], shift: boolean) => {
+    if (items.length === 0) return <StatePanel state="empty" title={shift ? "No shift history yet" : "No operating-day history yet"} description={shift ? "Closed and active staff shifts will appear here." : "Opened and closed business days will appear here."} />;
+    return <>
+      <ResponsiveTable className="operations-history--desktop">
+        <table><thead><tr><th>{shift ? "Shift opened" : "Business date"}</th><th>Status</th><th>Total variance</th>{methods.map((method) => <th key={method}>{method} variance</th>)}</tr></thead><tbody>{items.map((interval) => { const closed = interval.balances.every((balance) => balance.varianceMinor !== null); const total = interval.balances.reduce((sum, balance) => sum + BigInt(balance.varianceMinor ?? 0), 0n); return <tr key={interval.id}><td>{shift ? new Date(interval.openedAt).toLocaleString() : interval.businessDate}</td><td>{interval.status}</td><td>{closed ? formatMoney(total, currencyCode) : "—"}</td>{methods.map((method) => { const variance = interval.balances.find((balance) => balance.method === method)?.varianceMinor; return <td key={method}>{variance == null ? "—" : money(variance)}</td>; })}</tr>; })}</tbody></table>
+      </ResponsiveTable>
+      <div className="operations-history--mobile">{items.map((interval) => {
+        const closed = interval.balances.every((balance) => balance.varianceMinor !== null);
+        const total = interval.balances.reduce((sum, balance) => sum + BigInt(balance.varianceMinor ?? 0), 0n);
+        return <MobileRecordCard key={interval.id} title={shift ? new Date(interval.openedAt).toLocaleString() : interval.businessDate ?? "Business day"} meta={`${methods.map((method) => { const variance = interval.balances.find((balance) => balance.method === method)?.varianceMinor; return `${method} ${variance == null ? "—" : money(variance)}`; }).join(" · ")}`} status={<StatusBadge tone={interval.status === "OPEN" ? "warning" : "positive"}>{interval.status}</StatusBadge>}><p><strong>{closed ? formatMoney(total, currencyCode) : "—"}</strong> total variance</p></MobileRecordCard>;
+      })}</div>
+    </>;
+  };
 
   const dayCloseQueued = pendingTypes.has("OPERATING_DAY_CLOSE_CREATE");
   const shiftCloseQueued = pendingTypes.has("SHIFT_CLOSE_CREATE");
+  const messageState = /rejected|failed|error|could not/i.test(message) ? "error" : /offline|saved on this device/i.test(message) ? "offline" : "success";
+
   return (
     <section className="operations-workspace" id="operations">
-      <PageHeader
-        eyebrow="Operating controls"
-        title="Day & shifts"
-        subtitle="Open, count and close operating periods with clear custody, expected-balance and variance evidence."
-        status={<span className="tradeos-badge">{queued} pending</span>}
-      />
-      <p className="operations-explainer">Expected closing = opening counted balance + attributed real-money cashbook movements. Variance = counted closing − expected. Opening balances are custody snapshots, never income.</p>
-      {!snapshot.operatingDay ? (
-        dayCloseQueued ? <p role="status">Business-day close is queued offline.</p> : canDay ? <CountForm key="day-open" type="OPERATING_DAY_OPEN_CREATE" currencyCode={currencyCode} onSave={save} disabled={pendingTypes.has("OPERATING_DAY_OPEN_CREATE")} /> : null
-      ) : (
-        <>
-          <h3>Business day {snapshot.operatingDay.businessDate}</h3>
-          {balances(snapshot.operatingDay)}
-          <p>{snapshot.openShiftCount} open shifts</p>
-          {snapshot.shift ? (
-            <><h3>Your shift</h3>{balances(snapshot.shift)}{canShift ? <CountForm key={snapshot.shift.id} type="SHIFT_CLOSE_CREATE" target={snapshot.shift.id} expected={snapshot.shift.balances} currencyCode={currencyCode} onSave={save} disabled={shiftCloseQueued} /> : null}</>
-          ) : shiftCloseQueued ? <p role="status">Your shift close is queued offline.</p> : canShift ? <CountForm key="shift-open" type="SHIFT_OPEN_CREATE" currencyCode={currencyCode} onSave={save} disabled={pendingTypes.has("SHIFT_OPEN_CREATE")} /> : null}
-          {canDay ? <CountForm key={snapshot.operatingDay.id} type="OPERATING_DAY_CLOSE_CREATE" target={snapshot.operatingDay.id} expected={snapshot.operatingDay.balances} currencyCode={currencyCode} onSave={save} disabled={snapshot.openShiftCount > 0 || dayCloseQueued} /> : null}
-        </>
-      )}
-      {message ? <p role="status">{message}</p> : null}
-      {failed.map((failure, index) => <p role="alert" key={index}>Sync rejected: {failure}</p>)}
-      <h3>Recent days</h3>{recent(snapshot.days, false)}
-      {canDay ? <><h3>Recent shifts</h3>{recent(snapshot.shifts, true)}</> : null}
+      <header className="operations-header">
+        <div><span className="operations-kicker">Branch operations</span><h2>Day & shifts</h2><p>Expected closing = opening counted balance + attributed real-money cashbook movements. Variance = counted closing − expected. Opening balances are custody snapshots, never income.</p></div>
+        <StatusBadge tone={queued > 0 ? "warning" : "positive"}>{queued > 0 ? `${queued} pending sync` : "Fully synced"}</StatusBadge>
+      </header>
+
+      <section className="operations-current-card">
+        {!snapshot.operatingDay ? (
+          dayCloseQueued ? <StatePanel state="offline" title="Business-day close queued" description="The close is saved on this device and will synchronize when connectivity returns." /> : canDay ? <CountForm key="day-open" type="OPERATING_DAY_OPEN_CREATE" currencyCode={currencyCode} onSave={save} disabled={pendingTypes.has("OPERATING_DAY_OPEN_CREATE")} /> : <StatePanel state="empty" title="No business day is open" description="A manager or authorized finance user must open the business day before staff can open shifts." />
+        ) : (
+          <>
+            <div className="operations-section-heading"><div><span>Current business day</span><h3>{snapshot.operatingDay.businessDate}</h3></div><StatusBadge tone="positive">Open</StatusBadge></div>
+            {balances(snapshot.operatingDay)}
+            <div className="operations-open-shifts"><span>Open staff shifts</span><strong>{snapshot.openShiftCount}</strong></div>
+            {snapshot.shift ? (
+              <section className="operations-shift-card"><div className="operations-section-heading"><div><span>Current staff shift</span><h3>Your shift</h3></div><StatusBadge tone="warning">In progress</StatusBadge></div>{balances(snapshot.shift)}{canShift ? <CountForm key={snapshot.shift.id} type="SHIFT_CLOSE_CREATE" target={snapshot.shift.id} expected={snapshot.shift.balances} currencyCode={currencyCode} onSave={save} disabled={shiftCloseQueued} /> : null}</section>
+            ) : shiftCloseQueued ? <StatePanel state="offline" title="Shift close queued" description="Your counted close is saved locally and waiting to synchronize." /> : canShift ? <CountForm key="shift-open" type="SHIFT_OPEN_CREATE" currencyCode={currencyCode} onSave={save} disabled={pendingTypes.has("SHIFT_OPEN_CREATE")} /> : null}
+            {canDay ? <CountForm key={snapshot.operatingDay.id} type="OPERATING_DAY_CLOSE_CREATE" target={snapshot.operatingDay.id} expected={snapshot.operatingDay.balances} currencyCode={currencyCode} onSave={save} disabled={snapshot.openShiftCount > 0 || dayCloseQueued} /> : null}
+          </>
+        )}
+      </section>
+
+      {message ? <StatePanel state={messageState} title={messageState === "error" ? "Operations needs attention" : messageState === "offline" ? "Saved for synchronization" : "Operations updated"} description={message} /> : null}
+      {failed.length > 0 ? <StatePanel state="error" title="Operations sync needs review" description={failed.map((failure) => `Sync rejected: ${failure}`).join(" · ")} /> : null}
+
+      <section className="operations-history-card"><div className="operations-section-heading"><div><span>Operating evidence</span><h3>Recent days</h3></div></div>{recent(snapshot.days, false)}</section>
+      {canDay ? <section className="operations-history-card"><div className="operations-section-heading"><div><span>Staff activity</span><h3>Recent shifts</h3></div></div>{recent(snapshot.shifts, true)}</section> : null}
     </section>
   );
 }

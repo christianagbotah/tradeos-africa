@@ -178,3 +178,11 @@
 .tradeos-mobile-record-card__actions :is(button, a) {
   min-height: var(--tos-touch-mobile);
 }
+
+/* Money input — currency is visually distinct from the editable amount. */
+.tos-money-input{width:100%;min-width:0;min-height:48px;display:flex;align-items:center;gap:8px;padding-left:12px;border:1px solid var(--tos-border-strong);border-radius:var(--tos-radius-sm);background:var(--tos-surface);color:var(--tos-text);transition:border-color var(--tos-motion-fast),box-shadow var(--tos-motion-fast),background var(--tos-motion-fast)}
+.tos-money-input__currency{flex:0 0 auto;color:var(--tos-text-muted);font-size:14px;font-weight:850;line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.workspace-main .tos-money-input>input,.tos-money-input>input{width:100%;min-width:0;min-height:46px;flex:1;padding:0 12px 0 0!important;border:0!important;border-radius:0!important;background:transparent!important;color:var(--tos-text)!important;box-shadow:none!important;outline:none!important;font:inherit;font-size:15px}
+.tos-money-input:focus-within{border-color:var(--tos-gold);box-shadow:var(--tos-focus-ring)}
+.tos-money-input:has(input:disabled){background:var(--tos-surface-soft);opacity:.72}
+.tos-money-input>input:disabled{cursor:not-allowed}

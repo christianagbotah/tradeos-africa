@@ -80,7 +80,7 @@ describe("expense category lifecycle management", () => {
 
   it("keeps category sheet controls phone-sized", () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(root, "tradeos-app.css"), "utf8");
+    const css = fs.readdirSync(root).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(root, name), "utf8")).join("\n");
     expect(css).toMatch(/expense-category-sheet[\s\S]*min-height:\s*48px/);
   });
 });

@@ -7,8 +7,11 @@ import { formatMoney, type CashForecastResponse, type CfoAction as ContractCfoAc
 import { CashForecastPanel } from "./cash-forecast";
 import { CfoActionCenter } from "./cfo-action-center";
 import { ResponsiveTable } from "./ui/responsive-table";
-import { PageHeader } from "./ui/page-header";
 import { CommandBar } from "./ui/command-bar";
+import { MobileRecordCard } from "./ui/mobile-record-card";
+import { StatePanel } from "./ui/state-panel";
+import { StatCard } from "./ui/stat-card";
+import { StatusBadge } from "./ui/status-badge";
 
 type Flow = {
   grossRevenueMinor: number; returnsRevenueMinor: number; netRevenueMinor: number;
@@ -167,84 +170,91 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
   if (!canRead) return null;
   const f = report?.flow;
   const p = report?.position;
+  const healthTone = report?.health.status.includes("CRITICAL") ? "danger" : report?.health.status.includes("HEALTH") || report?.health.status.includes("STRONG") ? "positive" : "warning";
+  const reportMessageState = /offline/i.test(message) ? "offline" : /must not|error|failed|unavailable/i.test(message) ? "error" : "success";
+
   return (
     <section className="reports-workspace" id="reports" data-report-view={view}>
-      <PageHeader
-        eyebrow="Owner intelligence"
-        title="Financial performance"
-        subtitle="Follow operating performance from authoritative accounting evidence, then drill into cash, credit, stock and branch pressure."
-        status={<span className="tradeos-badge">{busy ? "Refreshing…" : allBranches ? "All branches" : "Current branch"}</span>}
-      />
-      <CommandBar ariaLabel="Financial report filters">
-        <label>From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></label>
-        <label>To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></label>
-        <label>Scope<select value={allBranches ? "all" : "branch"} onChange={(e) => setAllBranches(e.target.value === "all")}><option value="branch">Current branch</option><option value="all">All branches</option></select></label>
-      </CommandBar>
-      {message ? <p role="status">{message}</p> : null}
-      {!report || !f || !p ? <p>{busy ? "Calculating financial performance…" : "No saved report is available yet."}</p> : <>
-        <div className="reports-ai-card tradeos-insight-card">
-          <div className="tradeos-card-heading compact"><div><p  className="tradeos-kicker">TradeOS CFO · explainable health</p><h3>Business health</h3></div><span className="tradeos-badge">{report.health.score === null ? "—" : `${report.health.score}/100`} · {report.health.status.replaceAll("_", " ")}</span></div>
-          <p>{report.health.headline} <small>Signal confidence: {report.health.confidence.toLowerCase()} · {report.health.algorithmVersion} · this is an operating-health score, not a lending/credit score.</small></p>
-          <div className="tradeos-stat-grid">{report.health.dimensions.map((dimension) => <article className="tradeos-stat-card" key={dimension.key}><span>{dimension.label}</span><strong>{dimension.applicable && dimension.score !== null ? `${dimension.score}/100` : "N/A"}</strong><small>{dimension.summary}</small></article>)}</div>
+      <header className="reports-header">
+        <div><span className="reports-kicker">Owner intelligence</span><h2>Financial performance</h2><p>Understand profit, cash, credit, stock value and the next operating actions from server-authoritative business evidence.</p></div>
+        <StatusBadge tone={busy ? "info" : "positive"}>{busy ? "Refreshing…" : allBranches ? "All branches" : "Current branch"}</StatusBadge>
+      </header>
 
-          <div className="reports-working-capital-card tradeos-capital-card">
-            <div className="tradeos-card-heading compact"><div><p  className="tradeos-kicker">Cash conversion</p><h3>Working capital cockpit</h3></div><span className="tradeos-badge">{report.health.workingCapital.status.replaceAll("_", " ")}</span></div>
-            <p>{report.health.workingCapital.headline}</p>
-            <div className="working-capital-grid">
-              <article><span>Cash less supplier payables</span><strong>{money(report.health.workingCapital.cashAfterPayablesMinor)}</strong><small>Current cash minus recorded supplier balances; not a due-date forecast.</small></article>
-              <article><span>Net trade credit</span><strong>{money(report.health.workingCapital.netTradeCreditMinor)}</strong><small>Customer receivables minus supplier payables.</small></article>
-              <article><span>Operating working capital</span><strong>{report.health.workingCapital.operatingWorkingCapitalMinor === null ? "N/A" : money(report.health.workingCapital.operatingWorkingCapitalMinor)}</strong><small>{report.health.workingCapital.inventorySnapshotAligned ? "Receivables + inventory at cost − payables." : "Not shown because the current inventory snapshot does not align with this historical period."}</small></article>
-              <article><span>Cash / payables</span><strong>{report.health.workingCapital.payableCoverageRatio === null ? "N/A" : `${report.health.workingCapital.payableCoverageRatio.toLocaleString(undefined, { maximumFractionDigits: 2 })}×`}</strong><small>{report.health.workingCapital.receivableMonths === null ? "Receivable run-rate unavailable" : `${report.health.workingCapital.receivableMonths.toLocaleString(undefined, { maximumFractionDigits: 2 })} months of revenue in receivables`} · {report.health.workingCapital.inventoryMonths === null ? "inventory run-rate unavailable" : `${report.health.workingCapital.inventoryMonths.toLocaleString(undefined, { maximumFractionDigits: 2 })} months of COGS in inventory`}.</small></article>
+      <div className="reports-commandbar">
+        <CommandBar ariaLabel="Financial report filters">
+          <label><span>From</span><input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></label>
+          <label><span>To</span><input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></label>
+          <label><span>Scope</span><select value={allBranches ? "all" : "branch"} onChange={(e) => setAllBranches(e.target.value === "all")}><option value="branch">Current branch</option><option value="all">All branches</option></select></label>
+        </CommandBar>
+      </div>
+
+      {message ? <StatePanel state={reportMessageState} title={reportMessageState === "offline" ? "Offline report view" : reportMessageState === "error" ? "Report needs attention" : "Report status"} description={message} /> : null}
+      {!report || !f || !p ? <StatePanel state={busy ? "loading" : "empty"} title={busy ? "Calculating financial performance" : "No saved report is available yet"} description={busy ? "TradeOS is assembling financial, cash, credit and stock evidence for this scope." : "Open this report online once to save an offline-readable copy for this scope."} /> : <>
+        <section className="reports-ai-overview">
+          <header className="reports-section-heading"><div><span>TradeOS CFO · explainable health</span><h3>Business health</h3></div><StatusBadge tone={healthTone}>{report.health.score === null ? "—" : `${report.health.score}/100`} · {report.health.status.replaceAll("_", " ")}</StatusBadge></header>
+          <p className="reports-lead">{report.health.headline} <small>Signal confidence: {report.health.confidence.toLowerCase()} · {report.health.algorithmVersion} · this is an operating-health score, not a lending/credit score.</small></p>
+          <div className="reports-stat-grid">{report.health.dimensions.map((dimension) => <StatCard key={dimension.key} label={dimension.label} value={dimension.applicable && dimension.score !== null ? `${dimension.score}/100` : "N/A"} hint={dimension.summary} />)}</div>
+
+          <section className="reports-working-capital">
+            <header className="reports-section-heading"><div><span>Cash conversion</span><h3>Working capital cockpit</h3></div><StatusBadge tone="info">{report.health.workingCapital.status.replaceAll("_", " ")}</StatusBadge></header>
+            <p className="reports-lead">{report.health.workingCapital.headline}</p>
+            <div className="reports-stat-grid">
+              <StatCard label="Cash less supplier payables" value={money(report.health.workingCapital.cashAfterPayablesMinor)} hint="Current cash minus recorded supplier balances; not a due-date forecast." />
+              <StatCard label="Net trade credit" value={money(report.health.workingCapital.netTradeCreditMinor)} hint="Customer receivables minus supplier payables." />
+              <StatCard label="Operating working capital" value={report.health.workingCapital.operatingWorkingCapitalMinor === null ? "N/A" : money(report.health.workingCapital.operatingWorkingCapitalMinor)} hint={report.health.workingCapital.inventorySnapshotAligned ? "Receivables + inventory at cost − payables." : "Not shown because the current inventory snapshot does not align with this historical period."} />
+              <StatCard label="Cash / payables" value={report.health.workingCapital.payableCoverageRatio === null ? "N/A" : `${report.health.workingCapital.payableCoverageRatio.toLocaleString(undefined, { maximumFractionDigits: 2 })}×`} hint={`${report.health.workingCapital.receivableMonths === null ? "Receivable run-rate unavailable" : `${report.health.workingCapital.receivableMonths.toLocaleString(undefined, { maximumFractionDigits: 2 })} months of revenue in receivables`} · ${report.health.workingCapital.inventoryMonths === null ? "inventory run-rate unavailable" : `${report.health.workingCapital.inventoryMonths.toLocaleString(undefined, { maximumFractionDigits: 2 })} months of COGS in inventory`}.`} />
             </div>
-            {aging ? <div className="working-capital-grid credit-aging-grid">
-              <article><span>Receivables overdue</span><strong>{money(overdueTotal(aging.receivables))}</strong><small>{aging.receivables.obligationCount} open obligation{aging.receivables.obligationCount === 1 ? "" : "s"} · {money(aging.receivables.dueWithin30DaysMinor)} due in the next 30 days.</small></article>
-              <article><span>Supplier payables overdue</span><strong>{money(overdueTotal(aging.payables))}</strong><small>{aging.payables.obligationCount} open obligation{aging.payables.obligationCount === 1 ? "" : "s"} · {money(aging.payables.dueWithin30DaysMinor)} due in the next 30 days.</small></article>
-              <article><span>Receivables 31–90+ days late</span><strong>{money(aging.receivables.overdue31To60DaysMinor + aging.receivables.overdue61To90DaysMinor + aging.receivables.overdueOver90DaysMinor)}</strong><small>1–30 days late: {money(aging.receivables.overdue1To30DaysMinor)}.</small></article>
-              <article><span>Payables 31–90+ days late</span><strong>{money(aging.payables.overdue31To60DaysMinor + aging.payables.overdue61To90DaysMinor + aging.payables.overdueOver90DaysMinor)}</strong><small>1–30 days late: {money(aging.payables.overdue1To30DaysMinor)}.</small></article>
+            {aging ? <div className="reports-stat-grid reports-aging-grid">
+              <StatCard tone={overdueTotal(aging.receivables) > 0 ? "warning" : "default"} label="Receivables overdue" value={money(overdueTotal(aging.receivables))} hint={`${aging.receivables.obligationCount} open obligation${aging.receivables.obligationCount === 1 ? "" : "s"} · ${money(aging.receivables.dueWithin30DaysMinor)} due in the next 30 days.`} />
+              <StatCard tone={overdueTotal(aging.payables) > 0 ? "warning" : "default"} label="Supplier payables overdue" value={money(overdueTotal(aging.payables))} hint={`${aging.payables.obligationCount} open obligation${aging.payables.obligationCount === 1 ? "" : "s"} · ${money(aging.payables.dueWithin30DaysMinor)} due in the next 30 days.`} />
+              <StatCard label="Receivables 31–90+ days late" value={money(aging.receivables.overdue31To60DaysMinor + aging.receivables.overdue61To90DaysMinor + aging.receivables.overdueOver90DaysMinor)} hint={`1–30 days late: ${money(aging.receivables.overdue1To30DaysMinor)}.`} />
+              <StatCard label="Payables 31–90+ days late" value={money(aging.payables.overdue31To60DaysMinor + aging.payables.overdue61To90DaysMinor + aging.payables.overdueOver90DaysMinor)} hint={`1–30 days late: ${money(aging.payables.overdue1To30DaysMinor)}.`} />
             </div> : null}
-            <small className="working-capital-note">Credit aging is a current snapshot built from fixed due dates on each pay-later sale and supplier-credit purchase. Legacy obligations that predate terms tracking are conservatively treated as due on their original transaction date. This schedule is now suitable as the timing foundation for the next cash-forecast layer.</small>
+            <small className="reports-evidence-note">Credit aging is a current snapshot built from fixed due dates on each pay-later sale and supplier-credit purchase. Legacy obligations that predate terms tracking are conservatively treated as due on their original transaction date.</small>
+          </section>
+
+          <CfoActionCenter healthActions={report.health.actions} aging={aging} forecast={forecast} money={money} offlineCached={agingOfflineCached || forecastOfflineCached} />
+
+          <section className="reports-insights"><header className="reports-section-heading"><div><span>Explainable operating signals</span><h3>Why TradeOS is flagging this</h3></div></header><div className="reports-insight-list">{report.health.insights.map((item) => <article className="reports-insight-card" key={item.code}><div className="reports-insight-head"><strong>{item.title}</strong><StatusBadge tone={item.severity === "CRITICAL" ? "danger" : item.severity === "WARNING" ? "warning" : item.severity === "POSITIVE" ? "positive" : "info"}>{item.severity.replaceAll("_", " ")}</StatusBadge></div><p>{item.message}</p>{item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${healthValue(row.value, row.unit)}`).join(" · ")}</p> : null}<p><b>Next:</b> {item.action}</p></article>)}</div></section>
+        </section>
+
+        {forecast ? <CashForecastPanel forecast={forecast} money={money} offlineCached={forecastOfflineCached} /> : <StatePanel state={busy ? "loading" : "empty"} title={busy ? "Calculating the 30-day cash forecast" : "No saved cash forecast is available yet"} description="TradeOS needs current money and obligation evidence to build this view." />}
+
+        <section className="reports-performance">
+          <header className="reports-section-heading"><div><span>Period performance</span><h3>Profit, cash and balance-sheet pulse</h3></div></header>
+          <div className="reports-stat-grid reports-performance-grid">
+            <StatCard label="Net revenue" value={money(f.netRevenueMinor)} hint={`${percentage(report.comparison.netRevenueChangePercent)} vs previous period`} />
+            <StatCard label="Gross profit" value={money(f.grossProfitMinor)} hint={`${percentage(report.comparison.grossProfitChangePercent)} vs previous period`} />
+            <StatCard label="Operating profit" value={money(f.operatingProfitMinor)} hint={`${percentage(report.comparison.operatingProfitChangePercent)} vs previous period`} />
+            <StatCard label="Money balance" value={money(p.cashBalanceMinor)} hint={`${signed(p.cashBalanceMinor - report.previousPosition.cashBalanceMinor, money)} since prior period end`} />
+            <StatCard label="Receivables" value={money(p.receivablesMinor)} hint="Customer credit owed to the business" />
+            <StatCard label="Payables" value={money(p.payablesMinor)} hint="Supplier obligations outstanding" />
+            <StatCard label="Inventory value" value={money(p.inventoryValueMinor)} hint="Current valuation snapshot · not historical" />
+            <StatCard label="Sales" value={f.salesCount} hint={`Average net sale ${money(f.averageNetSaleMinor)}`} />
           </div>
 
-          <CfoActionCenter
-            healthActions={report.health.actions}
-            aging={aging}
-            forecast={forecast}
-            money={money}
-            offlineCached={agingOfflineCached || forecastOfflineCached}
-          />
+          <div className="reports-detail-grid">
+            <article><h3>Profit bridge</h3><p>Gross revenue {money(f.grossRevenueMinor)} − returns {money(f.returnsRevenueMinor)} = <strong>{money(f.netRevenueMinor)}</strong></p><p>Net COGS {money(f.netCogsMinor)} · gross profit <strong>{money(f.grossProfitMinor)}</strong> · expenses {money(f.expenseMinor)} · purchase-return variance {signed(f.purchaseReturnVarianceMinor, money)} · operating profit <strong>{money(f.operatingProfitMinor)}</strong></p><small>Discarded/unusable customer-return cost retained in COGS: {money(f.discardedReturnCostMinor)}.</small></article>
+            <article><h3>Money movement</h3><p>In {money(f.cashInflowMinor)} · Out {money(f.cashOutflowMinor)} · Net <strong>{money(f.netCashMovementMinor)}</strong></p><p>Operating cash net {money(f.operatingCashNetMinor)} · refunds {money(f.refundTotalMinor)} · tax net {money(f.netTaxMinor)}</p></article>
+            <article><h3>Credit position</h3><p>Receivables {money(p.receivablesMinor)} · customer prepaid/credit {money(p.customerCreditBalanceMinor)}</p><p>Payables {money(p.payablesMinor)} · supplier credit due back {money(p.supplierCreditBalanceMinor)}</p></article>
+            <article><h3>Inventory valuation</h3><p>Available {money(p.inventoryAvailableValueMinor)} · quarantine {money(p.inventoryQuarantineValueMinor)} · other {money(p.inventoryOtherValueMinor)}</p><small>Snapshot generated {new Date(p.inventorySnapshotAt).toLocaleString()}.</small></article>
+          </div>
 
-          <div>{report.health.insights.map((item) => <div className={`insight ${item.severity === "CRITICAL" || item.severity === "WARNING" ? "important" : ""}`} key={item.code}><strong>{item.severity.replaceAll("_", " ")} · {item.title}</strong><p>{item.message}</p>{item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${healthValue(row.value, row.unit)}`).join(" · ")}</p> : null}<p><b>Next:</b> {item.action}</p></div>)}</div>
-        </div>
+          <section className="reports-evidence-section"><header className="reports-section-heading"><div><span>Trend evidence</span><h3>Daily performance</h3></div></header>
+            <ResponsiveTable className="reports-table--desktop"><table><thead><tr><th>Date</th><th>Net revenue</th><th>Gross profit</th><th>Expenses</th><th>Purchase variance</th><th>Operating profit</th><th>Money net</th><th>Sales</th></tr></thead><tbody>{report.daily.slice(-31).map((d) => <tr key={d.date}><td>{d.date}</td><td>{money(d.netRevenueMinor)}</td><td>{money(d.grossProfitMinor)}</td><td>{money(d.expenseMinor)}</td><td>{signed(d.purchaseReturnVarianceMinor, money)}</td><td>{money(d.operatingProfitMinor)}</td><td>{money(d.cashNetMinor)}</td><td>{d.salesCount}</td></tr>)}</tbody></table></ResponsiveTable>
+            <div className="reports-records--mobile">{report.daily.slice(-31).map((d) => <MobileRecordCard key={d.date} title={d.date} meta={`Sales ${d.salesCount} · money net ${money(d.cashNetMinor)}`} status={<StatusBadge tone={d.operatingProfitMinor >= 0 ? "positive" : "warning"}>{d.operatingProfitMinor >= 0 ? "Profitable" : "Loss"}</StatusBadge>}><p><strong>{money(d.netRevenueMinor)}</strong> net revenue · {money(d.grossProfitMinor)} gross profit</p></MobileRecordCard>)}</div>
+          </section>
 
-        {forecast ? <CashForecastPanel forecast={forecast} money={money} offlineCached={forecastOfflineCached} /> : <div className="reports-working-capital-card tradeos-capital-card"><p>{busy ? "Calculating the 30-day cash forecast…" : "No saved cash forecast is available yet."}</p></div>}
+          <section className="reports-evidence-section"><header className="reports-section-heading"><div><span>Product evidence</span><h3>Top items by net revenue</h3></div></header>
+            <ResponsiveTable className="reports-table--desktop"><table><thead><tr><th>Item</th><th>Sold</th><th>Returned</th><th>Net revenue</th><th>COGS</th><th>Gross profit</th></tr></thead><tbody>{report.topItems.map((item) => <tr key={`${item.itemId}:${item.unitCode}`}><td>{item.itemName}<small> · {item.itemKind}</small></td><td>{item.quantitySold} {item.unitCode}</td><td>{item.quantityReturned} {item.unitCode}</td><td>{money(item.netRevenueMinor)}</td><td>{money(item.netCogsMinor)}</td><td>{money(item.grossProfitMinor)}</td></tr>)}</tbody></table></ResponsiveTable>
+            <div className="reports-records--mobile">{report.topItems.map((item) => <MobileRecordCard key={`${item.itemId}:${item.unitCode}`} title={item.itemName} meta={`${item.itemKind} · sold ${item.quantitySold} ${item.unitCode} · returned ${item.quantityReturned} ${item.unitCode}`} status={<StatusBadge tone={item.grossProfitMinor >= 0 ? "positive" : "warning"}>{money(item.grossProfitMinor)} GP</StatusBadge>}><p><strong>{money(item.netRevenueMinor)}</strong> net revenue · COGS {money(item.netCogsMinor)}</p></MobileRecordCard>)}</div>
+          </section>
 
-        <div className="tradeos-stat-grid">
-          <article className="tradeos-stat-card"><span>Net revenue</span><strong>{money(f.netRevenueMinor)}</strong><small>{percentage(report.comparison.netRevenueChangePercent)} vs previous period</small></article>
-          <article className="tradeos-stat-card"><span>Gross profit</span><strong>{money(f.grossProfitMinor)}</strong><small>{percentage(report.comparison.grossProfitChangePercent)} vs previous period</small></article>
-          <article className="tradeos-stat-card"><span>Operating profit</span><strong>{money(f.operatingProfitMinor)}</strong><small>{percentage(report.comparison.operatingProfitChangePercent)} vs previous period</small></article>
-          <article className="tradeos-stat-card"><span>Money balance</span><strong>{money(p.cashBalanceMinor)}</strong><small>{signed(p.cashBalanceMinor - report.previousPosition.cashBalanceMinor, money)} since prior period end</small></article>
-          <article className="tradeos-stat-card"><span>Receivables</span><strong>{money(p.receivablesMinor)}</strong><small>Customer credit owed to the business</small></article>
-          <article className="tradeos-stat-card"><span>Payables</span><strong>{money(p.payablesMinor)}</strong><small>Supplier obligations outstanding</small></article>
-          <article className="tradeos-stat-card"><span>Inventory value</span><strong>{money(p.inventoryValueMinor)}</strong><small>Current valuation snapshot · not historical</small></article>
-          <article className="tradeos-stat-card"><span>Sales</span><strong>{f.salesCount}</strong><small>Average net sale {money(f.averageNetSaleMinor)}</small></article>
-        </div>
-
-        <div className="tradeos-form-row">
-          <div><h3>Profit bridge</h3><p>Gross revenue {money(f.grossRevenueMinor)} − returns {money(f.returnsRevenueMinor)} = <strong>{money(f.netRevenueMinor)}</strong></p><p>Net COGS {money(f.netCogsMinor)} · gross profit <strong>{money(f.grossProfitMinor)}</strong> · expenses {money(f.expenseMinor)} · purchase-return variance {signed(f.purchaseReturnVarianceMinor, money)} · operating profit <strong>{money(f.operatingProfitMinor)}</strong></p><p><small>Discarded/unusable customer-return cost retained in COGS: {money(f.discardedReturnCostMinor)}.</small></p></div>
-          <div><h3>Money movement</h3><p>In {money(f.cashInflowMinor)} · Out {money(f.cashOutflowMinor)} · Net <strong>{money(f.netCashMovementMinor)}</strong></p><p>Operating cash net {money(f.operatingCashNetMinor)} · refunds {money(f.refundTotalMinor)} · tax net {money(f.netTaxMinor)}</p></div>
-        </div>
-        <div className="tradeos-form-row">
-          <div><h3>Credit position</h3><p>Receivables {money(p.receivablesMinor)} · customer prepaid/credit {money(p.customerCreditBalanceMinor)}</p><p>Payables {money(p.payablesMinor)} · supplier credit due back {money(p.supplierCreditBalanceMinor)}</p></div>
-          <div><h3>Inventory valuation</h3><p>Available {money(p.inventoryAvailableValueMinor)} · quarantine {money(p.inventoryQuarantineValueMinor)} · other {money(p.inventoryOtherValueMinor)}</p><p><small>Snapshot generated {new Date(p.inventorySnapshotAt).toLocaleString()}.</small></p></div>
-        </div>
-
-        <h3>Daily performance</h3>
-        <ResponsiveTable><table><thead><tr><th>Date</th><th>Net revenue</th><th>Gross profit</th><th>Expenses</th><th>Purchase variance</th><th>Operating profit</th><th>Money net</th><th>Sales</th></tr></thead><tbody>{report.daily.slice(-31).map((d) => <tr key={d.date}><td>{d.date}</td><td>{money(d.netRevenueMinor)}</td><td>{money(d.grossProfitMinor)}</td><td>{money(d.expenseMinor)}</td><td>{signed(d.purchaseReturnVarianceMinor, money)}</td><td>{money(d.operatingProfitMinor)}</td><td>{money(d.cashNetMinor)}</td><td>{d.salesCount}</td></tr>)}</tbody></table></ResponsiveTable>
-
-        <h3>Top items by net revenue</h3>
-        <ResponsiveTable><table><thead><tr><th>Item</th><th>Sold</th><th>Returned</th><th>Net revenue</th><th>COGS</th><th>Gross profit</th></tr></thead><tbody>{report.topItems.map((item) => <tr key={`${item.itemId}:${item.unitCode}`}><td>{item.itemName}<small> · {item.itemKind}</small></td><td>{item.quantitySold} {item.unitCode}</td><td>{item.quantityReturned} {item.unitCode}</td><td>{money(item.netRevenueMinor)}</td><td>{money(item.netCogsMinor)}</td><td>{money(item.grossProfitMinor)}</td></tr>)}</tbody></table></ResponsiveTable>
-
-        {allBranches ? <><h3>Branch performance</h3><ResponsiveTable><table><thead><tr><th>Branch</th><th>Net revenue</th><th>Gross profit</th><th>Expenses</th><th>Purchase variance</th><th>Operating profit</th><th>Money net</th><th>Receivables</th><th>Payables</th><th>Inventory now</th></tr></thead><tbody>{report.branches.map((b) => <tr key={b.branchId}><td>{b.branchName}</td><td>{money(b.netRevenueMinor)}</td><td>{money(b.grossProfitMinor)}</td><td>{money(b.expenseMinor)}</td><td>{signed(b.purchaseReturnVarianceMinor, money)}</td><td>{money(b.operatingProfitMinor)}</td><td>{money(b.cashNetMinor)}</td><td>{money(b.receivablesMinor)}</td><td>{money(b.payablesMinor)}</td><td>{money(b.inventoryValueMinor)}</td></tr>)}</tbody></table></ResponsiveTable></> : null}
+          {allBranches ? <section className="reports-evidence-section"><header className="reports-section-heading"><div><span>Multi-branch evidence</span><h3>Branch performance</h3></div></header>
+            <ResponsiveTable className="reports-table--desktop"><table><thead><tr><th>Branch</th><th>Net revenue</th><th>Gross profit</th><th>Expenses</th><th>Purchase variance</th><th>Operating profit</th><th>Money net</th><th>Receivables</th><th>Payables</th><th>Inventory now</th></tr></thead><tbody>{report.branches.map((b) => <tr key={b.branchId}><td>{b.branchName}</td><td>{money(b.netRevenueMinor)}</td><td>{money(b.grossProfitMinor)}</td><td>{money(b.expenseMinor)}</td><td>{signed(b.purchaseReturnVarianceMinor, money)}</td><td>{money(b.operatingProfitMinor)}</td><td>{money(b.cashNetMinor)}</td><td>{money(b.receivablesMinor)}</td><td>{money(b.payablesMinor)}</td><td>{money(b.inventoryValueMinor)}</td></tr>)}</tbody></table></ResponsiveTable>
+            <div className="reports-records--mobile">{report.branches.map((b) => <MobileRecordCard key={b.branchId} title={b.branchName} meta={`Sales ${b.salesCount} · returns ${b.returnCount} · money net ${money(b.cashNetMinor)}`} status={<StatusBadge tone={b.operatingProfitMinor >= 0 ? "positive" : "warning"}>{money(b.operatingProfitMinor)} operating profit</StatusBadge>}><p><strong>{money(b.netRevenueMinor)}</strong> net revenue · {money(b.inventoryValueMinor)} inventory</p></MobileRecordCard>)}</div>
+          </section> : null}
+        </section>
       </>}
     </section>
   );

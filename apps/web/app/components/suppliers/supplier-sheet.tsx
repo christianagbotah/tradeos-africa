@@ -5,6 +5,7 @@ import { formatMoney, parseMoneyInput } from "@tradeos/contracts";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
+import { MoneyInput } from "../ui/money-input";
 import { MasterDataActions, masterDataLifecycleMessage } from "../business/master-data-actions";
 import { supplierCapabilities, type Supplier, type SupplierDetail } from "./supplier-types";
 
@@ -311,7 +312,7 @@ export function SupplierSheet({ mode, supplier, detail, open, businessId, branch
               {capabilities.canPay && current.balanceMinor > 0 ? (
                 <form className="supplier-payment" onSubmit={(event) => void paySupplier(event)}>
                   <div><strong>Pay supplier</strong><span>Settles existing payable history; inactive status does not block settlement.</span></div>
-                  <label>Amount<input inputMode="decimal" value={payment} onChange={(event) => setPayment(event.target.value)} placeholder="0.00" /></label>
+                  <label>Amount<MoneyInput currencyCode={currencyCode} value={payment} onChange={(event) => setPayment(event.target.value)} placeholder="0.00" /></label>
                   <label>Method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>{["CASH", "MOMO", "CARD", "BANK", "OTHER"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
                   <Button type="submit" disabled={busy || (parseMoneyInput(payment, currencyCode) ?? -1) <= 0}>Pay supplier</Button>
                 </form>

@@ -1,0 +1,146 @@
+.cashbook-page {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.cashbook-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 4px 2px 2px; }
+.cashbook-page-header h2 { margin: 0; color: var(--tos-text-strong); font-size: clamp(26px, 2.5vw, 34px); letter-spacing: -.035em; }
+.cashbook-page-header > div > p:last-child { max-width: 760px; margin: 8px 0 0; color: var(--tos-text-muted); font-size: 14px; line-height: 1.55; }
+
+.cashbook-kicker { margin: 0 0 5px; color: var(--tos-gold); font-size: 12px; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+.cashbook-toolbar .tradeos-command-bar__controls { display: grid; grid-template-columns: minmax(170px,1.2fr) minmax(150px,.9fr) minmax(150px,.9fr); gap: 12px; align-items: end; flex: 1; }
+.cashbook-toolbar label, .cashbook-entry-form label, .cashbook-category-row label, .treasury-section label { display: grid; gap: 7px; min-width: 0; color: var(--tos-text-muted); font-size: 12px; font-weight: 750; }
+.cashbook-toolbar label > span, .cashbook-entry-form label > span, .cashbook-category-row label > span { color: var(--tos-text-muted); font-size: 12px; font-weight: 800; }
+.cashbook-toolbar input, .cashbook-toolbar select, .cashbook-entry-form input, .cashbook-entry-form select, .cashbook-category-row input, .treasury-section input:not([type="checkbox"]), .treasury-section select {
+  width: 100%; min-width: 0; min-height: 48px; padding: 0 12px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); background: var(--tos-surface); color: var(--tos-text); font: inherit; font-size: 15px; outline: none; transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.cashbook-toolbar input:focus-visible, .cashbook-toolbar select:focus-visible, .cashbook-entry-form input:focus-visible, .cashbook-entry-form select:focus-visible, .cashbook-category-row input:focus-visible, .treasury-section input:focus-visible, .treasury-section select:focus-visible, .cashbook-page button:focus-visible { border-color: var(--tos-gold); box-shadow: var(--tos-focus-ring); outline: none; }
+
+.cashbook-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.cashbook-stat-grid .tradeos-stat-card { min-width: 0; }
+.cashbook-method-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.cashbook-method-strip article { padding: 13px 15px; border: 1px solid #e3e8f0; border-radius: 13px; background: #f9fafc; }
+.cashbook-method-strip span, .cashbook-method-strip strong, .cashbook-method-strip small { display: block; }
+.cashbook-method-strip span { color: #64748b; font-size: 10px; font-weight: 850; letter-spacing: .08em; }
+.cashbook-method-strip strong { margin-top: 5px; color: #172033; font-size: 16px; }
+.cashbook-method-strip small { margin-top: 4px; color: #7a8799; font-size: 10px; }
+
+.cashbook-primary-grid { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(290px, .65fr); gap: 16px; align-items: start; }
+.cashbook-card { min-width: 0; padding: 20px; border: 1px solid var(--tos-border); border-radius: 18px; background: #fff; box-shadow: 0 10px 32px rgba(16, 27, 45, .055); }
+.cashbook-section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
+.cashbook-section-heading span, .cashbook-card-kicker { color: #7b8798; font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .11em; }
+.cashbook-section-heading h3, .cashbook-category-card h3 { margin: 4px 0 0; color: var(--tos-text-strong); font-size: 20px; letter-spacing: -.025em; }
+.cashbook-section-heading small { max-width: 260px; color: #8792a4; font-size: 11px; line-height: 1.45; text-align: right; }
+.cashbook-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.cashbook-form-wide { grid-column: 1 / -1; }
+.cashbook-adjustment-help { align-self: end; min-height: 48px; padding: 11px 13px; border: 1px solid #ead8ac; border-radius: 11px; background: var(--tos-gold-soft); color: #72571b; font-size: 12px; line-height: 1.45; }
+.cashbook-form-actions { display: flex; justify-content: flex-end; margin-top: 18px; padding-top: 16px; border-top: 1px solid #edf0f4; }
+.cashbook-form-actions .tos-button { min-height: 48px; min-width: 150px; padding-inline: 22px; }
+.cashbook-category-card { display: grid; gap: 18px; background: linear-gradient(180deg, #fff, #fcfcfd); }
+.cashbook-category-card h3 { margin-top: 5px; }
+.cashbook-category-card p { margin: 8px 0 0; color: var(--tos-text-muted); font-size: 12px; line-height: 1.55; }
+.cashbook-category-card p strong { color: #8a681b; }
+.cashbook-category-row { display: grid; gap: 12px; }
+.cashbook-category-row .tos-button { min-height: 48px; }
+.cashbook-category-row button:disabled { cursor: not-allowed; opacity: .52; background: #f4f5f7; color: #8d96a4; }
+
+.cashbook-treasury-card { overflow: hidden; }
+.treasury-section { min-width: 0; color: #243146; }
+.treasury-section > h3:first-child { display: none; }
+.treasury-section > p { color: var(--tos-text-muted); font-size: 13px; line-height: 1.5; }
+.treasury-method-balances { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 8px; margin: 14px 0; }
+.treasury-method-balances p { margin: 0; padding: 10px 12px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-sm); background: var(--tos-surface-soft); color: var(--tos-text-muted); font-size: 12px; }
+.treasury-table-scroll { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; }
+.treasury-section table { width: 100%; border-collapse: collapse; }
+.treasury-table-scroll table { min-width: 680px; }
+.treasury-section th, .treasury-section td { padding: 11px 12px; border-bottom: 1px solid #edf0f4; text-align: left; font-size: 12px; }
+.treasury-section th { color: #64748b; background: #f8fafc; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.treasury-section form { margin-top: 16px; padding: 16px; border: 1px solid #e2e7ee; border-radius: 14px; background: #fafbfd; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.treasury-section form h4, .treasury-section > h4 { grid-column: 1 / -1; margin: 0 0 2px; color: var(--tos-text-strong); font-size: 15px; }
+.treasury-section form p { grid-column: 1 / -1; margin: 0; color: var(--tos-text-muted); font-size: 12px; }
+.treasury-section form .tos-button { min-height: 48px; justify-self: start; align-self: end; }
+.treasury-section input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--tos-gold); }
+
+.cashbook-history-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.cashbook-data-card { padding-bottom: 8px; }
+.cashbook-table-scroll { width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid #e5e9ef; border-radius: 12px; }
+.cashbook-table-scroll table { width: 100%; min-width: 660px; border-collapse: collapse; background: #fff; }
+.cashbook-table-scroll th, .cashbook-table-scroll td { padding: 12px 14px; border-bottom: 1px solid #edf0f4; text-align: left; font-size: 12px; white-space: nowrap; }
+.cashbook-table-scroll th { position: sticky; top: 0; z-index: 1; background: #f8fafc; color: #68768b; font-size: 10px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.cashbook-table-scroll tr:last-child td { border-bottom: 0; }
+.cashbook-table-scroll tbody tr:hover { background: #fbfcfe; }
+.cashbook-table-scroll .amount-cell { text-align: right; font-variant-numeric: tabular-nums; font-weight: 750; }
+.cashbook-empty-state { min-height: 120px; padding: 24px; border: 1px dashed #d6dde8; border-radius: 12px; background: #fbfcfd; display: grid; place-content: center; text-align: center; }
+.cashbook-empty-state strong { color: #27344a; font-size: 14px; }
+.cashbook-empty-state span { max-width: 500px; margin-top: 5px; color: #7a8799; font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 1100px) {
+  .cashbook-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cashbook-primary-grid { grid-template-columns: 1fr; }
+  .cashbook-category-row { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+}
+@media (max-width: 767px) {
+  .cashbook-page { gap: 14px; }
+  .cashbook-page-header { display: grid; gap: 12px; }
+  .cashbook-page-header h2 { font-size: 25px; }
+  .cashbook-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 14px; }
+  .cashbook-toolbar label:first-child { grid-column: 1 / -1; }
+  .cashbook-today-button { grid-column: 1 / -1; }
+  .cashbook-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .cashbook-stat-card { padding: 14px; }
+  .cashbook-stat-card strong { font-size: 21px; }
+  .cashbook-form-grid { grid-template-columns: 1fr; gap: 13px; }
+  .cashbook-form-wide { grid-column: 1; }
+  .cashbook-card { padding: 16px; border-radius: 15px; }
+  .cashbook-section-heading { display: grid; gap: 5px; }
+  .cashbook-section-heading small { max-width: none; text-align: left; }
+  .cashbook-category-row { grid-template-columns: 1fr; }
+  .cashbook-form-actions .tos-button { width: 100%; }
+  .treasury-section form { grid-template-columns: 1fr; padding: 13px; }
+  .treasury-section form h4, .treasury-section form p { grid-column: 1; }
+}
+@media (max-width: 480px) {
+  .cashbook-toolbar { grid-template-columns: 1fr; }
+  .cashbook-toolbar label:first-child, .cashbook-today-button { grid-column: 1; }
+  .cashbook-stat-grid { grid-template-columns: 1fr; }
+  .cashbook-method-strip { grid-template-columns: 1fr; }
+}
+
+/* Expense category lifecycle management */
+.expense-category-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.expense-category-head>div{min-width:0}.expense-category-head .tos-button{min-height:48px;flex:0 0 auto}.expense-category-counts{display:flex;gap:8px;flex-wrap:wrap}.expense-category-counts span{min-height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border:1px solid var(--tos-border);border-radius:999px;background:#f8fafc;color:var(--tos-text-muted);font-size:12px}.expense-category-counts strong{color:var(--tos-text-strong);font-size:14px}.expense-category-list{display:grid;gap:8px}.expense-category-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:12px;border:1px solid var(--tos-border);border-radius:13px;background:#fff}.expense-category-row.archived{background:#f8fafc}.expense-category-copy{min-width:0;display:grid;gap:6px}.expense-category-copy>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--tos-text-strong);font-size:14px}.expense-category-badges{display:flex;gap:6px;flex-wrap:wrap}.expense-category-badges span{padding:4px 7px;border-radius:999px;background:#eef2f6;color:#68768b;font-size:11px;font-weight:800}.expense-category-badges .system{background:var(--tos-gold-soft);color:#765918}.expense-category-badges .active{background:#eef8f2;color:#277247}.expense-category-badges .archived{background:#f1f3f6;color:#737e8d}.expense-category-row .tos-button{min-height:44px}.expense-category-empty{padding:20px;border:1px dashed var(--tos-border);border-radius:12px;background:#fafbfd;color:var(--tos-text-muted);font-size:13px;text-align:center}.expense-category-sheet-backdrop{position:fixed;inset:0;z-index:110;display:flex;justify-content:flex-end;background:rgba(7,17,31,.55);backdrop-filter:blur(2px)}.expense-category-sheet{width:min(620px,94vw);height:100%;max-height:100dvh;display:flex;flex-direction:column;background:#fff;box-shadow:-20px 0 60px rgba(7,17,31,.22)}.expense-category-sheet-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:20px 22px 17px;border-bottom:1px solid var(--tos-border)}.expense-category-sheet-header span{display:block;color:#8a681b;font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}.expense-category-sheet-header h2{margin:5px 0 0;color:var(--tos-text-strong);font-size:clamp(22px,3vw,28px);letter-spacing:-.03em}.expense-category-sheet-close{width:44px;height:44px;flex:0 0 44px;border:1px solid var(--tos-border);border-radius:13px;background:#f8fafc;color:var(--tos-text-strong);font-size:25px;cursor:pointer}.expense-category-sheet-body{min-height:0;display:flex;flex:1;flex-direction:column;overflow:auto}.expense-category-sheet-body>section{display:grid;gap:14px;padding:20px 22px;border-bottom:1px solid var(--tos-border)}.expense-category-section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.expense-category-section-heading strong{color:var(--tos-text-strong);font-size:17px}.expense-category-section-heading span{max-width:280px;color:var(--tos-text-muted);font-size:13px;line-height:1.45;text-align:right}.expense-category-sheet label{display:grid;gap:7px;color:#526076;font-size:13px;font-weight:800}.expense-category-sheet input{width:100%;min-height:48px;padding:0 13px;border:1px solid #cfd7e3;border-radius:12px;background:#fff;color:var(--tos-text-strong);font:inherit;font-size:15px;outline:none}.expense-category-sheet input:focus{border-color:var(--tos-gold);box-shadow:var(--tos-focus-ring)}.expense-category-system-note,.expense-category-status-copy{margin:0;color:var(--tos-text-muted);font-size:13px;line-height:1.55}.expense-category-system-note{padding:12px 14px;border:1px solid #ead8ac;border-radius:12px;background:var(--tos-gold-soft);color:#715719}.expense-category-sheet-body section>.tos-button{min-height:48px;justify-self:start}.expense-category-sheet-message{margin:16px 22px 0;padding:12px 14px;border:1px solid #d7c48c;border-radius:12px;background:var(--tos-gold-soft);color:#5e481a;font-size:14px;line-height:1.5}.expense-category-sheet-footer{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:9px;margin-top:auto;padding:15px 22px calc(15px + env(safe-area-inset-bottom));border-top:1px solid var(--tos-border);background:rgba(255,255,255,.96);backdrop-filter:blur(10px)}.expense-category-sheet-footer .tos-button{min-height:48px}
+@media(max-width:767px){.expense-category-head{display:grid}.expense-category-head .tos-button{width:100%}.expense-category-row{align-items:flex-start}.expense-category-sheet{width:100vw;max-width:none}.expense-category-sheet-header{padding:17px 16px 14px}.expense-category-sheet-body>section{padding:18px 16px}.expense-category-section-heading{display:grid;gap:4px}.expense-category-section-heading span{text-align:left}.expense-category-sheet-message{margin:14px 16px 0}.expense-category-sheet-footer{padding-left:16px;padding-right:16px}.expense-category-sheet-footer .tos-button{flex:1;min-height:48px}}
+
+/* Treasury account lifecycle management */
+.treasury-account-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:14px}.treasury-account-toolbar>div{min-width:0}.treasury-account-toolbar p{margin:0;color:var(--tos-text-muted);font-size:13px;line-height:1.5}.treasury-account-toolbar strong{display:block;margin-top:6px;color:var(--tos-text-strong);font-size:15px}.treasury-account-toolbar>.tos-button{min-height:48px;flex:0 0 auto}.treasury-account-reference{display:block;margin-top:4px;color:#7b8798;font-size:11px}.treasury-defaults{margin-top:16px;padding:16px;border:1px solid var(--tos-border);border-radius:14px;background:#fafbfd}.treasury-default-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.treasury-default-grid label{display:grid;gap:7px;color:#526076;font-size:12px;font-weight:800}.treasury-default-grid select{min-height:48px}.treasury-default-note{margin:12px 0 0!important;padding:11px 13px;border:1px solid #ead8ac;border-radius:11px;background:var(--tos-gold-soft);color:#72571b!important;font-size:12px!important;line-height:1.5!important}.treasury-reconciliation-list{display:grid;gap:8px}.treasury-reconciliation-list p{margin:0;padding:10px 12px;border:1px solid #e4e8ef;border-radius:10px;background:#fafbfd;color:#526076;font-size:12px}.money-account-sheet-backdrop{position:fixed;inset:0;z-index:115;display:flex;justify-content:flex-end;background:rgba(7,17,31,.56);backdrop-filter:blur(2px)}.money-account-sheet{width:min(680px,94vw);height:100%;max-height:100dvh;display:flex;flex-direction:column;background:#fff;box-shadow:-20px 0 60px rgba(7,17,31,.22)}.money-account-sheet-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:20px 22px 17px;border-bottom:1px solid var(--tos-border)}.money-account-sheet-header span{display:block;color:#8a681b;font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}.money-account-sheet-header h2{margin:5px 0 0;color:var(--tos-text-strong);font-size:clamp(22px,3vw,28px);letter-spacing:-.03em}.money-account-sheet-close{width:44px;height:44px;flex:0 0 44px;border:1px solid var(--tos-border);border-radius:13px;background:#f8fafc;color:var(--tos-text-strong);font-size:25px;cursor:pointer}.money-account-sheet-body{min-height:0;display:flex;flex:1;flex-direction:column;overflow:auto}.money-account-sheet-body>section{display:grid;gap:14px;padding:20px 22px;border-bottom:1px solid var(--tos-border)}.money-account-section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.money-account-section-heading strong{color:var(--tos-text-strong);font-size:17px}.money-account-section-heading span{max-width:300px;color:var(--tos-text-muted);font-size:13px;line-height:1.45;text-align:right}.money-account-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.money-account-field-grid label,.money-account-sheet label{display:grid;gap:7px;color:#526076;font-size:13px;font-weight:800}.money-account-sheet input:not([type="checkbox"]),.money-account-sheet select{width:100%;min-height:48px;padding:0 13px;border:1px solid #cfd7e3;border-radius:12px;background:#fff;color:var(--tos-text-strong);font:inherit;font-size:15px;outline:none}.money-account-sheet input:focus,.money-account-sheet select:focus{border-color:var(--tos-gold);box-shadow:var(--tos-focus-ring)}.money-account-check{display:flex!important;align-items:center!important;gap:9px!important;min-height:48px}.money-account-check input{width:20px;height:20px;accent-color:var(--tos-gold)}.money-account-identity{display:flex;gap:7px;flex-wrap:wrap}.money-account-identity span{padding:6px 9px;border-radius:999px;background:#f1f4f7;color:#5f6b7c;font-size:12px;font-weight:800}.money-account-balance-note,.money-account-status-copy{margin:0;color:var(--tos-text-muted);font-size:13px;line-height:1.55}.money-account-sheet-body section>.tos-button{min-height:48px;justify-self:start}.money-account-sheet-message{margin:16px 22px 0;padding:12px 14px;border:1px solid #d7c48c;border-radius:12px;background:var(--tos-gold-soft);color:#5e481a;font-size:14px;line-height:1.5}.money-account-sheet-footer{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:9px;margin-top:auto;padding:15px 22px calc(15px + env(safe-area-inset-bottom));border-top:1px solid var(--tos-border);background:rgba(255,255,255,.96);backdrop-filter:blur(10px)}.money-account-sheet-footer .tos-button{min-height:48px}
+@media(max-width:767px){.treasury-account-toolbar{display:grid}.treasury-account-toolbar>.tos-button{width:100%}.treasury-default-grid{grid-template-columns:1fr}.money-account-sheet{width:100vw;max-width:none}.money-account-sheet-header{padding:17px 16px 14px}.money-account-sheet-body>section{padding:18px 16px}.money-account-section-heading{display:grid;gap:4px}.money-account-section-heading span{text-align:left}.money-account-field-grid{grid-template-columns:1fr}.money-account-sheet-message{margin:14px 16px 0}.money-account-sheet-footer{padding-left:16px;padding-right:16px}.money-account-sheet-footer .tos-button{flex:1;min-height:48px}}
+
+
+/* Canonical mobile record views: tables are desktop evidence, cards are phone-first. */
+.cashbook-history--mobile,
+.treasury-account-list--mobile { display: none; }
+.treasury-account-list--mobile { gap: 10px; margin: 12px 0 16px; }
+.treasury-account-list--mobile .tradeos-mobile-record-card__body p,
+.cashbook-history--mobile .tradeos-mobile-record-card__body p { margin: 0; }
+.treasury-account-list--mobile .tradeos-mobile-record-card__body strong,
+.cashbook-history--mobile .tradeos-mobile-record-card__body strong { color: var(--tos-text-strong); font-size: 17px; }
+.treasury-reconciliation-list { display: grid; gap: 10px; }
+.treasury-reconciliation-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 12px; align-items: center; padding: 13px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); background: var(--tos-surface); }
+.treasury-reconciliation-row > div:first-child { min-width: 0; display: grid; gap: 3px; }
+.treasury-reconciliation-row > div:first-child strong { color: var(--tos-text-strong); }
+.treasury-reconciliation-row > div:first-child span { color: var(--tos-text-muted); font-size: 12px; }
+.treasury-resolution-form { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; align-items: end; padding-top: 10px; border-top: 1px solid var(--tos-border); }
+.treasury-resolution-form .tos-button { min-height: 48px; }
+@media (max-width: 767px) {
+  .cashbook-toolbar .tradeos-command-bar__controls { grid-template-columns: 1fr; }
+  .cashbook-history--desktop,
+  .treasury-table-scroll { display: none; }
+  .cashbook-history--mobile,
+  .treasury-account-list--mobile { display: grid; }
+  .cashbook-history--mobile { gap: 10px; }
+  .cashbook-history--mobile .tradeos-mobile-record-card,
+  .treasury-account-list--mobile .tradeos-mobile-record-card { border-radius: var(--tos-radius-md); }
+  .treasury-account-list--mobile .tos-button { width: 100%; min-height: 48px; justify-content: center; }
+  .treasury-reconciliation-row { grid-template-columns: 1fr; align-items: start; }
+  .treasury-reconciliation-row .tos-button { width: 100%; min-height: 48px; justify-content: center; }
+  .treasury-resolution-form { grid-column: 1; grid-template-columns: 1fr; }
+}
