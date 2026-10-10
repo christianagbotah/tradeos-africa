@@ -9,17 +9,22 @@
     "ios": "expo start --ios",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node -e \"console.log('mobile tests pending')\"",
+    "test": "vitest run",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "12.0.1",
     "@tradeos/client-core": "workspace:*",
     "expo": "^57.0.0",
+    "expo-crypto": "~57.0.3",
+    "expo-secure-store": "~57.0.4",
     "react": "19.2.3",
     "react-native": "0.86.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.7"
   }
 }
