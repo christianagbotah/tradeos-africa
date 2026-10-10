@@ -7,33 +7,37 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.
 const read = (relative: string) => fs.readFileSync(path.join(appRoot, relative), "utf8");
 
 describe("Z.ai authenticated composition boundary", () => {
-  it("keeps the Z.ai application shell rather than the later mobile-context override", () => {
+  it("matches the saved Z.ai shell grammar instead of the later ERP shell", () => {
     const shell = read("components/workspace/app-shell.tsx");
-    const css = read("workspace-shell.css");
-    expect(shell).toContain("workspace-context-actions");
+    expect(shell).toContain("workspace-business-card");
+    expect(shell).toContain("workspace-global-search");
+    expect(shell).toContain("workspace-mobile-header");
+    expect(shell).toContain("workspace-sidebar-collapse");
     expect(shell).toContain("MobileBottomNav");
-    expect(shell).not.toContain("workspace-mobile-context-trigger");
-    expect(css).not.toContain("workspace-mobile-context-trigger");
+    expect(shell).not.toContain("workspace-topbar-title");
   });
 
-  it("keeps Z.ai dashboard hierarchy: Today, then pulse, then quick actions", () => {
+  it("matches the saved Z.ai dashboard grammar rather than Today/Pulse cards", () => {
     const dashboard = read("components/dashboard/dashboard-command-center.tsx");
-    const today = dashboard.indexOf('className="tos-today"');
-    const pulse = dashboard.indexOf("<BusinessPulse");
-    const actions = dashboard.indexOf('aria-labelledby="quick-actions-title"');
-    expect(today).toBeGreaterThan(-1);
-    expect(pulse).toBeGreaterThan(today);
-    expect(actions).toBeGreaterThan(pulse);
+    expect(dashboard).toContain("zai-dashboard-header");
+    expect(dashboard).toContain("zai-business-guidance");
+    expect(dashboard).toContain("zai-action-rail");
+    expect(dashboard).toContain("zai-ai-actions");
+    expect(dashboard).toContain("zai-kpi-grid");
+    expect(dashboard).toContain("zai-dashboard-lower-grid");
+    expect(dashboard).not.toContain("<BusinessPulse");
+    expect(dashboard).not.toContain('className="tos-today"');
   });
 
-  it("keeps Z.ai POS composition and rejects the later replacement cart sheet", () => {
+  it("matches the saved Z.ai POS grammar on desktop and phone", () => {
     const pos = read("components/pos/pos-workspace.tsx");
-    const css = read("pos.css");
+    const browser = read("components/pos/product-browser.tsx");
     expect(pos).toContain('className="pos-workspace-grid"');
+    expect(pos).toContain("pos-cart-customer");
     expect(pos).toContain('className="pos-charge-bar"');
-    expect(pos).not.toContain("mobileCartOpen");
-    expect(pos).not.toContain("pos-mobile-cart-sheet");
-    expect(css).not.toContain("pos-mobile-cart-sheet");
+    expect(pos).not.toContain("pos-customer-bar");
+    expect(browser).toContain("pos-category-strip");
+    expect(browser).toContain('placeholder="Search product, SKU or scan barcode…"');
   });
 
   it("keeps Z.ai Returns composition instead of the later evidence-card recomposition", () => {
