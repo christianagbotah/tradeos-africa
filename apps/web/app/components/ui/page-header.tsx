@@ -12,7 +12,7 @@ export function PageHeader({ eyebrow, title, subtitle, action, status }: Props) 
   return (
     <header className="tradeos-page-header">
       <div className="tradeos-page-header-copy">
-        {eyebrow ? <p  className="tradeos-page-tradeos-kicker">{eyebrow}</p> : null}
+        {eyebrow ? <p className="tradeos-page-eyebrow">{eyebrow}</p> : null}
         <h1>{title}</h1>
         {subtitle ? <p className="tradeos-page-subtitle">{subtitle}</p> : null}
       </div>
