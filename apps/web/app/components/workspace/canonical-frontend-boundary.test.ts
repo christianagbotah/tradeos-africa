@@ -8,7 +8,7 @@ const read = (file: string) => fs.readFileSync(path.join(appRoot, file), "utf8")
 
 describe("canonical Z.ai frontend boundary", () => {
   it("removes obsolete legacy presentation files and components", () => {
-    for (const file of ["interactions.css", "real-app.css", "workspace-polish.css", "pos-workspace.css", "components/catalog-starter.tsx"]) {
+    for (const file of ["interactions.css", "real-app.css", "workspace-polish.css", "pos-workspace.css", "tradeos-app.css", "components/catalog-starter.tsx"]) {
       expect(fs.existsSync(path.join(appRoot, file)), file).toBe(false);
     }
   });
@@ -57,6 +57,12 @@ describe("canonical Z.ai frontend boundary", () => {
       "components/treasury.tsx",
       "components/operations-reconciliation.tsx",
     ]) expect(read(file), file).toContain("<MoneyInput");
+  });
+
+  it("invalidates pre-canonical service-worker caches", () => {
+    const sw = fs.readFileSync(path.resolve(appRoot, "../public/sw.js"), "utf8");
+    expect(sw).toContain('tradeos-shell-v3-zai-canonical');
+    expect(sw).toMatch(/keys\.filter\(\(key\) => key !== CACHE_NAME\)[\s\S]*caches\.delete/);
   });
 
 });

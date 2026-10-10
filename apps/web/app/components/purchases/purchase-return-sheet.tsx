@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMoney } from "@tradeos/contracts";
 import React, { type FormEvent, useEffect, useRef, useState } from "react";
 import { clientApi, messageFrom } from "../../lib/client-api";
 import { readFeatureCache, writeFeatureCache } from "../../lib/feature-cache";
@@ -118,6 +119,5 @@ export function PurchaseReturnSheet({ businessId, branchId, purchase, onClose, o
   </div>;
 }
 
-function formatMoney(minor: number, currencyCode: string): string { return currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100); }
 function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }
 function title(value: string): string { return value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()); }

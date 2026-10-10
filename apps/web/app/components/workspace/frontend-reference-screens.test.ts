@@ -55,7 +55,7 @@ describe("frontend reference screens cross-screen contracts", () => {
       "tradeos-tokens.css",
       "ui-primitives.css",
       "workspace-shell.css",
-      "tradeos-app.css",
+      "purchases-inventory.css",
       "dashboard.css",
       "pos.css",
       "catalog.css",

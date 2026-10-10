@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { formatMoney, parseMoneyInput } from "@tradeos/contracts";
 import { ClientApiError, clientApi, messageFrom } from "../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId, mutationAppliedEvent } from "../lib/offline-sync";
 import { Button } from "./ui/button";
@@ -98,13 +99,10 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
     };
   }, [businessId, branchId, role, cacheKey, version, onAccounts]);
 
-  const money = (minor: number) => currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : `${currencyCode} ${(minor / 100).toFixed(2)}`;
+  const money = (minor: number) => formatMoney(minor, currencyCode);
   const minor = (value: string) => {
-    if (!/^-?\d+(\.\d{1,2})?$/.test(value)) throw new Error("Enter an amount with at most two decimal places");
-    const negative = value.startsWith("-");
-    const [whole, fraction = ""] = value.replace(/^-/, "").split(".");
-    const result = Number((BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0"))) * (negative ? -1n : 1n));
-    if (!Number.isSafeInteger(result)) throw new Error("Amount is too large");
+    const result = parseMoneyInput(value, currencyCode);
+    if (result === null) throw new Error("Enter an amount using the valid decimal precision for this currency");
     return result;
   };
 
