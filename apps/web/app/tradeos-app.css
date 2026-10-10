@@ -2049,3 +2049,17 @@ button:disabled, .tos-button:disabled, input:disabled, select:disabled {
   background: rgba(7, 17, 31, 0.6);
   backdrop-filter: blur(3px);
 }
+
+/* Treasury resolution dialog (replaces window.prompt) */
+.treasury-resolution-dialog { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 20px; }
+.treasury-resolution-backdrop { position: absolute; inset: 0; background: rgba(7,17,31,.6); backdrop-filter: blur(3px); cursor: pointer; }
+.treasury-resolution-card { position: relative; width: min(480px, 100%); padding: 24px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-lg); background: var(--tos-surface); box-shadow: var(--tos-shadow-2); }
+.treasury-resolution-card h3 { margin: 0 0 8px; font-size: 18px; font-weight: 800; color: var(--tos-text-strong); }
+.treasury-resolution-card p { margin: 0 0 16px; color: var(--tos-text-muted); font-size: var(--tos-text-supporting); }
+.treasury-resolution-card label { display: grid; gap: 7px; color: var(--tos-text-muted); font-size: var(--tos-text-meta); font-weight: 800; }
+.treasury-resolution-card textarea { width: 100%; min-height: 80px; padding: 10px 12px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-sm); background: var(--tos-surface); color: var(--tos-text); font: inherit; font-size: var(--tos-text-body); resize: vertical; }
+.treasury-resolution-card textarea:focus { border-color: var(--tos-gold); box-shadow: var(--tos-focus-ring); }
+.treasury-resolution-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.treasury-resolution-actions button { min-height: 44px; padding: 0 16px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-sm); background: var(--tos-surface); color: var(--tos-text); font-weight: 800; cursor: pointer; }
+.treasury-resolution-actions button:last-child { background: var(--tos-midnight); border-color: var(--tos-midnight); color: #fff; }
+.treasury-resolution-actions button:disabled { opacity: 0.5; cursor: not-allowed; }

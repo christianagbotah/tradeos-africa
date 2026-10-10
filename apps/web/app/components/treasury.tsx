@@ -34,6 +34,8 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
   const [message, setMessage] = useState("");
   const [version, setVersion] = useState(0);
   const [editor, setEditor] = useState<MoneyAccount | null | undefined>(undefined);
+  const [resolving, setResolving] = useState<Reconciliation | null>(null);
+  const [resolutionNote, setResolutionNote] = useState("");
   const [source, setSource] = useState("");
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
@@ -193,7 +195,21 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
             })}
           </div>
           <p className="treasury-default-note">Deactivate an account only after replacing every default that points to it. TradeOS will block unsafe deactivation with <strong>ACCOUNT_IS_DEFAULT</strong>.</p>
-        </section>
+        {resolving ? (
+      <div className="treasury-resolution-dialog" role="dialog" aria-modal="true">
+        <div className="treasury-resolution-backdrop" onClick={() => { setResolving(null); setResolutionNote(""); }} />
+        <div className="treasury-resolution-card">
+          <h3>Resolve variance with correction</h3>
+          <p>Account: {accounts.find((a) => a.id === resolving.moneyAccountId)?.name} · Difference: {money(resolving.differenceMinor)}</p>
+          <label>Required explanation<textarea value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} maxLength={1000} placeholder="Explain the reason for this correction" /></label>
+          <div className="treasury-resolution-actions">
+            <button onClick={() => { setResolving(null); setResolutionNote(""); }}>Cancel</button>
+            <button disabled={!resolutionNote.trim()} onClick={() => { queue("MONEY_RECONCILIATION_RESOLVE", { reconciliationId: resolving.id, note: resolutionNote }); setResolving(null); setResolutionNote(""); }}>Resolve</button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </section>
       ) : null}
 
       {elevated ? (
@@ -234,7 +250,7 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
       ) : null}
 
       <h4>Reconciliations</h4>
-      <div className="treasury-reconciliation-list">{reconciliations.map((item) => <p key={item.id}>{accounts.find((candidate) => candidate.id === item.moneyAccountId)?.name} · {item.status} · Difference {money(item.differenceMinor)} {elevated && item.status === "VARIANCE" ? <button onClick={() => { const resolutionNote = window.prompt("Required explanation for the correction"); if (resolutionNote?.trim()) queue("MONEY_RECONCILIATION_RESOLVE", { reconciliationId: item.id, note: resolutionNote }); }}>Resolve with correction</button> : null}</p>)}</div>
+      <div className="treasury-reconciliation-list">{reconciliations.map((item) => <p key={item.id}>{accounts.find((candidate) => candidate.id === item.moneyAccountId)?.name} · {item.status} · Difference {money(item.differenceMinor)} {elevated && item.status === "VARIANCE" ? <button onClick={() => setResolving(item)}>Resolve with correction</button> : null}</p>)}</div>
       {message ? <p className="treasury-message" role="status">{message}</p> : null}
 
       {editor !== undefined ? (
