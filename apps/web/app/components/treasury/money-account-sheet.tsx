@@ -1,6 +1,7 @@
 "use client";
 
 import React, { type FormEvent, useEffect, useRef, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { Button } from "../ui/button";
 import { MasterDataActions, masterDataLifecycleMessage } from "../business/master-data-actions";
@@ -232,7 +233,7 @@ export function MoneyAccountSheet({ open, businessId, branchId, currencyCode, ro
           <section>
             <div className="money-account-section-heading"><strong>Balance policy</strong><span>Does not rewrite posted money history</span></div>
             <label className="money-account-check"><input type="checkbox" checked={draft.allowNegative} onChange={(event) => setDraft((current) => ({ ...current, allowNegative: event.target.checked }))} /> Allow negative transfer-source balance</label>
-            {account ? <p className="money-account-balance-note">Current posted balance: <strong>{currencyCode} {(account.balanceMinor / 100).toFixed(2)}</strong></p> : null}
+            {account ? <p className="money-account-balance-note">Current posted balance: <strong>{formatMoney(account.balanceMinor, currencyCode)}</strong></p> : null}
           </section>
 
           {account ? (

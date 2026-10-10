@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { parseMoneyInput } from "@tradeos/contracts";
 import { clientApi, messageFrom } from "../lib/client-api";
 
 type StarterMode = "simple" | "bulk" | "service";
@@ -19,7 +20,7 @@ export function CatalogStarter({ businessId, branchId, currencyCode, onCreated }
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const priceMinor = useMemo(() => moneyToMinor(price), [price]);
+  const priceMinor = useMemo(() => parseMoneyInput(price, currencyCode), [price, currencyCode]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -127,10 +128,6 @@ export function CatalogStarter({ businessId, branchId, currencyCode, onCreated }
 }
 
 
-function moneyToMinor(value: string): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : null;
-}
 
 function positiveNumber(value: string): boolean {
   const parsed = Number(value);

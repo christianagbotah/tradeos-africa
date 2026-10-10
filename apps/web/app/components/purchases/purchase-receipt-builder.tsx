@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { formatMoney } from "@tradeos/contracts";
+import { formatMoney, formatMoneyInput, parseMoneyInput } from "@tradeos/contracts";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { messageFrom } from "../../lib/client-api";
 import { Button } from "../ui/button";
@@ -38,8 +38,8 @@ export function ReceiptLineEditor({ lines, currencyCode, unitsForItem, onChange,
         const unit = unitsForItem(line.itemId).find((candidate) => candidate.code === event.target.value);
         onChange(line.key, { purchaseUnitCode: event.target.value, purchaseUnitLabel: unit?.label ?? event.target.value });
       }}>{unitsForItem(line.itemId).map((unit) => <option key={unit.code} value={unit.code}>{unit.label}</option>)}</select></label>
-      <label>Unit cost<input inputMode="decimal" aria-label={`Unit cost for ${line.itemName}`} value={(line.unitCostMinor / 100).toFixed(2)} onChange={(event) => {
-        const minor = moneyToMinor(event.target.value);
+      <label>Unit cost<input inputMode="decimal" aria-label={`Unit cost for ${line.itemName}`} value={formatMoneyInput(line.unitCostMinor, currencyCode) ?? ""} onChange={(event) => {
+        const minor = parseMoneyInput(event.target.value, currencyCode) ?? -1;
         if (minor >= 0) onChange(line.key, { unitCostMinor: minor });
       }} /></label>
       <div className="purchase-line-stock-preview"><span>Stock preview</span><strong>{line.estimatedStockQuantity === null ? "Server will convert" : `+${formatQuantity(line.estimatedStockQuantity)} ${line.stockUnitCode ?? "stock units"}`}</strong></div>
@@ -102,7 +102,7 @@ export function PurchaseReceiptBuilder({ businessId, branchId, currencyCode, sup
   const addLine = () => {
     if (!selectedItem || !unitCode) return;
     const parsedQuantity = Number(quantity);
-    const unitCostMinor = moneyToMinor(unitCost);
+    const unitCostMinor = parseMoneyInput(unitCost, currencyCode) ?? -1;
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || unitCostMinor < 0 || !unitCost.trim()) {
       onMessage("Enter a positive purchase quantity and a valid unit cost.");
       return;
@@ -174,12 +174,5 @@ function convertQuantity(item: PurchaseCatalogItem, from: string, to: string, qu
   return null;
 }
 
-function moneyToMinor(value: string): number {
-  const normalized = value.trim().replace(/,/g, "");
-  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return -1;
-  const [whole, fraction = ""] = normalized.split(".");
-  const minor = Number(BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0")));
-  return Number.isSafeInteger(minor) ? minor : -1;
-}
 function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }
 function formatEditable(value: number): string { return Number.isInteger(value) ? String(value) : String(value); }

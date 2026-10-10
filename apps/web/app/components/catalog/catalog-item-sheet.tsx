@@ -1,6 +1,7 @@
 "use client";
 
 import React, { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { formatMoneyInput, parseMoneyInput } from "@tradeos/contracts";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import {
   enqueueMutation,
@@ -49,7 +50,7 @@ type Props = {
   onChanged: () => Promise<void> | void;
 };
 
-export function catalogDraftFor(mode: SheetMode, item: CatalogItem | null): CatalogDraft {
+export function catalogDraftFor(mode: SheetMode, item: CatalogItem | null, currencyCode: string): CatalogDraft {
   if (!item || mode === "create") {
     return {
       itemId: null,
@@ -84,7 +85,7 @@ export function catalogDraftFor(mode: SheetMode, item: CatalogItem | null): Cata
       canPurchase: unit.canPurchase,
       canSell: unit.canSell,
       canStock: unit.canStock,
-      price: unit.defaultSalePriceMinor === null ? "" : (unit.defaultSalePriceMinor / 100).toFixed(2),
+      price: unit.defaultSalePriceMinor === null ? "" : formatMoneyInput(unit.defaultSalePriceMinor, currencyCode) ?? "",
     })),
     conversions: item.conversions.map((conversion) => ({
       fromUnitCode: conversion.fromUnitCode,
@@ -104,7 +105,7 @@ export function catalogSheetMessage(code: string | null | undefined, fallback = 
 }
 
 export function CatalogItemSheet({ mode, item, open, businessId, branchId, currencyCode, role, onClose, onChanged }: Props) {
-  const [draft, setDraft] = useState<CatalogDraft>(() => catalogDraftFor(mode, item));
+  const [draft, setDraft] = useState<CatalogDraft>(() => catalogDraftFor(mode, item, currencyCode));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const firstInputRef = useRef<HTMLInputElement | null>(null);
@@ -115,9 +116,9 @@ export function CatalogItemSheet({ mode, item, open, businessId, branchId, curre
 
   useEffect(() => {
     if (!open) return;
-    setDraft(catalogDraftFor(mode, item));
+    setDraft(catalogDraftFor(mode, item, currencyCode));
     setMessage(null);
-  }, [item, mode, open]);
+  }, [currencyCode, item, mode, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -152,7 +153,7 @@ export function CatalogItemSheet({ mode, item, open, businessId, branchId, curre
 
   const canSubmit = useMemo(() => {
     if (readOnly || !draft.name.trim() || draft.units.length === 0) return false;
-    return draft.units.every((unit) => unit.code.trim() && unit.label.trim() && (!unit.canSell || moneyToMinor(unit.price) !== null));
+    return draft.units.every((unit) => unit.code.trim() && unit.label.trim() && (!unit.canSell || parseMoneyInput(unit.price, currencyCode) !== null));
   }, [draft, readOnly]);
 
   if (!open) return null;
@@ -172,7 +173,7 @@ export function CatalogItemSheet({ mode, item, open, businessId, branchId, curre
     setBusy(true);
     setMessage(null);
     try {
-      const payload = draftPayload(draft, branchId);
+      const payload = draftPayload(draft, branchId, currencyCode);
       if (mode === "edit" && item && structuralChanged(item, draft)) {
         if (!navigator.onLine) {
           setMessage(catalogSheetMessage("OFFLINE_STRUCTURE_EDIT"));
@@ -310,14 +311,14 @@ export function CatalogItemSheet({ mode, item, open, businessId, branchId, curre
   );
 }
 
-function draftPayload(draft: CatalogDraft, branchId: string) {
+function draftPayload(draft: CatalogDraft, branchId: string, currencyCode: string) {
   const units = draft.units.map((unit) => ({
     code: normalizeUnit(unit.code),
     label: unit.label.trim(),
     canPurchase: unit.canPurchase,
     canSell: unit.canSell,
     canStock: unit.canStock,
-    ...(unit.canSell ? { defaultSalePriceMinor: moneyToMinor(unit.price) } : {}),
+    ...(unit.canSell ? { defaultSalePriceMinor: parseMoneyInput(unit.price, currencyCode) } : {}),
   }));
   const openingStock = Number(draft.openingStock);
   return {
@@ -347,10 +348,6 @@ function structuralChanged(item: CatalogItem, draft: CatalogDraft): boolean {
   return JSON.stringify(beforeConversions) !== JSON.stringify(afterConversions);
 }
 
-function moneyToMinor(value: string): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : null;
-}
 
 function normalizeUnit(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, "_");

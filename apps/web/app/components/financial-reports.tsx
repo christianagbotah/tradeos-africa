@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { mutationAppliedEvent } from "../lib/offline-sync";
-import type { CashForecastResponse, CfoAction as ContractCfoAction, CreditAgingReport } from "@tradeos/contracts";
+import { formatMoney, type CashForecastResponse, type CfoAction as ContractCfoAction, type CreditAgingReport } from "@tradeos/contracts";
 import { CashForecastPanel } from "./cash-forecast";
 import { CfoActionCenter } from "./cfo-action-center";
 import { ResponsiveTable } from "./ui/responsive-table";
@@ -94,7 +94,7 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
   const cacheKey = useMemo(() => `tradeos.report.v2:${businessId}:${allBranches ? "all" : branchId}:${fromDate}:${toDate}`, [businessId, branchId, allBranches, fromDate, toDate]);
   const agingCacheKey = useMemo(() => `tradeos.credit-aging.v1:${businessId}:${allBranches ? "all" : branchId}`, [businessId, branchId, allBranches]);
   const forecastCacheKey = useMemo(() => `tradeos.cash-forecast.v1:${businessId}:${allBranches ? "all" : branchId}:30`, [businessId, branchId, allBranches]);
-  const money = (minor: number) => `${currencyCode === "GHS" ? "₵" : currencyCode} ${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const money = (minor: number) => formatMoney(minor, currencyCode);
   const healthValue = (value: number, unit: string) => {
     if (unit === "MINOR") return money(value);
     if (unit === "PERCENT") return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;

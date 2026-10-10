@@ -1,7 +1,7 @@
 "use client";
 
 import React, { type FormEvent, useEffect, useRef, useState } from "react";
-import { formatMoney } from "@tradeos/contracts";
+import { formatMoney, parseMoneyInput } from "@tradeos/contracts";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
@@ -205,7 +205,7 @@ export function SupplierSheet({ mode, supplier, detail, open, businessId, branch
   const paySupplier = async (event: FormEvent) => {
     event.preventDefault();
     if (!current || !capabilities.canPay || busy) return;
-    const amountMinor = moneyToMinor(payment);
+    const amountMinor = parseMoneyInput(payment, currencyCode) ?? -1;
     if (amountMinor <= 0 || amountMinor > current.balanceMinor) {
       setMessage("Enter a payment within the supplier payable balance.");
       return;
@@ -313,7 +313,7 @@ export function SupplierSheet({ mode, supplier, detail, open, businessId, branch
                   <div><strong>Pay supplier</strong><span>Settles existing payable history; inactive status does not block settlement.</span></div>
                   <label>Amount<input inputMode="decimal" value={payment} onChange={(event) => setPayment(event.target.value)} placeholder="0.00" /></label>
                   <label>Method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>{["CASH", "MOMO", "CARD", "BANK", "OTHER"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-                  <Button type="submit" disabled={busy || moneyToMinor(payment) <= 0}>Pay supplier</Button>
+                  <Button type="submit" disabled={busy || (parseMoneyInput(payment, currencyCode) ?? -1) <= 0}>Pay supplier</Button>
                 </form>
               ) : null}
             </section>
@@ -333,13 +333,6 @@ export function SupplierSheet({ mode, supplier, detail, open, businessId, branch
   );
 }
 
-function moneyToMinor(value: string): number {
-  const normalized = value.trim().replace(/,/g, "");
-  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return -1;
-  const [whole, fraction = ""] = normalized.split(".");
-  const minor = Number(BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0")));
-  return Number.isSafeInteger(minor) ? minor : -1;
-}
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));

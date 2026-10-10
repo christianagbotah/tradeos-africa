@@ -80,7 +80,7 @@ export interface SupportedCountry {
   /** Default/recommended currency code for this country (ISO 4217) */
   defaultCurrencyCode: string;
   /** Supported IANA timezone identifier(s) for this country */
-  timezones: readonly string[];
+  timezones: readonly [string, ...string[]];
   /** BCP-47 locale tag */
   locale: string;
 }
@@ -106,7 +106,7 @@ export const SUPPORTED_COUNTRIES: readonly SupportedCountry[] = [
   { countryCode: "MA", country: "Morocco", flag: "🇲🇦", dialCode: "+212", defaultCurrencyCode: "MAD", timezones: ["Africa/Casablanca"], locale: "ar-MA" },
   { countryCode: "SN", country: "Senegal", flag: "🇸🇳", dialCode: "+221", defaultCurrencyCode: "XOF", timezones: ["Africa/Dakar"], locale: "fr-SN" },
   { countryCode: "CI", country: "Côte d'Ivoire", flag: "🇨🇮", dialCode: "+225", defaultCurrencyCode: "XOF", timezones: ["Africa/Abidjan"], locale: "fr-CI" },
-  { countryCode: "CM", country: "Cameroon", flag: "🇨🇲", dialCode: "+237", defaultCurrencyCode: "XAF", timezones: ["Africa/Douala", "Africa/Ndjamena"], locale: "fr-CM" },
+  { countryCode: "CM", country: "Cameroon", flag: "🇨🇲", dialCode: "+237", defaultCurrencyCode: "XAF", timezones: ["Africa/Douala"], locale: "fr-CM" },
   { countryCode: "DZ", country: "Algeria", flag: "🇩🇿", dialCode: "+213", defaultCurrencyCode: "DZD", timezones: ["Africa/Algiers"], locale: "ar-DZ" },
   { countryCode: "TN", country: "Tunisia", flag: "🇹🇳", dialCode: "+216", defaultCurrencyCode: "TND", timezones: ["Africa/Tunis"], locale: "ar-TN" },
   { countryCode: "MZ", country: "Mozambique", flag: "🇲🇿", dialCode: "+258", defaultCurrencyCode: "MZN", timezones: ["Africa/Maputo"], locale: "pt-MZ" },
@@ -180,6 +180,52 @@ export function getSuggestedTimezones(countryCode: string): readonly string[] | 
 // ---------------------------------------------------------------------------
 
 /**
+ * Parse a user-entered major-unit decimal string into integer minor units.
+ * This is the preferred boundary helper for money input fields because it
+ * avoids binary floating-point surprises and rejects excess precision.
+ *
+ * Examples:
+ *   parseMoneyInput("12.34", "GHS") → 1234
+ *   parseMoneyInput("500", "UGX") → 500
+ *   parseMoneyInput("1.234", "TND") → 1234
+ *   parseMoneyInput("1.23", "UGX") → null
+ */
+export function parseMoneyInput(value: string, currencyCode: string): number | null {
+  const meta = getCurrencyMeta(currencyCode);
+  if (!meta) return null;
+  const normalized = value.trim().replace(/,/g, "");
+  if (!normalized) return null;
+  const match = normalized.match(/^(-?)(\d+)(?:\.(\d+))?$/);
+  if (!match) return null;
+  const fraction = match[3] ?? "";
+  if (fraction.length > meta.exponent) return null;
+  if (meta.exponent === 0 && fraction.length > 0) return null;
+
+  const factor = 10n ** BigInt(meta.exponent);
+  const whole = BigInt(match[2]!);
+  const fractional = meta.exponent === 0 ? 0n : BigInt(fraction.padEnd(meta.exponent, "0") || "0");
+  const signed = (whole * factor + fractional) * (match[1] === "-" ? -1n : 1n);
+  const minor = Number(signed);
+  return Number.isSafeInteger(minor) ? minor : null;
+}
+
+/**
+ * Format integer minor units for an editable major-unit input (no symbol).
+ * The output always uses the currency's exact configured exponent.
+ */
+export function formatMoneyInput(minor: number, currencyCode: string): string | null {
+  const meta = getCurrencyMeta(currencyCode);
+  if (!meta || !Number.isSafeInteger(minor)) return null;
+  const negative = minor < 0;
+  const absolute = BigInt(Math.abs(minor));
+  if (meta.exponent === 0) return `${negative ? "-" : ""}${absolute}`;
+  const factor = 10n ** BigInt(meta.exponent);
+  const whole = absolute / factor;
+  const fraction = String(absolute % factor).padStart(meta.exponent, "0");
+  return `${negative ? "-" : ""}${whole}.${fraction}`;
+}
+
+/**
  * Convert integer minor units to a major-unit number for a currency.
  * Returns `null` if the currency is unsupported (never silently falls back).
  *
@@ -210,7 +256,9 @@ export function majorToMinor(major: number, currencyCode: string): number | null
   const meta = getCurrencyMeta(currencyCode);
   if (!meta) return null;
   if (!Number.isFinite(major)) return null;
-  const minor = Math.round(major * Math.pow(10, meta.exponent));
+  const scaled = major * Math.pow(10, meta.exponent);
+  const adjustment = Number.EPSILON * Math.max(1, Math.abs(scaled));
+  const minor = Math.sign(scaled) * Math.round(Math.abs(scaled) + adjustment);
   if (!Number.isSafeInteger(minor)) return null;
   return minor;
 }

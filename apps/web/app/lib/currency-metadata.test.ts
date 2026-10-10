@@ -12,6 +12,8 @@ import {
   isSupportedTimezone,
   minorToMajor,
   majorToMinor,
+  parseMoneyInput,
+  formatMoneyInput,
   formatMoney,
 } from "@tradeos/contracts";
 
@@ -87,6 +89,31 @@ describe("majorToMinor — exponent-aware conversion", () => {
 
   it("returns null for unsupported currencies", () => {
     expect(majorToMinor(12.34, "XXX")).toBeNull();
+  });
+});
+
+describe("money input parsing — exact exponent-aware boundaries", () => {
+  it("round-trips 2-decimal GHS without floating-point conversion", () => {
+    expect(parseMoneyInput("12.34", "GHS")).toBe(1234);
+    expect(formatMoneyInput(1234, "GHS")).toBe("12.34");
+    expect(majorToMinor(1.005, "GHS")).toBe(101);
+  });
+
+  it("enforces zero-decimal currencies", () => {
+    expect(parseMoneyInput("500", "UGX")).toBe(500);
+    expect(parseMoneyInput("500.00", "UGX")).toBeNull();
+    expect(formatMoneyInput(500, "XOF")).toBe("500");
+  });
+
+  it("accepts exactly up to three decimals for TND", () => {
+    expect(parseMoneyInput("1.234", "TND")).toBe(1234);
+    expect(parseMoneyInput("1.2345", "TND")).toBeNull();
+    expect(formatMoneyInput(1234, "TND")).toBe("1.234");
+  });
+
+  it("supports signed values for adjustment workflows", () => {
+    expect(parseMoneyInput("-12.34", "GHS")).toBe(-1234);
+    expect(formatMoneyInput(-1234, "GHS")).toBe("-12.34");
   });
 });
 
@@ -175,6 +202,10 @@ describe("country lookup — no silent Ghana fallback", () => {
     expect(kenya?.country).toBe("Kenya");
     expect(kenya?.defaultCurrencyCode).toBe("KES");
     expect(kenya?.timezones).toContain("Africa/Nairobi");
+
+    const cameroon = getCountry("CM");
+    expect(cameroon?.timezones).toEqual(["Africa/Douala"]);
+    expect(cameroon?.timezones).not.toContain("Africa/Ndjamena");
   });
 
   it("is case-insensitive for country codes", () => {

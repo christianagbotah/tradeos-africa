@@ -33,8 +33,8 @@ describe("CustomerSheet", () => {
     const module = await loadSheet();
     expect(module?.customerDraftFor).toBeTypeOf("function");
     if (!module?.customerDraftFor) return;
-    expect(module.customerDraftFor("edit", detail).expectedUpdatedAt).toBe(detail.customer.updatedAt);
-    expect(module.customerDraftFor("create", null).expectedUpdatedAt).toBeNull();
+    expect(module.customerDraftFor("edit", detail, "GHS").expectedUpdatedAt).toBe(detail.customer.updatedAt);
+    expect(module.customerDraftFor("create", null, "GHS").expectedUpdatedAt).toBeNull();
   });
 
   it("separates profile, credit and immutable financial history while hiding unauthorized credit controls", async () => {

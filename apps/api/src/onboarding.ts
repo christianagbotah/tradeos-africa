@@ -127,12 +127,12 @@ function validateCreateBusiness(body: CreateBusinessBody) {
   const branchName = body.branchName?.trim() || "Main";
   if (branchName.length > 120) throw new AuthError("Branch name is too long", 400, "INVALID_BRANCH_NAME");
 
-  // --- Country: no silent fallback. Must be a supported TradeOS country. ---
+  // --- Country: explicit unsupported values are rejected with no silent fallback. ---
+  // For compatibility with existing clients that predate country-aware onboarding,
+  // an omitted country retains the historical Ghana default. The current web UI
+  // always sends an explicit supported country.
   const countryCodeRaw = body.countryCode?.trim().toUpperCase();
-  if (!countryCodeRaw) {
-    throw new AuthError("Country is required", 400, "COUNTRY_REQUIRED");
-  }
-  const country = getCountry(countryCodeRaw);
+  const country = getCountry(countryCodeRaw || "GH");
   if (!country) {
     throw new AuthError(
       `Unsupported country code: ${countryCodeRaw}. See the supported countries list.`,
@@ -158,7 +158,7 @@ function validateCreateBusiness(body: CreateBusinessBody) {
 
   // --- Timezone: must be a supported IANA timezone. ---
   // Country supplies suggested timezone(s); user may choose another supported value.
-  const timezoneRaw = body.timezone?.trim() || country.timezones[0] || "Africa/Accra";
+  const timezoneRaw = body.timezone?.trim() || country.timezones[0];
   if (!isSupportedTimezone(timezoneRaw)) {
     throw new AuthError(
       `Unsupported timezone: ${timezoneRaw}. Use a supported IANA timezone identifier.`,

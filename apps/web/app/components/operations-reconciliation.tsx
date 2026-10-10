@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { formatMoney as formatTradeMoney, parseMoneyInput } from "@tradeos/contracts";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { ResponsiveTable } from "./ui/responsive-table";
 import { PageHeader } from "./ui/page-header";
@@ -75,16 +76,13 @@ const today = () => {
 };
 
 function formatMoney(value: number | bigint, currencyCode: string) {
-  const minor = BigInt(value);
-  const absolute = minor < 0n ? -minor : minor;
-  return `${currencyCode} ${minor < 0n ? "-" : ""}${absolute / 100n}.${String(absolute % 100n).padStart(2, "0")}`;
+  const minor = typeof value === "bigint" ? Number(value) : value;
+  return Number.isSafeInteger(minor) ? formatTradeMoney(minor, currencyCode) : `${currencyCode} —`;
 }
 
-function parseCount(value: string) {
-  if (!/^\d+(\.\d{1,2})?$/.test(value)) throw new Error("Enter a non-negative balance with at most two decimals for every method.");
-  const [whole, fraction = ""] = value.split(".");
-  const minor = Number(BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0")));
-  if (!Number.isSafeInteger(minor)) throw new Error("Balance exceeds the supported range.");
+function parseCount(value: string, currencyCode: string) {
+  const minor = parseMoneyInput(value, currencyCode);
+  if (minor === null || minor < 0) throw new Error("Enter a non-negative balance using the valid decimal precision for this currency.");
   return minor;
 }
 
@@ -238,7 +236,7 @@ function CountForm({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     try {
-      const balances = methods.map((method) => ({ method, countedMinor: parseCount(counts[method] ?? (close ? "" : "0")) }));
+      const balances = methods.map((method) => ({ method, countedMinor: parseCount(counts[method] ?? (close ? "" : "0"), currencyCode) }));
       onSave(type, {
         ...(day && !close ? { businessDate: date } : {}),
         ...(close ? (day ? { dayId: target } : { shiftId: target }) : {}),
@@ -261,7 +259,7 @@ function CountForm({
           let preview: string | null = null;
           try {
             const balance = expected?.find((item) => item.method === method);
-            if (close && balance && counts[method]) preview = formatMoney(BigInt(parseCount(counts[method]!)) - BigInt(balance.expectedClosingMinor), currencyCode);
+            if (close && balance && counts[method]) preview = formatMoney(BigInt(parseCount(counts[method]!, currencyCode)) - BigInt(balance.expectedClosingMinor), currencyCode);
           } catch {
             preview = null;
           }
