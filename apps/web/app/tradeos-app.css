@@ -1653,7 +1653,8 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 /* === Global fixes: pointer cursor, dropdown opacity, currency spacing === */
 
 /* Pointer cursor on ALL clickable elements */
-a, button, [role="button"], [role="tab"], [role="menuitem"],
+a[href], button:not(:disabled), select:not(:disabled), summary,
+[role="button"]:not([aria-disabled="true"]), [role="tab"]:not([aria-disabled="true"]), [role="menuitem"]:not([aria-disabled="true"]),
 .tos-button, .workspace-nav-item, .pos-unit-choice, .pos-customer-bar,
 .pos-customer-option, .customer-management-row, .catalog-row, .sales-history-row,
 .inventory-row-modern, .tradeos-return-mode, .tradeos-pack-card,
@@ -1692,8 +1693,9 @@ button:disabled, .tos-button:disabled, [aria-disabled="true"] {
 }
 
 /* Native select options: opaque surface (browser-dependent) */
-select option {
-  background: var(--tos-surface);
+select option,
+select optgroup {
+  background-color: var(--tos-surface);
   color: var(--tos-text);
 }
 

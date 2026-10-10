@@ -135,6 +135,49 @@ describe("multi-page review regressions", () => {
     expect(css).toMatch(/\.treasury-resolution-actions button\s*\{[^}]*min-height:\s*48px/);
   });
 
+  it("keeps currency-entry fields on the shared spaced money input", () => {
+    for (const file of [
+      "components/catalog/catalog-item-sheet.tsx",
+      "components/customers/customer-sheet.tsx",
+      "components/suppliers/supplier-sheet.tsx",
+      "components/purchases/purchase-receipt-builder.tsx",
+      "components/cashbook/cashbook-entry-form.tsx",
+      "components/treasury.tsx",
+      "components/operations-reconciliation.tsx",
+    ]) {
+      expect(read(file), file).toContain("<MoneyInput");
+    }
+    expect((read("components/treasury.tsx").match(/<MoneyInput/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((read("components/operations-reconciliation.tsx").match(/<MoneyInput/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    const ui = read("ui-primitives.css");
+    expect(ui).toMatch(/\.tos-money-input\{[^}]*gap:\s*8px/);
+  });
+
+  it("keeps clickable controls pointer-aware and every native select surface opaque", () => {
+    const css = read("tradeos-app.css");
+    const shell = read("workspace-shell.css");
+    expect(css).toMatch(/select:not\(:disabled\)[^\{]*\{[^}]*cursor:\s*pointer/);
+    expect(css).toMatch(/select option,?\s*select optgroup|select option[\s\S]*select optgroup/);
+    expect(css).toMatch(/select option[\s\S]*background(?:-color)?:\s*var\(--tos-surface\)/);
+    expect(shell).toMatch(/\.workspace-context-unit \.workspace-context-field select\s*\{[^}]*background(?:-color)?:\s*var\(--tos-surface\)/);
+  });
+
+  it("does not use browser prompt, confirm or alert flows in application source", () => {
+    const offenders: string[] = [];
+    const visit = (directory: string) => {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const full = path.join(directory, entry.name);
+        if (entry.isDirectory()) visit(full);
+        else if (/\.(tsx?|jsx?)$/.test(entry.name) && !entry.name.endsWith(".test.ts") && !entry.name.endsWith(".test.tsx")) {
+          const source = fs.readFileSync(full, "utf8");
+          if (/window\.(prompt|confirm|alert)\(/.test(source)) offenders.push(full);
+        }
+      }
+    };
+    visit(appRoot);
+    expect(offenders).toEqual([]);
+  });
+
   it("recomposes Purchases, Operations and Reports around dedicated page patterns", () => {
     const purchases = read("components/purchases-inventory.tsx");
     const operations = read("components/operations-reconciliation.tsx");

@@ -5,6 +5,7 @@ import { formatMoney as formatTradeMoney, parseMoneyInput } from "@tradeos/contr
 import { clientApi, messageFrom } from "../lib/client-api";
 import { ResponsiveTable } from "./ui/responsive-table";
 import { PageHeader } from "./ui/page-header";
+import { MoneyInput } from "./ui/money-input";
 import {
   enqueueMutation,
   flushPendingMutations,
@@ -264,8 +265,8 @@ function CountForm({
             preview = null;
           }
           return (
-            <label key={method}>{method} ({currencyCode})
-              <input required={close} inputMode="decimal" placeholder={close ? "Counted closing" : "0.00"} value={counts[method] ?? ""} onChange={(event) => setCounts({ ...counts, [method]: event.target.value })} />
+            <label key={method}>{method}
+              <MoneyInput currencyCode={currencyCode} required={close} placeholder={close ? "Counted closing" : "0.00"} value={counts[method] ?? ""} onChange={(event) => setCounts({ ...counts, [method]: event.target.value })} />
               {preview !== null ? <small>Preview variance: {preview}</small> : null}
             </label>
           );
