@@ -73,8 +73,7 @@ export function PosWorkspace({
   };
 
   return (
-    <section className="pos-workspace" aria-label="Sell point of sale">
-      {/* Sale status — accessible region for sync/pending/error */}
+    <section className="pos-workspace zai-pos-workspace" aria-label="Sell point of sale">
       {status ? (
         <div className={`pos-sale-status pos-sale-status--${status.tone}`} role="status">
           <span>{status.tone === "success" ? "✓" : status.tone === "pending" ? "↻" : "!"}</span>
@@ -83,62 +82,53 @@ export function PosWorkspace({
         </div>
       ) : null}
 
-      {/* Customer bar — compact, accessible, not intrusive */}
-      <button className="pos-customer-bar" type="button" onClick={() => setCustomerPickerOpen(true)}>
-        <span className="pos-customer-bar-avatar" aria-hidden="true">{selectedCustomer ? initials(selectedCustomer.name) : "W"}</span>
-        <span className="pos-customer-bar-copy">
-          <small>Customer</small>
-          <strong>{selectedCustomer?.name ?? "Walk-in customer"}</strong>
-          <em>{selectedCustomer ? selectedCustomer.phone ?? selectedCustomer.email ?? "Named customer" : "No account attached"}</em>
-        </span>
-        <span className="pos-customer-bar-action">Choose customer</span>
-      </button>
-
-      {/* Desktop: product discovery + cart side-by-side; Mobile: stacked with sticky charge */}
       <div className="pos-workspace-grid">
         <div className="pos-browser-pane">
-          <ProductBrowser
-            items={items}
-            query={query}
-            currencyCode={currencyCode}
-            onQueryChange={setQuery}
-            onAdd={addItem}
-          />
+          <ProductBrowser items={items} query={query} currencyCode={currencyCode} onQueryChange={setQuery} onAdd={addItem} />
         </div>
 
         <aside className="pos-sale-pane" aria-label="Current sale cart">
-          <CartPanel
-            cart={cart}
-            items={items}
-            currencyCode={currencyCode}
-            onIncrease={increase}
-            onDecrease={decrease}
-            onSetQuantity={(key, quantity) => setCart((current) => setCartQuantity(current, key, quantity))}
-            onRemove={(key) => setCart((current) => removeCartLine(current, key))}
-            onChangeUnit={changeUnit}
-          />
-          {/* Desktop charge button — prominent, always visible */}
-          <button
-            className="pos-desktop-charge"
-            type="button"
-            disabled={cart.length === 0}
-            onClick={() => setCheckoutOpen(true)}
-          >
-            <span>Charge</span>
-            <strong>{formatMoney(totalMinor, currencyCode)}</strong>
+          <button className="pos-cart-customer" type="button" onClick={() => setCustomerPickerOpen(true)}>
+            <span className="pos-cart-customer-icon" aria-hidden="true">♙</span>
+            <strong>{selectedCustomer?.name ?? "Walk-in Customer"}</strong>
+            <span aria-hidden="true">⌄</span>
           </button>
+
+          <div className="pos-cart-scroll">
+            <CartPanel
+              cart={cart}
+              items={items}
+              currencyCode={currencyCode}
+              onIncrease={increase}
+              onDecrease={decrease}
+              onSetQuantity={(key, quantity) => setCart((current) => setCartQuantity(current, key, quantity))}
+              onRemove={(key) => setCart((current) => removeCartLine(current, key))}
+              onChangeUnit={changeUnit}
+            />
+          </div>
+
+          <div className="pos-sale-summary">
+            <div><span>Subtotal</span><strong>{formatMoney(totalMinor, currencyCode)}</strong></div>
+            <div className="pos-sale-total"><span>Total</span><strong>{formatMoney(totalMinor, currencyCode)}</strong></div>
+            <div className="pos-payment-preview" aria-label="Available payment methods">
+              {[
+                ["Cash", "▣"],
+                ["MoMo", "▯"],
+                ["Bank", "▤"],
+                ["Card", "▭"],
+                ["Credit", "◷"],
+              ].map(([label, icon], index) => <span className={index === 0 ? "active" : ""} key={label}><i aria-hidden="true">{icon}</i>{label}</span>)}
+            </div>
+            <button className="pos-desktop-charge" type="button" disabled={cart.length === 0} onClick={() => setCheckoutOpen(true)}>
+              <span>✓ Charge</span><strong>{formatMoney(totalMinor, currencyCode)}</strong>
+            </button>
+          </div>
         </aside>
       </div>
 
-      {/* Mobile sticky charge bar — always reachable */}
       <div className="pos-charge-bar">
-        <div>
-          <span>{cart.length} line{cart.length === 1 ? "" : "s"}</span>
-          <strong>{formatMoney(totalMinor, currencyCode)}</strong>
-        </div>
-        <button type="button" disabled={cart.length === 0} onClick={() => setCheckoutOpen(true)}>
-          Charge {formatMoney(totalMinor, currencyCode)}
-        </button>
+        <div><span>{cart.length} line{cart.length === 1 ? "" : "s"}</span><strong>{formatMoney(totalMinor, currencyCode)}</strong></div>
+        <button type="button" disabled={cart.length === 0} onClick={() => setCheckoutOpen(true)}>Charge {formatMoney(totalMinor, currencyCode)}</button>
       </div>
 
       <CustomerPicker
@@ -169,9 +159,4 @@ export function PosWorkspace({
       />
     </section>
   );
-}
-
-
-function initials(name: string): string {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "C";
 }
