@@ -148,111 +148,159 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
 
   return (
     <main className="auth-page">
-      <div className="auth-glow auth-glow--gold" />
-      <div className="auth-glow auth-glow--green" />
+      {/* ===== Left: brand / story panel ===== */}
+      <aside className="auth-aside">
+        <div className="auth-aside-glow auth-aside-glow--gold" />
+        <div className="auth-aside-glow auth-aside-glow--green" />
 
-      <div className="auth-card">
-        <div className="auth-card-brand">
-          <div className="auth-mark">T</div>
-          <div className="auth-brand-text">
-            <strong>TradeOS</strong>
-            <span>Africa</span>
+        <div className="auth-aside-top">
+          <div className="auth-card-brand">
+            <div className="auth-mark">T</div>
+            <div className="auth-brand-text">
+              <strong>TradeOS</strong>
+              <span>Africa</span>
+            </div>
           </div>
         </div>
 
-        <div className="auth-card-head">
-          <h1 className="auth-card-title">
-            {mode === "login" ? "Welcome back" : "Create account"}
-          </h1>
-          <p className="auth-card-subtitle">
-            {mode === "login"
-              ? "Sign in to run your business"
-              : "Start your business journey today"}
+        <div className="auth-aside-body">
+          <p className="auth-aside-eyebrow">The business OS for African trade</p>
+          <h2 className="auth-aside-headline">
+            Run your whole business from your pocket.
+          </h2>
+          <p className="auth-aside-sub">
+            Sells, stocks, and reconciles — even when the network drops. One ledger from waakye spot to wholesale.
           </p>
+          <ul className="auth-aside-points">
+            <li>
+              <span className="auth-aside-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
+              <span>Track every cedi, shift, and sale in real time</span>
+            </li>
+            <li>
+              <span className="auth-aside-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
+              <span>Works offline — syncs the moment you reconnect</span>
+            </li>
+            <li>
+              <span className="auth-aside-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
+              <span>POS, inventory, cashbook &amp; reports in one place</span>
+            </li>
+          </ul>
         </div>
 
-        <div className="auth-switch">
-          <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
-          <button className={mode === "register" ? "active" : ""} type="button" onClick={() => setMode("register")}>Register</button>
-        </div>
+        <figure className="auth-aside-quote">
+          <blockquote>“TradeOS replaced three notebooks and my calculator. I close the day in two minutes now.”</blockquote>
+          <figcaption>
+            <span className="auth-aside-quote-name">Akosua M.</span>
+            <span className="auth-aside-quote-role">Waakye spot owner · Kumasi</span>
+          </figcaption>
+        </figure>
+      </aside>
 
-        <form className="auth-card-form" onSubmit={(event) => void submit(event)}>
-          {mode === "register" ? (
+      {/* ===== Right: form panel ===== */}
+      <section className="auth-main">
+        <div className="auth-main-inner">
+          <div className="auth-main-brand">
+            <div className="auth-mark">T</div>
+            <div className="auth-brand-text">
+              <strong>TradeOS</strong>
+              <span>Africa</span>
+            </div>
+          </div>
+
+          <div className="auth-card-head">
+            <h1 className="auth-card-title">
+              {mode === "login" ? "Welcome back" : "Create account"}
+            </h1>
+            <p className="auth-card-subtitle">
+              {mode === "login"
+                ? "Sign in to run your business"
+                : "Start your business journey today"}
+            </p>
+          </div>
+
+          <div className="auth-switch">
+            <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
+            <button className={mode === "register" ? "active" : ""} type="button" onClick={() => setMode("register")}>Register</button>
+          </div>
+
+          <form className="auth-card-form" onSubmit={(event) => void submit(event)}>
+            {mode === "register" ? (
+              <label className="auth-input">
+                <span>Full name</span>
+                <span className="auth-input-field">
+                  <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+                  <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" autoComplete="name" />
+                </span>
+              </label>
+            ) : (
+              <div className="auth-input">
+                <span>Demo account</span>
+                <span className="auth-input-field">
+                  <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M6 21v-1a6 6 0 0 1 12 0v1" /></svg>
+                  <DemoAccountSelect hideLabel selectedId={demoAccountId} onSelect={(account) => {
+                    setDemoAccountId(account?.id ?? "");
+                    if (!account) return;
+                    setIdentifier(account.email);
+                    setPassword(account.password);
+                    setLocalError(null);
+                  }} />
+                </span>
+              </div>
+            )}
             <label className="auth-input">
-              <span>Full name</span>
+              <span>Email or phone</span>
               <span className="auth-input-field">
-                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-                <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" autoComplete="name" />
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></svg>
+                <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233" autoComplete="email" />
               </span>
             </label>
-          ) : (
-            <div className="auth-input">
-              <span>Demo account</span>
+            <label className="auth-input">
+              <span>Password</span>
               <span className="auth-input-field">
-                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M6 21v-1a6 6 0 0 1 12 0v1" /></svg>
-                <DemoAccountSelect hideLabel selectedId={demoAccountId} onSelect={(account) => {
-                  setDemoAccountId(account?.id ?? "");
-                  if (!account) return;
-                  setIdentifier(account.email);
-                  setPassword(account.password);
-                  setLocalError(null);
-                }} />
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
               </span>
-            </div>
-          )}
-          <label className="auth-input">
-            <span>Email or phone</span>
-            <span className="auth-input-field">
-              <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></svg>
-              <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233" autoComplete="email" />
-            </span>
-          </label>
-          <label className="auth-input">
-            <span>Password</span>
-            <span className="auth-input-field">
-              <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-              <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
-            </span>
-          </label>
-          {mode === "login" ? (
-            <div className="auth-form-aux">
-              <a className="auth-forgot" href="#" onClick={(event) => { event.preventDefault(); setLocalError("Password reset is not available in this build. Contact your workspace admin."); }}>Forgot password?</a>
-            </div>
-          ) : null}
-          {localError ? <div className="auth-card-error">{localError}</div> : null}
-          <button className="auth-card-submit" type="submit" disabled={busy}>
-            {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
-            {!busy && (
-              <svg className="auth-submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
-            )}
-          </button>
-        </form>
+            </label>
+            {mode === "login" ? (
+              <div className="auth-form-aux">
+                <a className="auth-forgot" href="#" onClick={(event) => { event.preventDefault(); setLocalError("Password reset is not available in this build. Contact your workspace admin."); }}>Forgot password?</a>
+              </div>
+            ) : null}
+            {localError ? <div className="auth-card-error">{localError}</div> : null}
+            <button className="auth-card-submit" type="submit" disabled={busy}>
+              {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
+              {!busy && (
+                <svg className="auth-submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
+              )}
+            </button>
+          </form>
 
-        <div className="auth-trust">
-          <span className="auth-trust-item">
-            <span className="auth-trust-dot">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+          <div className="auth-trust">
+            <span className="auth-trust-item">
+              <span className="auth-trust-dot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </span>
+              Offline-first
             </span>
-            Offline-first
-          </span>
-          <span className="auth-trust-item">
-            <span className="auth-trust-dot">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            <span className="auth-trust-item">
+              <span className="auth-trust-dot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </span>
+              GHS ready
             </span>
-            GHS ready
-          </span>
-          <span className="auth-trust-item">
-            <span className="auth-trust-dot">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            <span className="auth-trust-item">
+              <span className="auth-trust-dot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </span>
+              Works without internet
             </span>
-            Works without internet
-          </span>
+          </div>
+
+          <p className="auth-card-foot">
+            TradeOS Africa · Built for African businesses
+          </p>
         </div>
-
-        <p className="auth-card-foot">
-          TradeOS Africa · Built for African businesses
-        </p>
-      </div>
+      </section>
     </main>
   );
 }
