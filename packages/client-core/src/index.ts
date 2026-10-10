@@ -96,3 +96,5 @@ export function supports(profile: PlatformProfile, capability: DeviceCapability)
 function profile(platform: ClientPlatform, capabilities: DeviceCapability[]): PlatformProfile {
   return { platform, capabilities: new Set(capabilities) };
 }
+
+export * from "./sync-runtime.js";
