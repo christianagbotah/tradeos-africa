@@ -574,6 +574,7 @@
   .workspace-mobile-header { grid-template-columns: 30px 28px minmax(0,1fr) auto; padding: 0 9px; }
   .workspace-mobile-search-row { padding: 7px 9px; }
   .workspace-content { padding-left: 10px; padding-right: 10px; }
+  .zai-action-rail, .zai-ai-actions { margin-left: -10px; margin-right: -10px; }
   .zai-kpi-grid { grid-template-columns: 1fr 1fr; }
   .zai-pos-workspace { margin-left: -10px; margin-right: -10px; }
   .zai-pos-workspace .pos-browser-pane { padding-left: 10px; padding-right: 10px; }

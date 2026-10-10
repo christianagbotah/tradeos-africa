@@ -56,8 +56,9 @@ describe("multi-page release hardening", () => {
     expect(shell).toContain("MobileMoreSheet");
     expect(read("app/components/workspace/mobile-more-sheet.tsx")).toContain('className="workspace-more-context"');
     expect(shell.match(/<NetworkStatus \/>/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(shell.match(/Sign out/g)?.length).toBeGreaterThanOrEqual(2);
     const moreSheet = read("app/components/workspace/mobile-more-sheet.tsx");
+    expect(shell).toContain("Sign out");
+    expect(moreSheet).toContain("Sign out");
     expect(moreSheet).toContain('role="dialog"');
     expect(moreSheet).toContain('aria-modal="true"');
     expect(moreSheet).toContain('e.key==="Escape"');

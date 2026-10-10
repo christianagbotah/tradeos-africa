@@ -46,7 +46,8 @@ describe("professional POS product browser and cart", () => {
       onQueryChange: () => undefined,
       onAdd: () => undefined,
     }));
-    expect(html).toContain("Search products or services");
+    expect(html).toContain("Search product, SKU or scan barcode…");
+    expect(html).toContain("pos-category-strip");
     expect(html).toContain("Malt");
     expect(html).toContain("Bottle");
     expect(html).toContain("Crate");
