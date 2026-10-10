@@ -174,3 +174,54 @@ describe("MobileApiClient sync transport", () => {
     await expect(client.push(request)).resolves.toEqual(expected);
   });
 });
+describe("MobileApiClient commerce reads", () => {
+  it("loads the authorized business catalog through the native gateway", async () => {
+    const expected = { items: [{
+      id: "item-1",
+      businessId: "11111111-1111-4111-8111-111111111111",
+      sku: "CEM-50",
+      name: "Cement 50kg",
+      kind: "PRODUCT",
+      stockUnitCode: "bag",
+      trackStock: true,
+      taxCategory: null,
+      active: true,
+      createdAt: "2026-10-10T00:00:00.000Z",
+      updatedAt: "2026-10-10T00:00:00.000Z",
+      units: [{ code: "bag", label: "Bag", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 12000 }],
+      conversions: [],
+    }] };
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://tradeos.example/api/mobile/v1/catalog/items?businessId=11111111-1111-4111-8111-111111111111");
+      expect(init?.method).toBe("GET");
+      expect((init?.headers as Record<string, string>).authorization).toBe("Bearer access-old");
+      return jsonResponse(expected);
+    }) as typeof fetch;
+    const { client, persistence } = harness(fetchImpl);
+    await persistence.saveSession(oldSession);
+
+    await expect(client.getCatalog("11111111-1111-4111-8111-111111111111")).resolves.toEqual(expected);
+  });
+
+  it("loads branch inventory and safely encodes an optional search query", async () => {
+    const expected = { items: [{
+      id: "item-1", sku: "CEM-50", name: "Cement 50kg", stockUnitCode: "bag",
+      available: 28, quarantine: 1, damaged: 0, waste: 0,
+      inventoryValueMinor: 280000, averageStockUnitCostMinor: 10000, latestStockUnitCostMinor: 10000,
+    }] };
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://tradeos.example/api/mobile/v1/inventory?businessId=11111111-1111-4111-8111-111111111111&branchId=22222222-2222-4222-8222-222222222222&query=cement+%26+blocks");
+      expect(init?.method).toBe("GET");
+      expect((init?.headers as Record<string, string>).authorization).toBe("Bearer access-old");
+      return jsonResponse(expected);
+    }) as typeof fetch;
+    const { client, persistence } = harness(fetchImpl);
+    await persistence.saveSession(oldSession);
+
+    await expect(client.getInventory(
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+      "cement & blocks",
+    )).resolves.toEqual(expected);
+  });
+});

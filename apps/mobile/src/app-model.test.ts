@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { FlushSummary, QueueState } from "@tradeos/client-core/sync-runtime";
 import { MobileAppModel, safeMobileErrorMessage } from "./app-model";
-import type { MobileBootstrapState } from "./runtime";
+import type { MobileBootstrapState, MobileCommerceSnapshot, MobileSaleCaptureResult } from "./runtime";
+import type { MobileCartLine, MobileImmediatePaymentMethod, MobileSellableItem } from "./pos-model";
 
 const emptyQueue: QueueState = { pending: 0, blocked: 0, failed: 0 };
 const ready: MobileBootstrapState = {
@@ -17,14 +18,27 @@ class FakeRuntime {
   bootstrapState: MobileBootstrapState = { status: "SIGNED_OUT", queue: emptyQueue };
   loginState: MobileBootstrapState = ready;
   flushCalls: boolean[] = [];
+  commerceCalls: boolean[] = [];
+  saleCalls: Array<{ cart: readonly MobileCartLine[]; paymentMethod: MobileImmediatePaymentMethod; online: boolean }> = [];
   logoutCalls = 0;
   queueState: QueueState = emptyQueue;
+  commerceSnapshot: MobileCommerceSnapshot = {
+    source: "LIVE", fetchedAt: "2026-10-10T23:50:00.000Z", warning: null,
+    items: [{ key: "item-1:bag", itemId: "item-1", name: "Cement 50kg", sku: "CEM-50", kind: "PRODUCT", unitCode: "bag", unitLabel: "Bag", priceMinor: 12000, trackStock: true, stockUnitCode: "bag", availableStock: 28 }],
+  };
+  saleResult: MobileSaleCaptureResult = { clientMutationId: "sale-1", outcome: "SYNCED", queue: emptyQueue };
   flushSummary: FlushSummary = { ...emptyQueue, applied: 0, received: 0, rejected: 0, attempted: 0 };
   error: Error | null = null;
 
   async bootstrap() { if (this.error) throw this.error; return this.bootstrapState; }
   async login() { if (this.error) throw this.error; return this.loginState; }
   async flush(online: boolean) { this.flushCalls.push(online); return this.flushSummary; }
+  async loadCommerce(online: boolean) { this.commerceCalls.push(online); if (this.error) throw this.error; return this.commerceSnapshot; }
+  async createSale(cart: readonly MobileCartLine[], paymentMethod: MobileImmediatePaymentMethod, online: boolean) {
+    this.saleCalls.push({ cart, paymentMethod, online });
+    if (this.error) throw this.error;
+    return this.saleResult;
+  }
   async logout() { this.logoutCalls += 1; }
   async getQueueState() { return this.queueState; }
 }
@@ -105,3 +119,99 @@ describe("safeMobileErrorMessage", () => {
 });
 
 function never(): never { throw new Error("unreachable"); }
+
+describe("MobileAppModel commerce and cart", () => {
+  async function readyModel(runtime = new FakeRuntime()) {
+    runtime.bootstrapState = ready;
+    const model = new MobileAppModel(runtime);
+    await model.start();
+    return { runtime, model };
+  }
+
+  it("loads live commerce and preserves a cached-data warning when runtime falls back", async () => {
+    const { runtime, model } = await readyModel();
+    let snapshot = await model.connectivityChanged(true);
+    expect(runtime.commerceCalls).toEqual([true]);
+    expect(snapshot.commerce).toMatchObject({ source: "LIVE", items: [{ key: "item-1:bag" }] });
+    snapshot = await model.loadCommerce();
+    expect(runtime.commerceCalls).toEqual([true, true]);
+    expect(snapshot.commerce).toMatchObject({ source: "LIVE", items: [{ key: "item-1:bag" }] });
+
+    runtime.commerceSnapshot = { ...runtime.commerceSnapshot, source: "CACHE", warning: "Live refresh failed. Showing last-known catalog and stock." };
+    snapshot = await model.loadCommerce();
+    expect(snapshot.commerce?.source).toBe("CACHE");
+    expect(snapshot.commerce?.warning).toMatch(/last-known/i);
+  });
+
+  it("manages cart quantities and immediate payment selection in model state", async () => {
+    const { model } = await readyModel();
+    await model.loadCommerce();
+    const item = model.snapshot.commerce!.items[0]!;
+
+    model.addCart(item);
+    model.addCart(item);
+    expect(model.snapshot.cart).toMatchObject([{ key: "item-1:bag", quantity: 2 }]);
+    model.setCartQuantity("item-1:bag", 3);
+    expect(model.snapshot.cart[0]!.quantity).toBe(3);
+    model.selectPaymentMethod("MOMO");
+    expect(model.snapshot.paymentMethod).toBe("MOMO");
+    model.removeCart("item-1:bag");
+    expect(model.snapshot.cart).toEqual([]);
+  });
+
+  it("clears the cart after durable pending capture and updates queue counts", async () => {
+    const { runtime, model } = await readyModel();
+    await model.connectivityChanged(false);
+    await model.loadCommerce();
+    model.addCart(model.snapshot.commerce!.items[0]!);
+    runtime.saleResult = { clientMutationId: "sale-pending", outcome: "PENDING", queue: { pending: 1, blocked: 0, failed: 0 } };
+
+    const snapshot = await model.checkout();
+
+    expect(runtime.saleCalls).toHaveLength(1);
+    expect(runtime.saleCalls[0]).toMatchObject({ paymentMethod: "CASH", online: false });
+    expect(snapshot.cart).toEqual([]);
+    expect(snapshot.bootstrap).toMatchObject({ status: "READY", queue: { pending: 1 } });
+    expect(snapshot.saleNotice).toMatchObject({ tone: "pending" });
+  });
+
+  it("shows a review notice for a server-rejected durably captured sale and still clears the cart", async () => {
+    const { runtime, model } = await readyModel();
+    await model.connectivityChanged(true);
+    await model.loadCommerce();
+    model.addCart(model.snapshot.commerce!.items[0]!);
+    runtime.saleResult = {
+      clientMutationId: "sale-review", outcome: "NEEDS_REVIEW", queue: { pending: 0, blocked: 0, failed: 1 },
+      errorCode: "INSUFFICIENT_STOCK", errorMessage: "Stock changed before sync",
+    };
+
+    const snapshot = await model.checkout();
+
+    expect(snapshot.cart).toEqual([]);
+    expect(snapshot.bootstrap).toMatchObject({ status: "READY", queue: { failed: 1 } });
+    expect(snapshot.saleNotice).toMatchObject({ tone: "review" });
+    expect(snapshot.saleNotice?.message).toMatch(/stock changed/i);
+  });
+
+  it("keeps the cart when checkout fails before durable capture", async () => {
+    const { runtime, model } = await readyModel();
+    await model.loadCommerce();
+    model.addCart(model.snapshot.commerce!.items[0]!);
+    runtime.error = new Error("Bearer secret should not leak");
+
+    const snapshot = await model.checkout();
+
+    expect(snapshot.cart).toHaveLength(1);
+    expect(snapshot.error).toContain("TradeOS");
+    expect(snapshot.error).not.toContain("secret");
+  });
+
+  it("switches between Sell and Sync workspace views", async () => {
+    const { model } = await readyModel();
+    expect(model.snapshot.view).toBe("SELL");
+    model.setView("SYNC");
+    expect(model.snapshot.view).toBe("SYNC");
+    model.setView("SELL");
+    expect(model.snapshot.view).toBe("SELL");
+  });
+});

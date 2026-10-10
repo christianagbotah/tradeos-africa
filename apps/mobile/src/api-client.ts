@@ -40,6 +40,49 @@ export type MobileBusinessContext = {
   branches: Array<{ id: string; name: string; code: string; timezone: string; active: boolean }>;
 };
 
+export type MobileCatalogUnit = {
+  code: string;
+  label: string;
+  canPurchase: boolean;
+  canSell: boolean;
+  canStock: boolean;
+  defaultSalePriceMinor: number | null;
+};
+
+export type MobileCatalogItem = {
+  id: string;
+  businessId: string;
+  sku: string | null;
+  name: string;
+  kind: "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
+  stockUnitCode: string | null;
+  trackStock: boolean;
+  taxCategory: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  units: MobileCatalogUnit[];
+  conversions: Array<{ fromUnitCode: string; toUnitCode: string; factor: number }>;
+};
+
+export type MobileCatalogResponse = { items: MobileCatalogItem[] };
+
+export type MobileInventoryItem = {
+  id: string;
+  sku: string | null;
+  name: string;
+  stockUnitCode: string;
+  available: number;
+  quarantine: number;
+  damaged: number;
+  waste: number;
+  inventoryValueMinor: number;
+  averageStockUnitCostMinor: number | null;
+  latestStockUnitCostMinor: number | null;
+};
+
+export type MobileInventoryResponse = { items: MobileInventoryItem[] };
+
 export type MobileApiClientOptions = {
   baseUrl: string;
   persistence: MobilePersistence;
@@ -107,6 +150,18 @@ export class MobileApiClient {
 
   getBusinessContext(businessId: string): Promise<MobileBusinessContext> {
     return this.authorizedJson<MobileBusinessContext>(`/v1/businesses/${encodeURIComponent(businessId)}/context`, { method: "GET" });
+  }
+
+  getCatalog(businessId: string): Promise<MobileCatalogResponse> {
+    const query = new URLSearchParams({ businessId });
+    return this.authorizedJson<MobileCatalogResponse>(`/v1/catalog/items?${query.toString()}`, { method: "GET" });
+  }
+
+  getInventory(businessId: string, branchId: string, search = ""): Promise<MobileInventoryResponse> {
+    const query = new URLSearchParams({ businessId, branchId });
+    const normalized = search.trim();
+    if (normalized) query.set("query", normalized);
+    return this.authorizedJson<MobileInventoryResponse>(`/v1/inventory?${query.toString()}`, { method: "GET" });
   }
 
   push(request: SyncPushRequest): Promise<SyncResponse> {

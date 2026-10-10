@@ -1,9 +1,12 @@
 import type { QueueSnapshot, QueueSnapshotStorage, QueuedMutation } from "@tradeos/client-core/sync-runtime";
+import type { MobileCatalogItem, MobileInventoryItem } from "./api-client";
 
 const DEVICE_KEY = "tradeos.mobile.device.v1";
 const SESSION_KEY = "tradeos.mobile.session.v1";
 const WORKSPACE_KEY = "tradeos.mobile.workspace.v1";
 const QUEUE_KEY = "tradeos.mobile.queue.v1";
+const CATALOG_CACHE_PREFIX = "tradeos.mobile.catalog.v1";
+const INVENTORY_CACHE_PREFIX = "tradeos.mobile.inventory.v1";
 
 export interface StringStorage {
   getItem(key: string): Promise<string | null>;
@@ -23,6 +26,16 @@ export type MobileSessionTokens = {
 export type WorkspaceSelection = {
   businessId: string;
   branchId: string;
+};
+
+export type MobileCatalogCache = {
+  fetchedAt: string;
+  items: MobileCatalogItem[];
+};
+
+export type MobileInventoryCache = {
+  fetchedAt: string;
+  items: MobileInventoryItem[];
 };
 
 export class QueueStorageCorruptError extends Error {
@@ -79,6 +92,30 @@ export class MobilePersistence {
 
   async saveWorkspaceSelection(selection: WorkspaceSelection): Promise<void> {
     await this.plain.setItem(WORKSPACE_KEY, JSON.stringify(selection));
+  }
+
+  async loadCatalogCache(businessId: string): Promise<MobileCatalogCache | null> {
+    return readDisposableCache(
+      await this.plain.getItem(cacheKey(CATALOG_CACHE_PREFIX, businessId)),
+      isCatalogCache,
+    );
+  }
+
+  async saveCatalogCache(businessId: string, snapshot: MobileCatalogCache): Promise<void> {
+    if (!isCatalogCache(snapshot)) throw new Error("Catalog cache snapshot is invalid.");
+    await this.plain.setItem(cacheKey(CATALOG_CACHE_PREFIX, businessId), JSON.stringify(snapshot));
+  }
+
+  async loadInventoryCache(businessId: string, branchId: string): Promise<MobileInventoryCache | null> {
+    return readDisposableCache(
+      await this.plain.getItem(cacheKey(INVENTORY_CACHE_PREFIX, businessId, branchId)),
+      isInventoryCache,
+    );
+  }
+
+  async saveInventoryCache(businessId: string, branchId: string, snapshot: MobileInventoryCache): Promise<void> {
+    if (!isInventoryCache(snapshot)) throw new Error("Inventory cache snapshot is invalid.");
+    await this.plain.setItem(cacheKey(INVENTORY_CACHE_PREFIX, businessId, branchId), JSON.stringify(snapshot));
   }
 }
 
@@ -141,4 +178,52 @@ function isQueuedMutation(value: unknown): value is QueuedMutation {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function cacheKey(prefix: string, ...scope: string[]): string {
+  return `${prefix}:${scope.join(":")}`;
+}
+
+function readDisposableCache<T>(raw: string | null, validate: (value: unknown) => value is T): T | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return validate(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isCatalogCache(value: unknown): value is MobileCatalogCache {
+  return isRecord(value) && isIsoDate(value.fetchedAt) && Array.isArray(value.items) && value.items.every(isCatalogItem);
+}
+
+function isInventoryCache(value: unknown): value is MobileInventoryCache {
+  return isRecord(value) && isIsoDate(value.fetchedAt) && Array.isArray(value.items) && value.items.every(isInventoryItem);
+}
+
+function isCatalogItem(value: unknown): value is MobileCatalogItem {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.businessId !== "string" || typeof value.name !== "string") return false;
+  if (!(value.sku === null || typeof value.sku === "string")) return false;
+  if (!(value.kind === "PRODUCT" || value.kind === "SERVICE" || value.kind === "PREPARED_PRODUCT")) return false;
+  if (!(value.stockUnitCode === null || typeof value.stockUnitCode === "string")) return false;
+  if (typeof value.trackStock !== "boolean" || typeof value.active !== "boolean" || !Array.isArray(value.units) || !Array.isArray(value.conversions)) return false;
+  return value.units.every((unit) => isRecord(unit)
+    && typeof unit.code === "string"
+    && typeof unit.label === "string"
+    && typeof unit.canPurchase === "boolean"
+    && typeof unit.canSell === "boolean"
+    && typeof unit.canStock === "boolean"
+    && (unit.defaultSalePriceMinor === null || (typeof unit.defaultSalePriceMinor === "number" && Number.isSafeInteger(unit.defaultSalePriceMinor) && unit.defaultSalePriceMinor >= 0)));
+}
+
+function isInventoryItem(value: unknown): value is MobileInventoryItem {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string" || typeof value.stockUnitCode !== "string") return false;
+  if (!(value.sku === null || typeof value.sku === "string")) return false;
+  return ["available", "quarantine", "damaged", "waste", "inventoryValueMinor"].every((key) => typeof value[key] === "number" && Number.isFinite(value[key]))
+    && (value.averageStockUnitCostMinor === null || (typeof value.averageStockUnitCostMinor === "number" && Number.isFinite(value.averageStockUnitCostMinor)))
+    && (value.latestStockUnitCostMinor === null || (typeof value.latestStockUnitCostMinor === "number" && Number.isFinite(value.latestStockUnitCostMinor)));
+}
+
+function isIsoDate(value: unknown): value is string {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value));
 }
