@@ -29,4 +29,4 @@ export HOST="${HOST:-127.0.0.1}"
 export PORT="${PORT:-4036}"
 
 cd "$ROOT_DIR"
-exec /usr/bin/env pnpm --filter @tradeos/api start
+exec /usr/bin/env node "$ROOT_DIR/apps/api/dist/server.js"
