@@ -80,7 +80,7 @@ export function DashboardCommandCenter({
         detail: item.detail,
         href: item.href ?? "/dashboard",
         actionLabel: item.actionLabel,
-        amountMinor: item.amountMinor,
+        amountMinor: item.amountMinor ?? null,
       }))
     : [{
         id: "pulse",
