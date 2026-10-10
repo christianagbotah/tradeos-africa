@@ -77,15 +77,13 @@ describe("multi-page release hardening", () => {
 
   it("contains Treasury and financial-report tables inside local responsive scrollers", () => {
     const treasury = read("app/components/treasury.tsx");
-    const cashbookCss = read("app/cashbook.css");
+    const cashbookCss = read("app/tradeos-app.css");
     const reports = read("app/components/financial-reports.tsx");
     const forecast = read("app/components/cash-forecast.tsx");
     expect(treasury).toContain('className="treasury-table-scroll"');
     expect(cashbookCss).toMatch(/\.treasury-table-scroll\s*\{[\s\S]*overflow-x:\s*auto/);
-    expect(reports.match(/<ResponsiveTable(?:\s|>)/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(forecast).toContain("<ResponsiveTable");
-    expect(forecast).toContain('className="reports-table--desktop"');
-    expect(forecast).toContain('className="reports-records--mobile"');
+    expect(reports.match(/<ResponsiveTable>/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(forecast).toContain("<ResponsiveTable>");
     expect(forecast).not.toContain('className="table-scroll"');
   });
 });

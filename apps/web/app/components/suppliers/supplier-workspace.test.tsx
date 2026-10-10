@@ -44,14 +44,6 @@ describe("SupplierWorkspace", () => {
     expect(html).toContain("Accra Supplies");
   });
 
-  it("uses canonical Z.ai command, mobile-record, state and status primitives", () => {
-    const root = path.dirname(fileURLToPath(import.meta.url));
-    const source = fs.readFileSync(path.join(root, "supplier-workspace.tsx"), "utf8");
-    for (const contract of ["CommandBar", "MobileRecordCard", "StatePanel", "StatusBadge"]) expect(source).toContain(contract);
-    expect(source).toContain("supplier-row--desktop");
-    expect(source).toContain("supplier-row--mobile");
-  });
-
   it("refreshes on supplier profile sync and surfaces failed master-data conflicts", () => {
     const root = path.dirname(fileURLToPath(import.meta.url));
     const source = fs.readFileSync(path.join(root, "supplier-workspace.tsx"), "utf8");

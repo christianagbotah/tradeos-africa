@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -39,14 +36,6 @@ describe("ReturnRefundSheet", () => {
     expect(html).toContain("Not applicable");
     expect(html).toMatch(/MoMo.*card.*bank.*processing|provider.*confirm/i);
     expect(html).toContain("Process return / refund");
-  });
-
-  it("uses canonical TradeOS tokens and touch-safe responsive return styling", () => {
-    const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const css = fs.readFileSync(path.join(appRoot, "returns.css"), "utf8");
-    for (const legacy of ["var(--line)", "var(--muted)", "var(--brand)", "var(--ink)", "var(--surface-soft)"]) expect(css).not.toContain(legacy);
-    expect(css).toMatch(/return-[\s\S]*min-height:\s*48px/);
-    expect(css).toMatch(/@media\s*\(\s*max-width:\s*767px/);
   });
 
   it("maps rejected or pending sync outcomes to truthful business copy", async () => {

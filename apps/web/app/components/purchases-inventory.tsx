@@ -7,11 +7,11 @@ import { PurchaseReceiptBuilder } from "./purchases/purchase-receipt-builder";
 import { PurchaseWorkspace } from "./purchases/purchase-workspace";
 import { PurchaseDetailSheet } from "./purchases/purchase-detail-sheet";
 import { PurchaseReturnSheet } from "./purchases/purchase-return-sheet";
-import { StatePanel } from "./ui/state-panel";
 import type { PurchaseCatalogItem, PurchaseDetail, PurchaseSummary } from "./purchases/types";
 import { InventoryWorkspace } from "./inventory/inventory-workspace";
 import { InventoryDetailSheet } from "./inventory/inventory-detail-sheet";
 import type { InventoryDetail, InventoryItem } from "./inventory/types";
+import { PageHeader } from "./ui/page-header";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
 import { mutationAppliedEvent, type AppliedMutationDetail } from "../lib/offline-sync";
@@ -27,17 +27,25 @@ type Props = {
 
 const receiveRoles = new Set(["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"]);
 
-type PurchasesInventorySnapshot = { suppliers: Supplier[]; inventory: InventoryItem[]; purchases: PurchaseSummary[]; accounts: MoneyAccount[] };
+type PurchasesInventorySnapshot = {
+  suppliers: Supplier[];
+  inventory: InventoryItem[];
+  purchases: PurchaseSummary[];
+  accounts: MoneyAccount[];
+};
+
 function isPurchasesInventorySnapshot(value: unknown): value is PurchasesInventorySnapshot {
   if (!value || typeof value !== "object") return false;
   const row = value as Partial<PurchasesInventorySnapshot>;
   return Array.isArray(row.suppliers) && Array.isArray(row.inventory) && Array.isArray(row.purchases) && Array.isArray(row.accounts);
 }
+
 function isPurchaseDetail(value: unknown): value is PurchaseDetail {
   if (!value || typeof value !== "object") return false;
   const row = value as Partial<PurchaseDetail>;
   return Boolean(row.purchase && Array.isArray(row.lines) && Array.isArray(row.returns));
 }
+
 function isInventoryDetail(value: unknown): value is InventoryDetail {
   if (!value || typeof value !== "object") return false;
   const row = value as Partial<InventoryDetail>;
@@ -79,7 +87,12 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
         clientApi<{ purchases: PurchaseSummary[] }>(`/api/tradeos/v1/purchases?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}&limit=50`),
         clientApi<{ accounts: MoneyAccount[] }>(`/api/tradeos/v1/money-accounts?businessId=${encodeURIComponent(businessId)}`),
       ]);
-      const next: PurchasesInventorySnapshot = { suppliers: supplierData.suppliers, inventory: inventoryData.items, purchases: purchaseData.purchases, accounts: accountData.accounts };
+      const next: PurchasesInventorySnapshot = {
+        suppliers: supplierData.suppliers,
+        inventory: inventoryData.items,
+        purchases: purchaseData.purchases,
+        accounts: accountData.accounts,
+      };
       if (!isSessionEpochCurrent(sessionEpoch)) return;
       setSuppliers(next.suppliers);
       setInventory(next.inventory);
@@ -102,7 +115,9 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
     void refresh();
     const onApplied = (event: Event) => {
       const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
-      if (detail?.businessId === businessId && detail.branchId === branchId && ["PURCHASE_RETURN_CREATE","PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","SALE_CREATE","RETURN_CREATE","REFUND_CREATE","INVENTORY_ADJUSTMENT_CREATE"].includes(detail.mutationType)) void refresh();
+      if (detail?.businessId === businessId && detail.branchId === branchId && ["PURCHASE_RETURN_CREATE", "PURCHASE_RECEIVE_CREATE", "SUPPLIER_PAYMENT_CREATE", "SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE", "INVENTORY_ADJUSTMENT_CREATE"].includes(detail.mutationType)) {
+        void refresh();
+      }
     };
     window.addEventListener(mutationAppliedEvent, onApplied);
     return () => window.removeEventListener(mutationAppliedEvent, onApplied);
@@ -159,35 +174,40 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
 
   const lowOrEmpty = useMemo(() => inventory.filter((item) => item.available <= 0).length, [inventory]);
 
-  return <section className="purchases-inventory-workspace" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
-    <header className="purchase-inventory-head">
-      <div><p className="purchase-inventory-kicker">{view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}</p><h2>{view === "purchases" ? "Suppliers & purchases" : "Inventory"}</h2></div>
-      <div className="inventory-summary"><span>Tracked products</span><strong>{inventory.length}</strong><small>{lowOrEmpty} empty item{lowOrEmpty === 1 ? "" : "s"}</small></div>
-    </header>
+  return <section className="purchase-inventory-workspace" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
+    <PageHeader
+      eyebrow={view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}
+      title={view === "purchases" ? "Suppliers & purchases" : "Inventory"}
+      subtitle={view === "purchases"
+        ? "Receive stock, inspect posted receipts and create linked supplier corrections without editing history."
+        : "Review movement-derived stock, investigate item history and make controlled adjustments for this branch."}
+      status={<div className="inventory-summary"><span>Tracked products</span><strong>{inventory.length}</strong><small>{lowOrEmpty} empty item{lowOrEmpty === 1 ? "" : "s"}</small></div>}
+    />
 
     {view === "purchases" ? <>
       <SupplierWorkspace businessId={businessId} branchId={branchId} currencyCode={currencyCode} role={role} suppliers={suppliers} onRefresh={refresh} />
-      {canReceive ? <div className="purchase-receiving-stack"><PurchaseReceiptBuilder businessId={businessId} branchId={branchId} currencyCode={currencyCode} suppliers={suppliers.filter((supplier) => supplier.active)} catalog={catalog} accounts={accounts} onMessage={setMessage} /></div> : <div className="purchase-readonly-note">Your role can view purchase history but cannot receive inventory.</div>}
+      {canReceive
+        ? <div className="procurement-actions"><PurchaseReceiptBuilder businessId={businessId} branchId={branchId} currencyCode={currencyCode} suppliers={suppliers.filter((supplier) => supplier.active)} catalog={catalog} accounts={accounts} onMessage={setMessage} /></div>
+        : <div className="inventory-readonly-note">Your role can view purchase history but cannot receive inventory.</div>}
       <PurchaseWorkspace purchases={purchases} loadingId={detailLoadingId} onOpen={(purchase) => void openPurchase(purchase)} />
-      <PurchaseDetailSheet open={Boolean(selectedPurchase)} purchase={selectedPurchase} detail={selectedDetail} canReturn={canReceive} onClose={() => { setSelectedPurchase(null); setSelectedDetail(null); }} onReturn={() => { if (selectedPurchase) setReturnPurchase(selectedPurchase); setSelectedPurchase(null); setSelectedDetail(null); }} />
+      <PurchaseDetailSheet
+        open={Boolean(selectedPurchase)}
+        purchase={selectedPurchase}
+        detail={selectedDetail}
+        canReturn={canReceive}
+        onClose={() => { setSelectedPurchase(null); setSelectedDetail(null); }}
+        onReturn={() => {
+          if (selectedPurchase) setReturnPurchase(selectedPurchase);
+          setSelectedPurchase(null);
+          setSelectedDetail(null);
+        }}
+      />
       {returnPurchase ? <PurchaseReturnSheet key={returnPurchase.id} businessId={businessId} branchId={branchId} purchase={returnPurchase} onClose={() => setReturnPurchase(null)} onMessage={setMessage} /> : null}
     </> : <>
       <InventoryWorkspace items={inventory} currencyCode={currencyCode} loadingId={inventoryLoadingId} onOpen={(item) => void openInventory(item)} businessId={businessId} branchId={branchId} role={role} onRefresh={refresh} />
       <InventoryDetailSheet open={Boolean(selectedInventory)} detail={inventoryDetail} onClose={() => { setSelectedInventory(null); setInventoryDetail(null); }} />
     </>}
-    {message ? <StatePanel state={messageState(message)} title={messageTitle(message)} description={message} /> : null}
+
+    {message ? <div className="procurement-message" role="status">{message}</div> : null}
   </section>;
-}
-
-
-function messageState(message: string): "offline" | "error" | "success" {
-  if (message.startsWith("Offline:")) return "offline";
-  if (/needs review|could not|unavailable|failed|error/i.test(message)) return "error";
-  return "success";
-}
-
-function messageTitle(message: string): string {
-  if (message.startsWith("Offline:")) return "Offline branch data";
-  if (/needs review|could not|unavailable|failed|error/i.test(message)) return "Action needs attention";
-  return "TradeOS update";
 }

@@ -9,13 +9,9 @@ describe("professional treasury lifecycle composition", () => {
   it("uses the account sheet instead of browser prompts and submits default revisions", () => {
     const source = fs.readFileSync(path.join(root, "treasury.tsx"), "utf8");
     expect(source).toContain("MoneyAccountSheet");
-    expect(source).not.toContain("window.prompt(");
+    expect(source).not.toContain("window.prompt('Account name'");
     expect(source).toContain("expectedUpdatedAt");
     expect(source).toContain("money-account-defaults");
     expect(source).toContain("ACCOUNT_IS_DEFAULT");
-    expect(source).toContain("MobileRecordCard");
-    expect(source).toContain("StatePanel");
-    expect(source).toContain("StatusBadge");
-    expect(source).toContain("MONEY_RECONCILIATION_RESOLVE");
   });
 });

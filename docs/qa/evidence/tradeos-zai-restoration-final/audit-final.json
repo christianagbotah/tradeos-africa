@@ -1,0 +1,1177 @@
+{
+  "mobileMoreEscape": true,
+  "checks": [
+    {
+      "route": "/dashboard",
+      "width": 360,
+      "href": "/dashboard",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/sell",
+      "width": 360,
+      "href": "/sell",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/sales",
+      "width": 360,
+      "href": "/sales",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "StatusAll statusesCompletedRefunded / partial",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "PaymentAll payments",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CustomerAll customersWalk-in customerNamed customer",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/customers",
+      "width": 360,
+      "href": "/customers",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/purchases",
+      "width": 360,
+      "href": "/purchases",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/inventory",
+      "width": 360,
+      "href": "/inventory",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/catalog",
+      "width": 360,
+      "href": "/catalog",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/returns",
+      "width": 360,
+      "href": "/returns",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/cashbook",
+      "width": 360,
+      "href": "/cashbook",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "MethodAll methodsCASHMOMOCARDBANKOTHER",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Entry typeExpenseBalance adjustment",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Payment methodCASHMOMOCARDBANKOTHER",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Money accountBranch defaultCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CategorySelect categoryCleaning & SanitationFees & ChargesFo",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CASHChoose accountCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "MOMOChoose accountMobile money wallet",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CARDChoose accountCard clearing",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "BANKChoose accountBank account",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "OTHERChoose accountOther money",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "FromChoose sourceBank account · BANK · ₵ 0.00Card clearing ·",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "ToChoose destinationBank account · BANKCard clearing · CARDC",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "AccountChoose accountCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "TypeCASH_COUNTSTATEMENT",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        }
+      ],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/operations",
+      "width": 360,
+      "href": "/operations",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        }
+      ],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/reports",
+      "width": 360,
+      "href": "/reports",
+      "scrollWidth": 360,
+      "clientWidth": 360,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "ScopeCurrent branchAll branches",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/dashboard",
+      "width": 390,
+      "href": "/dashboard",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/sell",
+      "width": 390,
+      "href": "/sell",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/sales",
+      "width": 390,
+      "href": "/sales",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "StatusAll statusesCompletedRefunded / partial",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "PaymentAll payments",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CustomerAll customersWalk-in customerNamed customer",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/customers",
+      "width": 390,
+      "href": "/customers",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/purchases",
+      "width": 390,
+      "href": "/purchases",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/inventory",
+      "width": 390,
+      "href": "/inventory",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/catalog",
+      "width": 390,
+      "href": "/catalog",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/returns",
+      "width": 390,
+      "href": "/returns",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/cashbook",
+      "width": 390,
+      "href": "/cashbook",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "MethodAll methodsCASHMOMOCARDBANKOTHER",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Entry typeExpenseBalance adjustment",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Payment methodCASHMOMOCARDBANKOTHER",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Money accountBranch defaultCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CategorySelect categoryCleaning & SanitationFees & ChargesFo",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CASHChoose accountCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "MOMOChoose accountMobile money wallet",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CARDChoose accountCard clearing",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "BANKChoose accountBank account",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "OTHERChoose accountOther money",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "FromChoose sourceBank account · BANK · ₵ 0.00Card clearing ·",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "ToChoose destinationBank account · BANKCard clearing · CARDC",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "AccountChoose accountCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "TypeCASH_COUNTSTATEMENT",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        }
+      ],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/operations",
+      "width": 390,
+      "href": "/operations",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        }
+      ],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/reports",
+      "width": 390,
+      "href": "/reports",
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "ScopeCurrent branchAll branches",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/dashboard",
+      "width": 768,
+      "href": "/dashboard",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/sell",
+      "width": 768,
+      "href": "/sell",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/sales",
+      "width": 768,
+      "href": "/sales",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "StatusAll statusesCompletedRefunded / partial",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "PaymentAll payments",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CustomerAll customersWalk-in customerNamed customer",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/customers",
+      "width": 768,
+      "href": "/customers",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/purchases",
+      "width": 768,
+      "href": "/purchases",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/inventory",
+      "width": 768,
+      "href": "/inventory",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/catalog",
+      "width": 768,
+      "href": "/catalog",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/returns",
+      "width": 768,
+      "href": "/returns",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/cashbook",
+      "width": 768,
+      "href": "/cashbook",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "MethodAll methodsCASHMOMOCARDBANKOTHER",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Entry typeExpenseBalance adjustment",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Payment methodCASHMOMOCARDBANKOTHER",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Money accountBranch defaultCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CategorySelect categoryCleaning & SanitationFees & ChargesFo",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CASHChoose accountCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "MOMOChoose accountMobile money wallet",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CARDChoose accountCard clearing",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "BANKChoose accountBank account",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "OTHERChoose accountOther money",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "FromChoose sourceBank account · BANK · ₵ 0.00Card clearing ·",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "ToChoose destinationBank account · BANKCard clearing · CARDC",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "AccountChoose accountCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "TypeCASH_COUNTSTATEMENT",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        }
+      ],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/operations",
+      "width": 768,
+      "href": "/operations",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        }
+      ],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/reports",
+      "width": 768,
+      "href": "/reports",
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "ScopeCurrent branchAll branches",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/dashboard",
+      "width": 1280,
+      "href": "/dashboard",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/sell",
+      "width": 1280,
+      "href": "/sell",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/sales",
+      "width": 1280,
+      "href": "/sales",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "StatusAll statusesCompletedRefunded / partial",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "PaymentAll payments",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CustomerAll customersWalk-in customerNamed customer",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/customers",
+      "width": 1280,
+      "href": "/customers",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/purchases",
+      "width": 1280,
+      "href": "/purchases",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/inventory",
+      "width": 1280,
+      "href": "/inventory",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/catalog",
+      "width": 1280,
+      "href": "/catalog",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/returns",
+      "width": 1280,
+      "href": "/returns",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/cashbook",
+      "width": 1280,
+      "href": "/cashbook",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "MethodAll methodsCASHMOMOCARDBANKOTHER",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Entry typeExpenseBalance adjustment",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Payment methodCASHMOMOCARDBANKOTHER",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "Money accountBranch defaultCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CategorySelect categoryCleaning & SanitationFees & ChargesFo",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CASHChoose accountCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "MOMOChoose accountMobile money wallet",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "CARDChoose accountCard clearing",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "BANKChoose accountBank account",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "OTHERChoose accountOther money",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "FromChoose sourceBank account · BANK · ₵ 0.00Card clearing ·",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "ToChoose destinationBank account · BANKCard clearing · CARDC",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "AccountChoose accountCash drawer",
+          "bg": "rgb(255, 255, 255)"
+        },
+        {
+          "label": "TypeCASH_COUNTSTATEMENT",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        }
+      ],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/operations",
+      "width": 1280,
+      "href": "/operations",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        },
+        {
+          "gap": "8px",
+          "prefix": "₵",
+          "height": 48
+        }
+      ],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    },
+    {
+      "route": "/reports",
+      "width": 1280,
+      "href": "/reports",
+      "scrollWidth": 1280,
+      "clientWidth": 1280,
+      "overflow": false,
+      "shell": true,
+      "badCursor": [],
+      "selectSurfaces": [
+        {
+          "label": "ScopeCurrent branchAll branches",
+          "bg": "rgb(255, 255, 255)"
+        }
+      ],
+      "transparentSelects": [],
+      "smallControls": [],
+      "moneyInputs": [],
+      "badMoneyInputs": [],
+      "routeNotExposed": false
+    }
+  ]
+}

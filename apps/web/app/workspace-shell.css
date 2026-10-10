@@ -137,37 +137,6 @@
   background: rgba(201, 153, 53, 0.1);
 }
 
-/* Network/sync status belongs to the canonical workspace shell. */
-.workspace-shell .sync-card {
-  min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-}
-.workspace-shell .sync-dot {
-  width: 9px;
-  height: 9px;
-  flex: 0 0 9px;
-  margin-top: 4px;
-  border-radius: 999px;
-  background: var(--tos-positive);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tos-positive) 18%, transparent);
-}
-.workspace-shell .sync-card strong,
-.workspace-shell .sync-card span { display: block; }
-.workspace-shell .sync-card strong { color: inherit; font-size: var(--tos-text-supporting); }
-.workspace-shell .sync-card span { margin-top: 3px; color: #8e9db2; font-size: var(--tos-text-meta); line-height: 1.4; }
-.workspace-more-sheet .sync-card {
-  border-color: var(--tos-border);
-  background: var(--tos-surface);
-  color: var(--tos-text);
-}
-.workspace-more-sheet .sync-card span { color: var(--tos-text-muted); }
-
 /* Sidebar footer — calm sync + sign out */
 .workspace-sidebar-footer {
   padding: 14px 12px 16px;
@@ -737,5 +706,20 @@
 @media (max-width: 767px) {
   .workspace-context-unit {
     display: none;
+  }
+}
+
+/* Tablet/phone interaction floor: business controls remain thumb-safe through 768px. */
+@media (max-width: 768px) {
+  .workspace-shell button:not(:disabled),
+  .workspace-shell select:not(:disabled),
+  .workspace-shell summary,
+  .workspace-shell [role="button"]:not([aria-disabled="true"]),
+  .workspace-shell [role="menuitem"]:not([aria-disabled="true"]) {
+    min-height: var(--tos-touch-mobile);
+  }
+
+  .workspace-shell button:not(:disabled) {
+    min-width: var(--tos-touch-mobile);
   }
 }

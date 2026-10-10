@@ -94,15 +94,15 @@ export function PurchaseReturnSheet({ businessId, branchId, purchase, onClose, o
     finally { setBusy(false); }
   };
 
-  return <div className="purchase-return-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <form className="purchase-return-sheet" role="dialog" aria-modal="true" aria-labelledby="purchase-return-title" onSubmit={(event) => void submit(event)}>
-      <header className="purchase-return-head">
+  return <div className="return-sheet-backdrop purchase-return-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <form className="return-refund-sheet purchase-return-sheet" role="dialog" aria-modal="true" aria-labelledby="purchase-return-title" onSubmit={(event) => void submit(event)}>
+      <header className="return-sheet-header purchase-return-head">
         <div><span>Linked purchase correction</span><h2 id="purchase-return-title">Purchase return</h2><small>Return to {purchase.supplierName} · original receipt remains unchanged</small></div>
-        <button ref={closeRef} className="purchase-return-close" aria-label="Close purchase return" type="button" onClick={onClose}>×</button>
+        <button ref={closeRef} className="return-sheet-close purchase-return-close" aria-label="Close purchase return" type="button" onClick={onClose}>×</button>
       </header>
-      <div className="purchase-return-scroll">
+      <div className="return-sheet-scroll purchase-return-scroll">
         {!loaded ? <StatePanel state={loadError?.startsWith("Offline:") ? "offline" : loadError ? "error" : "loading"} title={loadError ? "Purchase receipt unavailable" : "Loading original purchase"} description={loadError ?? "TradeOS is loading the returnable quantities from the posted receipt."} /> : <section className="purchase-return-lines" aria-label="Returnable purchase lines">
-          <div className="purchase-return-section-head"><strong>Items returning to supplier</strong><span>Select quantities only from stock still available to reverse.</span></div>
+          <div className="return-sheet-section-heading purchase-return-section-head"><strong>Items returning to supplier</strong><span>Select quantities only from stock still available to reverse.</span></div>
           {lines.map((line) => <article className="purchase-return-line" key={line.id}>
             <div className="purchase-return-identity"><strong>{line.itemName}</strong><span>Remaining {formatQuantity(line.remainingQuantity)} {line.purchaseUnitCode} · originally {formatQuantity(line.purchaseQuantity)} {line.purchaseUnitCode}</span><small>{formatQuantity(line.stockQuantity)} {line.stockUnitCode} was posted to stock</small></div>
             <label>Return quantity ({line.purchaseUnitCode})<input type="number" min="0" max={line.remainingQuantity} step="0.00000001" disabled={line.remainingQuantity <= 0} value={quantities[line.id] || ""} onChange={(event) => setQuantities((current) => ({ ...current, [line.id]: event.target.value }))} /></label>
@@ -114,7 +114,7 @@ export function PurchaseReturnSheet({ businessId, branchId, purchase, onClose, o
           <div><span>{method === "CREDIT_NOTE" ? "Supplier credit" : "Supplier recovery"} preview</span><strong>{formatMoney(preview, purchase.currencyCode)}</strong><small>Server validates stock and recovery before posting.</small></div>
         </section>
       </div>
-      <footer className="purchase-return-footer"><Button variant="ghost" type="button" onClick={onClose}>Cancel</Button><Button disabled={busy || !loaded} type="submit">{busy ? "Saving…" : "Save purchase return"}</Button></footer>
+      <footer className="return-sheet-footer purchase-return-footer"><Button variant="ghost" type="button" onClick={onClose}>Cancel</Button><Button disabled={busy || !loaded} type="submit">{busy ? "Saving…" : "Save purchase return"}</Button></footer>
     </form>
   </div>;
 }

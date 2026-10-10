@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (relative: string) => fs.readFileSync(path.join(appRoot, relative), "utf8");
-const readCanonicalCss = () => fs.readdirSync(appRoot).filter((name) => name.endsWith(".css")).map((name) => read(name)).join("\n");
 
 describe("multi-page review regressions", () => {
   it("keeps authenticated APIs network-only and purges previously cached API responses", () => {
@@ -58,7 +57,7 @@ describe("multi-page review regressions", () => {
 
   it("keeps Treasury minimum table width inside a local horizontal scroll wrapper", () => {
     const treasury = read("components/treasury.tsx");
-    const css = readCanonicalCss();
+    const css = read("tradeos-app.css");
     expect(treasury).toContain('className="treasury-table-scroll"');
     expect(css).toMatch(/\.treasury-table-scroll\s*\{[^}]*overflow-x:\s*auto/);
     expect(css).toMatch(/\.treasury-table-scroll\s+table\s*\{[^}]*min-width:\s*680px/);
@@ -72,6 +71,13 @@ describe("multi-page review regressions", () => {
     expect((reports.match(/<ResponsiveTable/g) ?? []).length).toBeGreaterThanOrEqual(3);
     expect(forecast).toContain("ResponsiveTable");
     expect(forecast).not.toContain('className="table-scroll"');
+  });
+
+  it("exposes every report endpoint used by Dashboard and Reports through the authenticated web proxy", () => {
+    const proxy = read("api/tradeos/[...path]/route.ts");
+    expect(proxy).toContain('"v1/reports/financial-summary"');
+    expect(proxy).toContain('"v1/reports/credit-aging"');
+    expect(proxy).toContain('"v1/reports/cash-forecast"');
   });
 
   it("preserves purchase, inventory, sales and return read data in business/branch-scoped feature caches", () => {
@@ -112,6 +118,12 @@ describe("multi-page review regressions", () => {
   });
 
 
+  it("keeps consolidated application CSS comments balanced so migrated styles remain active", () => {
+    const css = read("tradeos-app.css");
+    expect(css.match(/\/\*/g)?.length ?? 0).toBe(css.match(/\*\//g)?.length ?? 0);
+    expect(css).toContain("/* === Migrated feature styles (from deleted legacy CSS files) === */");
+  });
+
   it("keeps frontend source free of batch-rewrite control-character artifacts", () => {
     const offenders: string[] = [];
     const visit = (directory: string) => {
@@ -125,27 +137,79 @@ describe("multi-page review regressions", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps canonical Treasury reconciliation explicit and touch-safe without browser dialogs", () => {
+  it("makes the Treasury resolution dialog keyboard-safe and touch-safe", () => {
     const treasury = read("components/treasury.tsx");
-    const css = readCanonicalCss();
-    expect(treasury).toContain("treasury-resolution-form");
-    expect(treasury).toContain("Required explanation");
-    expect(treasury).toContain("Post exact correction");
-    expect(treasury).not.toContain("window.prompt(");
-    expect(treasury).not.toContain("window.confirm(");
-    expect(css).toMatch(/\.treasury-resolution-form \.tos-button\s*\{[^}]*min-height:\s*48px/);
+    const css = read("tradeos-app.css");
+    expect(treasury).toContain('aria-labelledby="treasury-resolution-title"');
+    expect(treasury).toContain('id="treasury-resolution-title"');
+    expect(treasury).toContain("resolutionInputRef");
+    expect(treasury).toMatch(/e\.key === "Escape"/);
+    expect(treasury).toContain(".focus()");
+    expect(css).toMatch(/\.treasury-resolution-actions button\s*\{[^}]*min-height:\s*48px/);
   });
 
-  it("keeps Purchases, Operations and Reports on Z.ai canonical module compositions", () => {
+  it("keeps currency-entry fields on the shared spaced money input", () => {
+    for (const file of [
+      "components/catalog/catalog-item-sheet.tsx",
+      "components/customers/customer-sheet.tsx",
+      "components/suppliers/supplier-sheet.tsx",
+      "components/purchases/purchase-receipt-builder.tsx",
+      "components/cashbook/cashbook-entry-form.tsx",
+      "components/treasury.tsx",
+      "components/operations-reconciliation.tsx",
+    ]) {
+      expect(read(file), file).toContain("<MoneyInput");
+    }
+    expect((read("components/treasury.tsx").match(/<MoneyInput/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((read("components/operations-reconciliation.tsx").match(/<MoneyInput/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    const ui = read("ui-primitives.css");
+    expect(ui).toMatch(/\.tos-money-input\{[^}]*gap:\s*8px/);
+  });
+
+  it("keeps clickable controls pointer-aware and every native select surface opaque", () => {
+    const css = read("tradeos-app.css");
+    const shell = read("workspace-shell.css");
+    expect(css).toMatch(/select:not\(:disabled\)[^\{]*\{[^}]*cursor:\s*pointer/);
+    expect(css).toMatch(/select option,?\s*select optgroup|select option[\s\S]*select optgroup/);
+    expect(css).toMatch(/select option[\s\S]*background(?:-color)?:\s*var\(--tos-surface\)/);
+    expect(shell).toMatch(/\.workspace-context-unit \.workspace-context-field select\s*\{[^}]*background(?:-color)?:\s*var\(--tos-surface\)/);
+  });
+
+  it("enforces 48px touch targets for buttons and selects through the 768px tablet boundary", () => {
+    const shell = read("workspace-shell.css");
+    expect(shell).toMatch(/@media\s*\(max-width:\s*768px\)[\s\S]*\.workspace-shell button:not\(:disabled\)[\s\S]*min-height:\s*var\(--tos-touch-mobile\)/);
+    expect(shell).toMatch(/@media\s*\(max-width:\s*768px\)[\s\S]*\.workspace-shell select:not\(:disabled\)[\s\S]*min-height:\s*var\(--tos-touch-mobile\)/);
+  });
+
+  it("does not use browser prompt, confirm or alert flows in application source", () => {
+    const offenders: string[] = [];
+    const visit = (directory: string) => {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const full = path.join(directory, entry.name);
+        if (entry.isDirectory()) visit(full);
+        else if (/\.(tsx?|jsx?)$/.test(entry.name) && !entry.name.endsWith(".test.ts") && !entry.name.endsWith(".test.tsx")) {
+          const source = fs.readFileSync(full, "utf8");
+          if (/window\.(prompt|confirm|alert)\(/.test(source)) offenders.push(full);
+        }
+      }
+    };
+    visit(appRoot);
+    expect(offenders).toEqual([]);
+  });
+
+  it("recomposes Purchases, Operations and Reports around dedicated page patterns", () => {
     const purchases = read("components/purchases-inventory.tsx");
     const operations = read("components/operations-reconciliation.tsx");
     const reports = read("components/financial-reports.tsx");
-    expect(purchases).toContain('className="purchases-inventory-workspace"');
+    expect(purchases).toContain("PageHeader");
+    expect(purchases).toContain('className="purchase-inventory-workspace"');
+    expect(operations).toContain("PageHeader");
     expect(operations).toContain('className="operations-workspace"');
-    expect(operations).toContain("operations-header");
-    expect(reports).toContain('className="reports-workspace"');
-    expect(reports).toContain("reports-header");
+    expect(reports).toContain("PageHeader");
     expect(reports).toContain("CommandBar");
+    expect(reports).toContain('className="reports-workspace"');
+    expect(reports).not.toContain("ai-tradeos-card");
+    expect(reports).not.toContain("working-capital-tradeos-card");
     expect(purchases).not.toContain("purchase-inventory-tradeos-card");
   });
 });
