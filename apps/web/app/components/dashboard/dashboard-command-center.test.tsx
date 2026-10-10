@@ -20,9 +20,10 @@ describe("Dashboard role-aware prioritization", () => {
     const moneyIdx = body.indexOf("Money position");
     const momentumIdx = body.indexOf("momentum-title");
     expect(todayIdx).toBeGreaterThan(-1);
+    expect(quickIdx).toBeGreaterThan(-1);
+    expect(quickIdx).toBeLessThan(todayIdx);
     expect(pulseIdx).toBeGreaterThan(todayIdx);
-    expect(quickIdx).toBeGreaterThan(pulseIdx);
-    expect(attentionIdx).toBeGreaterThan(quickIdx);
+    expect(attentionIdx).toBeGreaterThan(pulseIdx);
     expect(moneyIdx).toBeGreaterThan(attentionIdx);
     expect(momentumIdx).toBeGreaterThan(moneyIdx);
   });
@@ -69,5 +70,28 @@ describe("Dashboard role-aware prioritization", () => {
     expect(css).toMatch(/font-variant-numeric:\s*tabular-nums/);
     expect(css).toContain("minmax(0, 1fr)");
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*480px\s*\)/);
+  });
+});
+
+
+describe("dashboard phone-first correction", () => {
+  it("places quick actions before the AI pulse so the first viewport stays action-first", () => {
+    const s = read("components/dashboard/dashboard-command-center.tsx");
+    const bodyStart = s.indexOf('className="tos-dashboard"');
+    const body = s.slice(bodyStart);
+    const quickIdx = body.indexOf("Quick actions");
+    const pulseIdx = body.indexOf("<BusinessPulse");
+    expect(quickIdx).toBeGreaterThan(-1);
+    expect(pulseIdx).toBeGreaterThan(-1);
+    const todayIdx = body.indexOf('tos-today');
+    expect(todayIdx).toBeGreaterThan(-1);
+    expect(quickIdx).toBeLessThan(todayIdx);
+    expect(todayIdx).toBeLessThan(pulseIdx);
+  });
+
+  it("keeps quick actions in a compact two-column phone grid instead of a long single-column stack", () => {
+    const css = read("dashboard.css");
+    const phone = css.slice(css.indexOf("@media (max-width: 480px)"));
+    expect(phone).toMatch(/\.tos-quick-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   });
 });

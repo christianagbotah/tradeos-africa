@@ -89,6 +89,7 @@ export function CheckoutSheet({
   cart,
   customer,
   onClose,
+  returnFocusRef,
   onDurablySaved,
   onStatus,
 }: {
@@ -99,6 +100,7 @@ export function CheckoutSheet({
   cart: CartLine[];
   customer: PosCustomer | null;
   onClose: () => void;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
   onDurablySaved: (clientMutationId: string) => void;
   onStatus: (message: string, tone?: "success" | "pending" | "error") => void;
 }) {
@@ -112,9 +114,18 @@ export function CheckoutSheet({
 
   useEffect(() => {
     if (!open) return;
-    restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    return () => restoreFocusRef.current?.focus();
-  }, [open]);
+    restoreFocusRef.current = returnFocusRef?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const sheet = sheetRef.current;
+    const initialTabbables = sheet
+      ? Array.from(sheet.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])')).filter((element) => element.offsetParent !== null)
+      : [];
+    initialTabbables[0]?.focus();
+    return () => {
+      const target = restoreFocusRef.current;
+      if (target?.isConnected && !target.hasAttribute("disabled")) target.focus();
+      else document.querySelector<HTMLElement>(".pos-product-search input")?.focus();
+    };
+  }, [open, returnFocusRef]);
 
   useEffect(() => {
     if (!open) return;

@@ -1,0 +1,86 @@
+[
+  {
+    "name": "dashboard-390",
+    "route": "/dashboard",
+    "width": 390,
+    "scrollWidth": 390,
+    "bodyScrollWidth": 390,
+    "mobileContextDisplay": "grid",
+    "bottomNavDisplay": "grid",
+    "overflow": false
+  },
+  {
+    "name": "dashboard-768",
+    "route": "/dashboard",
+    "width": 768,
+    "scrollWidth": 768,
+    "bodyScrollWidth": 768,
+    "mobileContextDisplay": "none",
+    "bottomNavDisplay": "grid",
+    "overflow": false
+  },
+  {
+    "name": "dashboard-1280",
+    "route": "/dashboard",
+    "width": 1280,
+    "scrollWidth": 1280,
+    "bodyScrollWidth": 1280,
+    "mobileContextDisplay": "none",
+    "bottomNavDisplay": "none",
+    "overflow": false
+  },
+  {
+    "name": "pos-390",
+    "route": "/sell",
+    "width": 390,
+    "scrollWidth": 390,
+    "bodyScrollWidth": 390,
+    "mobileContextDisplay": "grid",
+    "bottomNavDisplay": "grid",
+    "overflow": false
+  },
+  {
+    "name": "pos-cart-390",
+    "route": "/sell",
+    "width": 390,
+    "scrollWidth": 390,
+    "dialog": "dialog",
+    "footerButton": true,
+    "overflow": false
+  },
+  {
+    "name": "pos-1280",
+    "route": "/sell",
+    "width": 1280,
+    "scrollWidth": 1280,
+    "bodyScrollWidth": 1280,
+    "mobileContextDisplay": "none",
+    "bottomNavDisplay": "none",
+    "overflow": false
+  },
+  {
+    "name": "dashboard-360",
+    "route": "/dashboard",
+    "width": 360,
+    "scrollWidth": 360,
+    "bodyScrollWidth": 360,
+    "overflow": false
+  },
+  {
+    "name": "pos-360",
+    "route": "/sell",
+    "width": 360,
+    "scrollWidth": 360,
+    "bodyScrollWidth": 360,
+    "overflow": false
+  },
+  {
+    "name": "pos-cart-360",
+    "route": "/sell",
+    "width": 360,
+    "scrollWidth": 360,
+    "dialog": "dialog",
+    "footerButton": true,
+    "overflow": false
+  }
+]

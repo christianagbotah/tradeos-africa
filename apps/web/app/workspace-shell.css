@@ -213,6 +213,9 @@
 .workspace-mobile-brandmark {
   display: none;
 }
+.workspace-mobile-context-trigger {
+  display: none;
+}
 
 /* Business/branch context — designed unit, not loose form controls */
 .workspace-context-actions {
@@ -614,6 +617,53 @@
   }
   .workspace-context-actions {
     display: none;
+  }
+  .workspace-mobile-context-trigger {
+    min-width: 0;
+    max-width: min(52vw, 220px);
+    min-height: 44px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 4px 10px;
+    border: 1px solid var(--tos-border);
+    border-radius: 12px;
+    background: var(--tos-surface);
+    color: var(--tos-text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .workspace-mobile-context-copy {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+  }
+  .workspace-mobile-context-copy strong,
+  .workspace-mobile-context-copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .workspace-mobile-context-copy strong {
+    font-size: 13px;
+    font-weight: 850;
+    color: var(--tos-text-strong);
+  }
+  .workspace-mobile-context-copy small {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--tos-text-muted);
+  }
+  .workspace-mobile-context-chevron {
+    color: var(--tos-text-muted);
+    font-size: 20px;
+    line-height: 1;
+  }
+  .workspace-mobile-context-trigger:focus-visible {
+    outline: none;
+    border-color: var(--tos-gold);
+    box-shadow: var(--tos-focus-ring);
   }
   .workspace-mobile-brandmark {
     width: 34px;

@@ -107,3 +107,70 @@ describe("POS flagship touch-first contracts", () => {
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*(76[0-9]|7[0-5][0-9])px/);
   });
 });
+
+
+describe("POS mobile cart progression", () => {
+  const root = path.dirname(fileURLToPath(import.meta.url));
+
+  it("provides a dedicated mobile cart sheet before checkout", () => {
+    const ws = fs.readFileSync(path.join(root, "pos-workspace.tsx"), "utf8");
+    expect(ws).toContain("mobileCartOpen");
+    expect(ws).toContain("pos-mobile-cart-trigger");
+    expect(ws).toContain("pos-mobile-cart-sheet");
+    expect(ws).toContain('aria-label="Open cart"');
+    expect(ws).toContain('aria-labelledby="pos-mobile-cart-title"');
+  });
+
+  it("shows the sticky cart flow only on phones while preserving the desktop sticky cart pane", () => {
+    const css = fs.readFileSync(path.join(root, "../../pos.css"), "utf8");
+    expect(css).toMatch(/\.pos-mobile-cart-layer\s*\{[^}]*display:\s*none/);
+    expect(css).toMatch(/@media\(max-width:767px\)[\s\S]*?\.pos-sale-pane--desktop\s*\{[^}]*display:\s*none/);
+    expect(css).toMatch(/@media\(max-width:767px\)[\s\S]*?\.pos-mobile-cart-layer\s*\{[^}]*display:\s*grid/);
+  });
+
+  it("suppresses the bottom nav while the mobile cart dialog is open so payment stays reachable", () => {
+    const css = fs.readFileSync(path.join(root, "../../pos.css"), "utf8");
+    expect(css).toMatch(/body:has\(\.pos-mobile-cart-layer\)\s+\.workspace-mobile-bottom-nav\s*\{[^}]*visibility:\s*hidden/);
+    expect(css).toMatch(/body:has\(\.pos-mobile-cart-layer\)\s+\.workspace-mobile-bottom-nav\s*\{[^}]*pointer-events:\s*none/);
+  });
+
+  it("does not expose the phone cart trigger at tablet widths where the inline cart remains available", () => {
+    const css = fs.readFileSync(path.join(root, "../../pos.css"), "utf8");
+    expect(css).toMatch(/@media\(min-width:768px\) and \(max-width:1099px\)[\s\S]*?\.pos-mobile-cart-trigger\s*\{[^}]*display:\s*none/);
+  });
+
+  it("focuses the first cart control on open so backward tabbing stays inside the modal", () => {
+    const ws = fs.readFileSync(path.join(root, "pos-workspace.tsx"), "utf8");
+    expect(ws).toContain("initialTabbables");
+    expect(ws).toMatch(/initialTabbables\[0\]\?\.focus\(\)/);
+    expect(ws).not.toContain("sheet?.focus();");
+  });
+
+  it("closes the phone cart state when the viewport leaves the phone breakpoint", () => {
+    const ws = fs.readFileSync(path.join(root, "pos-workspace.tsx"), "utf8");
+    expect(ws).toContain('matchMedia("(max-width: 767px)")');
+    expect(ws).toContain('addEventListener("change"');
+    expect(ws).toMatch(/if \(!event\.matches\) setMobileCartOpen\(false\)/);
+  });
+
+  it("hands checkout a surviving return-focus target when continuing from the mobile cart", () => {
+    const ws = fs.readFileSync(path.join(root, "pos-workspace.tsx"), "utf8");
+    expect(ws).toContain("checkoutReturnFocusRef");
+    expect(ws).toContain("returnFocusRef={checkoutReturnFocusRef}");
+    expect(ws).toMatch(/openCheckout\(mobileCartTriggerRef\.current\)/);
+  });
+
+  it("recovers focus inside the modal when a cart mutation unmounts the focused line", () => {
+    const ws = fs.readFileSync(path.join(root, "pos-workspace.tsx"), "utf8");
+    expect(ws).toContain("focusCartSheetStart");
+    expect(ws).toMatch(/!sheet\.contains\(document\.activeElement\)/);
+    expect(ws).toMatch(/onRemove=.*removeCartLine[\s\S]*focusCartSheetStart/);
+  });
+
+  it("falls back to product search when closing an empty cart disables the trigger", () => {
+    const ws = fs.readFileSync(path.join(root, "pos-workspace.tsx"), "utf8");
+    expect(ws).toContain("focusProductSearch");
+    expect(ws).toMatch(/if \(trigger && !trigger\.disabled && trigger\.isConnected\) trigger\.focus\(\)/);
+    expect(ws).toMatch(/else focusProductSearch\(\)/);
+  });
+});

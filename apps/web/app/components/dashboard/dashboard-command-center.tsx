@@ -77,6 +77,21 @@ export function DashboardCommandCenter({
         </Link>
       ) : null}
 
+      {/* Quick actions — what should I do next */}
+      {actions.length > 0 ? (
+        <section className="tos-dashboard-section" aria-labelledby="quick-actions-title">
+          <div className="tos-section-heading">
+            <div>
+              <span className="tos-section-kicker">Do it now</span>
+              <h2 id="quick-actions-title">Quick actions</h2>
+            </div>
+          </div>
+          <div className="tos-quick-grid">
+            {actions.map((a) => <QuickAction key={a.href + a.label} {...a} />)}
+          </div>
+        </section>
+      ) : null}
+
       {/* Today — business state (hero metric for owners) */}
       <section className="tos-today" aria-labelledby="today-title">
         <div className="tos-today-hero">
@@ -103,7 +118,7 @@ export function DashboardCommandCenter({
         </div>
       </section>
 
-      {/* Business pulse — AI/operational summary */}
+      {/* Business pulse — concise guidance after primary actions */}
       <BusinessPulse
         headline={model.pulse.headline}
         summary={model.pulse.summary}
@@ -111,21 +126,6 @@ export function DashboardCommandCenter({
         actions={pulseActions}
         coverage={model.dataStatus.coverage}
       />
-
-      {/* Quick actions — what should I do next */}
-      {actions.length > 0 ? (
-        <section className="tos-dashboard-section" aria-labelledby="quick-actions-title">
-          <div className="tos-section-heading">
-            <div>
-              <span className="tos-section-kicker">Do it now</span>
-              <h2 id="quick-actions-title">Quick actions</h2>
-            </div>
-          </div>
-          <div className="tos-quick-grid">
-            {actions.map((a) => <QuickAction key={a.href + a.label} {...a} />)}
-          </div>
-        </section>
-      ) : null}
 
       {/* Needs attention — exceptions */}
       <section className="tos-dashboard-section" aria-labelledby="attention-title">
