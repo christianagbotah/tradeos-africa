@@ -58,7 +58,7 @@ export function CashbookEntryForm(props: Props) {
 
           <label className="cashbook-form-wide"><span>{expenseMode ? "Description" : "Required explanation"}</span><input required={!expenseMode || !props.payee.trim()} value={props.note} onChange={(e) => props.onNoteChange(e.target.value)} maxLength={1000} placeholder={expenseMode ? "What was this expense for?" : "Explain why this balance is changing"} /></label>
         </div>
-        <div className="cashbook-form-actions"><button className="tos-button tos-button--primary" type="submit">Save entry</button></div>
+        <div className="cashbook-form-actions"><button  className="tos-button tos-button--primary" type="submit">Save entry</button></div>
       </form>
     </section>
   );

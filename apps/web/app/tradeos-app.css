@@ -557,7 +557,7 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 
 /* === Migrated feature styles (from deleted legacy CSS files) ===
 
-.purchase-inventory-panel { margin-top: 18px; }
+.purchase-inventory-workspace { margin-top: 18px; }
 .inventory-summary { display: grid; justify-items: end; gap: 2px; }
 .inventory-summary span, .inventory-summary small { color: #7b899b; font-size: 11px; }
 .inventory-summary strong { color: #0f172a; font-size: 22px; }
@@ -608,7 +608,7 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
   .procurement-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
-  .purchase-inventory-panel .panel-heading { align-items: flex-start; flex-direction: column; }
+  .purchase-inventory-workspace .panel-heading { align-items: flex-start; flex-direction: column; }
   .inventory-summary { justify-items: start; }
   .receipt-line { grid-template-columns: 1fr auto; }
   .receipt-stock-effect { grid-column: 1 / -1; }
@@ -1695,7 +1695,7 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 .workspace-main .payment-actions .checkout-button { background: #101b2d; border-color: #101b2d; }
 .workspace-main .checkout-strip { border-top-color: #e8edf3; }
 
-.workspace-main .purchase-inventory-panel,
+.workspace-main .purchase-inventory-workspace,
 .workspace-main .sales-return-panel,
 .workspace-main .customer-credit-panel { margin-top: 0; }
 
@@ -1964,6 +1964,64 @@ button:disabled, .tos-button:disabled { cursor: not-allowed; }
 @media(max-width:430px){.pos-charge-bar{grid-template-columns:minmax(0,1fr) minmax(148px,auto);gap:8px;padding-left:11px}.pos-charge-bar>button{min-width:148px;padding:0 12px;font-size:14px}.pos-charge-bar>div strong{font-size:17px}}
 @media(max-width:380px){.pos-charge-bar{grid-template-columns:1fr}.pos-charge-bar>div{display:none}.pos-charge-bar>button{width:100%;min-width:0}.pos-workspace{padding-bottom:88px}}
 
+
+/* === Dedicated page composition: Purchases, Operations and Reports === */
+.purchase-inventory-workspace,
+.operations-workspace,
+.reports-workspace {
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+  margin-top: 0;
+}
+.purchase-inventory-workspace > .tradeos-page-header,
+.operations-workspace > .tradeos-page-header,
+.reports-workspace > .tradeos-page-header {
+  margin: 0;
+}
+.reports-workspace .tradeos-command-bar { margin: 0; }
+.reports-workspace .tradeos-command-bar__controls > label {
+  min-width: 160px;
+  flex: 1 1 180px;
+  display: grid;
+  gap: 7px;
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-meta);
+  font-weight: 800;
+}
+.tradeos-insight-card,
+.tradeos-capital-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-lg);
+  background: var(--tos-surface-soft);
+  box-shadow: var(--tos-shadow-1);
+}
+.tradeos-insight-card {
+  background: linear-gradient(145deg, var(--tos-surface-soft) 0%, var(--tos-surface) 64%, var(--tos-gold-soft) 100%);
+}
+.reports-working-capital-card { margin-top: 18px; }
+.operations-explainer {
+  margin: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface-soft);
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-supporting);
+  line-height: 1.55;
+}
+@media (max-width: 767px) {
+  .purchase-inventory-workspace,
+  .operations-workspace,
+  .reports-workspace { gap: 14px; }
+  .tradeos-insight-card,
+  .tradeos-capital-card { padding: 14px; border-radius: var(--tos-radius-md); }
+  .reports-workspace .tradeos-command-bar__controls > label { width: 100%; min-width: 0; }
+  .purchase-inventory-workspace .inventory-summary { justify-items: start; }
+}
+
 /* === Global fixes: pointer cursor, dropdown opacity, currency spacing === */
 
 /* Pointer cursor on ALL clickable elements */
@@ -2060,6 +2118,6 @@ button:disabled, .tos-button:disabled, input:disabled, select:disabled {
 .treasury-resolution-card textarea { width: 100%; min-height: 80px; padding: 10px 12px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-sm); background: var(--tos-surface); color: var(--tos-text); font: inherit; font-size: var(--tos-text-body); resize: vertical; }
 .treasury-resolution-card textarea:focus { border-color: var(--tos-gold); box-shadow: var(--tos-focus-ring); }
 .treasury-resolution-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
-.treasury-resolution-actions button { min-height: 44px; padding: 0 16px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-sm); background: var(--tos-surface); color: var(--tos-text); font-weight: 800; cursor: pointer; }
+.treasury-resolution-actions button { min-height: 48px; padding: 0 16px; border: 1px solid var(--tos-border); border-radius: var(--tos-radius-sm); background: var(--tos-surface); color: var(--tos-text); font-weight: 800; cursor: pointer; }
 .treasury-resolution-actions button:last-child { background: var(--tos-midnight); border-color: var(--tos-midnight); color: #fff; }
 .treasury-resolution-actions button:disabled { opacity: 0.5; cursor: not-allowed; }

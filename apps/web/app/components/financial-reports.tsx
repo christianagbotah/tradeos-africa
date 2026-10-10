@@ -7,6 +7,8 @@ import type { CashForecastResponse, CfoAction as ContractCfoAction, CreditAgingR
 import { CashForecastPanel } from "./cash-forecast";
 import { CfoActionCenter } from "./cfo-action-center";
 import { ResponsiveTable } from "./ui/responsive-table";
+import { PageHeader } from "./ui/page-header";
+import { CommandBar } from "./ui/command-bar";
 
 type Flow = {
   grossRevenueMinor: number; returnsRevenueMinor: number; netRevenueMinor: number;
@@ -166,22 +168,27 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
   const f = report?.flow;
   const p = report?.position;
   return (
-    <section className="tradeos-card" id="reports" data-report-view={view}>
-      <div className="tradeos-card-heading"><div><p className="tradeos-kicker">Owner intelligence</p><h2>Financial performance</h2></div><span>{busy ? "Refreshing…" : allBranches ? "All branches" : "Current branch"}</span></div>
-      <div className="tradeos-form-row triple">
+    <section className="reports-workspace" id="reports" data-report-view={view}>
+      <PageHeader
+        eyebrow="Owner intelligence"
+        title="Financial performance"
+        subtitle="Follow operating performance from authoritative accounting evidence, then drill into cash, credit, stock and branch pressure."
+        status={<span className="tradeos-badge">{busy ? "Refreshing…" : allBranches ? "All branches" : "Current branch"}</span>}
+      />
+      <CommandBar ariaLabel="Financial report filters">
         <label>From<input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></label>
         <label>To<input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></label>
         <label>Scope<select value={allBranches ? "all" : "branch"} onChange={(e) => setAllBranches(e.target.value === "all")}><option value="branch">Current branch</option><option value="all">All branches</option></select></label>
-      </div>
+      </CommandBar>
       {message ? <p role="status">{message}</p> : null}
       {!report || !f || !p ? <p>{busy ? "Calculating financial performance…" : "No saved report is available yet."}</p> : <>
-        <div className="ai-tradeos-card">
-          <div className="tradeos-card-heading compact"><div><p className="tradeos-kicker">TradeOS CFO · explainable health</p><h3>Business health</h3></div><span className="tradeos-badge">{report.health.score === null ? "—" : `${report.health.score}/100`} · {report.health.status.replaceAll("_", " ")}</span></div>
+        <div className="reports-ai-card tradeos-insight-card">
+          <div className="tradeos-card-heading compact"><div><p  className="tradeos-kicker">TradeOS CFO · explainable health</p><h3>Business health</h3></div><span className="tradeos-badge">{report.health.score === null ? "—" : `${report.health.score}/100`} · {report.health.status.replaceAll("_", " ")}</span></div>
           <p>{report.health.headline} <small>Signal confidence: {report.health.confidence.toLowerCase()} · {report.health.algorithmVersion} · this is an operating-health score, not a lending/credit score.</small></p>
           <div className="metrics-grid">{report.health.dimensions.map((dimension) => <article className="tradeos-stat-card" key={dimension.key}><span>{dimension.label}</span><strong>{dimension.applicable && dimension.score !== null ? `${dimension.score}/100` : "N/A"}</strong><small>{dimension.summary}</small></article>)}</div>
 
-          <div className="working-capital-tradeos-card">
-            <div className="tradeos-card-heading compact"><div><p className="tradeos-kicker">Cash conversion</p><h3>Working capital cockpit</h3></div><span className="tradeos-badge">{report.health.workingCapital.status.replaceAll("_", " ")}</span></div>
+          <div className="reports-working-capital-card tradeos-capital-card">
+            <div className="tradeos-card-heading compact"><div><p  className="tradeos-kicker">Cash conversion</p><h3>Working capital cockpit</h3></div><span className="tradeos-badge">{report.health.workingCapital.status.replaceAll("_", " ")}</span></div>
             <p>{report.health.workingCapital.headline}</p>
             <div className="working-capital-grid">
               <article><span>Cash less supplier payables</span><strong>{money(report.health.workingCapital.cashAfterPayablesMinor)}</strong><small>Current cash minus recorded supplier balances; not a due-date forecast.</small></article>
@@ -209,7 +216,7 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
           <div>{report.health.insights.map((item) => <div className={`insight ${item.severity === "CRITICAL" || item.severity === "WARNING" ? "important" : ""}`} key={item.code}><strong>{item.severity.replaceAll("_", " ")} · {item.title}</strong><p>{item.message}</p>{item.evidence.length ? <p><b>Evidence:</b> {item.evidence.map((row) => `${row.label}: ${healthValue(row.value, row.unit)}`).join(" · ")}</p> : null}<p><b>Next:</b> {item.action}</p></div>)}</div>
         </div>
 
-        {forecast ? <CashForecastPanel forecast={forecast} money={money} offlineCached={forecastOfflineCached} /> : <div className="working-capital-tradeos-card"><p>{busy ? "Calculating the 30-day cash forecast…" : "No saved cash forecast is available yet."}</p></div>}
+        {forecast ? <CashForecastPanel forecast={forecast} money={money} offlineCached={forecastOfflineCached} /> : <div className="reports-working-capital-card tradeos-capital-card"><p>{busy ? "Calculating the 30-day cash forecast…" : "No saved cash forecast is available yet."}</p></div>}
 
         <div className="metrics-grid">
           <article className="tradeos-stat-card"><span>Net revenue</span><strong>{money(f.netRevenueMinor)}</strong><small>{percentage(report.comparison.netRevenueChangePercent)} vs previous period</small></article>

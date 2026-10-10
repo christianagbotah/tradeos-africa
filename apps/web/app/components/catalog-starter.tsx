@@ -83,7 +83,7 @@ export function CatalogStarter({ businessId, branchId, currencyCode, onCreated }
 
   return (
     <section className="tradeos-card catalog-starter" id="catalog">
-      <div className="tradeos-card-heading"><div><p className="tradeos-kicker">Real catalog</p><h2>Add a product or service</h2></div><span className="tradeos-badge">Flexible units</span></div>
+      <div className="tradeos-card-heading"><div><p  className="tradeos-kicker">Real catalog</p><h2>Add a product or service</h2></div><span className="tradeos-badge">Flexible units</span></div>
       <div className="starter-tabs">
         <button className={mode === "simple" ? "active" : ""} type="button" onClick={() => setMode("simple")}>Simple product</button>
         <button className={mode === "bulk" ? "active" : ""} type="button" onClick={() => setMode("bulk")}>Buy bulk · sell smaller</button>
@@ -120,7 +120,7 @@ export function CatalogStarter({ businessId, branchId, currencyCode, onCreated }
 
         {mode === "service" ? <p className="conversion-preview">Services do not create stock themselves. Recipe/service consumables such as blades, shampoo or chemicals will be attached in the next catalog layer.</p> : null}
         {message ? <div className={message.startsWith("Item created") ? "form-success" : "form-error"}>{message}</div> : null}
-        <button className="tos-button tos-button--primary" type="submit" disabled={busy || priceMinor === null}>{busy ? "Saving…" : "Add to catalog"}</button>
+        <button  className="tos-button tos-button--primary" type="submit" disabled={busy || priceMinor === null}>{busy ? "Saving…" : "Add to catalog"}</button>
       </form>
     </section>
   );

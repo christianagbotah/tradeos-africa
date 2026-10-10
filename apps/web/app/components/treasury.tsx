@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ClientApiError, clientApi, messageFrom } from "../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId, mutationAppliedEvent } from "../lib/offline-sync";
 import { Button } from "./ui/button";
@@ -36,6 +36,8 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
   const [editor, setEditor] = useState<MoneyAccount | null | undefined>(undefined);
   const [resolving, setResolving] = useState<Reconciliation | null>(null);
   const [resolutionNote, setResolutionNote] = useState("");
+  const resolutionDialogRef = useRef<HTMLDivElement>(null);
+  const resolutionInputRef = useRef<HTMLTextAreaElement>(null);
   const [source, setSource] = useState("");
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
@@ -46,6 +48,39 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
   const [end, setEnd] = useState("");
   const [note, setNote] = useState("");
   const cacheKey = `tradeos.treasury.v2:${businessId}:${branchId}:${role}`;
+
+  useEffect(() => {
+    if (!resolving) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    resolutionInputRef.current?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setResolving(null);
+        setResolutionNote("");
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = Array.from(resolutionDialogRef.current?.querySelectorAll<HTMLElement>(
+        'textarea:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      ) ?? []);
+      if (!focusable.length) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [resolving]);
 
   useEffect(() => {
     setAccounts([]);
@@ -196,12 +231,12 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
           </div>
           <p className="treasury-default-note">Deactivate an account only after replacing every default that points to it. TradeOS will block unsafe deactivation with <strong>ACCOUNT_IS_DEFAULT</strong>.</p>
         {resolving ? (
-      <div className="treasury-resolution-dialog" role="dialog" aria-modal="true">
-        <div className="treasury-resolution-backdrop" onClick={() => { setResolving(null); setResolutionNote(""); }} />
+      <div ref={resolutionDialogRef} className="treasury-resolution-dialog" role="dialog" aria-modal="true" aria-labelledby="treasury-resolution-title" aria-describedby="treasury-resolution-description">
+        <div className="treasury-resolution-backdrop" aria-hidden="true" onClick={() => { setResolving(null); setResolutionNote(""); }} />
         <div className="treasury-resolution-card">
-          <h3>Resolve variance with correction</h3>
-          <p>Account: {accounts.find((a) => a.id === resolving.moneyAccountId)?.name} · Difference: {money(resolving.differenceMinor)}</p>
-          <label>Required explanation<textarea value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} maxLength={1000} placeholder="Explain the reason for this correction" /></label>
+          <h3 id="treasury-resolution-title">Resolve variance with correction</h3>
+          <p id="treasury-resolution-description">Account: {accounts.find((a) => a.id === resolving.moneyAccountId)?.name} · Difference: {money(resolving.differenceMinor)}</p>
+          <label>Required explanation<textarea ref={resolutionInputRef} value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} maxLength={1000} placeholder="Explain the reason for this correction" /></label>
           <div className="treasury-resolution-actions">
             <button onClick={() => { setResolving(null); setResolutionNote(""); }}>Cancel</button>
             <button disabled={!resolutionNote.trim()} onClick={() => { queue("MONEY_RECONCILIATION_RESOLVE", { reconciliationId: resolving.id, note: resolutionNote }); setResolving(null); setResolutionNote(""); }}>Resolve</button>

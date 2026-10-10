@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { ResponsiveTable } from "./ui/responsive-table";
+import { PageHeader } from "./ui/page-header";
 import {
   enqueueMutation,
   flushPendingMutations,
@@ -273,7 +274,7 @@ function CountForm({
         })}
       </div>
       <label>Note<input maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} /></label>
-      <button type="submit" className="tos-button tos-button--primary" disabled={disabled}>{title}</button>
+      <button type="submit"  className="tos-button tos-button--primary" disabled={disabled}>{title}</button>
       {error ? <p role="alert">{error}</p> : null}
     </form>
   );
@@ -420,9 +421,14 @@ export function OperationsReconciliation({
   const dayCloseQueued = pendingTypes.has("OPERATING_DAY_CLOSE_CREATE");
   const shiftCloseQueued = pendingTypes.has("SHIFT_CLOSE_CREATE");
   return (
-    <section className="tradeos-card" id="operations">
-      <div className="tradeos-card-heading"><h2>Day & shifts</h2><span>{queued} pending</span></div>
-      <p>Expected closing = opening counted balance + attributed real-money cashbook movements. Variance = counted closing − expected. Opening balances are custody snapshots, never income.</p>
+    <section className="operations-workspace" id="operations">
+      <PageHeader
+        eyebrow="Operating controls"
+        title="Day & shifts"
+        subtitle="Open, count and close operating periods with clear custody, expected-balance and variance evidence."
+        status={<span className="tradeos-badge">{queued} pending</span>}
+      />
+      <p className="operations-explainer">Expected closing = opening counted balance + attributed real-money cashbook movements. Variance = counted closing − expected. Opening balances are custody snapshots, never income.</p>
       {!snapshot.operatingDay ? (
         dayCloseQueued ? <p role="status">Business-day close is queued offline.</p> : canDay ? <CountForm key="day-open" type="OPERATING_DAY_OPEN_CREATE" currencyCode={currencyCode} onSave={save} disabled={pendingTypes.has("OPERATING_DAY_OPEN_CREATE")} /> : null
       ) : (

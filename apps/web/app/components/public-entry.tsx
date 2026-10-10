@@ -150,7 +150,7 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
     <main className="auth-shell">
       <section className="auth-story">
         <div className="brand-lockup auth-brand"><div className="brand-mark">T</div><div><strong>TradeOS</strong><span>Africa</span></div></div>
-        <p className="tradeos-kicker">One operating system for everyday business</p>
+        <p  className="tradeos-kicker">One operating system for everyday business</p>
         <h1>From a single chair or food stand to a multi-branch company.</h1>
         <p>Sell, track stock, manage services and credit, work offline, and understand what is happening in plain business language.</p>
         <div className="auth-points"><span>Offline-first</span><span>Bulk → unit selling</span><span>Services + consumables</span><span>Returns & refunds</span></div>
@@ -161,7 +161,7 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
           <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
           <button className={mode === "register" ? "active" : ""} type="button" onClick={() => setMode("register")}>Create account</button>
         </div>
-        <div><p className="tradeos-kicker">{mode === "login" ? "Welcome back" : "Start your business"}</p><h2>{mode === "login" ? "Sign in to TradeOS" : "Create your owner account"}</h2></div>
+        <div><p  className="tradeos-kicker">{mode === "login" ? "Welcome back" : "Start your business"}</p><h2>{mode === "login" ? "Sign in to TradeOS" : "Create your owner account"}</h2></div>
         <form className="stack-form" onSubmit={(event) => void submit(event)}>
           {mode === "register" ? (
             <label>Full name<input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" /></label>
@@ -177,7 +177,7 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
           <label>Email or phone<input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233…" /></label>
           <label>Password<input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" /></label>
           {localError ? <div className="form-error">{localError}</div> : null}
-          <button className="tos-button tos-button--primary auth-submit" type="submit" disabled={busy}>{busy ? "Working…" : mode === "login" ? "Sign in" : "Create account"}</button>
+          <button  className="tos-button tos-button--primary auth-submit" type="submit" disabled={busy}>{busy ? "Working…" : mode === "login" ? "Sign in" : "Create account"}</button>
         </form>
         <small className="security-note">Your browser session uses HttpOnly cookies; TradeOS access tokens are not exposed to page JavaScript.</small>
       </section>
@@ -213,10 +213,10 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
     <main className="setup-shell">
       <header className="setup-topbar">
         <div className="brand-lockup"><div className="brand-mark">T</div><div><strong>TradeOS</strong><span>Africa</span></div></div>
-        <button className="tos-button tos-button--ghost" type="button" onClick={onLogout}>Sign out</button>
+        <button  className="tos-button tos-button--ghost" type="button" onClick={onLogout}>Sign out</button>
       </header>
       <section className="setup-card wide">
-        <p className="tradeos-kicker">Welcome, {userName}</p>
+        <p  className="tradeos-kicker">Welcome, {userName}</p>
         <h1>Create your first business</h1>
         <p className="setup-copy">Choose what best describes the business. TradeOS will use the same strong commerce engine while tailoring the workflow and language.</p>
         <form onSubmit={(event) => void submit(event)}>
@@ -232,7 +232,7 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
             ))}
           </div>
           {error ? <div className="form-error">{error}</div> : null}
-          <button className="tos-button tos-button--primary setup-submit" type="submit" disabled={busy}>{busy ? "Creating…" : "Create business"}</button>
+          <button  className="tos-button tos-button--primary setup-submit" type="submit" disabled={busy}>{busy ? "Creating…" : "Create business"}</button>
         </form>
       </section>
     </main>
@@ -245,12 +245,12 @@ function WorkspaceRecoveryScreen({ message, onRetry, onLogout }: { message: stri
     <main className="loading-shell workspace-recovery-shell">
       <div className="brand-mark">T</div>
       <div className="workspace-recovery-card">
-        <p className="tradeos-kicker">Workspace unavailable</p>
+        <p  className="tradeos-kicker">Workspace unavailable</p>
         <h1>TradeOS could not open your business workspace.</h1>
         <p>{message}</p>
         <div className="workspace-recovery-actions">
-          <button className="tos-button tos-button--primary" type="button" onClick={onRetry}>Try again</button>
-          <button className="tos-button tos-button--secondary" type="button" onClick={onLogout}>Sign out</button>
+          <button  className="tos-button tos-button--primary" type="button" onClick={onRetry}>Try again</button>
+          <button  className="tos-button tos-button--secondary" type="button" onClick={onLogout}>Sign out</button>
         </div>
       </div>
     </main>
