@@ -90,7 +90,11 @@ export function ExchangeSheet({ open, sale, catalog, businessId, branchId, onClo
 
   useEffect(() => {
     if (!open) return;
-    setReturned(createExchangeReturnedDrafts(sale));
+    setReturned(Object.fromEntries(sale.lines.map((line) => [line.id, {
+      selected: false,
+      quantity: line.quantityReturnable > 0 ? String(Math.min(1, line.quantityReturnable)) : "0",
+      disposition: defaultDisposition(line.itemKind),
+    }])));
     setCart([]);
     setQuery("");
     setReason("Customer exchange");
@@ -98,11 +102,6 @@ export function ExchangeSheet({ open, sale, catalog, businessId, branchId, onClo
     setMessage(null);
     setLinkedResult(null);
     pendingMutationId.current = null;
-  }, [open, sale.id]);
-
-  useEffect(() => {
-    if (!open) return;
-    setReturned((current) => reconcileExchangeReturned(sale, current));
   }, [open, sale]);
 
   useEffect(() => {
@@ -133,10 +132,7 @@ export function ExchangeSheet({ open, sale, catalog, businessId, branchId, onClo
       if (!focusable.length) return;
       const first = focusable[0]!;
       const last = focusable[focusable.length - 1]!;
-      if (!sheetRef.current.contains(document.activeElement)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", onKeyDown);
@@ -215,21 +211,8 @@ export function ExchangeSheet({ open, sale, catalog, businessId, branchId, onClo
           <button ref={closeRef} type="button" className="exchange-sheet-close" aria-label="Close exchange" onClick={onClose}>×</button>
         </header>
         <div className="exchange-sheet-scroll">
-          <section className="exchange-original-evidence" aria-label="Original sale evidence">
-            <div className="exchange-original-evidence-head">
-              <div><span>Original receipt · read only</span><strong>{shortReceipt(sale.id)}</strong></div>
-              <strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong>
-            </div>
-            <div className="exchange-original-evidence-grid">
-              <div><span>Customer</span><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong></div>
-              <div><span>Sale date</span><strong>{formatDate(sale.completedAt ?? sale.createdAt)}</strong></div>
-              <div><span>Receipt status</span><strong>{sale.status.replaceAll("_", " ")}</strong></div>
-            </div>
-            <p>This exchange records a linked correction. The posted original receipt is never edited or repriced.</p>
-          </section>
-
           <section className="exchange-section">
-            <div className="exchange-section-heading"><div><span className="exchange-step-kicker">Step 1 · Return</span><strong>Items coming back</strong></div><span>Select quantities still returnable from the posted receipt.</span></div>
+            <div className="exchange-section-heading"><strong>Items coming back</strong><span>Select quantities still returnable from the posted receipt.</span></div>
             <div className="exchange-return-lines">{sale.lines.map((line) => {
               const draft = returned[line.id];
               const exhausted = line.quantityReturnable <= 0;
@@ -242,24 +225,19 @@ export function ExchangeSheet({ open, sale, catalog, businessId, branchId, onClo
           </section>
 
           <section className="exchange-section exchange-replacement-section">
-            <div className="exchange-section-heading"><div><span className="exchange-step-kicker">Step 2 · Replace</span><strong>Replacement items</strong></div><span>Display prices are estimates only. TradeOS confirms current prices on the server when the exchange is applied.</span></div>
+            <div className="exchange-section-heading"><strong>Replacement items</strong><span>Display prices are estimates only. TradeOS confirms current prices on the server when the exchange is applied.</span></div>
             <div className="exchange-search-label"><strong>Search replacements</strong><span>Find by item, service, SKU or selling unit.</span></div>
             <ProductBrowser items={catalog} query={query} currencyCode={sale.currencyCode} onQueryChange={setQuery} onAdd={addReplacement} />
-            <div className="exchange-cart-help"><strong>Selling unit remains explicit.</strong> After adding a replacement, use Decrease / Increase, direct quantity, unit selection or Remove to adjust the exchange cart.</div>
+            <div className="exchange-cart-help">After adding a replacement, use Decrease / Increase, direct quantity, unit selection or Remove to adjust the exchange cart.</div>
             <CartPanel cart={cart} items={catalog} currencyCode={sale.currencyCode} onIncrease={increase} onDecrease={decrease} onSetQuantity={(key, quantity) => setCart((current) => setCartQuantity(current, key, quantity))} onRemove={(key) => setCart((current) => removeCartLine(current, key))} onChangeUnit={(key, unit) => setCart((current) => changeCartUnit(current, key, toPosSelection(unit)))} />
           </section>
 
           <section className="exchange-section">
-            <div className="exchange-section-heading"><div><span className="exchange-step-kicker">Step 3 · Settle</span><strong>Difference &amp; settlement</strong></div><span>Final amounts are recalculated by the server from current prices and accepted return quantities.</span></div>
-            <div className="exchange-preview-label">Difference preview</div>
+            <div className="exchange-section-heading"><strong>Difference preview</strong><span>Final amounts are recalculated by the server from current prices and accepted return quantities.</span></div>
             <div className="exchange-preview-grid"><div><span>Estimated return value</span><strong>{formatMoney(preview.returnedMinor, sale.currencyCode)}</strong></div><div><span>Estimated replacements</span><strong>{formatMoney(preview.replacementMinor, sale.currencyCode)}</strong></div><div className="exchange-preview-net"><span>{preview.label}</span><strong>{formatMoney(Math.abs(preview.netDifferenceMinor), sale.currencyCode)}</strong></div></div>
-            <div className={`exchange-settlement-outcome exchange-settlement-outcome--${preview.netDifferenceMinor > 0 ? "pays" : preview.netDifferenceMinor < 0 ? "receives" : "even"}`}>
-              <span>Settlement outcome</span><strong>{preview.label}</strong><em>{formatMoney(Math.abs(preview.netDifferenceMinor), sale.currencyCode)}</em>
-              <small>TradeOS validates the final difference and records the settlement against the linked exchange.</small>
-            </div>
             <div className="exchange-settlement-grid">
               <label>Settlement method<select value={settlementMethod} onChange={(event) => setSettlementMethod(event.target.value as ExchangeSettlementMethod)}><option value="ORIGINAL_METHOD">Original payment method</option><option value="CASH">Cash</option><option value="MOMO">MoMo</option><option value="CARD">Card</option><option value="BANK">Bank</option>{sale.customer ? <option value="CUSTOMER_CREDIT">Customer credit</option> : null}</select></label>
-              <label>Reason<input required aria-required="true" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is this exchange needed?" /></label>
+              <label>Reason<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is this exchange needed?" /></label>
             </div>
             {linkedResult ? <ExchangeLinkedResult result={linkedResult} /> : null}
             {message ? <div className="exchange-message" role="status">{message}</div> : null}
@@ -276,7 +254,6 @@ export function ExchangeLinkedResult({ result }: { result: ExchangeResult }) {
     <section className="exchange-linked-result" aria-label="Exchange linked transactions">
       <div className="exchange-linked-result-head"><strong>Exchange linked</strong><span>{result.status}</span></div>
       <div className="exchange-linked-result-grid">
-        <div><span>Original receipt</span><strong>#{result.originalSaleId.slice(0, 8).toUpperCase()}</strong></div>
         <div><span>Replacement receipt</span><strong>#{result.replacementSaleId.slice(0, 8).toUpperCase()}</strong></div>
         <div><span>Return correction</span><strong>#{result.returnCaseId.slice(0, 8).toUpperCase()}</strong></div>
       </div>
@@ -295,28 +272,6 @@ function isExchangeResult(value: unknown): value is ExchangeResult {
     && (candidate.status === "PROCESSING" || candidate.status === "COMPLETED");
 }
 
-function createExchangeReturnedDrafts(sale: SaleDetail): Record<string, ExchangeReturnDraft> {
-  return Object.fromEntries(sale.lines.map((line) => [line.id, {
-    selected: false,
-    quantity: line.quantityReturnable > 0 ? String(Math.min(1, line.quantityReturnable)) : "0",
-    disposition: defaultDisposition(line.itemKind),
-  }]));
-}
-
-function reconcileExchangeReturned(sale: SaleDetail, current: Record<string, ExchangeReturnDraft>): Record<string, ExchangeReturnDraft> {
-  const defaults = createExchangeReturnedDrafts(sale);
-  return Object.fromEntries(sale.lines.map((line) => {
-    const existing = current[line.id];
-    if (!existing) return [line.id, defaults[line.id]!];
-    if (line.quantityReturnable <= 0) return [line.id, { ...existing, selected: false, quantity: "0" }];
-    const quantity = Number(existing.quantity);
-    const reconciledQuantity = Number.isFinite(quantity) && quantity > 0
-      ? String(Math.min(quantity, line.quantityReturnable))
-      : String(Math.min(1, line.quantityReturnable));
-    return [line.id, { ...existing, quantity: reconciledQuantity }];
-  }));
-}
-
 function defaultDisposition(kind: SaleDetail["lines"][number]["itemKind"]): ExchangeDisposition {
   if (kind === "SERVICE") return "NOT_APPLICABLE";
   if (kind === "PREPARED_PRODUCT") return "DISCARD";
@@ -325,6 +280,4 @@ function defaultDisposition(kind: SaleDetail["lines"][number]["itemKind"]): Exch
 function exchangeDisposition(kind: SaleDetail["lines"][number]["itemKind"], selected: ExchangeDisposition): ExchangeDisposition {
   return kind === "SERVICE" ? "NOT_APPLICABLE" : kind === "PREPARED_PRODUCT" ? "DISCARD" : selected;
 }
-function shortReceipt(id: string) { return `#${id.slice(0, 8).toUpperCase()}`; }
-function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 function formatQuantity(value: number) { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }

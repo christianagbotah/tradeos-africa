@@ -35,4 +35,18 @@ describe("Z.ai authenticated composition boundary", () => {
     expect(pos).not.toContain("pos-mobile-cart-sheet");
     expect(css).not.toContain("pos-mobile-cart-sheet");
   });
+
+  it("keeps Z.ai Returns composition instead of the later evidence-card recomposition", () => {
+    const workspace = read("components/returns/return-refund-workspace.tsx");
+    const refundSheet = read("components/returns/return-refund-sheet.tsx");
+    const exchangeSheet = read("components/returns/exchange-sheet.tsx");
+    expect(workspace).toContain('className="return-commandbar"');
+    expect(workspace).toContain('className={selectedId === sale.id ? "return-sale-row active" : "return-sale-row"}');
+    expect(workspace).not.toContain("MobileRecordCard");
+    expect(refundSheet).not.toContain("return-original-evidence");
+    expect(refundSheet).not.toContain("return-consequence");
+    expect(exchangeSheet).not.toContain("exchange-original-evidence");
+    expect(exchangeSheet).not.toContain("exchange-flow-step");
+    expect(exchangeSheet).not.toContain("exchange-settlement-outcome");
+  });
 });

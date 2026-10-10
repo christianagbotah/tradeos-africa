@@ -80,53 +80,6 @@ describe("ExchangeSheet", () => {
     expect(html).not.toMatch(/Edit original sale|Change original price|Save receipt/);
   });
 
-
-
-
-
-  it("preserves an in-progress exchange draft when the same receipt detail refreshes", () => {
-    const root = path.dirname(fileURLToPath(import.meta.url));
-    const source = fs.readFileSync(path.join(root, "exchange-sheet.tsx"), "utf8");
-    expect(source).toContain("reconcileExchangeReturned");
-    expect(source).toMatch(/\}, \[open, sale\.id\]\);/);
-    expect(source).toMatch(/setLinkedResult\(null\);[\s\S]*pendingMutationId\.current = null;[\s\S]*\}, \[open, sale\.id\]\);/);
-    expect(source).toMatch(/setReturned\(\(current\) => reconcileExchangeReturned\(sale, current\)\);[\s\S]*\}, \[open, sale\]\);/);
-  });
-
-  it("presents the immutable original receipt and a numbered return-replace-settle flow", async () => {
-    const module = await loadSheet();
-    expect(module?.ExchangeSheet).toBeTypeOf("function");
-    if (!module?.ExchangeSheet) return;
-    const html = renderToStaticMarkup(React.createElement(module.ExchangeSheet, {
-      open: true, sale, catalog,
-      businessId: "11111111-1111-4111-8111-111111111111",
-      branchId: "22222222-2222-4222-8222-222222222222",
-      onClose: () => undefined, onMessage: () => undefined,
-    }));
-    expect(html).toContain("exchange-original-evidence");
-    expect(html).toContain("Original receipt · read only");
-    expect(html).toContain("#22222222");
-    expect(html).toContain("Step 1 · Return");
-    expect(html).toContain("Step 2 · Replace");
-    expect(html).toContain("Step 3 · Settle");
-    expect(html).toContain("Selling unit remains explicit");
-  });
-
-  it("marks exchange reason required and exposes an explicit settlement outcome card", async () => {
-    const module = await loadSheet();
-    expect(module?.ExchangeSheet).toBeTypeOf("function");
-    if (!module?.ExchangeSheet) return;
-    const html = renderToStaticMarkup(React.createElement(module.ExchangeSheet, {
-      open: true, sale, catalog,
-      businessId: "11111111-1111-4111-8111-111111111111",
-      branchId: "22222222-2222-4222-8222-222222222222",
-      onClose: () => undefined, onMessage: () => undefined,
-    }));
-    expect(html).toContain("exchange-settlement-outcome");
-    expect(html).toContain("Settlement outcome");
-    expect(html).toMatch(/Reason[^<]*<input[^>]*required/);
-  });
-
   it("renders the linked replacement receipt, return correction and provider-processing state after apply", async () => {
     const module = await loadSheet();
     expect(module?.ExchangeLinkedResult).toBeTypeOf("function");
@@ -141,7 +94,7 @@ describe("ExchangeSheet", () => {
       netDifferenceMinor: 700,
       status: "PROCESSING",
     } }));
-    for (const text of ["Exchange linked", "Original receipt", "Replacement receipt", "Return correction", "PROCESSING", "22222222", "CCCCCCCC", "BBBBBBBB"]) expect(html).toContain(text);
+    for (const text of ["Exchange linked", "Replacement receipt", "Return correction", "PROCESSING", "CCCCCCCC", "BBBBBBBB"]) expect(html).toContain(text);
     expect(html).toMatch(/provider|processing|confirmation/i);
   });
 
