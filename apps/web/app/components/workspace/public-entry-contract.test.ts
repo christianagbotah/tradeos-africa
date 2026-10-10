@@ -20,7 +20,7 @@ describe("public-entry class-contract", () => {
 
   it("every className used in public-entry has a CSS definition", () => {
     const source = read("components/public-entry.tsx");
-    const css = read("public-entry.css") + read("ui-primitives.css");
+    const css = read("tradeos-app.css") + read("ui-primitives.css");
     const classNames = new Set<string>();
     const regex = /className="([^"]+)"/g;
     let match;
