@@ -28,5 +28,5 @@ done < "$ENV_FILE"
 WEB_HOST="${WEB_HOST:-127.0.0.1}"
 WEB_PORT="${WEB_PORT:-3036}"
 
-cd "$ROOT_DIR"
+cd "$ROOT_DIR/apps/web"
 exec /usr/bin/env node "$ROOT_DIR/apps/web/node_modules/next/dist/bin/next" start -H "$WEB_HOST" -p "$WEB_PORT"
