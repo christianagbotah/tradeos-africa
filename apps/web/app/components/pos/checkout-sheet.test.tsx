@@ -138,4 +138,14 @@ describe("professional POS checkout", () => {
     expect(css).toMatch(/\.pos-payment-option[\s\S]*min-height:\s*48px/);
     expect(css).toContain(".pos-checkout-sheet");
   });
+
+  it("moves initial focus into checkout and restores to an explicit surviving trigger", async () => {
+    const root = path.dirname(fileURLToPath(import.meta.url));
+    const source = fs.readFileSync(path.join(root, "checkout-sheet.tsx"), "utf8");
+    expect(source).toContain("returnFocusRef");
+    expect(source).toContain("initialTabbables");
+    expect(source).toMatch(/initialTabbables\[0\]\?\.focus\(\)/);
+    expect(source).toMatch(/returnFocusRef\?\.current/);
+  });
+
 });

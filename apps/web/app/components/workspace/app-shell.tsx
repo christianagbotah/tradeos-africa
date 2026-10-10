@@ -93,6 +93,18 @@ export function AppShell({ children }: { children: ReactNode }) {
               <h1>{current?.label ?? context.business.name}</h1>
             </div>
           </div>
+          <button
+            className="workspace-mobile-context-trigger"
+            type="button"
+            aria-label="Open business and branch context"
+            onClick={() => setMoreOpen(true)}
+          >
+            <span className="workspace-mobile-context-copy">
+              <strong>{context.business.name}</strong>
+              <small>{activeBranch.name}</small>
+            </span>
+            <span className="workspace-mobile-context-chevron" aria-hidden="true">›</span>
+          </button>
           <div className="workspace-context-actions">
             {businessBranchSelectors}
             <div className="workspace-profile-menu" ref={profileMenuRef}>
