@@ -11,3 +11,4 @@ export * from "./master-data.js";
 export * from "./inventory-adjustments.js";
 
 export * from "./exchanges.js";
+export * from "./currency-metadata.js";

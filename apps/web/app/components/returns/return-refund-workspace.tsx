@@ -1,6 +1,7 @@
 "use client";
 
 import React, { type FormEvent, useMemo, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { Button } from "../ui/button";
 import type { SaleSummary } from "../sales/types";
 
@@ -54,4 +55,3 @@ export function ReturnRefundWorkspace({ sales, selectedId, loading, onSelect, on
 function shortReceipt(id: string): string { return `#${id.slice(0, 8).toUpperCase()}`; }
 function humanize(value: string): string { return value.replaceAll("_", " "); }
 function formatDate(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
-function formatMoney(minor: number, currencyCode: string): string { return currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100); }

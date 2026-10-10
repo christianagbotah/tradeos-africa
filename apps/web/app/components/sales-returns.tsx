@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { SalesWorkspace } from "./sales/sales-workspace";
 import { SaleDetailSheet } from "./sales/sale-detail-sheet";
 import type { SaleDetail, SaleLine, SaleSummary } from "./sales/types";
@@ -291,9 +292,4 @@ function shortReceipt(id: string): string {
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
-
-function formatMoney(minor: number, currencyCode: string): string {
-  if (currencyCode === "GHS") return `₵${(minor / 100).toFixed(2)}`;
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100);
 }

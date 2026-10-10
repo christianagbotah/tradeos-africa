@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { messageFrom } from "../../lib/client-api";
 import { Button } from "../ui/button";
@@ -180,6 +181,5 @@ function moneyToMinor(value: string): number {
   const minor = Number(BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0")));
   return Number.isSafeInteger(minor) ? minor : -1;
 }
-function formatMoney(minor: number, currencyCode: string): string { return currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100); }
 function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }
 function formatEditable(value: number): string { return Number.isInteger(value) ? String(value) : String(value); }

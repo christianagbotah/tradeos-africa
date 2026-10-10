@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { clientApi, messageFrom } from "../../lib/client-api";
 import { Button } from "../ui/button";
 
@@ -217,11 +218,6 @@ export function CustomerPicker({
       </div>
     </div>
   );
-}
-
-function formatMoney(minor: number, currencyCode: string): string {
-  if (currencyCode === "GHS") return `₵${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100);
 }
 
 function initials(name: string): string {

@@ -10,3 +10,4 @@ coverage/
 *.log
 apps/web/.next/
 apps/web/tsconfig.tsbuildinfo
+*.tsbuildinfo

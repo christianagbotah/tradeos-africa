@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { Button } from "../ui/button";
 import { CommandBar } from "../ui/command-bar";
 import { MobileRecordCard } from "../ui/mobile-record-card";
@@ -110,4 +111,3 @@ function StockFact({ label, value, alert = false }: { label: string; value: stri
   return <div className={alert ? "inventory-row-fact alert" : "inventory-row-fact"}><span>{label}</span><strong>{value}</strong></div>;
 }
 function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }
-function formatMoney(minor: number, currencyCode: string): string { return currencyCode === "GHS" ? `₵${(minor / 100).toFixed(2)}` : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100); }

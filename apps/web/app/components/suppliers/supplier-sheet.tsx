@@ -1,6 +1,7 @@
 "use client";
 
 import React, { type FormEvent, useEffect, useRef, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
 import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
@@ -338,12 +339,6 @@ function moneyToMinor(value: string): number {
   const [whole, fraction = ""] = normalized.split(".");
   const minor = Number(BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0")));
   return Number.isSafeInteger(minor) ? minor : -1;
-}
-
-function formatMoney(minor: number, currencyCode: string): string {
-  return currencyCode === "GHS"
-    ? `₵${(minor / 100).toFixed(2)}`
-    : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100);
 }
 
 function formatDate(value: string): string {

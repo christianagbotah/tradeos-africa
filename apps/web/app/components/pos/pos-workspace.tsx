@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { CartPanel } from "./cart-panel";
 import { CheckoutSheet, displayTotalMinor } from "./checkout-sheet";
 import { CustomerPicker, type PosCustomer } from "./customer-picker";
@@ -168,11 +169,6 @@ export function PosWorkspace({
       />
     </section>
   );
-}
-
-function formatMoney(minor: number, currencyCode: string): string {
-  if (currencyCode === "GHS") return `₵${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100);
 }
 
 function initials(name: string): string {

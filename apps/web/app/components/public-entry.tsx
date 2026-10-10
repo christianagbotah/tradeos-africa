@@ -8,7 +8,16 @@ import { clearWorkspaceBootstrap, readWorkspaceBootstrap } from "../lib/workspac
 import { clearFeatureCaches } from "../lib/feature-cache";
 import { finalizePendingLogout, invalidateSessionEpoch, isLogoutPending, markLogoutPending } from "../lib/session-lifecycle";
 import type { BusinessContext, MePayload } from "../lib/workspace-types";
-import { AFRICAN_LOCALES, getCurrencyCode, getLocale } from "../lib/african-locales";
+import {
+  SUPPORTED_COUNTRIES,
+  SUPPORTED_CURRENCIES,
+  SUPPORTED_TIMEZONES,
+  getCountry,
+  getCurrencyMeta,
+  isSupportedCurrency,
+  isSupportedCountry,
+  isSupportedTimezone,
+} from "@tradeos/contracts";
 
 type AuthMode = "login" | "register";
 type PublicEntryMode =
@@ -188,13 +197,13 @@ function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; e
           </ul>
         </div>
 
-        <figure className="auth-aside-quote">
-          <blockquote>“TradeOS replaced three notebooks and my calculator. I close the day in two minutes now.”</blockquote>
-          <figcaption>
-            <span className="auth-aside-quote-name">Akosua M.</span>
-            <span className="auth-aside-quote-role">Waakye spot owner · Kumasi</span>
-          </figcaption>
-        </figure>
+        <div className="auth-aside-quote">
+          <p className="auth-aside-quote-eyebrow">Built for how Africa trades</p>
+          <p className="auth-aside-quote-copy">
+            From the waakye spot to the wholesale distributor, TradeOS adapts to your workflow —
+            retail, food, salon, drinking spot, washing bay, car park, distribution and services.
+          </p>
+        </div>
       </aside>
 
       {/* ===== Right: form panel ===== */}
@@ -311,19 +320,47 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
   const [branchName, setBranchName] = useState("Main");
   const [businessType, setBusinessType] = useState<(typeof businessTypes)[number][0]>("RETAIL_HARDWARE");
   const [countryCode, setCountryCode] = useState("GH");
+  const [currencyCode, setCurrencyCode] = useState("GHS");
+  const [timezone, setTimezone] = useState("Africa/Accra");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const locale = getLocale(countryCode);
+  const country = getCountry(countryCode);
+  const currencyMeta = getCurrencyMeta(currencyCode);
+
+  // When country changes: preselect the recommended currency + timezone,
+  // but the user can explicitly override either one before submitting.
+  const onCountryChange = (code: string) => {
+    setCountryCode(code);
+    const c = getCountry(code);
+    if (c) {
+      setCurrencyCode(c.defaultCurrencyCode);
+      const suggestedTz = c.timezones[0];
+      if (suggestedTz) setTimezone(suggestedTz);
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
+      // Guard: never submit if country/currency/timezone are unsupported.
+      if (!isSupportedCountry(countryCode)) {
+        setError("Please select a supported country.");
+        return;
+      }
+      if (!isSupportedCurrency(currencyCode)) {
+        setError("Please select a supported currency.");
+        return;
+      }
+      if (!isSupportedTimezone(timezone)) {
+        setError("Please select a supported timezone.");
+        return;
+      }
       await api("/api/tradeos/v1/onboarding/business", {
         method: "POST",
-        body: JSON.stringify({ name, branchName, businessType, countryCode, currencyCode: getCurrencyCode(countryCode) }),
+        body: JSON.stringify({ name, branchName, businessType, countryCode, currencyCode, timezone }),
       });
       onCreated();
     } catch (reason) {
@@ -374,25 +411,59 @@ function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: strin
             ))}
           </div>
 
-          <div className="onboarding-country-block">
+          <div className="onboarding-locale-grid">
             <label className="auth-input">
               <span>Country</span>
               <span className="auth-input-field">
                 <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
-                <select value={countryCode} onChange={(event) => setCountryCode(event.target.value)} aria-label="Country">
-                  {AFRICAN_LOCALES.map((l) => (
-                    <option key={l.countryCode} value={l.countryCode}>{l.flag}  {l.country}</option>
+                <select value={countryCode} onChange={(event) => onCountryChange(event.target.value)} aria-label="Country">
+                  {SUPPORTED_COUNTRIES.map((c) => (
+                    <option key={c.countryCode} value={c.countryCode}>{c.flag}  {c.country}</option>
                   ))}
                 </select>
               </span>
             </label>
-            <div className="onboarding-currency-chip">
-              <span className="onboarding-currency-symbol">{locale.symbol}</span>
-              <span className="onboarding-currency-meta">
-                <strong>{locale.currencyCode}</strong>
-                <span>{locale.currencyName}</span>
+
+            <label className="auth-input">
+              <span>Base currency</span>
+              <span className="auth-input-field">
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
+                <select value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value)} aria-label="Base currency">
+                  {SUPPORTED_CURRENCIES.map((cur) => (
+                    <option key={cur.currencyCode} value={cur.currencyCode}>{cur.symbol}  {cur.currencyCode} — {cur.name}</option>
+                  ))}
+                </select>
               </span>
-            </div>
+            </label>
+
+            <label className="auth-input">
+              <span>Timezone</span>
+              <span className="auth-input-field">
+                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                <select value={timezone} onChange={(event) => setTimezone(event.target.value)} aria-label="Timezone">
+                  {SUPPORTED_TIMEZONES.map((tz) => (
+                    <option key={tz} value={tz}>{tz}</option>
+                  ))}
+                </select>
+              </span>
+            </label>
+
+            {country && currencyMeta ? (
+              <div className="onboarding-currency-chip">
+                <span className="onboarding-currency-symbol">{currencyMeta.symbol}</span>
+                <span className="onboarding-currency-meta">
+                  <strong>{currencyMeta.currencyCode}</strong>
+                  <span>{currencyMeta.name} · {currencyMeta.decimalPlaces} dp</span>
+                </span>
+              </div>
+            ) : (
+              <div className="onboarding-currency-chip onboarding-currency-chip--error">
+                <span className="onboarding-currency-meta">
+                  <strong>Unsupported</strong>
+                  <span>Select a supported country</span>
+                </span>
+              </div>
+            )}
           </div>
 
           {error ? <div className="auth-card-error">{error}</div> : null}

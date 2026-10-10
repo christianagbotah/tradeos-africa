@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { clientApi, messageFrom } from "../../lib/client-api";
 import { getFailedMutations, mutationAppliedEvent, queueChangedEvent, type AppliedMutationDetail } from "../../lib/offline-sync";
 import { Button } from "../ui/button";
@@ -143,10 +144,4 @@ export function SupplierWorkspace({ businessId, branchId, currencyCode, role, su
       /> : null}
     </section>
   );
-}
-
-function formatMoney(minor: number, currencyCode: string): string {
-  return currencyCode === "GHS"
-    ? `₵${(minor / 100).toFixed(2)}`
-    : new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100);
 }

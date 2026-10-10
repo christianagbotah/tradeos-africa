@@ -3,8 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "pnpm --filter @tradeos/contracts build && next dev",
+    "build": "pnpm --filter @tradeos/contracts build && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
