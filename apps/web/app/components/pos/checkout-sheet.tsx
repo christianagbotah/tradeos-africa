@@ -107,10 +107,20 @@ export function CheckoutSheet({
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("CASH");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [amountTendered, setAmountTendered] = useState<string>("");
+  const [success, setSuccess] = useState<{ reference: string; changeDueMinor: number | null; synced: boolean } | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const totalMinor = useMemo(() => displayTotalMinor(cart), [cart]);
   const credit = useMemo(() => customerCreditReadiness(customer, totalMinor), [customer, totalMinor]);
+
+  const changeDueMinor = useMemo(() => {
+    if (paymentMethod !== "CASH" || !amountTendered) return null;
+    const parsed = Number(amountTendered);
+    if (!Number.isFinite(parsed) || parsed < 0) return null;
+    const tenderedMinor = Math.round(parsed * 100);
+    return tenderedMinor - totalMinor;
+  }, [paymentMethod, amountTendered, totalMinor]);
 
   useEffect(() => {
     if (!open) return;
@@ -188,15 +198,24 @@ export function CheckoutSheet({
         const failed = getFailedMutations().find((entry) => entry.mutation.clientMutationId === clientMutationId);
         if (failed) {
           onStatus(`Sale needs review · ${failed.result.errorMessage ?? failed.result.errorCode ?? "server rejected the sale"}`, "error");
-        } else if (summary.received > 0 || summary.pending > 0) {
-          onStatus("Sale saved · pending sync", "pending");
+          onClose();
         } else {
-          onStatus("Sale completed and synchronized", "success");
+          const synced = summary.received === 0 && summary.pending === 0;
+          onStatus(synced ? "Sale completed and synchronized" : "Sale saved · pending sync", synced ? "success" : "pending");
+          setSuccess({
+            reference: clientMutationId.slice(0, 8).toUpperCase(),
+            changeDueMinor: paymentMethod === "CASH" ? changeDueMinor : null,
+            synced,
+          });
         }
       } catch {
         onStatus("Sale saved · pending sync", "pending");
+        setSuccess({
+          reference: clientMutationId.slice(0, 8).toUpperCase(),
+          changeDueMinor: paymentMethod === "CASH" ? changeDueMinor : null,
+          synced: false,
+        });
       }
-      onClose();
     } catch (reason) {
       const nextMessage = messageFrom(reason);
       setMessage(nextMessage);
@@ -245,13 +264,62 @@ export function CheckoutSheet({
         </div>
 
         {message ? <div className="pos-checkout-message" role="status">{message}</div> : null}
+        {paymentMethod === "CASH" ? (
+          <label className="pos-cash-tendered">
+            <span>Cash received</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={amountTendered}
+              onChange={(event) => setAmountTendered(event.target.value)}
+              placeholder={formatMoney(totalMinor, currencyCode)}
+              aria-label="Cash received from customer"
+            />
+            {changeDueMinor !== null && changeDueMinor > 0 ? (
+              <small className="pos-change-due">Change due: <strong>{formatMoney(changeDueMinor, currencyCode)}</strong></small>
+            ) : changeDueMinor !== null && changeDueMinor < 0 ? (
+              <small className="pos-change-due pos-change-due--short">Short by: <strong>{formatMoney(-changeDueMinor, currencyCode)}</strong></small>
+            ) : null}
+          </label>
+        ) : null}
         <footer className="pos-checkout-footer">
           <Button variant="ghost" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
-          <Button type="button" disabled={busy || cart.length === 0 || (paymentMethod === "CUSTOMER_CREDIT" && !credit.allowed)} onClick={() => void charge()}>
+          <Button type="button" disabled={busy || cart.length === 0 || (paymentMethod === "CUSTOMER_CREDIT" && !credit.allowed) || (paymentMethod === "CASH" && changeDueMinor !== null && changeDueMinor < 0)} onClick={() => void charge()}>
             {busy ? "Saving…" : `Charge ${formatMoney(totalMinor, currencyCode)}`}
           </Button>
         </footer>
       </div>
+
+      {success ? (
+        <div className="pos-checkout-success-overlay" role="dialog" aria-modal="true" aria-labelledby="pos-success-title">
+          <div className="pos-checkout-success">
+            <div className="pos-checkout-success-icon" aria-hidden="true">{success.synced ? "✓" : "↻"}</div>
+            <span className="pos-checkout-success-eyebrow">{success.synced ? "Sale completed" : "Saved · pending sync"}</span>
+            <h2 id="pos-success-title">Receipt {success.reference}</h2>
+            <p className="pos-checkout-success-total">{formatMoney(totalMinor, currencyCode)}</p>
+            {success.changeDueMinor !== null && success.changeDueMinor > 0 ? (
+              <div className="pos-checkout-success-change">
+                <span>Change due</span>
+                <strong>{formatMoney(success.changeDueMinor, currencyCode)}</strong>
+              </div>
+            ) : null}
+            <div className="pos-checkout-success-customer">
+              {customer ? customer.name : "Walk-in customer"} · {cart.length} line{cart.length === 1 ? "" : "s"}
+            </div>
+            <div className="pos-checkout-success-actions">
+              <Button variant="ghost" type="button" onClick={() => { if (typeof window !== "undefined") window.print(); }}>Print receipt</Button>
+              <Button variant="ghost" type="button" onClick={() => {
+                if (typeof navigator !== "undefined" && navigator.share) {
+                  void navigator.share({ title: "TradeOS receipt", text: `Receipt ${success.reference} · ${formatMoney(totalMinor, currencyCode)}` }).catch(() => undefined);
+                }
+              }}>Share receipt</Button>
+              <Button type="button" onClick={() => { setSuccess(null); setAmountTendered(""); onClose(); }}>New sale</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

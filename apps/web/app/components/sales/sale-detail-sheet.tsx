@@ -84,6 +84,12 @@ export function SaleDetailSheet({ sale, open, canProcessReturns, onClose }: Prop
         </div>
 
         <footer className="sale-detail-footer">
+          <Button variant="ghost" type="button" onClick={() => { if (typeof window !== "undefined") window.print(); }}>Print</Button>
+          <Button variant="ghost" type="button" onClick={() => {
+            if (typeof navigator !== "undefined" && navigator.share) {
+              void navigator.share({ title: "TradeOS receipt", text: `Receipt ${shortReceipt(sale.id)} · ${formatMoney(sale.totalMinor, sale.currencyCode)}` }).catch(() => undefined);
+            }
+          }}>Share</Button>
           <Button variant="ghost" type="button" onClick={onClose}>Close</Button>
           {canProcessReturns && sale.lines.some((line) => line.quantityReturnable > 0) ? <><a className="tos-button tos-button--secondary tos-button--default" href={`/returns?saleId=${encodeURIComponent(sale.id)}`}>Process return / refund</a><a className="tos-button tos-button--primary tos-button--default" href={`/returns?saleId=${encodeURIComponent(sale.id)}&mode=exchange`}>Exchange items</a></> : null}
         </footer>
