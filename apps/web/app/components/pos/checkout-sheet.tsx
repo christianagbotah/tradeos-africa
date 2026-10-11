@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { formatMoney } from "@tradeos/contracts";
+import { formatMoney, getCurrencyMeta, parseMoneyInput } from "@tradeos/contracts";
 import {
   enqueueMutation,
   flushPendingMutations,
   getFailedMutations,
   getOrCreateClientId,
+  mutationAppliedEvent,
+  type AppliedMutationDetail,
   type PendingMutation,
 } from "../../lib/offline-sync";
 import { messageFrom } from "../../lib/client-api";
@@ -81,6 +83,54 @@ export function displayTotalMinor(cart: readonly CartLine[]): number {
   return cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0);
 }
 
+export type CheckoutSuccessSnapshot = {
+  saleId: string | null;
+  reference: string;
+  totalMinor: number;
+  lineCount: number;
+  customerName: string;
+  changeDueMinor: number | null;
+  synced: boolean;
+};
+
+export function calculateChangeDueMinor(amountTendered: string, totalMinor: number, currencyCode: string): number | null {
+  if (!amountTendered.trim()) return null;
+  const tenderedMinor = parseMoneyInput(amountTendered, currencyCode);
+  if (tenderedMinor === null || tenderedMinor < 0) return null;
+  return tenderedMinor - totalMinor;
+}
+
+export function createCheckoutSuccessSnapshot(input: {
+  clientMutationId: string;
+  estimatedTotalMinor: number;
+  lineCount: number;
+  customerName: string;
+  changeDueMinor: number | null;
+  synced: boolean;
+  appliedResult?: unknown;
+}): CheckoutSuccessSnapshot {
+  const applied = readAppliedSaleResult(input.appliedResult);
+  const saleId = applied?.saleId ?? null;
+  const totalMinor = applied?.totalMinor ?? input.estimatedTotalMinor;
+  return {
+    saleId,
+    reference: (saleId ?? input.clientMutationId).slice(0, 8).toUpperCase(),
+    totalMinor,
+    lineCount: input.lineCount,
+    customerName: input.customerName,
+    changeDueMinor: input.changeDueMinor,
+    synced: input.synced,
+  };
+}
+
+function readAppliedSaleResult(value: unknown): { saleId: string; totalMinor: number } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as { saleId?: unknown; totalMinor?: unknown };
+  if (typeof candidate.saleId !== "string" || candidate.saleId.length === 0) return null;
+  if (!Number.isSafeInteger(candidate.totalMinor) || (candidate.totalMinor as number) < 0) return null;
+  return { saleId: candidate.saleId, totalMinor: candidate.totalMinor as number };
+}
+
 export function CheckoutSheet({
   open,
   businessId,
@@ -108,19 +158,29 @@ export function CheckoutSheet({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [amountTendered, setAmountTendered] = useState<string>("");
-  const [success, setSuccess] = useState<{ reference: string; changeDueMinor: number | null; synced: boolean } | null>(null);
+  const [success, setSuccess] = useState<CheckoutSuccessSnapshot | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const totalMinor = useMemo(() => displayTotalMinor(cart), [cart]);
   const credit = useMemo(() => customerCreditReadiness(customer, totalMinor), [customer, totalMinor]);
 
   const changeDueMinor = useMemo(() => {
-    if (paymentMethod !== "CASH" || !amountTendered) return null;
-    const parsed = Number(amountTendered);
-    if (!Number.isFinite(parsed) || parsed < 0) return null;
-    const tenderedMinor = Math.round(parsed * 100);
-    return tenderedMinor - totalMinor;
-  }, [paymentMethod, amountTendered, totalMinor]);
+    if (paymentMethod !== "CASH") return null;
+    return calculateChangeDueMinor(amountTendered, totalMinor, currencyCode);
+  }, [paymentMethod, amountTendered, totalMinor, currencyCode]);
+  const cashStep = useMemo(() => {
+    const exponent = getCurrencyMeta(currencyCode)?.exponent;
+    if (exponent === undefined) return "any";
+    if (exponent === 0) return "1";
+    return `0.${"0".repeat(exponent - 1)}1`;
+  }, [currencyCode]);
+
+  useEffect(() => {
+    if (!open) {
+      setSuccess(null);
+      setAmountTendered("");
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -171,6 +231,13 @@ export function CheckoutSheet({
     setBusy(true);
     setMessage(null);
     const clientMutationId = crypto.randomUUID();
+    const receiptBase = {
+      clientMutationId,
+      estimatedTotalMinor: totalMinor,
+      lineCount: cart.length,
+      customerName: customer?.name ?? "Walk-in customer",
+      changeDueMinor: paymentMethod === "CASH" ? changeDueMinor : null,
+    };
     try {
       const mutation = buildSaleMutation({
         clientId: getOrCreateClientId(),
@@ -189,10 +256,16 @@ export function CheckoutSheet({
 
       if (!navigator.onLine) {
         onStatus("Saved offline · pending sync", "pending");
-        onClose();
+        setSuccess(createCheckoutSuccessSnapshot({ ...receiptBase, synced: false }));
         return;
       }
 
+      let appliedResult: unknown;
+      const handleApplied = (event: Event) => {
+        const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
+        if (detail.clientMutationId === clientMutationId) appliedResult = detail.result;
+      };
+      window.addEventListener(mutationAppliedEvent, handleApplied);
       try {
         const summary = await flushPendingMutations();
         const failed = getFailedMutations().find((entry) => entry.mutation.clientMutationId === clientMutationId);
@@ -202,19 +275,13 @@ export function CheckoutSheet({
         } else {
           const synced = summary.received === 0 && summary.pending === 0;
           onStatus(synced ? "Sale completed and synchronized" : "Sale saved · pending sync", synced ? "success" : "pending");
-          setSuccess({
-            reference: clientMutationId.slice(0, 8).toUpperCase(),
-            changeDueMinor: paymentMethod === "CASH" ? changeDueMinor : null,
-            synced,
-          });
+          setSuccess(createCheckoutSuccessSnapshot({ ...receiptBase, synced, appliedResult }));
         }
       } catch {
         onStatus("Sale saved · pending sync", "pending");
-        setSuccess({
-          reference: clientMutationId.slice(0, 8).toUpperCase(),
-          changeDueMinor: paymentMethod === "CASH" ? changeDueMinor : null,
-          synced: false,
-        });
+        setSuccess(createCheckoutSuccessSnapshot({ ...receiptBase, synced: false, appliedResult }));
+      } finally {
+        window.removeEventListener(mutationAppliedEvent, handleApplied);
       }
     } catch (reason) {
       const nextMessage = messageFrom(reason);
@@ -271,7 +338,7 @@ export function CheckoutSheet({
               type="number"
               inputMode="decimal"
               min={0}
-              step="0.01"
+              step={cashStep}
               value={amountTendered}
               onChange={(event) => setAmountTendered(event.target.value)}
               placeholder={formatMoney(totalMinor, currencyCode)}
@@ -306,13 +373,13 @@ export function CheckoutSheet({
               </div>
             ) : null}
             <div className="pos-checkout-success-customer">
-              {customer ? customer.name : "Walk-in customer"} · {cart.length} line{cart.length === 1 ? "" : "s"}
+              {success.customerName} · {success.lineCount} line{success.lineCount === 1 ? "" : "s"}
             </div>
             <div className="pos-checkout-success-actions">
               <Button variant="ghost" type="button" onClick={() => { if (typeof window !== "undefined") window.print(); }}>Print receipt</Button>
               <Button variant="ghost" type="button" onClick={() => {
                 if (typeof navigator !== "undefined" && navigator.share) {
-                  void navigator.share({ title: "TradeOS receipt", text: `Receipt ${success.reference} · ${formatMoney(totalMinor, currencyCode)}` }).catch(() => undefined);
+                  void navigator.share({ title: "TradeOS receipt", text: `Receipt ${success.reference} · ${formatMoney(success.totalMinor, currencyCode)}` }).catch(() => undefined);
                 }
               }}>Share receipt</Button>
               <Button type="button" onClick={() => { setSuccess(null); setAmountTendered(""); onClose(); }}>New sale</Button>
