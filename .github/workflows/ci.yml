@@ -64,6 +64,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+        env:
+          DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci
+          PGPASSWORD: tradeos
 
       - name: Build
         run: pnpm build
@@ -107,3 +110,69 @@ jobs:
 
           COUNT=$(psql -h 127.0.0.1 -U tradeos -d tradeos_ci -tAc "SELECT count(*) FROM sync_mutations WHERE business_id = '$BUSINESS_ID' AND client_id = 'ci-client' AND client_mutation_id = 'ci-mutation-1'")
           test "$COUNT" = "1"
+
+  desktop-native:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock', 'apps/desktop/src-tauri/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install Linux Tauri dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file
+
+      - name: Install pnpm dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build contracts + client-core
+        run: |
+          pnpm --filter @tradeos/contracts build
+          pnpm --filter @tradeos/client-core build
+
+      - name: Desktop typecheck
+        run: pnpm --filter @tradeos/desktop typecheck
+
+      - name: Desktop tests
+        run: pnpm --filter @tradeos/desktop test
+
+      - name: Desktop Vite build
+        run: pnpm --filter @tradeos/desktop build
+
+      - name: Tauri native build (Ubuntu)
+        run: pnpm --filter @tradeos/desktop desktop:build
+        env:
+          VITE_TRADEOS_API_BASE_URL: https://staging.tradeos.africa/api

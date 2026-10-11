@@ -1,38 +1,25 @@
 import type { Metadata, Viewport } from "next";
-import "./tradeos-tokens.css";
+import type { ReactNode } from "react";
 import "./globals.css";
-import "./purchases-inventory.css";
-import "./returns.css";
-import "./public-entry.css";
-import "./sales-returns.css";
-import "./transaction-evidence.css";
-import "./customers-credit.css";
-import "./workspace-shell.css";
+import "./tradeos-tokens.css";
 import "./ui-primitives.css";
-import "./dashboard.css";
-import "./catalog.css";
-import "./pos.css";
-import "./cashbook.css";
-import "./operations.css";
-import "./reports.css";
-import "./master-data.css";
-import "./zai-correctness.css";
-import "./zai-reference.css";
+import "./workspace-shell.css";
 
 export const metadata: Metadata = {
-  title: "TradeOS Africa",
-  description: "The operating system for African businesses.",
-  applicationName: "TradeOS Africa",
+  title: "TradeOS",
+  description: "The business OS for African trade — sell, track, and reconcile from any device.",
+  applicationName: "TradeOS",
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#08261c",
+  themeColor: "#0b1424",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
       <body>{children}</body>

@@ -1,104 +1,178 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
-import { formatMoney } from "@tradeos/contracts";
+import { useEffect, useState } from "react";
+import { useApiFetch } from "../../../lib/use-api-fetch";
+import { useWorkspace } from "../workspace/use-workspace";
+import { MoneyValue } from "../business/money-value";
+import { TransactionEvidence } from "../business/transaction-evidence";
+import { StatePanel } from "../ui/state-panel";
 import { Button } from "../ui/button";
-import { PostedHistoryNote, TransactionStatusBadge } from "../business/transaction-evidence";
-import type { SaleDetail } from "./types";
+import { IconClose, IconPrint, IconShare } from "../ui/icons";
 
-type Props = {
-  sale: SaleDetail;
-  open: boolean;
-  canProcessReturns: boolean;
+interface SaleDetail {
+  sale: {
+    id: string;
+    businessId: string;
+    branchId: string;
+    status: string;
+    currencyCode: string;
+    totalMinor: number;
+    completedAt: string | null;
+    createdAt: string;
+    customer: { id: string; name: string | null; phone: string | null } | null;
+    cashierName: string | null;
+    lines: ReadonlyArray<{
+      id: string;
+      itemId: string;
+      itemName: string;
+      itemKind: string;
+      quantity: number;
+      quantityReturned: number;
+      saleUnitCode: string;
+      unitNetMinor: number;
+      unitTaxMinor: number;
+      lineTotalMinor: number;
+    }>;
+    payments: ReadonlyArray<{
+      id: string;
+      method: string;
+      amountMinor: number;
+      refundedMinor: number;
+      status: string;
+      providerReference: string | null;
+    }>;
+  };
+}
+
+interface SaleDetailSheetProps {
+  saleId: string | null;
   onClose: () => void;
-};
+}
 
-export function SaleDetailSheet({ sale, open, canProcessReturns, onClose }: Props) {
-  const sheetRef = useRef<HTMLDivElement | null>(null);
-  const closeRef = useRef<HTMLButtonElement | null>(null);
-  const previousActive = useRef<HTMLElement | null>(null);
+export function SaleDetailSheet({ saleId, onClose }: SaleDetailSheetProps) {
+  const { session } = useWorkspace();
+  const path = saleId && session
+    ? `/v1/sales/${encodeURIComponent(saleId)}?businessId=${encodeURIComponent(session.businessId)}`
+    : null;
+  const { data, loading, error } = useApiFetch<SaleDetail>(path);
 
   useEffect(() => {
-    if (!open) return;
-    previousActive.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => closeRef.current?.focus());
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
-      if (event.key !== "Tab" || !sheetRef.current) return;
-      const focusable = Array.from(sheetRef.current.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])'));
-      if (!focusable.length) return;
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", keydown);
+    if (!saleId) return;
+    if (typeof document !== "undefined") {
+      document.body.style.overflow = "hidden";
+    }
     return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", keydown);
-      previousActive.current?.focus();
+      if (typeof document !== "undefined") {
+        document.body.style.overflow = "";
+      }
     };
-  }, [onClose, open]);
+  }, [saleId]);
 
-  if (!open) return null;
-  const refundedMinor = sale.payments.reduce((sum, payment) => sum + payment.refundedMinor, 0);
+  if (!saleId) return null;
 
   return (
-    <div className="sale-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div ref={sheetRef} className="sale-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="sale-detail-title">
-        <header className="sale-detail-sheet-header">
-          <div><span>Posted receipt · read only</span><h2 id="sale-detail-title">Receipt {shortReceipt(sale.id)}</h2><small>{formatDate(sale.completedAt ?? sale.createdAt)} · {sale.cashierName ?? "Staff"}</small></div>
-          <button ref={closeRef} type="button" className="sale-detail-close" aria-label="Close receipt" onClick={onClose}>×</button>
-        </header>
-
-        <div className="sale-detail-scroll">
-          <section className="sale-detail-hero">
-            <div><span>Total</span><strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong><small><TransactionStatusBadge status={sale.status} label={humanize(sale.status)} /></small></div>
-            <div><span>Customer</span><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong><small>{sale.customer?.phone ?? "No customer account attached"}</small></div>
-            <div><span>Refunded</span><strong>{formatMoney(refundedMinor, sale.currencyCode)}</strong><small>{refundedMinor > 0 ? "Posted / processing refund evidence below" : "No refund recorded"}</small></div>
-          </section>
-
-          <section className="sale-detail-section">
-            <div className="sale-detail-section-heading"><strong>Items & services</strong><span>Original line snapshots cannot be edited after posting</span></div>
-            <div className="sale-detail-line-list">{sale.lines.map((line) => (
-              <div className="sale-detail-evidence-row" key={line.id}>
-                <div><strong>{line.itemName}</strong><span>{formatQuantity(line.quantity)} {line.saleUnitCode} · {humanize(line.itemKind)}</span></div>
-                <div><span>Return state</span><strong>{formatQuantity(line.quantityReturned)} of {formatQuantity(line.quantity)} returned</strong></div>
-                <div><span>Line total</span><strong>{formatMoney(line.lineTotalMinor, sale.currencyCode)}</strong></div>
-              </div>
-            ))}</div>
-          </section>
-
-          <section className="sale-detail-section">
-            <div className="sale-detail-section-heading"><strong>Payments</strong><span>Refund status remains visible until external providers confirm reversals</span></div>
-            <div className="sale-detail-payment-list">{sale.payments.map((payment) => (
-              <div className="sale-detail-payment" key={payment.id}>
-                <div><strong>{humanize(payment.method)}</strong><span>{payment.providerReference ?? "No provider reference"}</span></div>
-                <div><span>Received</span><strong>{formatMoney(payment.amountMinor, sale.currencyCode)}</strong></div>
-                <div><span>Status</span><TransactionStatusBadge status={payment.status} label={humanize(payment.status)} />{payment.refundedMinor > 0 ? <small>{formatMoney(payment.refundedMinor, sale.currencyCode)} refunded</small> : null}</div>
-              </div>
-            ))}</div>
-          </section>
-
-          <PostedHistoryNote subject="Sale receipt" correction="returns, refunds or exchanges" title="Immutable transaction history" />
+    <>
+      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label="Sale detail">
+        <div className="tos-sheet__head">
+          <div className="tos-sheet__head-main">
+            <span className="tos-sheet__eyebrow">Receipt</span>
+            <h2 className="tos-sheet__title">{saleId.slice(0, 8)}</h2>
+            <p className="tos-sheet__sub">Server-authoritative sale record</p>
+          </div>
+          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close sale detail">
+            <IconClose style={{ width: 18, height: 18 }} />
+          </button>
         </div>
 
-        <footer className="sale-detail-footer">
-          <Button variant="ghost" type="button" onClick={() => { if (typeof window !== "undefined") window.print(); }}>Print</Button>
-          <Button variant="ghost" type="button" onClick={() => {
+        <div className="tos-sheet__body">
+          {loading ? (
+            <StatePanel inline variant="loading" title="Loading receipt…" />
+          ) : error ? (
+            <StatePanel inline variant="error" title="Could not load receipt" text={error} />
+          ) : data ? (
+            <SaleDetailBody detail={data} />
+          ) : null}
+        </div>
+
+        <div className="tos-sheet__foot">
+          <Button variant="ghost" icon={<IconPrint className="tos-btn__icon" />} onClick={() => window.print()}>Print</Button>
+          <Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
             if (typeof navigator !== "undefined" && navigator.share) {
-              void navigator.share({ title: "TradeOS receipt", text: `Receipt ${shortReceipt(sale.id)} · ${formatMoney(sale.totalMinor, sale.currencyCode)}` }).catch(() => undefined);
+              try { await navigator.share({ title: "TradeOS receipt", text: `Receipt ${saleId}` }); } catch { /* cancelled */ }
             }
           }}>Share</Button>
-          <Button variant="ghost" type="button" onClick={onClose}>Close</Button>
-          {canProcessReturns && sale.lines.some((line) => line.quantityReturnable > 0) ? <><a className="tos-button tos-button--secondary tos-button--default" href={`/returns?saleId=${encodeURIComponent(sale.id)}`}>Process return / refund</a><a className="tos-button tos-button--primary tos-button--default" href={`/returns?saleId=${encodeURIComponent(sale.id)}&mode=exchange`}>Exchange items</a></> : null}
-        </footer>
+          <Button variant="primary" onClick={onClose}>Close</Button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
-function shortReceipt(id: string): string { return `#${id.slice(0, 8).toUpperCase()}`; }
-function humanize(value: string): string { return value.replaceAll("_", " "); }
-function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }
-function formatDate(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+function SaleDetailBody({ detail }: { detail: SaleDetail }) {
+  const sale = detail.sale;
+  return (
+    <>
+      <div className="tos-section">
+        <div className="tos-section__head">
+          <h3 className="tos-section__title">Sale summary</h3>
+          <span className={`tos-badge ${sale.status === "COMPLETED" ? "tos-badge--positive" : sale.status === "VOID" ? "tos-badge--danger" : "tos-badge--neutral"}`}>
+            <span className="tos-badge__dot" />{sale.status}
+          </span>
+        </div>
+        <div className="tos-section__body--padded">
+          <dl className="tos-kv">
+            <div><dt className="tos-kv__key">Receipt no.</dt><dd className="tos-kv__val tos-table__mono">{sale.id}</dd></div>
+            <div><dt className="tos-kv__key">Customer</dt><dd className="tos-kv__val">{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in"}</dd></div>
+            <div><dt className="tos-kv__key">Cashier</dt><dd className="tos-kv__val">{sale.cashierName ?? "—"}</dd></div>
+            <div><dt className="tos-kv__key">Completed</dt><dd className="tos-kv__val">{sale.completedAt ? new Date(sale.completedAt).toLocaleString() : "Pending"}</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div className="tos-section">
+        <div className="tos-section__head">
+          <h3 className="tos-section__title">Line items</h3>
+          <span className="tos-section__sub">{sale.lines.length} line(s)</span>
+        </div>
+        <div className="tos-section__body">
+          <ul className="tos-list" style={{ borderRadius: 0, border: "none", boxShadow: "none" }}>
+            {sale.lines.map((line) => (
+              <li key={line.id} className="tos-list__row" style={{ borderBottom: "1px solid var(--tos-border)" }}>
+                <div className="tos-list__row-main">
+                  <span className="tos-list__row-title">{line.itemName}</span>
+                  <span className="tos-list__row-sub">{line.quantity} × {line.saleUnitCode}</span>
+                </div>
+                <div className="tos-list__row-meta">
+                  <span className="tos-list__row-amount">
+                    <MoneyValue minor={line.lineTotalMinor} currencyCode={sale.currencyCode} />
+                  </span>
+                  {line.quantityReturned > 0 ? (
+                    <span className="tos-list__row-pending">{line.quantityReturned} returned</span>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <TransactionEvidence
+        currencyCode={sale.currencyCode}
+        lines={[
+          { label: "Subtotal", minor: sale.totalMinor, tone: "default" },
+          ...(sale.payments.length > 0
+            ? sale.payments.map((p) => ({
+                label: `Payment (${p.method})`,
+                minor: p.amountMinor,
+                tone: "positive" as const,
+              }))
+            : [{ label: "Total due", minor: sale.totalMinor, tone: "default" as const }]),
+        ]}
+        totalLabel="Total"
+        totalMinor={sale.totalMinor}
+        footnote="Posted sales are immutable business evidence. Corrections are made via returns or refunds, never by editing the original."
+      />
+    </>
+  );
+}

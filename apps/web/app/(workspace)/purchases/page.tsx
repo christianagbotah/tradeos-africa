@@ -1,7 +1,5 @@
-"use client";
-import { PurchasesInventory } from "../../components/purchases-inventory";
-import { useWorkspace } from "../../components/workspace/use-workspace";
+import { SupplierWorkspace } from "../../components/purchases/supplier-workspace";
+
 export default function PurchasesPage() {
-  const { context, branchId, catalog } = useWorkspace();
-  return <PurchasesInventory businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} role={context.membership.role} catalog={catalog} view="purchases" />;
+  return <SupplierWorkspace />;
 }

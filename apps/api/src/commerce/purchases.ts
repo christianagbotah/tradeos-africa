@@ -250,10 +250,12 @@ async function writeEvents(
 
 export const settlementMethods = ["CASH","MOMO","CARD","BANK","OTHER","SUPPLIER_CREDIT"] as const;
 export type SettlementMethod = typeof settlementMethods[number];
-export interface SupplierPaymentPayload { moneyAccountId?:string; supplierId: string; amountMinor: number; method: Exclude<SettlementMethod,"SUPPLIER_CREDIT">; paidByStaffId?: string }
+export interface SupplierPaymentPayload { moneyAccountId?:string; supplierId: string; amountMinor: number; method: Exclude<SettlementMethod,"SUPPLIER_CREDIT">; providerReference?: string; paidByStaffId?: string }
 export async function applySupplierPaymentMutation(pool: DatabasePool, context: PurchaseReceiveContext, payload: SupplierPaymentPayload) {
  if (!context.branchId || !context.clientMutationId || Number.isNaN(Date.parse(context.occurredAt))) throw new PurchaseMutationError("Invalid payment context");
  if (!payload.supplierId || !payload.paidByStaffId || !Number.isSafeInteger(payload.amountMinor) || payload.amountMinor <= 0 || !settlementMethods.includes(payload.method) || (payload.method as string) === "SUPPLIER_CREDIT") throw new PurchaseMutationError("Invalid supplier payment");
+ const providerReference = payload.providerReference?.trim() || null;
+ if (providerReference && providerReference.length > 200) throw new PurchaseMutationError("Supplier payment provider reference is too long");
  return withTransaction(pool, async client => {
   await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${context.businessId}:${context.clientMutationId}`]);
   const branch = await client.query<{currency_code:string}>(`SELECT b.currency_code FROM businesses b JOIN branches br ON br.business_id=b.id WHERE b.id=$1 AND br.id=$2 AND br.is_active=true`,[context.businessId,context.branchId]);
@@ -262,19 +264,20 @@ export async function applySupplierPaymentMutation(pool: DatabasePool, context: 
   if (!actor.rowCount) throw new PurchaseMutationError("Staff actor unavailable", "STAFF_ACTOR_REQUIRED");
   const supplier = await client.query(`SELECT id FROM suppliers WHERE business_id=$1 AND id=$2 FOR UPDATE`,[context.businessId,payload.supplierId]);
   if (!supplier.rowCount) throw new PurchaseMutationError("Supplier not found", "SUPPLIER_NOT_FOUND");
-  const prior = await client.query<{id:string;branch_id:string;supplier_id:string;source_type:string}>(`SELECT id,branch_id,supplier_id,source_type FROM supplier_payable_ledger WHERE business_id=$1 AND client_mutation_id=$2`,[context.businessId,context.clientMutationId]);
+  const prior = await client.query<{id:string;branch_id:string;supplier_id:string;source_type:string;balance_delta_minor:string|number;method:string;provider_reference:string|null}>(`SELECT id,branch_id,supplier_id,source_type,balance_delta_minor,method,provider_reference FROM supplier_payable_ledger WHERE business_id=$1 AND client_mutation_id=$2`,[context.businessId,context.clientMutationId]);
   if (prior.rows[0]) {
-   if (prior.rows[0].branch_id !== context.branchId || prior.rows[0].supplier_id !== payload.supplierId || prior.rows[0].source_type !== "PAYMENT") throw new PurchaseMutationError("Payment replay context differs", "PAYMENT_REPLAY_INVALID");
-   return {paymentId:prior.rows[0].id,idempotentReplay:true};
+   const priorPayment = prior.rows[0];
+   if (priorPayment.branch_id !== context.branchId || priorPayment.supplier_id !== payload.supplierId || priorPayment.source_type !== "PAYMENT" || Number(priorPayment.balance_delta_minor) !== -payload.amountMinor || priorPayment.method !== payload.method || priorPayment.provider_reference !== providerReference) throw new PurchaseMutationError("Payment replay context differs", "PAYMENT_REPLAY_INVALID");
+   return {paymentId:priorPayment.id,idempotentReplay:true};
   }
   const balance = await client.query<{balance:string}>(`SELECT COALESCE(SUM(balance_delta_minor),0) AS balance FROM supplier_payable_ledger WHERE business_id=$1 AND supplier_id=$2 AND currency_code=$3`,[context.businessId,payload.supplierId,branch.rows[0].currency_code]);
   const outstanding = signedMinor(Number(balance.rows[0]?.balance ?? 0));
   if (outstanding <= 0 || payload.amountMinor > outstanding) throw new PurchaseMutationError("Payment exceeds positive supplier payable", "SUPPLIER_OVERPAYMENT");
-  const result = await client.query<{id:string}>(`INSERT INTO supplier_payable_ledger (business_id,branch_id,supplier_id,currency_code,balance_delta_minor,method,source_type,source_id,actor_staff_id,client_mutation_id,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,'PAYMENT',gen_random_uuid(),$7,$8,$9) RETURNING id`,[context.businessId,context.branchId,payload.supplierId,branch.rows[0].currency_code,-payload.amountMinor,payload.method,payload.paidByStaffId,context.clientMutationId,context.occurredAt]);
+  const result = await client.query<{id:string}>(`INSERT INTO supplier_payable_ledger (business_id,branch_id,supplier_id,currency_code,balance_delta_minor,method,provider_reference,source_type,source_id,actor_staff_id,client_mutation_id,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'PAYMENT',gen_random_uuid(),$8,$9,$10) RETURNING id`,[context.businessId,context.branchId,payload.supplierId,branch.rows[0].currency_code,-payload.amountMinor,payload.method,providerReference,payload.paidByStaffId,context.clientMutationId,context.occurredAt]);
   const paymentId = result.rows[0]!.id;
   await allocateSupplierPayment(client,{businessId:context.businessId,supplierId:payload.supplierId,paymentId,amountMinor:payload.amountMinor,occurredAt:context.occurredAt});
   await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode:branch.rows[0].currency_code,method:payload.method,amountDeltaMinor:-payload.amountMinor,entryType:"SUPPLIER_PAYMENT",sourceType:"SUPPLIER_PAYMENT",sourceId:paymentId,actorStaffId:payload.paidByStaffId,idempotencyKey:`supplier-payment:${paymentId}`});
-  const eventPayload = JSON.stringify({supplierId:payload.supplierId,amountMinor:payload.amountMinor,method:payload.method});
+  const eventPayload = JSON.stringify({supplierId:payload.supplierId,amountMinor:payload.amountMinor,method:payload.method,providerReference});
   await client.query(`INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at) VALUES ($1,$2,$3,'SUPPLIER_PAYMENT_CREATED','SUPPLIER_PAYMENT',$4,$5,$6::jsonb,$7)`,[context.businessId,context.branchId,payload.paidByStaffId,paymentId,context.clientMutationId,eventPayload,context.occurredAt]);
   await client.query(`INSERT INTO outbox_events (business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at) VALUES ($1,$2,'SUPPLIER',$3,'SUPPLIER_PAYMENT_CREATED',$4::jsonb,$5)`,[context.businessId,context.branchId,payload.supplierId,eventPayload,context.occurredAt]);
   return {paymentId,balanceMinor:addSignedMinor(outstanding,-payload.amountMinor),idempotentReplay:false};

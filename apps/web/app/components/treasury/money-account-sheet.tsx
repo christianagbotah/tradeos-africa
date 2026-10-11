@@ -1,256 +1,162 @@
 "use client";
 
-import React, { type FormEvent, useEffect, useRef, useState } from "react";
-import { formatMoney } from "@tradeos/contracts";
-import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
+import { useEffect, useState } from "react";
+import { useWorkspace } from "../workspace/use-workspace";
+import { MoneyValue } from "../business/money-value";
 import { Button } from "../ui/button";
-import { MasterDataActions, masterDataLifecycleMessage } from "../business/master-data-actions";
-import type { MoneyAccount } from "./types";
+import { IconClose } from "../ui/icons";
+import { getOfflineQueue } from "../../../lib/offline-sync";
 
-const adminRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
-const methods = ["CASH", "MOMO", "CARD", "BANK", "OTHER"] as const;
-const kinds: Record<string, string> = {
-  CASH: "CASH_DRAWER",
-  MOMO: "MOMO_WALLET",
-  CARD: "CARD_CLEARING",
-  BANK: "BANK_ACCOUNT",
-  OTHER: "OTHER",
-};
-
-export type MoneyAccountDraft = {
-  accountId: string | null;
-  expectedUpdatedAt: string | null;
-  branchId: string | null;
+export interface MoneyAccount {
+  id: string;
   name: string;
-  method: string;
-  kind: string;
-  provider: string;
-  referenceLabel: string;
-  allowNegative: boolean;
+  method: "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER";
+  kind: "CASH_DRAWER" | "MOMO_WALLET" | "BANK_ACCOUNT" | "CARD_CLEARING" | "OTHER";
+  provider: string | null;
+  referenceLabel: string | null;
+  balanceMinor: number;
   active: boolean;
-  businessWide: boolean;
-};
-
-type Props = {
-  open: boolean;
-  businessId: string;
-  branchId: string;
+  isDefault: boolean;
   currencyCode: string;
-  role: string;
+  updatedAt: string;
+}
+
+interface MoneyAccountSheetProps {
   account: MoneyAccount | null;
   onClose: () => void;
-  onSaved: (account: MoneyAccount) => void | Promise<void>;
-  onMessage: (message: string) => void;
-};
-
-export function moneyAccountDraftFor(account: MoneyAccount | null, branchId: string): MoneyAccountDraft {
-  if (!account) {
-    return {
-      accountId: null,
-      expectedUpdatedAt: null,
-      branchId,
-      name: "",
-      method: "CASH",
-      kind: "CASH_DRAWER",
-      provider: "",
-      referenceLabel: "",
-      allowNegative: false,
-      active: true,
-      businessWide: false,
-    };
-  }
-  return {
-    accountId: account.id,
-    expectedUpdatedAt: account.updatedAt,
-    branchId: account.branchId,
-    name: account.name,
-    method: account.method,
-    kind: account.kind,
-    provider: account.provider ?? "",
-    referenceLabel: account.referenceLabel ?? "",
-    allowNegative: account.allowNegative,
-    active: account.active,
-    businessWide: account.branchId === null,
-  };
 }
 
-export function moneyAccountMessage(code: string | null | undefined, fallback = "Money-account change could not be saved."): string {
-  if (code === "REVISION_REQUIRED") return "Refresh this account before editing so TradeOS can protect newer changes.";
-  if (code === "OFFLINE_ACCOUNT_CHANGE") return "Money-account configuration changes require an online connection.";
-  return masterDataLifecycleMessage(code, "account", fallback);
+export function MoneyAccountSheet({ account, onClose }: MoneyAccountSheetProps) {
+  useEffect(() => {
+    if (!account) return;
+    if (typeof document !== "undefined") document.body.style.overflow = "hidden";
+    return () => { if (typeof document !== "undefined") document.body.style.overflow = ""; };
+  }, [account]);
+
+  if (!account) return null;
+  return (
+    <>
+      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet" role="dialog" aria-label="Money account detail">
+        <div className="tos-sheet__head">
+          <div className="tos-sheet__head-main">
+            <span className="tos-sheet__eyebrow">Treasury · {account.method}</span>
+            <h2 className="tos-sheet__title">{account.name}</h2>
+            <p className="tos-sheet__sub">{account.kind}{account.isDefault ? " · Default" : ""}</p>
+          </div>
+          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close"><IconClose style={{ width: 18, height: 18 }} /></button>
+        </div>
+        <div className="tos-sheet__body">
+          <dl className="tos-kv">
+            <div><dt className="tos-kv__key">Provider</dt><dd className="tos-kv__val">{account.provider ?? "—"}</dd></div>
+            <div><dt className="tos-kv__key">Reference</dt><dd className="tos-kv__val">{account.referenceLabel ?? "—"}</dd></div>
+            <div><dt className="tos-kv__key">Currency</dt><dd className="tos-kv__val">{account.currencyCode}</dd></div>
+            <div><dt className="tos-kv__key">Balance</dt><dd className="tos-kv__val"><MoneyValue minor={account.balanceMinor} currencyCode={account.currencyCode} tone={account.balanceMinor < 0 ? "negative" : "default"} /></dd></div>
+            <div><dt className="tos-kv__key">Status</dt><dd className="tos-kv__val">{account.active ? "Active" : "Inactive"}</dd></div>
+          </dl>
+        </div>
+        <div className="tos-sheet__foot"><Button variant="ghost" onClick={onClose}>Close</Button></div>
+      </div>
+    </>
+  );
 }
 
-export function MoneyAccountSheet({ open, businessId, branchId, currencyCode, role, account, onClose, onSaved, onMessage }: Props) {
-  const canManage = adminRoles.has(role);
-  const [draft, setDraft] = useState<MoneyAccountDraft>(() => moneyAccountDraftFor(account, branchId));
+interface MoneyAccountFormSheetProps {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}
+
+export function MoneyAccountFormSheet({ open, onClose, onCreated }: MoneyAccountFormSheetProps) {
+  const { session, role, bump } = useWorkspace();
+  const [name, setName] = useState("");
+  const [method, setMethod] = useState<MoneyAccount["method"]>("CASH");
+  const [kind, setKind] = useState<MoneyAccount["kind"]>("CASH_DRAWER");
+  const [provider, setProvider] = useState("");
+  const [referenceLabel, setReferenceLabel] = useState("");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const firstInputRef = useRef<HTMLInputElement | null>(null);
-  const sheetRef = useRef<HTMLDivElement | null>(null);
-  const previous_active_element = useRef<HTMLElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    setDraft(moneyAccountDraftFor(account, branchId));
-    setMessage(null);
-  }, [account, branchId, open]);
+    if (open) { setName(""); setMethod("CASH"); setKind("CASH_DRAWER"); setProvider(""); setReferenceLabel(""); setBusy(false); setError(null); }
+  }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    previous_active_element.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => firstInputRef.current?.focus());
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab" || !sheetRef.current) return;
-      const focusable = Array.from(sheetRef.current.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'));
-      if (!focusable.length) return;
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKeyDown);
-      previous_active_element.current?.focus();
-    };
-  }, [onClose, open]);
+  if (!open || !session) return null;
+  const canWrite = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"].includes(role);
 
-  if (!open || !canManage) return null;
-
-  const fail = (reason: unknown) => {
-    const text = reason instanceof ClientApiError ? moneyAccountMessage(reason.code, reason.message) : messageFrom(reason);
-    setMessage(text);
-  };
-
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!draft.name.trim() || busy) return;
-    if (!navigator.onLine) {
-      setMessage(moneyAccountMessage("OFFLINE_ACCOUNT_CHANGE"));
-      return;
-    }
-    setBusy(true);
-    setMessage(null);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || busy || !canWrite) return;
+    setBusy(true); setError(null);
     try {
-      const result = account
-        ? await clientApi<{ account: MoneyAccount }>(`/api/tradeos/v1/money-accounts/${account.id}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              businessId,
-              expectedUpdatedAt: draft.expectedUpdatedAt,
-              name: draft.name.trim(),
-              provider: draft.provider.trim() || null,
-              referenceLabel: draft.referenceLabel.trim() || null,
-              allowNegative: draft.allowNegative,
-            }),
-          })
-        : await clientApi<{ account: MoneyAccount }>("/api/tradeos/v1/money-accounts", {
-            method: "POST",
-            body: JSON.stringify({
-              businessId,
-              branchId: draft.businessWide ? null : branchId,
-              name: draft.name.trim(),
-              method: draft.method,
-              kind: draft.kind,
-              currencyCode,
-              provider: draft.provider.trim() || null,
-              referenceLabel: draft.referenceLabel.trim() || null,
-              allowNegative: draft.allowNegative,
-            }),
-          });
-      await onSaved(result.account);
-      onMessage(account ? "Money account updated." : "Money account created.");
-      onClose();
-    } catch (reason) {
-      fail(reason);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleStatus = async () => {
-    if (!account || busy) return;
-    if (!navigator.onLine) {
-      setMessage(moneyAccountMessage("OFFLINE_ACCOUNT_CHANGE"));
-      return;
-    }
-    setBusy(true);
-    setMessage(null);
-    try {
-      const result = await clientApi<{ account: MoneyAccount }>(`/api/tradeos/v1/money-accounts/${account.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ businessId, expectedUpdatedAt: draft.expectedUpdatedAt, active: !draft.active }),
-      });
-      await onSaved(result.account);
-      onMessage(draft.active ? "Money account deactivated." : "Money account reactivated.");
-      onClose();
-    } catch (reason) {
-      fail(reason);
-    } finally {
-      setBusy(false);
-    }
+      const queue = getOfflineQueue();
+      const payload: Record<string, unknown> = { name: name.trim(), method, kind };
+      if (provider.trim()) payload.provider = provider.trim();
+      if (referenceLabel.trim()) payload.referenceLabel = referenceLabel.trim();
+      const mutation = queue.build({ businessId: session.businessId, mutationType: "MONEY_ACCOUNT_CREATE", payload });
+      await queue.enqueue(mutation);
+      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      bump(); onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create account.");
+    } finally { setBusy(false); }
   };
 
   return (
-    <div className="money-account-sheet-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div ref={sheetRef} className="money-account-sheet" role="dialog" aria-modal="true" aria-labelledby="money-account-sheet-title">
-        <header className="money-account-sheet-header">
-          <div><span>Treasury configuration</span><h2 id="money-account-sheet-title">{account ? `Edit ${account.name}` : "Add money account"}</h2></div>
-          <button type="button" className="money-account-sheet-close" aria-label="Close money account" onClick={onClose}>×</button>
-        </header>
-
-        <form className="money-account-sheet-body" onSubmit={(event) => void save(event)}>
-          <section>
-            <div className="money-account-section-heading"><strong>Account details</strong><span>Forward-looking treasury configuration</span></div>
-            <div className="money-account-field-grid">
-              <label>Name<input ref={firstInputRef} required maxLength={160} value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-              <label>Provider<input maxLength={300} placeholder="Optional" value={draft.provider} onChange={(event) => setDraft((current) => ({ ...current, provider: event.target.value }))} /></label>
-              <label>Reference label<input maxLength={300} placeholder="Till number, wallet label, bank reference…" value={draft.referenceLabel} onChange={(event) => setDraft((current) => ({ ...current, referenceLabel: event.target.value }))} /></label>
+    <>
+      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet" role="dialog" aria-label="Add money account">
+        <div className="tos-sheet__head">
+          <div className="tos-sheet__head-main">
+            <span className="tos-sheet__eyebrow">Treasury</span>
+            <h2 className="tos-sheet__title">Add money account</h2>
+          </div>
+          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close"><IconClose style={{ width: 18, height: 18 }} /></button>
+        </div>
+        <form className="tos-sheet__body" onSubmit={handleSubmit}>
+          <div className="tos-field">
+            <label className="tos-field__label" htmlFor="ma-name">Account name<span className="tos-field__label-required">*</span></label>
+            <input id="ma-name" className="tos-input" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} disabled={!canWrite} />
+          </div>
+          <div className="tos-public__form-row">
+            <div className="tos-field">
+              <label className="tos-field__label" htmlFor="ma-method">Method</label>
+              <select id="ma-method" className="tos-select" value={method} onChange={(e) => setMethod(e.target.value as MoneyAccount["method"])} disabled={!canWrite}>
+                <option value="CASH">Cash</option>
+                <option value="MOMO">Mobile money</option>
+                <option value="CARD">Card</option>
+                <option value="BANK">Bank</option>
+                <option value="OTHER">Other</option>
+              </select>
             </div>
-          </section>
-
-          {!account ? (
-            <section>
-              <div className="money-account-section-heading"><strong>Method &amp; scope</strong><span>Method and account kind are fixed after creation</span></div>
-              <div className="money-account-field-grid">
-                <label>Payment method<select value={draft.method} onChange={(event) => setDraft((current) => ({ ...current, method: event.target.value, kind: kinds[event.target.value] ?? "OTHER" }))}>{methods.map((method) => <option key={method}>{method}</option>)}</select></label>
-                <label className="money-account-check"><input type="checkbox" checked={draft.businessWide} onChange={(event) => setDraft((current) => ({ ...current, businessWide: event.target.checked }))} /> Business-wide account</label>
-              </div>
-            </section>
-          ) : (
-            <section>
-              <div className="money-account-section-heading"><strong>Account identity</strong><span>Protected after creation</span></div>
-              <div className="money-account-identity"><span>{account.method}</span><span>{account.kind.replaceAll("_", " ")}</span><span>{account.branchId ? "Branch account" : "Business-wide"}</span></div>
-            </section>
-          )}
-
-          <section>
-            <div className="money-account-section-heading"><strong>Balance policy</strong><span>Does not rewrite posted money history</span></div>
-            <label className="money-account-check"><input type="checkbox" checked={draft.allowNegative} onChange={(event) => setDraft((current) => ({ ...current, allowNegative: event.target.checked }))} /> Allow negative transfer-source balance</label>
-            {account ? <p className="money-account-balance-note">Current posted balance: <strong>{formatMoney(account.balanceMinor, currencyCode)}</strong></p> : null}
-          </section>
-
-          {account ? (
-            <section>
-              <div className="money-account-section-heading"><strong>Status</strong><span>Historical cashbook entries remain intact</span></div>
-              <p className="money-account-status-copy">{draft.active ? "This account can receive new postings." : "This account is inactive for new postings but remains in treasury history."}</p>
-              <MasterDataActions entityLabel="account" active={draft.active} canChangeStatus busy={busy} lifecycleVerb="deactivate" onToggleStatus={toggleStatus} />
-            </section>
-          ) : null}
-
-          {message ? <div className="money-account-sheet-message" role="status">{message}</div> : null}
-          <footer className="money-account-sheet-footer">
-            <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={busy || !draft.name.trim()}>{busy ? "Saving…" : account ? "Save changes" : "Create account"}</Button>
-          </footer>
+            <div className="tos-field">
+              <label className="tos-field__label" htmlFor="ma-kind">Kind</label>
+              <select id="ma-kind" className="tos-select" value={kind} onChange={(e) => setKind(e.target.value as MoneyAccount["kind"])} disabled={!canWrite}>
+                <option value="CASH_DRAWER">Cash drawer</option>
+                <option value="MOMO_WALLET">MoMo wallet</option>
+                <option value="BANK_ACCOUNT">Bank account</option>
+                <option value="CARD_CLEARING">Card clearing</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+          </div>
+          <div className="tos-field">
+            <label className="tos-field__label" htmlFor="ma-provider">Provider (e.g. MTN, Stanbic)</label>
+            <input id="ma-provider" className="tos-input" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={!canWrite} />
+          </div>
+          <div className="tos-field">
+            <label className="tos-field__label" htmlFor="ma-ref">Reference label (e.g. account number)</label>
+            <input id="ma-ref" className="tos-input" value={referenceLabel} onChange={(e) => setReferenceLabel(e.target.value)} disabled={!canWrite} />
+          </div>
+          {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
         </form>
+        <div className="tos-sheet__foot">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit} loading={busy} disabled={!name.trim() || !canWrite}>
+            {canWrite ? "Create account" : "No permission"}
+          </Button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

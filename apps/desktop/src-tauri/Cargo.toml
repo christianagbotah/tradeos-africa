@@ -16,3 +16,11 @@ tauri-build = { version = "2.7.0", features = [] }
 tauri = { version = "2.12.0", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-store = "2"
+tauri-plugin-stronghold = "2"
+rust-argon2 = "2.1"
+rand = "0.8"
+keyring = "3"
+
+[profile.dev.package.scrypt]
+opt-level = 3

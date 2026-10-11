@@ -1,541 +1,781 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { DemoAccountSelect } from "./demo-account-select";
-import { getActiveBusinessId, getOrCreateClientId, setActiveBusinessId } from "../lib/offline-sync";
-import { clearWorkspaceBootstrap, readWorkspaceBootstrap } from "../lib/workspace-bootstrap";
-import { clearFeatureCaches } from "../lib/feature-cache";
-import { finalizePendingLogout, invalidateSessionEpoch, isLogoutPending, markLogoutPending } from "../lib/session-lifecycle";
-import type { BusinessContext, MePayload } from "../lib/workspace-types";
 import {
   SUPPORTED_COUNTRIES,
   SUPPORTED_CURRENCIES,
   SUPPORTED_TIMEZONES,
   getCountry,
-  getCurrencyMeta,
-  isSupportedCurrency,
-  isSupportedCountry,
-  isSupportedTimezone,
+  getDefaultCurrencyCode,
+  getSuggestedTimezones,
 } from "@tradeos/contracts";
+import { getOfflineQueue, generateUuid, type WebSession } from "../../lib/offline-sync";
+import { Button } from "./ui/button";
+import { IconAlert, IconCheck, IconRefresh, IconShield } from "./ui/icons";
 
-type AuthMode = "login" | "register";
-type PublicEntryMode =
-  | { kind: "loading" }
-  | { kind: "auth" }
-  | { kind: "onboarding" }
-  | { kind: "error" }
-  | { kind: "redirect"; href: "/dashboard" };
+// --- Phase state machine --------------------------------------------------
 
-export function getPublicEntryMode(input: {
-  resolved: boolean;
-  session: MePayload | null;
-  workspaceReady: boolean;
-  error: string | null;
-}): PublicEntryMode {
-  if (!input.resolved) return { kind: "loading" };
-  if (!input.session) return { kind: "auth" };
-  if (input.session.memberships.length === 0) return { kind: "onboarding" };
-  if (input.workspaceReady) return { kind: "redirect", href: "/dashboard" };
-  if (input.error) return { kind: "error" };
-  return { kind: "loading" };
+export type PublicEntryPhase = "loading" | "auth" | "onboarding" | "recovery";
+export type AuthTab = "signin" | "register";
+
+const BUSINESS_TYPES = [
+  { value: "RETAIL_HARDWARE", label: "Retail / Hardware" },
+  { value: "FOOD", label: "Food & Beverage" },
+  { value: "SALON_BARBER", label: "Salon / Barber" },
+  { value: "DRINKING_SPOT", label: "Drinking spot / Bar" },
+  { value: "WASHING_BAY", label: "Washing bay" },
+  { value: "CAR_PARK", label: "Car park" },
+  { value: "DISTRIBUTION", label: "Distribution" },
+  { value: "SERVICES", label: "Services" },
+  { value: "OTHER", label: "Other" },
+] as const;
+
+const APP_VERSION = "0.0.1";
+const WEB_DEVICE_KEY_STORAGE = "tradeos.web.deviceKey.v1";
+
+function getOrCreateDeviceKey(): string {
+  if (typeof window === "undefined") return "web-ssr";
+  try {
+    let key = window.localStorage.getItem(WEB_DEVICE_KEY_STORAGE);
+    if (!key) {
+      key = generateUuid();
+      window.localStorage.setItem(WEB_DEVICE_KEY_STORAGE, key);
+    }
+    return key;
+  } catch {
+    return generateUuid();
+  }
+}
+
+// --- API response shapes --------------------------------------------------
+
+export interface AuthSession {
+  accessToken: string;
+  refreshToken: string;
+  clientId: string;
+  expiresAt?: string;
+}
+
+interface AuthResponse {
+  user: { id: string; displayName: string; email: string | null; phoneE164: string | null };
+  session: AuthSession;
+}
+
+export interface Membership {
+  id: string;
+  businessId: string;
+  businessName: string;
+  businessType: string;
+  businessStatus: string;
+  role: string;
+  staffId: string | null;
+}
+
+export interface MeResponse {
+  user: { id: string; displayName: string; email: string | null; phoneE164: string | null };
+  client: { platform: string; deviceKey: string; appVersion: string };
+  memberships: Membership[];
+}
+
+interface OnboardingResponse {
+  business: { id: string; name: string; businessType: string; countryCode: string; currencyCode: string; timezone: string };
+  branch: { id: string; name: string; code: string };
+  owner: { staffId: string; membershipId: string; role: string };
+}
+
+export interface PendingAuth {
+  accessToken: string;
+  refreshToken: string;
+  clientId: string;
+  displayName: string;
+}
+
+// --- Component ------------------------------------------------------------
+
+/**
+ * Returns true when the authenticated user has no business memberships yet
+ * and must complete onboarding before entering the workspace.
+ */
+export function needsOnboarding(me: MeResponse): boolean {
+  const first = me.memberships[0];
+  return !first || !first.staffId;
+}
+
+/**
+ * Routing decision for the initial public-entry phase.
+ *
+ * - no stored session and not yet booted → "loading"
+ * - no stored session after boot → "auth"
+ * - stored session but validation failed → "recovery"
+ * - stored session and validation passed → "loading" (the component will redirect)
+ *
+ * Exposed for unit testing so the routing logic can be verified without
+ * driving the React component.
+ */
+export function derivePhase(opts: {
+  booted: boolean;
+  hasStoredSession: boolean;
+  validationResult: "pending" | "valid" | "invalid";
+}): PublicEntryPhase {
+  if (!opts.booted) return "loading";
+  if (!opts.hasStoredSession) return "auth";
+  if (opts.validationResult === "pending") return "loading";
+  if (opts.validationResult === "invalid") return "recovery";
+  return "loading";
 }
 
 export function PublicEntry() {
   const router = useRouter();
-  const [resolved, setResolved] = useState(false);
-  const [session, setSession] = useState<MePayload | null>(null);
-  const [workspaceReady, setWorkspaceReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const offlineQueue = useMemo(() => getOfflineQueue(), []);
+  const [phase, setPhase] = useState<PublicEntryPhase>("loading");
+  const [authTab, setAuthTab] = useState<AuthTab>("signin");
+  const [pendingAuth, setPendingAuth] = useState<PendingAuth | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
 
-  const loadSession = useCallback(async () => {
-    setError(null);
-    setWorkspaceReady(false);
-    try {
-      const pendingLogout = await finalizePendingLogout();
-      if (pendingLogout !== "none") {
-        clearWorkspaceBootstrap();
-        clearFeatureCaches();
-        setActiveBusinessId(null);
-        setSession(null);
-        if (pendingLogout === "pending") setError("Sign-out is saved on this device and will finish when the connection is available.");
-        return;
-      }
-      const response = await fetch("/api/session/me", { cache: "no-store" });
-      if (response.status === 401) {
-        invalidateSessionEpoch();
-        clearWorkspaceBootstrap();
-        clearFeatureCaches();
-        setSession(null);
-        setActiveBusinessId(null);
-        return;
-      }
-      const data = await readResponse<MePayload>(response);
-      setSession(data);
-      if (data.memberships.length === 0) {
-        setActiveBusinessId(null);
-        return;
-      }
-
-      const remembered = getActiveBusinessId();
-      const membership = data.memberships.find((item) => item.businessId === remembered) ?? data.memberships[0]!;
-      const business = await api<BusinessContext>(`/api/tradeos/v1/businesses/${membership.businessId}/context`);
-      if (!business.branches.some((branch) => branch.active)) throw new Error("This business has no active branch.");
-      setActiveBusinessId(membership.businessId);
-      setWorkspaceReady(true);
-    } catch (reason) {
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
-        const cached = readWorkspaceBootstrap();
-        if (cached) {
-          setSession(cached.session);
-          setActiveBusinessId(cached.context.business.id);
-          setWorkspaceReady(true);
-          return;
-        }
-      }
-      setError(messageFrom(reason));
-    } finally {
-      setResolved(true);
-    }
-  }, []);
-
-  useEffect(() => { void loadSession(); }, [loadSession]);
-
-  const mode = getPublicEntryMode({ resolved, session, workspaceReady, error });
+  // Initial boot: check for an existing session.
   useEffect(() => {
-    if (mode.kind === "redirect") router.replace(mode.href);
-  }, [mode.kind, router]);
-
-  if (mode.kind === "loading" || mode.kind === "redirect") return <LoadingScreen />;
-  if (mode.kind === "auth") return <AuthScreen onAuthenticated={() => void loadSession()} error={error} />;
-  if (mode.kind === "error") return <WorkspaceRecoveryScreen message={error ?? "TradeOS could not load this workspace."} onRetry={() => void loadSession()} onLogout={() => void logout(setSession)} />;
-  return <BusinessOnboarding userName={session!.user.displayName} onCreated={() => void loadSession()} onLogout={() => void logout(setSession)} />;
-}
-
-const businessTypes = [
-  ["RETAIL_HARDWARE", "Retail & hardware", "Provisions, nails, rods, cable, sandpaper and building materials"],
-  ["FOOD", "Food & waakye", "Waakye, chop bar, restaurant, bakery and food vending"],
-  ["SALON_BARBER", "Salon & barber", "Hair, barbering, beauty, nails and related services"],
-  ["DRINKING_SPOT", "Drinking spot", "Drinks by crate, bottle, glass or shot"],
-  ["WASHING_BAY", "Washing bay", "Vehicle wash services, attendants and consumables"],
-  ["CAR_PARK", "Car park", "Entry/exit, time billing and shift cash"],
-  ["DISTRIBUTION", "Distribution", "Wholesale, FMCG, cement and multi-unit distribution"],
-  ["SERVICES", "Services", "Other appointment, job or service businesses"],
-  ["OTHER", "Other", "Start with the common TradeOS core and configure your workflow"],
-] as const;
-
-function AuthScreen({ onAuthenticated, error }: { onAuthenticated: () => void; error: string | null }) {
-  const [mode, setMode] = useState<AuthMode>("login");
-  const [displayName, setDisplayName] = useState("");
-  const [demoAccountId, setDemoAccountId] = useState("");
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(error);
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setLocalError(null);
-    try {
-      if (isLogoutPending()) {
-        const pendingLogout = await finalizePendingLogout();
-        if (pendingLogout === "pending") throw new Error("TradeOS is still finishing your previous sign-out. Reconnect and try again.");
-      }
-      const deviceKey = getOrCreateClientId();
-      const common = { password, platform: "WEB", deviceKey, appVersion: webVersion() };
-      const body = mode === "register"
-        ? { ...common, displayName, ...(identifier.trim().startsWith("+") ? { phone: identifier.trim() } : { email: identifier.trim() }) }
-        : { ...common, identifier: identifier.trim() };
-      await api(`/api/session/${mode}`, { method: "POST", body: JSON.stringify(body) });
-      onAuthenticated();
-    } catch (reason) {
-      setLocalError(messageFrom(reason));
-    } finally {
-      setBusy(false);
+    const stored = offlineQueue.sessions.load();
+    if (!stored) {
+      setPhase("auth");
+      return;
     }
-  };
+    // Validate the session by calling /v1/me. If it fails, show recovery.
+    void validateSession(stored).then((ok) => {
+      if (ok) {
+        router.replace("/dashboard");
+      } else {
+        setPhase("recovery");
+        setRecoveryError("Your session could not be verified. It may have expired.");
+      }
+    });
+  }, [offlineQueue, router]);
+
+  if (phase === "loading") {
+    return <LoadingScreen title="Loading TradeOS…" text="Checking your session." />;
+  }
+
+  if (phase === "recovery") {
+    return (
+      <RecoveryScreen
+        error={recoveryError}
+        onRetry={async () => {
+          const stored = offlineQueue.sessions.load();
+          if (!stored) {
+            setPhase("auth");
+            return;
+          }
+          const ok = await validateSession(stored);
+          if (ok) {
+            router.replace("/dashboard");
+          } else {
+            setRecoveryError("Session still invalid. Try signing in again.");
+          }
+        }}
+        onSignIn={() => {
+          offlineQueue.sessions.clear();
+          setPhase("auth");
+        }}
+      />
+    );
+  }
+
+  if (phase === "onboarding" && pendingAuth) {
+    return (
+      <OnboardingForm
+        pendingAuth={pendingAuth}
+        onComplete={(session) => {
+          offlineQueue.sessions.save(session);
+          router.replace("/dashboard");
+        }}
+        onCancel={() => {
+          setPendingAuth(null);
+          setPhase("auth");
+        }}
+      />
+    );
+  }
 
   return (
-    <main className="auth-page">
-      {/* ===== Left: brand / story panel ===== */}
-      <aside className="auth-aside">
-        <div className="auth-aside-glow auth-aside-glow--gold" />
-        <div className="auth-aside-glow auth-aside-glow--green" />
-
-        <div className="auth-aside-top">
-          <div className="auth-card-brand">
-            <div className="auth-mark">T</div>
-            <div className="auth-brand-text">
-              <strong>TradeOS</strong>
-              <span>Africa</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="auth-aside-body">
-          <p className="auth-aside-eyebrow">The business OS for African trade</p>
-          <h2 className="auth-aside-headline">
-            Run your whole business from your pocket.
-          </h2>
-          <p className="auth-aside-sub">
-            Sells, stocks, and reconciles — even when the network drops. One ledger from waakye spot to wholesale.
-          </p>
-          <ul className="auth-aside-points">
-            <li>
-              <span className="auth-aside-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
-              <span>Track every sale, shift, and balance in real time</span>
-            </li>
-            <li>
-              <span className="auth-aside-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
-              <span>Works offline — syncs the moment you reconnect</span>
-            </li>
-            <li>
-              <span className="auth-aside-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
-              <span>POS, inventory, cashbook &amp; reports in one place</span>
-            </li>
-          </ul>
-        </div>
-
-        <div className="auth-aside-quote">
-          <p className="auth-aside-quote-eyebrow">Built for how Africa trades</p>
-          <p className="auth-aside-quote-copy">
-            From the waakye spot to the wholesale distributor, TradeOS adapts to your workflow —
-            retail, food, salon, drinking spot, washing bay, car park, distribution and services.
-          </p>
-        </div>
-      </aside>
-
-      {/* ===== Right: form panel ===== */}
-      <section className="auth-main">
-        <div className="auth-main-inner">
-          <div className="auth-main-brand">
-            <div className="auth-mark">T</div>
-            <div className="auth-brand-text">
-              <strong>TradeOS</strong>
-              <span>Africa</span>
-            </div>
-          </div>
-
-          <div className="auth-card-head">
-            <h1 className="auth-card-title">
-              {mode === "login" ? "Welcome back" : "Create account"}
-            </h1>
-            <p className="auth-card-subtitle">
-              {mode === "login"
-                ? "Sign in to run your business"
-                : "Start your business journey today"}
-            </p>
-          </div>
-
-          <div className="auth-switch">
-            <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>Sign in</button>
-            <button className={mode === "register" ? "active" : ""} type="button" onClick={() => setMode("register")}>Register</button>
-          </div>
-
-          <form className="auth-card-form" onSubmit={(event) => void submit(event)}>
-            {mode === "register" ? (
-              <label className="auth-input">
-                <span>Full name</span>
-                <span className="auth-input-field">
-                  <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-                  <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Business owner name" autoComplete="name" />
-                </span>
-              </label>
-            ) : (
-              <div className="auth-input">
-                <span>Demo account</span>
-                <span className="auth-input-field">
-                  <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M6 21v-1a6 6 0 0 1 12 0v1" /></svg>
-                  <DemoAccountSelect hideLabel selectedId={demoAccountId} onSelect={(account) => {
-                    setDemoAccountId(account?.id ?? "");
-                    if (!account) return;
-                    setIdentifier(account.email);
-                    setPassword(account.password);
-                    setLocalError(null);
-                  }} />
-                </span>
-              </div>
-            )}
-            <label className="auth-input">
-              <span>Email or phone</span>
-              <span className="auth-input-field">
-                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></svg>
-                <input required value={identifier} onChange={(event) => { setIdentifier(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="name@example.com or +233" autoComplete="email" />
-              </span>
-            </label>
-            <label className="auth-input">
-              <span>Password</span>
-              <span className="auth-input-field">
-                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-                <input required minLength={8} type="password" value={password} onChange={(event) => { setPassword(event.target.value); if (mode === "login") setDemoAccountId(""); }} placeholder="At least 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
-              </span>
-            </label>
-            {mode === "login" ? (
-              <div className="auth-form-aux">
-                <a className="auth-forgot" href="#" onClick={(event) => { event.preventDefault(); setLocalError("Password reset is not available in this build. Contact your workspace admin."); }}>Forgot password?</a>
-              </div>
-            ) : null}
-            {localError ? <div className="auth-card-error">{localError}</div> : null}
-            <button className="auth-card-submit" type="submit" disabled={busy}>
-              {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
-              {!busy && (
-                <svg className="auth-submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
-              )}
-            </button>
-          </form>
-
-          <div className="auth-trust">
-            <span className="auth-trust-item">
-              <span className="auth-trust-dot">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-              </span>
-              Offline-first
-            </span>
-            <span className="auth-trust-item">
-              <span className="auth-trust-dot">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-              </span>
-              Multi-currency
-            </span>
-            <span className="auth-trust-item">
-              <span className="auth-trust-dot">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-              </span>
-              Works without internet
-            </span>
-          </div>
-
-          <p className="auth-card-foot">
-            TradeOS Africa · Built for African businesses
-          </p>
-        </div>
-      </section>
-    </main>
+    <AuthForm
+      tab={authTab}
+      onTabChange={setAuthTab}
+      onAuthenticated={(auth, me) => {
+        const first = me.memberships[0];
+        if (!first || !first.staffId) {
+          // No business yet → onboarding.
+          setPendingAuth({
+            accessToken: auth.accessToken,
+            refreshToken: auth.refreshToken,
+            clientId: auth.clientId,
+            displayName: me.user.displayName,
+          });
+          setPhase("onboarding");
+          return;
+        }
+        // Has a business → build the session and redirect.
+        const session = buildSessionFromMembership(auth, me, first);
+        offlineQueue.sessions.save(session);
+        router.replace("/dashboard");
+      }}
+    />
   );
 }
 
-function BusinessOnboarding({ userName, onCreated, onLogout }: { userName: string; onCreated: () => void; onLogout: () => void }) {
-  const [name, setName] = useState("");
-  const [branchName, setBranchName] = useState("Main");
-  const [businessType, setBusinessType] = useState<(typeof businessTypes)[number][0]>("RETAIL_HARDWARE");
-  const [countryCode, setCountryCode] = useState("GH");
-  const [currencyCode, setCurrencyCode] = useState("GHS");
-  const [timezone, setTimezone] = useState("Africa/Accra");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+// --- Session validation ---------------------------------------------------
 
-  const country = getCountry(countryCode);
-  const currencyMeta = getCurrencyMeta(currencyCode);
+async function validateSession(session: WebSession): Promise<boolean> {
+  try {
+    const res = await fetch("/v1/me", {
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
-  // When country changes: preselect the recommended currency + timezone,
-  // but the user can explicitly override either one before submitting.
-  const onCountryChange = (code: string) => {
-    setCountryCode(code);
-    const c = getCountry(code);
-    if (c) {
-      setCurrencyCode(c.defaultCurrencyCode);
-      const suggestedTz = c.timezones[0];
-      if (suggestedTz) setTimezone(suggestedTz);
-    }
+export function buildSessionFromMembership(auth: AuthSession, me: MeResponse, m: Membership): WebSession {
+  // Currency/timezone are not on the membership; default to GHS/Africa/Accra if unknown.
+  // The onboarding flow always sets them; for pre-existing accounts we fall back.
+  return {
+    accessToken: auth.accessToken,
+    refreshToken: auth.refreshToken,
+    clientId: auth.clientId,
+    businessId: m.businessId,
+    branchId: "00000000-0000-0000-0000-000000000000", // placeholder; will be refreshed by the workspace boot
+    staffId: m.staffId ?? "00000000-0000-0000-0000-000000000000",
+    currencyCode: "GHS",
+    timezone: "Africa/Accra",
+    businessName: m.businessName,
+    role: m.role,
+    displayName: me.user.displayName,
   };
+}
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+// --- Auth form (sign in / register) --------------------------------------
+
+interface AuthFormProps {
+  tab: AuthTab;
+  onTabChange: (tab: AuthTab) => void;
+  onAuthenticated: (auth: AuthSession, me: MeResponse) => void;
+}
+
+function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const canSubmit = tab === "signin"
+    ? identifier.trim().length > 0 && password.length > 0
+    : displayName.trim().length > 0 && password.length >= 6 && (email.trim().length > 0 || phone.trim().length > 0);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit || busy) return;
     setBusy(true);
     setError(null);
     try {
-      // Guard: never submit if country/currency/timezone are unsupported.
-      if (!isSupportedCountry(countryCode)) {
-        setError("Please select a supported country.");
-        return;
-      }
-      if (!isSupportedCurrency(currencyCode)) {
-        setError("Please select a supported currency.");
-        return;
-      }
-      if (!isSupportedTimezone(timezone)) {
-        setError("Please select a supported timezone.");
-        return;
-      }
-      await api("/api/tradeos/v1/onboarding/business", {
+      const deviceKey = getOrCreateDeviceKey();
+      const endpoint = tab === "signin" ? "/v1/auth/login" : "/v1/auth/register";
+      const body =
+        tab === "signin"
+          ? { identifier: identifier.trim(), password, platform: "WEB", deviceKey, appVersion: APP_VERSION }
+          : {
+              displayName: displayName.trim(),
+              email: email.trim() || undefined,
+              phone: phone.trim() || undefined,
+              password,
+              platform: "WEB",
+              deviceKey,
+              appVersion: APP_VERSION,
+            };
+      const res = await fetch(endpoint, {
         method: "POST",
-        body: JSON.stringify({ name, branchName, businessType, countryCode, currencyCode, timezone }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
-      onCreated();
-    } catch (reason) {
-      setError(messageFrom(reason));
-    } finally {
+      const json = (await res.json()) as { error?: string; message?: string } & Partial<AuthResponse>;
+      if (!res.ok) {
+        setError(json.message ?? json.error ?? "Authentication failed.");
+        setBusy(false);
+        return;
+      }
+      if (!json.session || !json.user) {
+        setError("Server returned an incomplete session.");
+        setBusy(false);
+        return;
+      }
+      const auth = json.session;
+      // Fetch memberships.
+      const meRes = await fetch("/v1/me", {
+        headers: { Authorization: `Bearer ${auth.accessToken}` },
+      });
+      if (!meRes.ok) {
+        setError("Signed in but could not load your memberships.");
+        setBusy(false);
+        return;
+      }
+      const me = (await meRes.json()) as MeResponse;
+      onAuthenticated(auth, me);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error. Check your connection.");
       setBusy(false);
     }
   };
 
   return (
-    <main className="onboarding-shell">
-      <header className="onboarding-topbar">
-        <div className="auth-card-brand">
-          <div className="auth-mark">T</div>
-          <div>
-            <strong>TradeOS</strong>
-            <span>Africa</span>
+    <div className="tos-public">
+      <BrandPanel />
+      <div className="tos-public__form-side">
+        <div className="tos-public__form">
+          <div className="tos-public__form-head">
+            <span className="tos-public__form-eyebrow">Secure access</span>
+            <h1 className="tos-public__form-title">
+              {tab === "signin" ? "Sign in to TradeOS" : "Create your TradeOS account"}
+            </h1>
+            <p className="tos-public__form-sub">
+              {tab === "signin"
+                ? "Use the same owner or staff account you use on the mobile and desktop apps."
+                : "One account works across every TradeOS client. Your data stays server-authoritative."}
+            </p>
+          </div>
+
+          <div className="tos-tabs" role="tablist" aria-label="Authentication mode">
+            <button
+              type="button"
+              role="tab"
+              className="tos-tabs__tab"
+              aria-selected={tab === "signin"}
+              onClick={() => onTabChange("signin")}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className="tos-tabs__tab"
+              aria-selected={tab === "register"}
+              onClick={() => onTabChange("register")}
+            >
+              Register
+            </button>
+          </div>
+
+          {error ? (
+            <div className="tos-banner tos-banner--danger" role="alert">
+              <IconAlert className="tos-banner__icon" />
+              <div className="tos-banner__body">
+                <span className="tos-banner__title">Could not continue</span>
+                <span className="tos-banner__text">{error}</span>
+              </div>
+            </div>
+          ) : null}
+
+          <form className="tos-stack" onSubmit={handleSubmit}>
+            {tab === "register" ? (
+              <FieldLabel label="Display name" htmlFor="pe-name" required>
+                <input
+                    id="pe-name"
+                    className="tos-input"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="e.g. Ama Mensah"
+                    autoComplete="name"
+                    required
+                  />
+              </FieldLabel>
+            ) : null}
+
+            <FieldLabel label={tab === "signin" ? "Email or phone" : "Email"} htmlFor="pe-id" required>
+              <input
+                  id="pe-id"
+                  className="tos-input"
+                  value={tab === "signin" ? identifier : email}
+                  onChange={(e) => (tab === "signin" ? setIdentifier(e.target.value) : setEmail(e.target.value))}
+                  placeholder={tab === "signin" ? "you@business.com or +233…" : "you@business.com"}
+                  autoComplete="email"
+                />
+            </FieldLabel>
+
+            {tab === "register" ? (
+              <FieldLabel label="Phone (optional if email given)" htmlFor="pe-phone">
+                <input
+                    id="pe-phone"
+                    className="tos-input"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+233 24 000 0000"
+                    autoComplete="tel"
+                  />
+              </FieldLabel>
+            ) : null}
+
+            <FieldLabel label="Password" htmlFor="pe-pw" required>
+              <input
+                  id="pe-pw"
+                  type="password"
+                  className="tos-input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={tab === "register" ? "At least 6 characters" : "Enter your password"}
+                  autoComplete={tab === "signin" ? "current-password" : "new-password"}
+                  required
+                />
+            </FieldLabel>
+
+            <Button type="submit" variant="gold" size="lg" block loading={busy} disabled={!canSubmit}>
+              {tab === "signin" ? "Open workspace" : "Create account"}
+            </Button>
+          </form>
+
+          <div className="tos-public__form-note">
+            <IconShield className="tos-public__form-note-icon" />
+            <span>
+              Credentials stay in your browser&apos;s secure storage. Sales made offline are
+              durably queued and reconciled through the server-authoritative ledger.
+            </span>
+          </div>
+
+          <div className="tos-public__form-foot">
+            <span>Need help?</span>
+            <a className="tos-public__form-link" href="mailto:support@tradeos.africa">Contact support</a>
           </div>
         </div>
-        <button className="tos-button tos-button--ghost" type="button" onClick={onLogout}>Sign out</button>
-      </header>
+      </div>
+    </div>
+  );
+}
 
-      <section className="onboarding-card">
-        <div className="onboarding-header">
-          <p className="tradeos-page-eyebrow">Welcome, {userName}</p>
-          <h1>Create your first business</h1>
-          <p className="onboarding-description">Choose what best describes the business. TradeOS will use the same strong commerce engine while tailoring the workflow and language.</p>
-        </div>
+// --- Onboarding form ------------------------------------------------------
 
-        <form className="onboarding-form" onSubmit={(event) => void submit(event)}>
-          <div className="tradeos-form-row">
-            <label className="auth-input">
-              <span>Business name</span>
-              <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Akosua's Waakye" />
-            </label>
-            <label className="auth-input">
-              <span>Branch name</span>
-              <input required value={branchName} onChange={(event) => setBranchName(event.target.value)} placeholder="Main" />
-            </label>
+interface OnboardingFormProps {
+  pendingAuth: PendingAuth;
+  onComplete: (session: WebSession) => void;
+  onCancel: () => void;
+}
+
+function OnboardingForm({ pendingAuth, onComplete, onCancel }: OnboardingFormProps) {
+  const [businessName, setBusinessName] = useState("");
+  const [businessType, setBusinessType] = useState<typeof BUSINESS_TYPES[number]["value"]>("RETAIL_HARDWARE");
+  const [branchName, setBranchName] = useState("Main");
+  const [countryCode, setCountryCode] = useState("GH");
+  const [currencyCode, setCurrencyCode] = useState("GHS");
+  const [timezone, setTimezone] = useState("Africa/Accra");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const onCountryChange = (next: string) => {
+    setCountryCode(next);
+    const country = getCountry(next);
+    if (country) {
+      const defaultCurrency = getDefaultCurrencyCode(next);
+      if (defaultCurrency) setCurrencyCode(defaultCurrency);
+      const suggested = getSuggestedTimezones(next);
+      if (suggested && suggested.length > 0) setTimezone(suggested[0]!);
+    }
+  };
+
+  const canSubmit = businessName.trim().length >= 2 && !busy;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/v1/onboarding/business", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${pendingAuth.accessToken}`,
+        },
+        body: JSON.stringify({
+          name: businessName.trim(),
+          businessType,
+          branchName: branchName.trim() || "Main",
+          countryCode,
+          currencyCode,
+          timezone,
+        }),
+      });
+      const json = (await res.json()) as { error?: string; message?: string } & Partial<OnboardingResponse>;
+      if (!res.ok || !json.business || !json.branch || !json.owner) {
+        setError(json.message ?? json.error ?? "Onboarding failed.");
+        setBusy(false);
+        return;
+      }
+      const session: WebSession = {
+        accessToken: pendingAuth.accessToken,
+        refreshToken: pendingAuth.refreshToken,
+        clientId: pendingAuth.clientId,
+        businessId: json.business.id,
+        branchId: json.branch.id,
+        staffId: json.owner.staffId,
+        currencyCode: json.business.currencyCode,
+        timezone: json.business.timezone,
+        businessName: json.business.name,
+        role: json.owner.role,
+        displayName: pendingAuth.displayName,
+      };
+      onComplete(session);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Network error. Check your connection.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="tos-public">
+      <BrandPanel />
+      <div className="tos-public__form-side">
+        <div className="tos-public__form">
+          <div className="tos-public__form-head">
+            <div className="tos-public__onboarding-progress">
+              <span className="tos-public__onboarding-step tos-public__onboarding-step--done" aria-label="Step 1 complete">
+                <IconCheck style={{ width: 12, height: 12 }} />
+              </span>
+              <span>Account</span>
+              <span aria-hidden="true">→</span>
+              <span className="tos-public__onboarding-step tos-public__onboarding-step--active">2</span>
+              <span>Business</span>
+            </div>
+            <span className="tos-public__form-eyebrow">Set up your business</span>
+            <h1 className="tos-public__form-title">Tell us about your business</h1>
+            <p className="tos-public__form-sub">
+              This creates your first branch and registers this device. You can add more branches later.
+            </p>
           </div>
 
-          <div className="business-type-grid">
-            {businessTypes.map(([id, label, detail]) => (
-              <button type="button" key={id} className={businessType === id ? "business-type selected" : "business-type"} onClick={() => setBusinessType(id)}>
-                <strong>{label}</strong>
-                <span>{detail}</span>
-              </button>
-            ))}
-          </div>
+          {error ? (
+            <div className="tos-banner tos-banner--danger" role="alert">
+              <IconAlert className="tos-banner__icon" />
+              <div className="tos-banner__body">
+                <span className="tos-banner__title">Could not create business</span>
+                <span className="tos-banner__text">{error}</span>
+              </div>
+            </div>
+          ) : null}
 
-          <div className="onboarding-locale-grid">
-            <label className="auth-input">
-              <span>Country</span>
-              <span className="auth-input-field">
-                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
-                <select value={countryCode} onChange={(event) => onCountryChange(event.target.value)} aria-label="Country">
-                  {SUPPORTED_COUNTRIES.map((c) => (
-                    <option key={c.countryCode} value={c.countryCode}>{c.flag}  {c.country}</option>
+          <form className="tos-stack" onSubmit={handleSubmit}>
+            <FieldLabel label="Business name" htmlFor="ob-name" required>
+              <input
+                id="ob-name"
+                className="tos-input"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="e.g. Ama Trading Enterprise"
+                required
+                minLength={2}
+                maxLength={120}
+              />
+            </FieldLabel>
+
+            <div className="tos-public__form-row">
+              <FieldLabel label="Business type" htmlFor="ob-type" required>
+                <select
+                  id="ob-type"
+                  className="tos-select"
+                  value={businessType}
+                  onChange={(e) => setBusinessType(e.target.value as typeof BUSINESS_TYPES[number]["value"])}
+                >
+                  {BUSINESS_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
                   ))}
                 </select>
-              </span>
-            </label>
+              </FieldLabel>
+              <FieldLabel label="First branch name" htmlFor="ob-branch">
+                <input
+                  id="ob-branch"
+                  className="tos-input"
+                  value={branchName}
+                  onChange={(e) => setBranchName(e.target.value)}
+                  placeholder="Main"
+                  maxLength={120}
+                />
+              </FieldLabel>
+            </div>
 
-            <label className="auth-input">
-              <span>Base currency</span>
-              <span className="auth-input-field">
-                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
-                <select value={currencyCode} onChange={(event) => setCurrencyCode(event.target.value)} aria-label="Base currency">
-                  {SUPPORTED_CURRENCIES.map((cur) => (
-                    <option key={cur.currencyCode} value={cur.currencyCode}>{cur.symbol}  {cur.currencyCode} — {cur.name}</option>
+            <FieldLabel label="Country" htmlFor="ob-country" required>
+              <select
+                id="ob-country"
+                className="tos-select"
+                value={countryCode}
+                onChange={(e) => onCountryChange(e.target.value)}
+              >
+                {SUPPORTED_COUNTRIES.map((c) => (
+                  <option key={c.countryCode} value={c.countryCode}>{c.flag} {c.country}</option>
+                ))}
+              </select>
+            </FieldLabel>
+
+            <div className="tos-public__form-row">
+              <FieldLabel label="Base currency" htmlFor="ob-currency" required>
+                <select
+                  id="ob-currency"
+                  className="tos-select"
+                  value={currencyCode}
+                  onChange={(e) => setCurrencyCode(e.target.value)}
+                >
+                  {SUPPORTED_CURRENCIES.map((c) => (
+                    <option key={c.currencyCode} value={c.currencyCode}>{c.symbol} {c.currencyCode} — {c.name}</option>
                   ))}
                 </select>
-              </span>
-            </label>
-
-            <label className="auth-input">
-              <span>Timezone</span>
-              <span className="auth-input-field">
-                <svg className="auth-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                <select value={timezone} onChange={(event) => setTimezone(event.target.value)} aria-label="Timezone">
+              </FieldLabel>
+              <FieldLabel label="Timezone" htmlFor="ob-tz" required>
+                <select
+                  id="ob-tz"
+                  className="tos-select"
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                >
                   {SUPPORTED_TIMEZONES.map((tz) => (
                     <option key={tz} value={tz}>{tz}</option>
                   ))}
                 </select>
-              </span>
-            </label>
+              </FieldLabel>
+            </div>
 
-            {country && currencyMeta ? (
-              <div className="onboarding-currency-chip">
-                <span className="onboarding-currency-symbol">{currencyMeta.symbol}</span>
-                <span className="onboarding-currency-meta">
-                  <strong>{currencyMeta.currencyCode}</strong>
-                  <span>{currencyMeta.name} · {currencyMeta.decimalPlaces} dp</span>
-                </span>
-              </div>
-            ) : (
-              <div className="onboarding-currency-chip onboarding-currency-chip--error">
-                <span className="onboarding-currency-meta">
-                  <strong>Unsupported</strong>
-                  <span>Select a supported country</span>
-                </span>
-              </div>
-            )}
+            <Button type="submit" variant="gold" size="lg" block loading={busy} disabled={!canSubmit}>
+              Create business & open workspace
+            </Button>
+          </form>
+
+          <div className="tos-public__form-foot">
+            <button type="button" className="tos-public__form-link" onClick={onCancel}>← Back to sign in</button>
           </div>
-
-          {error ? <div className="auth-card-error">{error}</div> : null}
-
-          <button className="tos-button tos-button--primary onboarding-submit" type="submit" disabled={busy}>
-            {busy ? "Creating…" : "Create business"}
-          </button>
-        </form>
-      </section>
-    </main>
-  );
-}
-
-function WorkspaceRecoveryScreen({ message, onRetry, onLogout }: { message: string; onRetry: () => void; onLogout: () => void }) {
-  return (
-    <main className="loading-shell workspace-recovery-shell">
-      <div className="auth-mark">T</div>
-      <div className="workspace-recovery-card">
-        <p className="tradeos-page-eyebrow">Workspace unavailable</p>
-        <h1>TradeOS could not open your business workspace.</h1>
-        <p>{message}</p>
-        <div className="workspace-recovery-actions">
-          <button className="tos-button tos-button--primary" type="button" onClick={onRetry}>Try again</button>
-          <button className="tos-button tos-button--secondary" type="button" onClick={onLogout}>Sign out</button>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
-function LoadingScreen() {
+// --- Loading + recovery ---------------------------------------------------
+
+function LoadingScreen({ title, text }: { title: string; text: string }) {
   return (
-    <main className="loading-shell">
-      <div className="auth-mark">T</div>
-      <strong>Loading TradeOS Africa…</strong>
-    </main>
+    <div className="tos-loading" role="status">
+      <div className="tos-loading__panel">
+        <div className="tos-loading__mark" aria-hidden="true">T</div>
+        <h1 className="tos-loading__title">{title}</h1>
+        <p className="tos-loading__text">{text}</p>
+        <span className="tos-spinner" aria-hidden="true" />
+      </div>
+    </div>
   );
 }
 
-async function logout(setSession: (value: MePayload | null) => void) {
-  markLogoutPending();
-  clearWorkspaceBootstrap();
-  clearFeatureCaches();
-  setActiveBusinessId(null);
-  setSession(null);
-  await finalizePendingLogout();
+interface RecoveryScreenProps {
+  error: string | null;
+  onRetry: () => void | Promise<void>;
+  onSignIn: () => void;
 }
 
-async function api<T = unknown>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
-    cache: "no-store",
-  });
-  return readResponse<T>(response);
+function RecoveryScreen({ error, onRetry, onSignIn }: RecoveryScreenProps) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="tos-recovery" role="alertdialog" aria-labelledby="rec-title">
+      <div className="tos-recovery__panel">
+        <div className="tos-recovery__head">
+          <span className="tos-recovery__eyebrow">Session recovery</span>
+          <h1 id="rec-title" className="tos-recovery__title">Let&apos;s get you back in</h1>
+          <p className="tos-recovery__text">
+            {error ?? "Your session could not be verified. Choose an option below."}
+          </p>
+        </div>
+        <ul className="tos-recovery__list">
+          <li className="tos-callout">Retry verifying the current session — useful after a brief network drop.</li>
+          <li className="tos-callout tos-callout--warning">Sign in again — clears the local session and returns to the sign-in screen.</li>
+        </ul>
+        <div className="tos-recovery__actions">
+          <Button
+            variant="primary"
+            icon={<IconRefresh className="tos-btn__icon" />}
+            loading={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onRetry();
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Retry session
+          </Button>
+          <Button variant="outline" onClick={onSignIn}>Sign in again</Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-async function readResponse<T>(response: Response): Promise<T> {
-  const text = await response.text();
-  let body: unknown = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = null; }
-  if (!response.ok) {
-    const candidate = body as { message?: unknown } | null;
-    throw new Error(typeof candidate?.message === "string" ? candidate.message : `Request failed (${response.status})`);
-  }
-  return body as T;
+// --- Brand panel (left side of split layout) ------------------------------
+
+function BrandPanel() {
+  return (
+    <aside className="tos-public__brand" aria-hidden="true">
+      <div className="tos-public__brand-mark">T</div>
+      <div>
+        <span className="tos-public__brand-eyebrow">The business OS for African trade</span>
+        <h2 className="tos-public__brand-title">Run the day from any device.</h2>
+        <p className="tos-public__brand-lead">
+          Sell, track inventory, reconcile cash, and report on every branch — through one
+          server-authoritative ledger that survives offline.
+        </p>
+        <div className="tos-public__brand-pillars">
+          <div className="tos-public__brand-pillar">
+            <IconCheck className="tos-public__brand-pillar-icon" />
+            <span className="tos-public__brand-pillar-text">
+              <span className="tos-public__brand-pillar-title">Server-authoritative sales</span>
+              The client sends only itemId, saleUnitCode, and quantity. Pricing and stock are enforced by the API.
+            </span>
+          </div>
+          <div className="tos-public__brand-pillar">
+            <IconCheck className="tos-public__brand-pillar-icon" />
+            <span className="tos-public__brand-pillar-text">
+              <span className="tos-public__brand-pillar-title">Offline-first by default</span>
+              Mutations queue in your browser and reconcile through the same durable ledger as mobile and desktop.
+            </span>
+          </div>
+          <div className="tos-public__brand-pillar">
+            <IconCheck className="tos-public__brand-pillar-icon" />
+            <span className="tos-public__brand-pillar-text">
+              <span className="tos-public__brand-pillar-title">Exponent-aware money</span>
+              Every currency&apos;s minor-unit exponent is honored — no hardcoded /100.
+            </span>
+          </div>
+        </div>
+      </div>
+      <span className="tos-public__brand-foot">TradeOS Africa · v{APP_VERSION}</span>
+    </aside>
+  );
 }
 
-function messageFrom(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "Something went wrong. Please try again.";
-}
+// --- Small form helpers ---------------------------------------------------
 
-function webVersion(): string {
-  return process.env.NEXT_PUBLIC_TRADEOS_VERSION ?? "web-dev";
+function FieldLabel({
+  label,
+  htmlFor,
+  required,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="tos-field">
+      <label className="tos-field__label" htmlFor={htmlFor}>
+        {label}
+        {required ? <span className="tos-field__label-required" aria-hidden="true">*</span> : null}
+      </label>
+      {children}
+    </div>
+  );
 }

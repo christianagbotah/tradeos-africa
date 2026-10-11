@@ -1,102 +1,98 @@
 "use client";
 
-import React from "react";
-import { formatMoney } from "@tradeos/contracts";
-import type { CartLine, PosLineKey, PosSellableItem } from "./pos-model";
-import { ReferenceIcon } from "../ui/reference-icon";
+import type { CatalogItem } from "../workspace/workspace-provider";
+import { MoneyValue } from "../business/money-value";
+import { Button } from "../ui/button";
+import { IconMinus, IconPlus, IconTrash } from "../ui/icons";
 
-export function CartPanel({
-  cart,
-  items,
-  currencyCode,
-  onIncrease,
-  onDecrease,
-  onSetQuantity,
-  onRemove,
-  onChangeUnit,
-}: {
-  cart: CartLine[];
-  items: PosSellableItem[];
+export interface CartLine {
+  item: CatalogItem;
+  quantity: number;
+}
+
+interface CartPanelProps {
+  lines: readonly CartLine[];
   currencyCode: string;
-  onIncrease: (key: PosLineKey) => void;
-  onDecrease: (key: PosLineKey) => void;
-  onSetQuantity: (key: PosLineKey, quantity: number) => void;
-  onRemove: (key: PosLineKey) => void;
-  onChangeUnit: (key: PosLineKey, unit: PosSellableItem) => void;
-}) {
-  if (cart.length === 0) {
-    return (
-      <section className="pos-cart-panel pos-cart-empty" aria-label="Current sale">
-        <span className="pos-cart-empty-icon" aria-hidden="true"><ReferenceIcon name="cart" /></span>
-        <strong>Your sale is empty</strong>
-        <span>Tap a product or service to add it.</span>
-      </section>
-    );
-  }
+  onInc: (itemId: string) => void;
+  onDec: (itemId: string) => void;
+  onRemove: (itemId: string) => void;
+  onCheckout: () => void;
+  onClear: () => void;
+  busy?: boolean;
+}
 
-  const totalMinor = cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0);
+export function CartPanel({ lines, currencyCode, onInc, onDec, onRemove, onCheckout, onClear, busy }: CartPanelProps) {
+  const totalMinor = lines.reduce((sum, l) => sum + l.item.priceMinor * l.quantity, 0);
+  const itemCount = lines.reduce((sum, l) => sum + l.quantity, 0);
 
   return (
-    <section className="pos-cart-panel" aria-label="Current sale">
-      <div className="pos-cart-heading">
-        <div><span>Current sale</span><strong>{cart.length} line{cart.length === 1 ? "" : "s"}</strong></div>
-        <strong>{formatMoney(totalMinor, currencyCode)}</strong>
+    <aside className="tos-pos__cart" aria-label="Cart">
+      <div className="tos-pos__cart-head">
+        <h2 className="tos-pos__cart-title">Cart ({itemCount})</h2>
+        {lines.length > 0 ? (
+          <Button size="sm" variant="ghost" icon={<IconTrash className="tos-btn__icon" />} onClick={onClear} disabled={busy}>
+            Clear
+          </Button>
+        ) : null}
       </div>
 
-      <div className="pos-cart-lines">
-        {cart.map((line) => {
-          const unitOptions = items.filter((item) => item.itemId === line.itemId);
-          const selectedMeta = unitOptions.find((item) => item.unitCode === line.saleUnitCode) ?? null;
-          return (
-            <article className="pos-cart-line" key={line.key}>
-              <div className="pos-cart-line-title">
-                <div>
-                  <strong>{line.name}</strong>
-                  <span>{formatMoney(line.priceMinor, currencyCode)} / {line.saleUnitLabel}</span>
-                </div>
-                <strong>{formatMoney(Math.round(line.priceMinor * line.quantity), currencyCode)}</strong>
+      <div className="tos-pos__cart-body">
+        {lines.length === 0 ? (
+          <div className="tos-state tos-state--bare">
+            <p className="tos-state__text">Tap a product to add it to the cart.</p>
+          </div>
+        ) : (
+          lines.map((line) => (
+            <div key={line.item.id} className="tos-cart-line">
+              <div className="tos-cart-line__name" title={line.item.name}>{line.item.name}</div>
+              <div className="tos-cart-line__sub">{line.item.saleUnitName}</div>
+              <div className="tos-cart-line__qty">
+                <button type="button" className="tos-cart-line__qty-btn" onClick={() => onDec(line.item.id)} aria-label={`Decrease ${line.item.name} quantity`} disabled={busy}>
+                  <IconMinus style={{ width: 14, height: 14 }} />
+                </button>
+                <span className="tos-cart-line__qty-val">{line.quantity}</span>
+                <button type="button" className="tos-cart-line__qty-btn" onClick={() => onInc(line.item.id)} aria-label={`Increase ${line.item.name} quantity`} disabled={busy}>
+                  <IconPlus style={{ width: 14, height: 14 }} />
+                </button>
               </div>
-
-              <div className="pos-cart-controls">
-                <div className="pos-qty-control">
-                  <button className="pos-qty-button" type="button" aria-label={`Decrease ${line.name} quantity`} onClick={() => onDecrease(line.key)}>−</button>
-                  <input
-                    aria-label={`${line.name} quantity`}
-                    inputMode="decimal"
-                    type="number"
-                    min="0.000001"
-                    step="any"
-                    value={line.quantity}
-                    onChange={(event) => {
-                      const quantity = Number(event.target.value);
-                      if (Number.isFinite(quantity) && quantity > 0) onSetQuantity(line.key, quantity);
-                    }}
-                  />
-                  <button className="pos-qty-button" type="button" aria-label={`Increase ${line.name} quantity`} onClick={() => onIncrease(line.key)}>+</button>
-                </div>
-
-                <select
-                  className="pos-unit-select"
-                  aria-label={`Change ${line.name} selling unit`}
-                  value={line.saleUnitCode}
-                  onChange={(event) => {
-                    const next = unitOptions.find((item) => item.unitCode === event.target.value);
-                    if (next) onChangeUnit(line.key, next);
-                  }}
-                >
-                  {unitOptions.map((unit) => <option key={unit.key} value={unit.unitCode}>{unit.unitLabel}</option>)}
-                </select>
-
-                <button className="pos-remove-line" type="button" aria-label={`Remove ${line.name} from sale`} onClick={() => onRemove(line.key)}>Remove</button>
+              <div className="tos-cart-line__total">
+                <MoneyValue minor={line.item.priceMinor * line.quantity} currencyCode={currencyCode} />
               </div>
-
-              <div className="pos-cart-stock-context">
-                {selectedMeta?.trackStock ? `Stock tracked in ${selectedMeta.stockUnitCode ?? "configured unit"}` : selectedMeta?.kind === "SERVICE" ? "Service · no stock quantity" : "Stock not tracked"}
-              </div>
-            </article>
-          );
-        })}
+              <button
+                type="button"
+                className="tos-cart-line__remove"
+                onClick={() => onRemove(line.item.id)}
+                aria-label={`Remove ${line.item.name} from cart`}
+                disabled={busy}
+              >
+                <IconTrash style={{ width: 14, height: 14 }} />
+              </button>
+            </div>
+          ))
+        )}
       </div>
-    </section>
+
+      <div className="tos-pos__cart-foot">
+        <div className="tos-checkout-summary">
+          <span className="tos-checkout-summary__key">Subtotal</span>
+          <span className="tos-checkout-summary__val">
+            <MoneyValue minor={totalMinor} currencyCode={currencyCode} tone="muted" />
+          </span>
+          <span className="tos-checkout-summary__total-key">Total</span>
+          <span className="tos-checkout-summary__total-val">
+            <MoneyValue minor={totalMinor} currencyCode={currencyCode} />
+          </span>
+        </div>
+        <Button
+          variant="gold"
+          size="lg"
+          block
+          onClick={onCheckout}
+          disabled={lines.length === 0 || busy}
+        >
+          Charge
+        </Button>
+      </div>
+    </aside>
   );
 }

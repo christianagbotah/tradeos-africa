@@ -1,339 +1,409 @@
 "use client";
 
-import React, { type FormEvent, useEffect, useRef, useState } from "react";
-import { formatMoneyInput } from "@tradeos/contracts";
-import { ClientApiError, clientApi, messageFrom } from "../../lib/client-api";
-import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
-import { Button } from "../ui/button";
+import { useEffect, useState } from "react";
+import { useWorkspace } from "../workspace/use-workspace";
+import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
-import { MasterDataActions, masterDataLifecycleMessage } from "../business/master-data-actions";
+import { Button } from "../ui/button";
+import { IconClose } from "../ui/icons";
+import type { Customer } from "../workspace/workspace-provider";
+import { getOfflineQueue } from "../../../lib/offline-sync";
 import {
-  customerMoneyToMinor,
-  formatCustomerDate,
-  formatCustomerMoney,
-  type CustomerDetail,
-  type LedgerEntry,
+  buildCustomerUpdatePayload,
+  buildCustomerPaymentPayload,
+  CUSTOMER_UPDATE_TYPE,
+  CUSTOMER_PAYMENT_CREATE_TYPE,
+  CUSTOMER_WRITE_ROLES,
+  CUSTOMER_PAYMENT_ROLES,
+  roleCan,
   type PaymentMethod,
-} from "./customer-types";
+  type WorkspaceRole,
+} from "../../../lib/mutation-builders";
+import { useApiFetch } from "../../../lib/use-api-fetch";
+import {
+  filterEligibleAccounts,
+  resolveDefaultAccountId,
+  isSelectionValid,
+  type MoneyAccount as PaymentAccount,
+  type MoneyAccountDefault,
+} from "../../../lib/payment-account-selection";
 
-export type CustomerSheetMode = "create" | "edit" | "view";
-export type CustomerDraft = {
-  expectedUpdatedAt: string | null;
-  name: string;
-  phone: string;
-  email: string;
-  creditLimit: string;
-  creditTermsDays: string;
-};
-
-type Props = {
-  mode: CustomerSheetMode;
-  detail: CustomerDetail | null;
-  open: boolean;
-  businessId: string;
-  branchId: string;
-  currencyCode: string;
-  role: string;
+interface CustomerSheetProps {
+  customer: Customer | null;
   onClose: () => void;
-  onSaved: () => Promise<void> | void;
-};
-
-const profileWriteRoles = new Set(["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "ACCOUNTANT"]);
-const creditControlRoles = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
-const customerPaymentRoles = new Set(["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"]);
-
-export function customerDraftFor(mode: CustomerSheetMode, detail: CustomerDetail | null, currencyCode: string): CustomerDraft {
-  if (mode === "create" || !detail) {
-    return { expectedUpdatedAt: null, name: "", phone: "", email: "", creditLimit: "", creditTermsDays: "0" };
-  }
-  const customer = detail.customer;
-  return {
-    expectedUpdatedAt: customer.updatedAt,
-    name: customer.name,
-    phone: customer.phone ?? "",
-    email: customer.email ?? "",
-    creditLimit: customer.creditLimitMinor === null ? "" : formatMoneyInput(customer.creditLimitMinor, currencyCode) ?? "",
-    creditTermsDays: String(customer.creditTermsDays),
-  };
+  /** Called after a CUSTOMER_UPDATE or CUSTOMER_PAYMENT_CREATE enqueues successfully. */
+  onMutated?: () => void;
 }
 
-export function customerSheetMessage(code: string | null | undefined, fallback = "Customer change could not be saved."): string {
-  if (code === "OFFLINE_CREDIT_CONTROL") return "Credit settings and customer status require an online connection so TradeOS can verify the latest account state.";
-  return masterDataLifecycleMessage(code, "customer", fallback);
-}
+const PAYMENT_METHODS: ReadonlyArray<{ value: PaymentMethod; label: string }> = [
+  { value: "CASH", label: "Cash" },
+  { value: "MOMO", label: "Mobile money" },
+  { value: "CARD", label: "Card" },
+  { value: "BANK", label: "Bank transfer" },
+  { value: "OTHER", label: "Other" },
+];
 
-export function CustomerSheet({ mode, detail, open, businessId, branchId, currencyCode, role, onClose, onSaved }: Props) {
-  const customer = detail?.customer ?? null;
-  const [draft, setDraft] = useState<CustomerDraft>(() => customerDraftFor(mode, detail, currencyCode));
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [payment, setPayment] = useState("");
-  const [method, setMethod] = useState<PaymentMethod>("CASH");
-  const [providerReference, setProviderReference] = useState("");
-  const firstInputRef = useRef<HTMLInputElement | null>(null);
-  const sheetRef = useRef<HTMLDivElement | null>(null);
-  const previous_active_element = useRef<HTMLElement | null>(null);
-  const canEditProfile = mode !== "view" && profileWriteRoles.has(role);
-  const canSetCredit = mode !== "view" && creditControlRoles.has(role);
-  const canControlCredit = mode === "edit" && canSetCredit;
-  const canReceivePayment = mode === "edit" && customerPaymentRoles.has(role) && Boolean(customer?.active);
+export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetProps) {
+  const { session, role, bump } = useWorkspace();
+  const [editOpen, setEditOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
-    setDraft(customerDraftFor(mode, detail, currencyCode));
-    setPayment("");
-    setProviderReference("");
-    setMessage(null);
-  }, [currencyCode, detail, mode, open]);
-
-  useEffect(() => {
-    if (!open) return;
-    previous_active_element.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => firstInputRef.current?.focus());
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab" || !sheetRef.current) return;
-      const focusable = Array.from(sheetRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
-      ));
-      if (focusable.length === 0) return;
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", handleKeyDown);
+    if (!customer) return;
+    setEditOpen(false);
+    setPaymentOpen(false);
+    if (typeof document !== "undefined") document.body.style.overflow = "hidden";
     return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", handleKeyDown);
-      previous_active_element.current?.focus();
+      if (typeof document !== "undefined") document.body.style.overflow = "";
     };
-  }, [onClose, open]);
+  }, [customer]);
 
-  if (!open) return null;
+  if (!customer || !session) return null;
+  const currency = session.currencyCode;
 
-  const saveProfile = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!canEditProfile || busy || !draft.name.trim()) return;
+  const canWrite = roleCan(role as WorkspaceRole, CUSTOMER_WRITE_ROLES);
+  const canPay = roleCan(role as WorkspaceRole, CUSTOMER_PAYMENT_ROLES);
+
+  return (
+    <>
+      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet" role="dialog" aria-label="Customer detail">
+        <div className="tos-sheet__head">
+          <div className="tos-sheet__head-main">
+            <span className="tos-sheet__eyebrow">Customer</span>
+            <h2 className="tos-sheet__title">{customer.name}</h2>
+            <p className="tos-sheet__sub">{customer.active ? "Active" : "Inactive"}</p>
+          </div>
+          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close customer detail">
+            <IconClose style={{ width: 18, height: 18 }} />
+          </button>
+        </div>
+        <div className="tos-sheet__body">
+          <dl className="tos-kv">
+            <div><dt className="tos-kv__key">Phone</dt><dd className="tos-kv__val">{customer.phone ?? "—"}</dd></div>
+            <div><dt className="tos-kv__key">Email</dt><dd className="tos-kv__val">{customer.email ?? "—"}</dd></div>
+            <div><dt className="tos-kv__key">Credit limit</dt><dd className="tos-kv__val">{customer.creditLimitMinor !== null ? <MoneyValue minor={customer.creditLimitMinor} currencyCode={currency} tone="muted" /> : "—"}</dd></div>
+            <div><dt className="tos-kv__key">Credit terms</dt><dd className="tos-kv__val">{customer.creditTermsDays !== null ? `${customer.creditTermsDays} days` : "—"}</dd></div>
+            <div><dt className="tos-kv__key">Outstanding balance</dt><dd className="tos-kv__val"><MoneyValue minor={customer.balanceMinor} currencyCode={currency} tone={customer.balanceMinor > 0 ? "negative" : "positive"} /></dd></div>
+            <div><dt className="tos-kv__key">Updated</dt><dd className="tos-kv__val">{new Date(customer.updatedAt).toLocaleString()}</dd></div>
+          </dl>
+
+          {editOpen && session ? (
+            <CustomerEditForm
+              customer={customer}
+              onCancel={() => setEditOpen(false)}
+              onSubmit={async (payload) => {
+                const queue = getOfflineQueue();
+                const mutation = queue.build({
+                  businessId: session.businessId,
+                  mutationType: CUSTOMER_UPDATE_TYPE,
+                  payload,
+                });
+                await queue.enqueue(mutation);
+                await queue.flush({
+                  activeBusinessId: session.businessId,
+                  online: typeof navigator !== "undefined" ? navigator.onLine : true,
+                });
+                bump();
+                onMutated?.();
+                setEditOpen(false);
+              }}
+            />
+          ) : null}
+
+          {paymentOpen && session ? (
+            <CustomerPaymentForm
+              customer={customer}
+              currencyCode={currency}
+              businessId={session.businessId}
+              branchId={session.branchId}
+              onCancel={() => setPaymentOpen(false)}
+              onSubmit={async (payload) => {
+                const queue = getOfflineQueue();
+                const mutation = queue.build({
+                  businessId: session.businessId,
+                  branchId: session.branchId,
+                  mutationType: CUSTOMER_PAYMENT_CREATE_TYPE,
+                  payload,
+                });
+                await queue.enqueue(mutation);
+                await queue.flush({
+                  activeBusinessId: session.businessId,
+                  online: typeof navigator !== "undefined" ? navigator.onLine : true,
+                });
+                bump();
+                onMutated?.();
+                setPaymentOpen(false);
+              }}
+            />
+          ) : null}
+        </div>
+        <div className="tos-sheet__foot">
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+          {canWrite ? (
+            <Button variant="outline" onClick={() => { setEditOpen((v) => !v); setPaymentOpen(false); }} disabled={editOpen}>
+              {editOpen ? "Editing…" : "Edit"}
+            </Button>
+          ) : null}
+          {canPay ? (
+            <Button variant="gold" onClick={() => { setPaymentOpen((v) => !v); setEditOpen(false); }} disabled={paymentOpen || customer.balanceMinor <= 0}>
+              {paymentOpen ? "Recording…" : "Record payment"}
+            </Button>
+          ) : null}
+          {!canWrite && !canPay ? <span className="tos-section__sub">View-only role.</span> : null}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// --- CUSTOMER_UPDATE form ------------------------------------------------
+
+interface CustomerEditFormProps {
+  customer: Customer;
+  onCancel: () => void;
+  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+}
+
+function CustomerEditForm({ customer, onCancel, onSubmit }: CustomerEditFormProps) {
+  const [name, setName] = useState(customer.name);
+  const [phone, setPhone] = useState(customer.phone ?? "");
+  const [email, setEmail] = useState(customer.email ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || busy) return;
     setBusy(true);
-    setMessage(null);
+    setError(null);
     try {
-      const profile = { name: draft.name.trim(), phone: draft.phone.trim() || null, email: draft.email.trim() || null };
-      if (mode === "create") {
-        if (!navigator.onLine) {
-          enqueueMutation({
-            clientId: getOrCreateClientId(),
-            clientMutationId: crypto.randomUUID(),
-            businessId,
-            mutationType: "CUSTOMER_CREATE",
-            occurredAt: new Date().toISOString(),
-            payload: profile,
-          });
-          setMessage(canSetCredit && (draft.creditLimit.trim() || Number(draft.creditTermsDays || 0) > 0)
-            ? "Customer profile saved offline · pending sync. Credit settings were not queued and must be confirmed online after the customer synchronizes."
-            : "Customer profile saved offline · pending sync.");
-          return;
-        }
-        await clientApi("/api/tradeos/v1/customers", {
-          method: "POST",
-          body: JSON.stringify({
-            businessId,
-            ...profile,
-            ...(canSetCredit ? {
-              creditLimitMinor: draft.creditLimit.trim() ? customerMoneyToMinor(draft.creditLimit, currencyCode) : null,
-              creditTermsDays: Number(draft.creditTermsDays || 0),
-            } : {}),
-          }),
-        });
-        await onSaved();
-        onClose();
-        return;
-      }
-      if (!customer || !draft.expectedUpdatedAt) return;
-      if (!navigator.onLine) {
-        enqueueMutation({
-          clientId: getOrCreateClientId(),
-          clientMutationId: crypto.randomUUID(),
-          businessId,
-          mutationType: "CUSTOMER_UPDATE",
-          occurredAt: new Date().toISOString(),
-          payload: { customerId: customer.id, expectedUpdatedAt: draft.expectedUpdatedAt, ...profile },
-        });
-        setMessage("Saved offline · pending sync. The original customer revision is preserved so a newer server edit cannot be overwritten.");
-        return;
-      }
-      await clientApi(`/api/tradeos/v1/customers/${customer.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ businessId, expectedUpdatedAt: draft.expectedUpdatedAt, ...profile }),
+      const payload = buildCustomerUpdatePayload({
+        customerId: customer.id,
+        name: name.trim(),
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        expectedUpdatedAt: customer.updatedAt,
       });
-      await onSaved();
-      onClose();
-    } catch (reason) {
-      if (reason instanceof ClientApiError) setMessage(customerSheetMessage(reason.code, reason.message));
-      else setMessage(messageFrom(reason));
+      await onSubmit(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update customer.");
     } finally {
       setBusy(false);
     }
   };
 
-  const saveCredit = async () => {
-    if (!customer || !canControlCredit || busy) return;
-    if (!navigator.onLine) { setMessage(customerSheetMessage("OFFLINE_CREDIT_CONTROL")); return; }
-    setBusy(true); setMessage(null);
-    try {
-      await clientApi(`/api/tradeos/v1/customers/${customer.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          businessId,
-          expectedUpdatedAt: draft.expectedUpdatedAt,
-          creditLimitMinor: draft.creditLimit.trim() ? customerMoneyToMinor(draft.creditLimit, currencyCode) : null,
-          creditTermsDays: Number(draft.creditTermsDays || 0),
-        }),
-      });
-      await onSaved();
-      onClose();
-    } catch (reason) {
-      if (reason instanceof ClientApiError) setMessage(customerSheetMessage(reason.code, reason.message));
-      else setMessage(messageFrom(reason));
-    } finally { setBusy(false); }
-  };
-
-  const toggleActive = async () => {
-    if (!customer || !canControlCredit || busy) return;
-    if (!navigator.onLine) { setMessage(customerSheetMessage("OFFLINE_CREDIT_CONTROL")); return; }
-    setBusy(true); setMessage(null);
-    try {
-      await clientApi(`/api/tradeos/v1/customers/${customer.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ businessId, expectedUpdatedAt: draft.expectedUpdatedAt, active: !customer.active }),
-      });
-      await onSaved();
-      onClose();
-    } catch (reason) {
-      if (reason instanceof ClientApiError) setMessage(customerSheetMessage(reason.code, reason.message));
-      else setMessage(messageFrom(reason));
-    } finally { setBusy(false); }
-  };
-
-  const recordPayment = async () => {
-    if (!customer || !canReceivePayment || busy) return;
-    const amountMinor = customerMoneyToMinor(payment, currencyCode);
-    if (amountMinor <= 0) return;
-    setBusy(true); setMessage(null);
-    try {
-      enqueueMutation({
-        clientId: getOrCreateClientId(), clientMutationId: crypto.randomUUID(), businessId, branchId,
-        mutationType: "CUSTOMER_PAYMENT_CREATE", occurredAt: new Date().toISOString(),
-        payload: { customerId: customer.id, amountMinor, method, ...(providerReference.trim() ? { providerReference: providerReference.trim() } : {}) },
-      });
-      setPayment(""); setProviderReference("");
-      if (!navigator.onLine) {
-        setMessage("Customer payment saved offline. It will post to the account when this device reconnects.");
-        return;
-      }
-      const summary = await flushPendingMutations();
-      if (summary.rejected > 0) setMessage("The payment is saved but needs review before it can post.");
-      else if (summary.applied > 0) { setMessage("Customer payment received and account balance updated."); await onSaved(); }
-      else setMessage("Customer payment is queued for synchronization.");
-    } catch (reason) { setMessage(messageFrom(reason)); }
-    finally { setBusy(false); }
-  };
-
-  const title = mode === "create" ? "Add customer" : customer?.name ?? "Customer";
   return (
-    <div className="customer-sheet-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div ref={sheetRef} className="customer-sheet" role="dialog" aria-modal="true" aria-labelledby="customer-sheet-title">
-        <header className="customer-sheet-header">
-          <div><span>Customer management</span><h2 id="customer-sheet-title">{title}</h2>{customer ? <p>{customer.phone ?? customer.email ?? "No contact recorded"}</p> : null}</div>
-          <div className="customer-sheet-head-actions">
-            {customer ? <span className={customer.active ? "customer-status active" : "customer-status"}>{customer.active ? "Active" : "Inactive"}</span> : null}
-            <button type="button" className="customer-sheet-close" aria-label="Close customer" onClick={onClose}>×</button>
-          </div>
-        </header>
-
-        <div className="customer-sheet-scroll">
-          <form className="customer-sheet-section" onSubmit={(event) => void saveProfile(event)}>
-            <div className="customer-section-heading"><div><strong>Profile</strong><span>Identity and contact details used for future transactions</span></div></div>
-            <div className="customer-field-grid">
-              <label>Name<input ref={firstInputRef} required disabled={!canEditProfile} value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-              <label>Phone<input disabled={!canEditProfile} value={draft.phone} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} placeholder="Optional" /></label>
-              <label>Email<input type="email" disabled={!canEditProfile} value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} placeholder="Optional" /></label>
-            </div>
-            {canEditProfile ? <div className="customer-section-actions"><Button type="submit" disabled={busy || !draft.name.trim()}>{busy ? "Saving…" : mode === "create" ? "Save customer" : "Save profile"}</Button></div> : null}
-          </form>
-
-          {mode === "create" && canSetCredit ? <section className="customer-sheet-section">
-            <div className="customer-section-heading"><div><strong>Credit &amp; terms</strong><span>Optional pay-later settings for this new customer</span></div></div>
-            <div className="customer-field-grid">
-              <label>Credit limit<MoneyInput currencyCode={currencyCode} value={draft.creditLimit} onChange={(event) => setDraft((current) => ({ ...current, creditLimit: event.target.value }))} placeholder="Blank disables Pay later" /></label>
-              <label>Pay-later terms (days)<input inputMode="numeric" min="0" max="3650" value={draft.creditTermsDays} onChange={(event) => setDraft((current) => ({ ...current, creditTermsDays: event.target.value.replace(/\D/g, "") }))} /></label>
-            </div>
-            <p className="customer-lifecycle-note">These terms will apply to future pay-later sales after the customer is created.</p>
-          </section> : null}
-
-          {customer ? <>
-            <section className="customer-sheet-section">
-              <div className="customer-section-heading"><div><strong>Account position</strong><span>Live receivable context; posted history is never rewritten</span></div></div>
-              <div className="customer-account-metrics">
-                <div><span>Balance owed</span><strong>{formatCustomerMoney(customer.balanceMinor, currencyCode)}</strong></div>
-                <div><span>Credit limit</span><strong>{customer.creditLimitMinor === null ? "Off" : formatCustomerMoney(customer.creditLimitMinor, currencyCode)}</strong></div>
-                <div><span>Available credit</span><strong>{customer.availableCreditMinor === null ? "—" : formatCustomerMoney(customer.availableCreditMinor, currencyCode)}</strong></div>
-                <div><span>Terms</span><strong>Net {customer.creditTermsDays} day{customer.creditTermsDays === 1 ? "" : "s"}</strong></div>
-              </div>
-            </section>
-
-            {canControlCredit ? <section className="customer-sheet-section">
-              <div className="customer-section-heading"><div><strong>Credit &amp; terms</strong><span>Server-validated controls for future account activity</span></div></div>
-              <div className="customer-field-grid">
-                <label>Credit limit<MoneyInput currencyCode={currencyCode} value={draft.creditLimit} onChange={(event) => setDraft((current) => ({ ...current, creditLimit: event.target.value }))} placeholder="Blank disables Pay later" /></label>
-                <label>Pay-later terms (days)<input inputMode="numeric" min="0" max="3650" value={draft.creditTermsDays} onChange={(event) => setDraft((current) => ({ ...current, creditTermsDays: event.target.value.replace(/\D/g, "") }))} /></label>
-              </div>
-              <div className="customer-section-actions split"><Button type="button" variant="secondary" disabled={busy} onClick={() => void saveCredit()}>Update credit settings</Button><MasterDataActions entityLabel="customer" active={customer.active} canChangeStatus busy={busy} onToggleStatus={toggleActive} /></div>
-            </section> : null}
-
-            <section className="customer-sheet-section customer-payment-section">
-              <div className="customer-section-heading"><div><strong>Receive payment</strong><span>Payments reduce the customer balance without rewriting sales history</span></div></div>
-              {!customer.active ? <p className="customer-lifecycle-note">Payments are paused while this customer is inactive. Reactivate the customer before recording new account activity.</p> : canReceivePayment ? <div className="customer-payment-grid">
-                <label>Amount<MoneyInput currencyCode={currencyCode} value={payment} onChange={(event) => setPayment(event.target.value)} placeholder="0.00" /></label>
-                <label>Method<select value={method} onChange={(event) => setMethod(event.target.value as PaymentMethod)}><option value="CASH">Cash</option><option value="MOMO">MoMo</option><option value="CARD">Card</option><option value="BANK">Bank</option><option value="OTHER">Other</option></select></label>
-                <label>Reference<input value={providerReference} onChange={(event) => setProviderReference(event.target.value)} placeholder="Optional" /></label>
-                <Button type="button" disabled={busy || customerMoneyToMinor(payment, currencyCode) <= 0} onClick={() => void recordPayment()}>{busy ? "Saving…" : "Receive payment"}</Button>
-              </div> : <p className="customer-lifecycle-note">Your role can view this account history but cannot record customer payments.</p>}
-            </section>
-
-            <CustomerFinancialHistory detail={detail!} currencyCode={currencyCode} />
-          </> : null}
-          {message ? <div className="customer-sheet-message" role="status">{message}</div> : null}
-        </div>
+    <form className="tos-stack" onSubmit={handleSubmit} style={{ marginTop: "var(--tos-space-3)" }}>
+      <div className="tos-callout tos-callout--info">
+        Credit limit, credit terms and active status can only be changed via an online server check (CREDIT_CONTROL role). They are not part of this offline-queued update.
       </div>
-    </div>
+      <div className="tos-field">
+        <label className="tos-field__label" htmlFor="cust-edit-name">Name<span className="tos-field__label-required">*</span></label>
+        <input id="cust-edit-name" className="tos-input" value={name} onChange={(e) => setName(e.target.value)} required maxLength={160} />
+      </div>
+      <div className="tos-field">
+        <label className="tos-field__label" htmlFor="cust-edit-phone">Phone</label>
+        <input id="cust-edit-phone" className="tos-input" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      </div>
+      <div className="tos-field">
+        <label className="tos-field__label" htmlFor="cust-edit-email">Email</label>
+        <input id="cust-edit-email" type="email" className="tos-input" value={email} onChange={(e) => setEmail(e.target.value)} />
+      </div>
+      {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
+      <div className="tos-row tos-row--between">
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
+        <Button type="submit" variant="primary" loading={busy} disabled={!name.trim()}>Save changes</Button>
+      </div>
+    </form>
   );
 }
 
-export function CustomerFinancialHistory({ detail, currencyCode }: { detail: CustomerDetail; currencyCode: string }) {
-  const open = detail.obligations.filter((item) => item.openMinor > 0);
-  return <>
-    <section className="customer-sheet-section customer-history-section">
-      <div className="customer-section-heading"><div><strong>Open credit obligations</strong><span>Due dates are fixed when each pay-later sale posts</span></div></div>
-      {open.length === 0 ? <div className="customer-empty">No open credit obligations.</div> : <div className="customer-ledger-list">{open.map((item) => {
-        const overdue = Date.parse(item.dueAt) < Date.now();
-        return <div className="customer-ledger-row" key={item.id}><div><strong>{overdue ? "Overdue" : "Due"} {formatCustomerDate(item.dueAt)}</strong><span>Original {formatCustomerMoney(item.originalMinor, currencyCode)} · sale {item.saleId.slice(0, 8)}</span></div><strong className={overdue ? "debit" : ""}>{formatCustomerMoney(item.openMinor, currencyCode)}</strong></div>;
-      })}</div>}
-    </section>
-    <section className="customer-sheet-section customer-history-section">
-      <div className="customer-section-heading"><div><strong>Account ledger</strong><span>Positive increases debt · negative reduces it</span></div></div>
-      {detail.ledger.length === 0 ? <div className="customer-empty">No account entries yet.</div> : <div className="customer-ledger-list">{detail.ledger.map((entry) => <div className="customer-ledger-row" key={entry.id}><div><strong>{ledgerLabel(entry.entryType)}</strong><span>{formatCustomerDate(entry.occurredAt)} · {entry.actorName ?? "Staff"}</span></div><strong className={entry.balanceDeltaMinor > 0 ? "debit" : "credit"}>{entry.balanceDeltaMinor > 0 ? "+" : "−"}{formatCustomerMoney(Math.abs(entry.balanceDeltaMinor), entry.currencyCode)}</strong></div>)}</div>}
-    </section>
-  </>;
+// --- CUSTOMER_PAYMENT_CREATE form ---------------------------------------
+
+interface CustomerPaymentFormProps {
+  customer: Customer;
+  currencyCode: string;
+  businessId: string;
+  branchId: string;
+  onCancel: () => void;
+  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
 }
 
-function ledgerLabel(type: LedgerEntry["entryType"]): string {
-  if (type === "CREDIT_SALE") return "Pay-later sale";
-  if (type === "PAYMENT") return "Customer payment";
-  if (type === "CREDIT_REFUND") return "Refund / account credit";
-  return "Account adjustment";
+function CustomerPaymentForm({ customer, currencyCode, businessId, branchId, onCancel, onSubmit }: CustomerPaymentFormProps) {
+  const [amountMinor, setAmountMinor] = useState<number | null>(null);
+  const [method, setMethod] = useState<PaymentMethod>("CASH");
+  const [providerReference, setProviderReference] = useState("");
+  const [moneyAccountId, setMoneyAccountId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const accountsPath = `/v1/money-accounts?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`;
+  const { data: accountsData, loading: accountsLoading } = useApiFetch<{ accounts: PaymentAccount[] }>(accountsPath);
+  const defaultsPath = `/v1/money-account-defaults?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`;
+  const { data: defaultsData } = useApiFetch<{ defaults: MoneyAccountDefault[] }>(defaultsPath);
+
+  const allAccounts = accountsData?.accounts ?? [];
+  const defaults = defaultsData?.defaults ?? [];
+  const eligibleAccounts = filterEligibleAccounts(allAccounts, method, currencyCode);
+  const noMatchingAccount = !accountsLoading && eligibleAccounts.length === 0;
+
+  // Resolve default using production helper: configured default wins,
+  // otherwise auto-select if exactly one, otherwise require explicit selection
+  useEffect(() => {
+    if (accountsLoading) return;
+    if (isSelectionValid(moneyAccountId, eligibleAccounts)) return;
+    const resolved = resolveDefaultAccountId(eligibleAccounts, defaults, method);
+    setMoneyAccountId(resolved);
+  }, [method, accountsLoading, eligibleAccounts.length, defaults.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (amountMinor === null || amountMinor <= 0 || busy || !moneyAccountId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = buildCustomerPaymentPayload({
+        customerId: customer.id,
+        amountMinor,
+        method,
+        moneyAccountId,
+        providerReference: providerReference.trim() || null,
+      });
+      await onSubmit(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not record payment.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="tos-stack" onSubmit={handleSubmit} style={{ marginTop: "var(--tos-space-3)" }}>
+      <div className="tos-callout tos-callout--info">
+        The new balance is computed server-side from the customer account ledger. The client never sends a balance.
+      </div>
+      <MoneyInput currencyCode={currencyCode} valueMinor={amountMinor} onChange={setAmountMinor} label="Amount received" size="lg" required />
+      <div className="tos-field">
+        <label className="tos-field__label" htmlFor="cust-pay-method">Method</label>
+        <select id="cust-pay-method" className="tos-select" value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+          {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+        </select>
+      </div>
+      <div className="tos-field">
+        <label className="tos-field__label" htmlFor="cust-pay-account">Account</label>
+        {accountsLoading ? (
+          <div className="tos-input tos-input--readonly">Loading accounts…</div>
+        ) : eligibleAccounts.length > 1 ? (
+          <select id="cust-pay-account" className="tos-select" value={moneyAccountId ?? ""} onChange={(e) => setMoneyAccountId(e.target.value || null)}>
+            {eligibleAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        ) : eligibleAccounts.length === 1 ? (
+          <div className="tos-input tos-input--readonly">{eligibleAccounts[0]!.name}</div>
+        ) : (
+          <div className="tos-banner tos-banner--warning">
+            <span className="tos-banner__title">No active {PAYMENT_METHODS.find((m) => m.value === method)?.label ?? method} account is configured for this branch.</span>
+            <a className="tos-banner__action" href="/cashbook">Configure in Cashbook →</a>
+          </div>
+        )}
+      </div>
+      <div className="tos-field">
+        <label className="tos-field__label" htmlFor="cust-pay-ref">Provider reference (optional)</label>
+        <input id="cust-pay-ref" className="tos-input" value={providerReference} onChange={(e) => setProviderReference(e.target.value)} placeholder="e.g. MoMo transaction id" />
+      </div>
+      {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
+      <div className="tos-row tos-row--between">
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
+        <Button type="submit" variant="primary" loading={busy} disabled={amountMinor === null || amountMinor <= 0 || noMatchingAccount || !moneyAccountId}>Record payment</Button>
+      </div>
+    </form>
+  );
+}
+
+interface CustomerFormSheetProps {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}
+
+export function CustomerFormSheet({ open, onClose, onCreated }: CustomerFormSheetProps) {
+  const { session, role, bump } = useWorkspace();
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setName(""); setPhone(""); setEmail(""); setBusy(false); setError(null);
+    }
+  }, [open]);
+
+  if (!open || !session) return null;
+
+  const canWrite = roleCan(role as WorkspaceRole, CUSTOMER_WRITE_ROLES);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || busy || !canWrite) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const queue = getOfflineQueue();
+      const payload: Record<string, unknown> = { name: name.trim() };
+      if (phone.trim()) payload.phone = phone.trim();
+      if (email.trim()) payload.email = email.trim();
+      const mutation = queue.build({
+        businessId: session.businessId,
+        mutationType: "CUSTOMER_CREATE",
+        payload,
+      });
+      await queue.enqueue(mutation);
+      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      bump();
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create customer.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet" role="dialog" aria-label="Add customer">
+        <div className="tos-sheet__head">
+          <div className="tos-sheet__head-main">
+            <span className="tos-sheet__eyebrow">Master data</span>
+            <h2 className="tos-sheet__title">Add customer</h2>
+          </div>
+          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
+            <IconClose style={{ width: 18, height: 18 }} />
+          </button>
+        </div>
+        <form className="tos-sheet__body" onSubmit={handleSubmit}>
+          <div className="tos-field">
+            <label className="tos-field__label" htmlFor="cust-name">Name<span className="tos-field__label-required">*</span></label>
+            <input id="cust-name" className="tos-input" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} />
+          </div>
+          <div className="tos-field">
+            <label className="tos-field__label" htmlFor="cust-phone">Phone</label>
+            <input id="cust-phone" className="tos-input" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          <div className="tos-field">
+            <label className="tos-field__label" htmlFor="cust-email">Email</label>
+            <input id="cust-email" type="email" className="tos-input" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
+        </form>
+        <div className="tos-sheet__foot">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit} loading={busy} disabled={!name.trim() || !canWrite}>
+            {canWrite ? "Create customer" : "No permission"}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
 }

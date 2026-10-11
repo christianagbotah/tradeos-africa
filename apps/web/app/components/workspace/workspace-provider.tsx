@@ -1,291 +1,251 @@
 "use client";
 
-import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { PosSellableItem } from "../pos/pos-model";
-import {
-  getActiveBusinessId,
-  mutationAppliedEvent,
-  setActiveBusinessId,
-  type AppliedMutationDetail,
-} from "../../lib/offline-sync";
-import { clearWorkspaceBootstrap, readWorkspaceBootstrap, writeWorkspaceBootstrap } from "../../lib/workspace-bootstrap";
-import { clearFeatureCaches } from "../../lib/feature-cache";
-import { finalizePendingLogout, invalidateSessionEpoch, markLogoutPending } from "../../lib/session-lifecycle";
-import type { BusinessContext, CatalogItem, MePayload, Membership } from "../../lib/workspace-types";
+import { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { getOfflineQueue, type WebSession } from "../../../lib/offline-sync";
+import type { WorkspaceRole } from "./workspace-navigation";
 
-const catalogMutationTypes = new Set([
-  "CATALOG_ITEM_CREATE",
-  "CATALOG_ITEM_UPDATE",
-  "CATALOG_ITEM_ARCHIVE",
-  "CATALOG_ITEM_REACTIVATE",
-]);
+// --- Domain types (mirror of the API read models) -------------------------
 
-export type WorkspaceContextValue = {
-  session: MePayload;
-  context: BusinessContext;
-  branchId: string;
-  activeBranch: BusinessContext["branches"][number];
-  catalog: CatalogItem[];
-  sellableItems: PosSellableItem[];
-  setBusiness: (businessId: string) => Promise<void>;
-  setBranch: (branchId: string) => void;
-  refreshBusiness: () => Promise<void>;
-  logout: () => Promise<void>;
-  retryWorkspace: () => Promise<void>;
-};
-
-export type WorkspaceStore = {
-  resolved: boolean;
-  session: MePayload | null;
-  context: BusinessContext | null;
-  branchId: string | null;
-  catalog: CatalogItem[];
-  sellableItems: PosSellableItem[];
-  error: string | null;
-  setBusiness: (businessId: string) => Promise<void>;
-  setBranch: (branchId: string) => void;
-  refreshBusiness: () => Promise<void>;
-  logout: () => Promise<void>;
-  retryWorkspace: () => Promise<void>;
-};
-
-export const WorkspaceStoreContext = createContext<WorkspaceStore | null>(null);
-
-export function selectWorkspaceMembership(session: MePayload, rememberedBusinessId: string | null): Membership | null {
-  return session.memberships.find((item) => item.businessId === rememberedBusinessId) ?? session.memberships[0] ?? null;
+export interface CatalogItem {
+  id: string;
+  name: string;
+  sku: string | null;
+  kind: "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
+  status: "ACTIVE" | "ARCHIVED";
+  saleUnitCode: string;
+  saleUnitName: string;
+  priceMinor: number;
+  taxRatePercent: number | null;
+  costMinor: number | null;
+  trackInventory: boolean;
+  inventoryOnHand: number | null;
+  inventoryAvailable: number | null;
+  updatedAt: string;
 }
 
-export function selectInitialBranch(context: BusinessContext, currentBranchId: string | null) {
-  const active = context.branches.filter((branch) => branch.active);
-  return active.find((branch) => branch.id === currentBranchId)
-    ?? active.find((branch) => branch.code === "MAIN")
-    ?? active[0]
-    ?? null;
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  active: boolean;
+  creditLimitMinor: number | null;
+  creditTermsDays: number | null;
+  balanceMinor: number;
+  updatedAt: string;
 }
 
-export function projectSellableItems(catalog: CatalogItem[]): PosSellableItem[] {
-  return catalog.flatMap((item) => item.units
-    .filter((unit) => item.active && unit.canSell && unit.defaultSalePriceMinor !== null)
-    .map((unit) => ({
-      key: `${item.id}:${unit.code}`,
-      itemId: item.id,
-      name: item.name,
-      sku: item.sku,
-      kind: item.kind,
-      unitCode: unit.code,
-      unitLabel: unit.label,
-      priceMinor: unit.defaultSalePriceMinor!,
-      trackStock: item.trackStock,
-      stockUnitCode: item.stockUnitCode,
-    })));
+export interface SaleSummary {
+  id: string;
+  status: string;
+  currencyCode: string;
+  totalMinor: number;
+  refundTotalMinor: number;
+  completedAt: string | null;
+  createdAt: string;
+  customer: { name: string | null; phone: string | null } | null;
+  cashierName: string | null;
+  payments: ReadonlyArray<{ method: string; amountMinor: number; status: string }>;
 }
 
-export function getWorkspaceGate(input: {
-  resolved: boolean;
-  session: MePayload | null;
-  context: BusinessContext | null;
-  branchId: string | null;
-}): "loading" | "redirect-root" | "ready" {
-  if (!input.resolved) return "loading";
-  if (!input.session || input.session.memberships.length === 0) return "redirect-root";
-  if (!input.context || !input.branchId) return "loading";
-  return "ready";
+export interface QueueStatus {
+  pending: number;
+  failed: number;
+  online: boolean;
+  lastFlushAt: string | null;
+  lastError: string | null;
 }
 
-export function isCurrentWorkspaceRequest(requestGeneration: number, currentGeneration: number): boolean {
-  return requestGeneration === currentGeneration;
+export interface WorkspaceContextValue {
+  session: WebSession | null;
+  role: WorkspaceRole;
+  catalog: readonly CatalogItem[];
+  customers: readonly Customer[];
+  queue: QueueStatus;
+  /** True until the initial session + catalog load completes. */
+  booting: boolean;
+  /** Set when an unrecoverable error prevents the workspace from rendering. */
+  fatal: string | null;
+  signIn: (session: WebSession) => void;
+  signOut: () => void;
+  refreshCatalog: () => Promise<void>;
+  refreshCustomers: () => Promise<void>;
+  flushQueue: () => Promise<void>;
+  /** Forces a re-render of consumers (e.g. after enqueueing a mutation). */
+  bump: () => void;
 }
 
-export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [resolved, setResolved] = useState(false);
-  const [session, setSession] = useState<MePayload | null>(null);
-  const [context, setContext] = useState<BusinessContext | null>(null);
-  const [branchId, setBranchId] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const requestGenerationRef = useRef(0);
-  const businessIntent = useRef<string | null>(null);
-  const branchIntentRef = useRef<string | null>(null);
+export const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
-  const loadBusiness = useCallback(async (businessId: string, preferredBranchId: string | null = null) => {
-    const generation = ++requestGenerationRef.current;
-    const [business, catalogData] = await Promise.all([
-      api<BusinessContext>(`/api/tradeos/v1/businesses/${businessId}/context`),
-      api<{ items: CatalogItem[] }>(`/api/tradeos/v1/catalog/items?businessId=${businessId}`),
-    ]);
-    if (generation !== requestGenerationRef.current) return null;
-    const selectedBranch = selectInitialBranch(business, branchIntentRef.current ?? preferredBranchId);
-    if (!selectedBranch) throw new Error("This business has no active branch.");
-    branchIntentRef.current = selectedBranch.id;
-    setContext(business);
-    setCatalog(catalogData.items);
-    setBranchId(selectedBranch.id);
-    return { context: business, branchId: selectedBranch.id, catalog: catalogData.items };
+interface WorkspaceProviderProps {
+  children: ReactNode;
+}
+
+export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
+  const offlineQueue = useMemo(() => getOfflineQueue(), []);
+  const [session, setSession] = useState<WebSession | null>(null);
+  const [catalog, setCatalog] = useState<readonly CatalogItem[]>([]);
+  const [customers, setCustomers] = useState<readonly Customer[]>([]);
+  const [booting, setBooting] = useState(true);
+  const [fatal, setFatal] = useState<string | null>(null);
+  const [online, setOnline] = useState(true);
+  const [pending, setPending] = useState(0);
+  const [failed, setFailed] = useState(0);
+  const [lastFlushAt, setLastFlushAt] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [, setTick] = useState(0);
+
+  // --- Initial boot: load session from localStorage -----------------------
+  useEffect(() => {
+    const stored = offlineQueue.sessions.load();
+    if (stored) {
+      setSession(stored);
+    }
+    setBooting(false);
+  }, [offlineQueue]);
+
+  // --- Online/offline detection -------------------------------------------
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => setOnline(window.navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
   }, []);
 
-  const loadSession = useCallback(async () => {
-    setError(null);
-    try {
-      const pendingLogout = await finalizePendingLogout();
-      if (pendingLogout !== "none") {
-        requestGenerationRef.current += 1;
-        businessIntent.current = null;
-        branchIntentRef.current = null;
-        clearWorkspaceBootstrap();
-        clearFeatureCaches();
-        setActiveBusinessId(null);
-        setSession(null);
-        setContext(null);
-        setCatalog([]);
-        setBranchId(null);
-        return;
-      }
-      const response = await fetch("/api/session/me", { cache: "no-store" });
-      if (response.status === 401) {
-        requestGenerationRef.current += 1;
-        invalidateSessionEpoch();
-        businessIntent.current = null;
-        branchIntentRef.current = null;
-        clearWorkspaceBootstrap();
-        clearFeatureCaches();
-        setSession(null);
-        setContext(null);
-        setCatalog([]);
-        setBranchId(null);
-        setActiveBusinessId(null);
-        return;
-      }
-      const data = await readResponse<MePayload>(response);
-      setSession(data);
-      const membership = selectWorkspaceMembership(data, getActiveBusinessId());
-      if (!membership) {
-        businessIntent.current = null;
-        clearWorkspaceBootstrap();
-        setContext(null);
-        setCatalog([]);
-        setBranchId(null);
-        setActiveBusinessId(null);
-        return;
-      }
-      businessIntent.current = membership.businessId;
-      const loaded = await loadBusiness(membership.businessId);
-      if (loaded) {
-        setActiveBusinessId(membership.businessId);
-        writeWorkspaceBootstrap({ session: data, ...loaded });
-      }
-    } catch (reason) {
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
-        const cached = readWorkspaceBootstrap();
-        if (cached) {
-          requestGenerationRef.current += 1;
-          businessIntent.current = cached.context.business.id;
-          branchIntentRef.current = cached.branchId;
-          setSession(cached.session);
-          setContext(cached.context);
-          setCatalog(cached.catalog);
-          setBranchId(cached.branchId);
-          setActiveBusinessId(cached.context.business.id);
-          return;
-        }
-      }
-      setError(messageFrom(reason));
-    } finally {
-      setResolved(true);
+  // --- Refresh queue counts + flush on session / online change -----------
+  const refreshQueueCounts = useCallback(async () => {
+    if (!session) {
+      setPending(0);
+      setFailed(0);
+      return;
     }
-  }, [loadBusiness]);
-
-  useEffect(() => { void loadSession(); }, [loadSession]);
-
-  const setBusiness = useCallback(async (businessId: string) => {
-    if (!session?.memberships.some((membership) => membership.businessId === businessId)) throw new Error("Business is not available to this session.");
-    setError(null);
-    businessIntent.current = businessId;
-    branchIntentRef.current = null;
-    try {
-      const loaded = await loadBusiness(businessId);
-      if (loaded) {
-        setActiveBusinessId(businessId);
-        writeWorkspaceBootstrap({ session, ...loaded });
-      }
-    } catch (reason) {
-      if (businessIntent.current === businessId) {
-        businessIntent.current = context?.business.id ?? null;
-        branchIntentRef.current = branchId;
-        setError(messageFrom(reason));
-      }
-    }
-  }, [branchId, context?.business.id, loadBusiness, session]);
-
-  const setBranch = useCallback((branchId: string) => {
-    if (!context?.branches.some((branch) => branch.id === branchId && branch.active)) return;
-    branchIntentRef.current = branchId;
-    setBranchId(branchId);
-    if (session) writeWorkspaceBootstrap({ session, context, branchId, catalog });
-  }, [catalog, context, session]);
-
-  const refreshBusiness = useCallback(async () => {
-    if (!context) return;
-    if (businessIntent.current && businessIntent.current !== context.business.id) return;
-    const loaded = await loadBusiness(context.business.id, branchId);
-    if (loaded && session) writeWorkspaceBootstrap({ session, ...loaded });
-  }, [branchId, context, loadBusiness, session]);
+    const state = await offlineQueue.getState(session.businessId);
+    setPending(state.pending);
+    setFailed(state.failed);
+  }, [offlineQueue, session]);
 
   useEffect(() => {
-    const handleMutationApplied = (event: Event) => {
-      const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
-      if (!detail || detail.businessId !== context?.business.id || !catalogMutationTypes.has(detail.mutationType)) return;
-      void refreshBusiness();
-    };
-    window.addEventListener(mutationAppliedEvent, handleMutationApplied);
-    return () => window.removeEventListener(mutationAppliedEvent, handleMutationApplied);
-  }, [context?.business.id, refreshBusiness]);
+    void refreshQueueCounts();
+  }, [refreshQueueCounts]);
 
-  const retryWorkspace = useCallback(async () => {
-    setResolved(false);
-    await loadSession();
-  }, [loadSession]);
+  // --- Periodic queue flush + on online event ----------------------------
+  const flushQueue = useCallback(async () => {
+    if (!session || !online) return;
+    try {
+      const summary = await offlineQueue.flush({
+        activeBusinessId: session.businessId,
+        online,
+      });
+      setLastFlushAt(new Date().toISOString());
+      setLastError(summary.failed > 0 ? `${summary.failed} mutation(s) rejected` : null);
+      await refreshQueueCounts();
+    } catch (error) {
+      setLastError(error instanceof Error ? error.message : "Sync failed");
+    }
+  }, [offlineQueue, online, refreshQueueCounts, session]);
 
-  const logout = useCallback(async () => {
-    markLogoutPending();
-    requestGenerationRef.current += 1;
-    businessIntent.current = null;
-    branchIntentRef.current = null;
-    clearWorkspaceBootstrap();
-    clearFeatureCaches();
-    setActiveBusinessId(null);
+  useEffect(() => {
+    if (!session) return;
+    void flushQueue();
+    const id = window.setInterval(() => void flushQueue(), 15_000);
+    return () => window.clearInterval(id);
+  }, [flushQueue, session]);
+
+  useEffect(() => {
+    if (online && session) {
+      void flushQueue();
+    }
+  }, [online, session, flushQueue]);
+
+  // --- Catalog + customers load (when session is set) --------------------
+  const refreshCatalog = useCallback(async () => {
+    if (!session) return;
+    try {
+      const res = await fetch(`/v1/catalog/items?businessId=${encodeURIComponent(session.businessId)}`, {
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      });
+      if (!res.ok) {
+        setFatal(`Could not load catalog (${res.status}).`);
+        return;
+      }
+      const json = (await res.json()) as { items: CatalogItem[] };
+      setCatalog(json.items ?? []);
+    } catch (error) {
+      setFatal(error instanceof Error ? error.message : "Could not load catalog.");
+    }
+  }, [session]);
+
+  const refreshCustomers = useCallback(async () => {
+    if (!session) return;
+    try {
+      const res = await fetch(`/v1/customers?businessId=${encodeURIComponent(session.businessId)}`, {
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      });
+      if (!res.ok) {
+        return;
+      }
+      const json = (await res.json()) as { customers: Customer[] };
+      setCustomers(json.customers ?? []);
+    } catch {
+      // Customers are non-blocking — leave the list empty.
+    }
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) {
+      setCatalog([]);
+      setCustomers([]);
+      return;
+    }
+    void refreshCatalog();
+    void refreshCustomers();
+  }, [session, refreshCatalog, refreshCustomers]);
+
+  // --- Sign-in / sign-out -------------------------------------------------
+  const signIn = useCallback((next: WebSession) => {
+    offlineQueue.sessions.save(next);
+    setSession(next);
+    setFatal(null);
+  }, [offlineQueue]);
+
+  const signOut = useCallback(() => {
+    offlineQueue.sessions.clear();
+    void offlineQueue.clear();
     setSession(null);
-    setContext(null);
     setCatalog([]);
-    setBranchId(null);
-    setResolved(true);
-    await finalizePendingLogout();
-  }, []);
+    setCustomers([]);
+    setPending(0);
+    setFailed(0);
+  }, [offlineQueue]);
 
-  const sellableItems = useMemo(() => projectSellableItems(catalog), [catalog]);
-  const value = useMemo<WorkspaceStore>(() => ({
-    resolved, session, context, branchId, catalog, sellableItems, error,
-    setBusiness, setBranch, refreshBusiness, logout, retryWorkspace,
-  }), [resolved, session, context, branchId, catalog, sellableItems, error, setBusiness, setBranch, refreshBusiness, logout, retryWorkspace]);
+  const bump = useCallback(() => {
+    setTick((n) => n + 1);
+    void refreshQueueCounts();
+  }, [refreshQueueCounts]);
 
-  return <WorkspaceStoreContext.Provider value={value}>{children}</WorkspaceStoreContext.Provider>;
-}
+  const role = (session?.role as WorkspaceRole | undefined) ?? "VIEWER";
 
-async function api<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: "no-store", headers: { "content-type": "application/json" } });
-  return readResponse<T>(response);
-}
+  const value: WorkspaceContextValue = {
+    session,
+    role,
+    catalog,
+    customers,
+    queue: { pending, failed, online, lastFlushAt, lastError },
+    booting,
+    fatal,
+    signIn,
+    signOut,
+    refreshCatalog,
+    refreshCustomers,
+    flushQueue,
+    bump,
+  };
 
-async function readResponse<T>(response: Response): Promise<T> {
-  const text = await response.text();
-  let body: unknown = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = null; }
-  if (!response.ok) {
-    const candidate = body as { message?: unknown } | null;
-    throw new Error(typeof candidate?.message === "string" ? candidate.message : `Request failed (${response.status})`);
-  }
-  return body as T;
-}
-
-function messageFrom(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "Something went wrong. Please try again.";
+  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }

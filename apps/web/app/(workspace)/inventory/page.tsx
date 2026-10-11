@@ -1,7 +1,5 @@
-"use client";
-import { PurchasesInventory } from "../../components/purchases-inventory";
-import { useWorkspace } from "../../components/workspace/use-workspace";
+import { InventoryWorkspace } from "../../components/inventory/inventory-workspace";
+
 export default function InventoryPage() {
-  const { context, branchId, catalog } = useWorkspace();
-  return <PurchasesInventory businessId={context.business.id} branchId={branchId} currencyCode={context.business.currencyCode} role={context.membership.role} catalog={catalog} view="inventory" />;
+  return <InventoryWorkspace />;
 }

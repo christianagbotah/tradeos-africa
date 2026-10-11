@@ -1,147 +1,182 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
-import { formatMoney } from "@tradeos/contracts";
+import { useEffect, useState } from "react";
+import { useApiFetch } from "../../../lib/use-api-fetch";
+import { useWorkspace } from "../workspace/use-workspace";
+import { MoneyValue } from "../business/money-value";
 import { Button } from "../ui/button";
-import { ActorReasonEvidence, PostedHistoryNote, TransactionStatusBadge } from "../business/transaction-evidence";
-import type { SaleDetail, SaleLine } from "../sales/types";
+import { IconClose } from "../ui/icons";
+import { getOfflineQueue } from "../../../lib/offline-sync";
 
-export type ReturnMode = "RETURN_REFUND" | "REFUND_ONLY" | "EXCHANGE";
-export type RefundMethod = "ORIGINAL_METHOD" | "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT";
-export type ReturnDisposition = "RESTOCK" | "QUARANTINE" | "DISCARD" | "NOT_RETURNED" | "NOT_APPLICABLE";
-export type ReturnLineDraft = { selected: boolean; quantity: string; disposition: ReturnDisposition };
-
-type Props = {
-  sale: SaleDetail;
-  open: boolean;
-  drafts: Record<string, ReturnLineDraft>;
-  mode: ReturnMode;
-  refundMethod: RefundMethod;
-  reason: string;
-  busy: boolean;
-  refundPreviewMinor: number;
-  selectedLineCount: number;
-  onClose: () => void;
-  onModeChange: (mode: ReturnMode) => void;
-  onRefundMethodChange: (method: RefundMethod) => void;
-  onReasonChange: (reason: string) => void;
-  onDraftChange: (lineId: string, patch: Partial<ReturnLineDraft>) => void;
-  onSubmit: () => void;
-};
-
-type SyncOutcome = { rejected: number; received: number; applied: number };
-
-export function returnSyncMessage(summary: SyncOutcome): string {
-  if (summary.rejected > 0) return "Return/refund needs review before it can be applied. Open Sync issues to resolve the rejected correction.";
-  if (summary.received > 0 || summary.applied === 0) return "Return/refund is saved and pending synchronization.";
-  return "Return/refund applied. MoMo, card or bank reversals may remain processing until the provider confirms them.";
+interface SaleDetail {
+  sale: {
+    id: string;
+    businessId: string;
+    branchId: string;
+    status: string;
+    currencyCode: string;
+    totalMinor: number;
+    completedAt: string | null;
+    createdAt: string;
+    customer: { id: string; name: string | null; phone: string | null } | null;
+    lines: ReadonlyArray<{
+      id: string;
+      itemId: string;
+      itemName: string;
+      quantity: number;
+      quantityReturnable: number;
+      saleUnitCode: string;
+      lineTotalMinor: number;
+    }>;
+    payments: ReadonlyArray<{ id: string; method: string; amountMinor: number; status: string }>;
+  };
 }
 
-export function ReturnRefundSheet(props: Props) {
-  const { sale, open, drafts, mode, refundMethod, reason, busy, refundPreviewMinor, selectedLineCount } = props;
-  const sheetRef = useRef<HTMLDivElement | null>(null);
-  const closeRef = useRef<HTMLButtonElement | null>(null);
-  const previousActive = useRef<HTMLElement | null>(null);
+interface ReturnRefundSheetProps {
+  saleId: string | null;
+  mode: "return" | "refund";
+  onClose: () => void;
+  onComplete: () => void;
+}
+
+export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnRefundSheetProps) {
+  const { session, role } = useWorkspace();
+  const path = saleId && session
+    ? `/v1/sales/${encodeURIComponent(saleId)}?businessId=${encodeURIComponent(session.businessId)}`
+    : null;
+  const { data, loading, error } = useApiFetch<SaleDetail>(path);
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const canWrite = ["OWNER", "ADMIN", "MANAGER", "CASHIER"].includes(role);
 
   useEffect(() => {
-    if (!open) return;
-    previousActive.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => closeRef.current?.focus());
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); props.onClose(); return; }
-      if (event.key !== "Tab" || !sheetRef.current) return;
-      const focusable = Array.from(sheetRef.current.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'));
-      if (!focusable.length) return;
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", keydown);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", keydown);
-      previousActive.current?.focus();
-    };
-  }, [open, props.onClose]);
+    if (data) {
+      const initial: Record<string, number> = {};
+      for (const line of data.sale.lines) initial[line.id] = 0;
+      setQuantities(initial);
+    }
+  }, [data]);
 
-  if (!open) return null;
+  if (!saleId || !session) return null;
+
+  const currency = data?.sale.currencyCode ?? session.currencyCode;
+
+  const totalRefundMinor = data
+    ? data.sale.lines.reduce((sum, l) => {
+        const qty = quantities[l.id] ?? 0;
+        if (qty <= 0) return sum;
+        const unitPrice = l.quantity > 0 ? Math.round(l.lineTotalMinor / l.quantity) : 0;
+        return sum + unitPrice * qty;
+      }, 0)
+    : 0;
+
+  const handleSubmit = async () => {
+    if (!data || busy || !canWrite) return;
+    const lines = data.sale.lines
+      .map((l) => ({ lineId: l.id, itemId: l.itemId, saleUnitCode: l.saleUnitCode, quantity: quantities[l.id] ?? 0 }))
+      .filter((l) => l.quantity > 0);
+    if (lines.length === 0) {
+      setSubmitError("Set a return quantity on at least one line.");
+      return;
+    }
+    setBusy(true);
+    setSubmitError(null);
+    try {
+      const queue = getOfflineQueue();
+      const mutationType = mode === "return" ? "RETURN_CREATE" : "REFUND_CREATE";
+      const mutation = queue.build({
+        businessId: session.businessId,
+        branchId: session.branchId,
+        mutationType,
+        payload: {
+          originalSaleId: data.sale.id,
+          lines,
+        },
+      });
+      await queue.enqueue(mutation);
+      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      onComplete();
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Could not submit.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="return-sheet-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}>
-      <div ref={sheetRef} className="return-refund-sheet" role="dialog" aria-modal="true" aria-labelledby="return-refund-title">
-        <header className="return-sheet-header">
-          <div><span>Original sale {shortReceipt(sale.id)}</span><h2 id="return-refund-title">Return &amp; refund</h2><small>{formatDate(sale.completedAt ?? sale.createdAt)} · {sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</small></div>
-          <button ref={closeRef} type="button" className="return-sheet-close" aria-label="Close return" onClick={props.onClose}>×</button>
-        </header>
-
-        <div className="return-sheet-scroll">
-          <section className="return-sheet-summary">
-            <div><span>Original total</span><strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong></div>
-            <div><span>Receipt status</span><TransactionStatusBadge status={sale.status} label={humanize(sale.status)} /></div>
-            <div><span>Customer</span><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong></div>
-          </section>
-
-          <section className="return-sheet-section">
-            <div className="return-sheet-section-heading"><div><strong>Correction type</strong><span>TradeOS records a linked correction; the original receipt never changes.</span></div></div>
-            <PostedHistoryNote subject="Original sale" correction="linked returns, refunds or exchanges" />
-            <div className="return-sheet-modes">
-              <button type="button" className={mode === "RETURN_REFUND" ? "active" : undefined} onClick={() => props.onModeChange("RETURN_REFUND")}><strong>Return + refund</strong><span>Physical product comes back where applicable.</span></button>
-              <button type="button" className={mode === "REFUND_ONLY" ? "active" : undefined} onClick={() => props.onModeChange("REFUND_ONLY")}><strong>Refund only</strong><span>Customer keeps the item; stock is unchanged.</span></button>
-              <button type="button" className={mode === "EXCHANGE" ? "active" : undefined} onClick={() => props.onModeChange("EXCHANGE")}><strong>Exchange items</strong><span>Return selected items and choose replacements in one linked correction.</span></button>
-            </div>
-          </section>
-
-          <section className="return-sheet-section">
-            <div className="return-sheet-section-heading"><div><strong>Returnable lines</strong><span>Select only quantities still available for correction.</span></div></div>
-            <div className="return-sheet-lines">{sale.lines.map((line) => <ReturnLine key={line.id} line={line} currencyCode={sale.currencyCode} draft={drafts[line.id]} mode={mode} onChange={(patch) => props.onDraftChange(line.id, patch)} />)}</div>
-          </section>
-
-          <section className="return-sheet-section">
-            <div className="return-sheet-section-heading"><div><strong>Refund destination</strong><span>Cash and customer credit settle immediately. MoMo, card and bank reversals remain processing until the provider confirms them.</span></div></div>
-            <div className="return-refund-fields">
-              <label>Refund method<select value={refundMethod} onChange={(event) => props.onRefundMethodChange(event.target.value as RefundMethod)}><option value="ORIGINAL_METHOD">Original payment method</option><option value="CASH">Cash</option><option value="MOMO">MoMo</option><option value="CARD">Card</option><option value="BANK">Bank</option><option value="CUSTOMER_CREDIT">Customer credit</option></select></label>
-              <label>Reason<input value={reason} onChange={(event) => props.onReasonChange(event.target.value)} placeholder="Why is this return/refund needed?" /></label>
-            </div>
-          </section>
-
-          <section className="return-sheet-preview">
-            <div><span>Refund preview</span><strong>{formatMoney(refundPreviewMinor, sale.currencyCode)}</strong></div>
-            <div><span>Selected lines</span><strong>{selectedLineCount}</strong></div>
-            <div><span>Audit</span><strong>Actor + reason recorded</strong></div>
-            <ActorReasonEvidence actor="Authenticated staff" reason={reason || "Reason required"} />
-          </section>
+    <>
+      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label={mode === "return" ? "Process return" : "Issue refund"}>
+        <div className="tos-sheet__head">
+          <div className="tos-sheet__head-main">
+            <span className="tos-sheet__eyebrow">{mode === "return" ? "Return" : "Refund"}</span>
+            <h2 className="tos-sheet__title">{mode === "return" ? "Process return" : "Issue refund"}</h2>
+            <p className="tos-sheet__sub">Receipt {saleId.slice(0, 8)}</p>
+          </div>
+          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
+            <IconClose style={{ width: 18, height: 18 }} />
+          </button>
         </div>
-
-        <footer className="return-sheet-footer">
-          <Button variant="ghost" type="button" onClick={props.onClose}>Cancel</Button>
-          <Button type="button" disabled={busy || selectedLineCount === 0 || !reason.trim()} onClick={props.onSubmit}>{busy ? "Processing…" : "Process return / refund"}</Button>
-        </footer>
+        <div className="tos-sheet__body">
+          {loading ? (
+            <div className="tos-state tos-state--inline"><span className="tos-spinner" /></div>
+          ) : error ? (
+            <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div>
+          ) : data ? (
+            <>
+              <div className="tos-callout tos-callout--warning">
+                Returns and refunds are immutable once posted. The original sale is never edited — a corrective transaction is created.
+              </div>
+              <ul className="tos-list" style={{ border: "none", boxShadow: "none" }}>
+                {data.sale.lines.map((line) => {
+                  const qty = quantities[line.id] ?? 0;
+                  const unitPrice = line.quantity > 0 ? Math.round(line.lineTotalMinor / line.quantity) : 0;
+                  return (
+                    <li key={line.id} className="tos-cart-line" style={{ gridTemplateColumns: "1fr auto" }}>
+                      <div>
+                        <div className="tos-cart-line__name">{line.itemName}</div>
+                        <div className="tos-cart-line__sub">{line.quantity} × {line.saleUnitCode} · returnable: {line.quantityReturnable}</div>
+                        <div className="tos-cart-line__qty" style={{ marginTop: "var(--tos-space-2)" }}>
+                          <button
+                            type="button"
+                            className="tos-cart-line__qty-btn"
+                            onClick={() => setQuantities((p) => ({ ...p, [line.id]: Math.max(0, qty - 1) }))}
+                            aria-label="Decrease"
+                          >−</button>
+                          <span className="tos-cart-line__qty-val">{qty}</span>
+                          <button
+                            type="button"
+                            className="tos-cart-line__qty-btn"
+                            onClick={() => setQuantities((p) => ({ ...p, [line.id]: Math.min(line.quantityReturnable, qty + 1) }))}
+                            aria-label="Increase"
+                            disabled={qty >= line.quantityReturnable}
+                          >+</button>
+                        </div>
+                      </div>
+                      <div className="tos-cart-line__total">
+                        {qty > 0 ? <MoneyValue minor={unitPrice * qty} currencyCode={currency} /> : <span className="tos-money-value tos-money-value--muted">—</span>}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="tos-checkout-summary">
+                <span className="tos-checkout-summary__total-key">{mode === "return" ? "Refund due" : "Refund total"}</span>
+                <span className="tos-checkout-summary__total-val"><MoneyValue minor={totalRefundMinor} currencyCode={currency} tone="negative" /></span>
+              </div>
+              {submitError ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{submitError}</span></div> : null}
+            </>
+          ) : null}
+        </div>
+        <div className="tos-sheet__foot">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="danger" onClick={handleSubmit} loading={busy} disabled={!canWrite || !data || totalRefundMinor <= 0}>
+            {canWrite ? (mode === "return" ? "Post return" : "Post refund") : "No permission"}
+          </Button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
-
-function ReturnLine({ line, currencyCode, draft, mode, onChange }: { line: SaleLine; currencyCode: string; draft: ReturnLineDraft | undefined; mode: ReturnMode; onChange: (patch: Partial<ReturnLineDraft>) => void }) {
-  const disabled = line.quantityReturnable <= 0;
-  return (
-    <div className={disabled ? "return-sheet-line exhausted" : "return-sheet-line"}>
-      <label className="return-line-check"><input type="checkbox" disabled={disabled} checked={Boolean(draft?.selected)} onChange={(event) => onChange({ selected: event.target.checked })} /><span><strong>{line.itemName}</strong><small>{formatQuantity(line.quantityReturnable)} of {formatQuantity(line.quantity)} {line.saleUnitCode} returnable</small></span></label>
-      <label>Qty<input type="number" min="0.00000001" max={line.quantityReturnable} step="any" disabled={disabled || !draft?.selected} value={draft?.quantity ?? "0"} onChange={(event) => onChange({ quantity: event.target.value })} /></label>
-      <DispositionControl line={line} draft={draft} mode={mode} onChange={(disposition) => onChange({ disposition })} />
-      <div className="return-line-amount"><span>Original line</span><strong>{formatMoney(line.lineTotalMinor, currencyCode)}</strong></div>
-    </div>
-  );
-}
-
-function DispositionControl({ line, draft, mode, onChange }: { line: SaleLine; draft: ReturnLineDraft | undefined; mode: ReturnMode; onChange: (value: ReturnDisposition) => void }) {
-  if (mode === "REFUND_ONLY") return <div className="return-stock-effect"><span>Stock</span><strong>No stock return</strong></div>;
-  if (line.itemKind === "SERVICE") return <div className="return-stock-effect"><span>Stock</span><strong>Not applicable</strong></div>;
-  if (line.itemKind === "PREPARED_PRODUCT") return <div className="return-stock-effect"><span>Returned item</span><strong>Discard / waste</strong></div>;
-  return <label>Returned stock<select disabled={!draft?.selected} value={draft?.disposition ?? "RESTOCK"} onChange={(event) => onChange(event.target.value as ReturnDisposition)}><option value="RESTOCK">Available stock</option><option value="QUARANTINE">Quarantine / inspect</option><option value="DISCARD">Discard / unusable</option></select></label>;
-}
-
-function shortReceipt(id: string): string { return `#${id.slice(0, 8).toUpperCase()}`; }
-function humanize(value: string): string { return value.replaceAll("_", " "); }
-function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }
-function formatDate(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }

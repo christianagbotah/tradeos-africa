@@ -1,138 +1,131 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { catalogCapabilities } from "../../lib/lifecycle-capabilities";
-import type { CatalogItem } from "../../lib/workspace-types";
-import { Button } from "../ui/button";
-import { CommandBar } from "../ui/command-bar";
-import { StatePanel } from "../ui/state-panel";
+import { useMemo, useState } from "react";
+import { useWorkspace } from "../workspace/use-workspace";
 import { CatalogItemSheet } from "./catalog-item-sheet";
-import { CatalogList } from "./catalog-list";
+import { MoneyValue } from "../business/money-value";
+import { StatePanel } from "../ui/state-panel";
+import { Button } from "../ui/button";
+import { IconBox, IconPlus, IconRefresh, IconSearch } from "../ui/icons";
+import type { CatalogItem } from "../workspace/workspace-provider";
 
-export type CatalogFilter = "ALL" | "PRODUCT" | "SERVICE" | "ARCHIVED";
-type EditorState = { mode: "create" | "edit" | "duplicate"; item: CatalogItem | null } | null;
-
-export function filterCatalogItems(items: CatalogItem[], filter: CatalogFilter, query: string): CatalogItem[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  return items.filter((item) => {
-    if (filter === "ARCHIVED") {
-      if (item.active) return false;
-    } else {
-      if (!item.active) return false;
-      if (filter === "PRODUCT" && item.kind !== "PRODUCT" && item.kind !== "PREPARED_PRODUCT") return false;
-      if (filter === "SERVICE" && item.kind !== "SERVICE") return false;
-    }
-    if (!normalizedQuery) return true;
-    return [item.name, item.sku ?? "", ...item.units.map((unit) => `${unit.label} ${unit.code}`)]
-      .join(" ")
-      .toLowerCase()
-      .includes(normalizedQuery);
-  });
-}
-
-export function CatalogWorkspace({
-  businessId,
-  branchId,
-  currencyCode,
-  role,
-  items,
-  onRefresh,
-}: {
-  businessId: string;
-  branchId: string;
-  currencyCode: string;
-  role: string;
-  items: CatalogItem[];
-  onRefresh: () => Promise<void> | void;
-}) {
-  const capabilities = catalogCapabilities(role);
-  const [filter, setFilter] = useState<CatalogFilter>("ALL");
+export function CatalogWorkspace() {
+  const { catalog, role, refreshCatalog, session } = useWorkspace();
   const [query, setQuery] = useState("");
-  const [editor, setEditor] = useState<EditorState>(null);
-  const visibleItems = useMemo(() => filterCatalogItems(items, filter, query), [filter, items, query]);
+  const [kindFilter, setKindFilter] = useState<"ALL" | CatalogItem["kind"]>("ALL");
+  const [editing, setEditing] = useState<CatalogItem | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
 
-  const counts = useMemo(() => ({
-    ALL: items.filter((item) => item.active).length,
-    PRODUCT: items.filter((item) => item.active && (item.kind === "PRODUCT" || item.kind === "PREPARED_PRODUCT")).length,
-    SERVICE: items.filter((item) => item.active && item.kind === "SERVICE").length,
-    ARCHIVED: items.filter((item) => !item.active).length,
-  }), [items]);
+  const canWrite = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
+  const currencyCode = session?.currencyCode ?? "GHS";
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return catalog.filter((c) => {
+      if (kindFilter !== "ALL" && c.kind !== kindFilter) return false;
+      if (!q) return true;
+      return c.name.toLowerCase().includes(q) || (c.sku ?? "").toLowerCase().includes(q);
+    });
+  }, [catalog, query, kindFilter]);
 
   return (
-    <section className="catalog-workspace" data-business-id={businessId} data-branch-id={branchId}>
-      <CommandBar
-        ariaLabel="Catalog filters"
-        primaryAction={capabilities.canCreate ? <Button type="button" onClick={() => setEditor({ mode: "create", item: null })}>Add item</Button> : undefined}
-      >
-        <label className="catalog-search">
-          <span>Search catalog</span>
+    <div className="tos-page">
+      <header className="tos-page__head">
+        <div className="tos-page__heading">
+          <span className="tos-page__eyebrow">TradeOS · Master data</span>
+          <h1 className="tos-page__title">Catalog</h1>
+          <p className="tos-page__subtitle">Your products, services, and prepared items. Prices are server-authoritative.</p>
+        </div>
+        <div className="tos-page__actions">
+          <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => void refreshCatalog()}>Refresh</Button>
+          {canWrite ? (
+            <Button variant="gold" icon={<IconPlus className="tos-btn__icon" />} onClick={() => setFormOpen(true)}>Add item</Button>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="tos-toolbar">
+        <div className="tos-toolbar__search">
+          <IconSearch className="tos-toolbar__search-icon" />
           <input
             type="search"
-            aria-label="Search products or services"
-            placeholder="Search products or services"
+            className="tos-toolbar__search-input"
+            placeholder="Search by name or SKU…"
+            aria-label="Search catalog"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
           />
-        </label>
-      </CommandBar>
-
-      <div className="catalog-filterbar" role="tablist" aria-label="Catalog filters">
-        {([
-          ["ALL", "All"],
-          ["PRODUCT", "Products"],
-          ["SERVICE", "Services"],
-          ["ARCHIVED", "Archived"],
-        ] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={filter === value}
-            className={filter === value ? "active" : undefined}
-            onClick={() => setFilter(value)}
-          >
-            <span>{label}</span><strong>{counts[value]}</strong>
-          </button>
-        ))}
+        </div>
+        <select className="tos-select" style={{ width: "auto", height: 40 }} value={kindFilter} onChange={(e) => setKindFilter(e.target.value as typeof kindFilter)}>
+          <option value="ALL">All kinds</option>
+          <option value="PRODUCT">Products</option>
+          <option value="PREPARED_PRODUCT">Prepared</option>
+          <option value="SERVICE">Services</option>
+        </select>
+        <span className="tos-toolbar__spacer" />
+        <span className="tos-section__sub">{filtered.length} item(s)</span>
       </div>
 
-      <div className="catalog-list-header" aria-hidden="true">
-        <span>Item</span><span>Selling</span><span>Stock</span><span>Status</span><span />
-      </div>
-      {visibleItems.length === 0 ? (
+      {catalog.length === 0 ? (
         <StatePanel
-          state="empty"
-          title="No matching catalog items"
-          description="Try another search or filter. Archived items stay out of normal selling until reactivated."
+          variant="empty"
+          icon={<IconBox className="tos-state__icon" />}
+          title="No catalog items yet"
+          text="Add your first product to start selling. Each item can track stock and tax."
+          actionLabel={canWrite ? "Add item" : undefined}
+          onAction={canWrite ? () => setFormOpen(true) : undefined}
         />
+      ) : filtered.length === 0 ? (
+        <StatePanel inline variant="empty" title="No matches" text={`No items match "${query}".`} />
       ) : (
-        <CatalogList
-          items={visibleItems}
-          currencyCode={currencyCode}
-          capabilities={capabilities}
-          businessId={businessId}
-          role={role}
-          onOpenItem={(item) => setEditor({ mode: "edit", item })}
-          onDuplicateItem={(item) => setEditor({ mode: "duplicate", item })}
-          onChanged={onRefresh}
-        />
+        <div className="tos-table-wrap">
+          <div className="tos-table-scroll">
+            <table className="tos-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>SKU</th>
+                  <th>Kind</th>
+                  <th>Unit</th>
+                  <th data-align="right">Price</th>
+                  <th data-align="right">Stock</th>
+                  <th data-align="center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c) => (
+                  <tr key={c.id} data-clickable="true" onClick={() => setEditing(c)}>
+                    <td>
+                      <div className="tos-table__cell-main">
+                        <span className="tos-table__cell-title">{c.name}</span>
+                      </div>
+                    </td>
+                    <td className="tos-table__mono">{c.sku ?? "—"}</td>
+                    <td className="tos-table__muted">{c.kind}</td>
+                    <td className="tos-table__muted">{c.saleUnitName}</td>
+                    <td data-align="right">
+                      <span className="tos-table__num"><MoneyValue minor={c.priceMinor} currencyCode={currencyCode} tone="muted" /></span>
+                    </td>
+                    <td data-align="right" className="tos-table__muted">
+                      {c.trackInventory ? (c.inventoryAvailable ?? "—") : "—"}
+                    </td>
+                    <td data-align="center">
+                      <span className={`tos-badge ${c.status === "ACTIVE" ? "tos-badge--positive" : "tos-badge--neutral"}`}>
+                        <span className="tos-badge__dot" />{c.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
-      <button className="catalog-refresh-link" type="button" onClick={() => void onRefresh()}>Refresh catalog</button>
-
-      {editor ? (
-        <CatalogItemSheet
-          mode={editor.mode}
-          item={editor.item}
-          open
-          businessId={businessId}
-          branchId={branchId}
-          currencyCode={currencyCode}
-          role={role}
-          onClose={() => setEditor(null)}
-          onChanged={onRefresh}
-        />
+      <CatalogItemSheet item={editing} onClose={() => setEditing(null)} onSaved={() => setEditing(null)} />
+      {formOpen ? (
+        <CatalogItemSheet open={true} item={null} onClose={() => setFormOpen(false)} onSaved={() => setFormOpen(false)} />
       ) : null}
-    </section>
+    </div>
   );
 }

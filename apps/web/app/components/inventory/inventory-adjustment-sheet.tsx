@@ -1,189 +1,133 @@
 "use client";
 
-import React, { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { InventoryAdjustmentInput, InventoryAdjustmentLocation } from "@tradeos/contracts";
-import { messageFrom } from "../../lib/client-api";
-import { enqueueMutation, flushPendingMutations, getOrCreateClientId } from "../../lib/offline-sync";
+import { useEffect, useState } from "react";
+import { useWorkspace } from "../workspace/use-workspace";
 import { Button } from "../ui/button";
-import type { InventoryItem } from "./types";
+import { IconClose } from "../ui/icons";
+import { getOfflineQueue } from "../../../lib/offline-sync";
+import type { CatalogItem } from "../workspace/workspace-provider";
 
-export type InventoryAdjustmentAction = "COUNT_CORRECTION" | "QUARANTINE" | "DAMAGE" | "WASTE";
-export type InventoryAdjustmentDraft = {
-  action: InventoryAdjustmentAction;
-  direction: "ADD" | "REMOVE";
-  sourceLocation: InventoryAdjustmentLocation;
-  countLocation: InventoryAdjustmentLocation;
-  quantity: string;
-  note: string;
-};
-
-type Props = {
-  open: boolean;
-  item: InventoryItem | null;
-  businessId: string;
-  branchId: string;
-  role: string;
+interface InventoryAdjustmentSheetProps {
+  item: CatalogItem | null;
   onClose: () => void;
-  onQueued: (message: string) => void | Promise<void>;
-};
-
-const writeRoles = new Set(["OWNER", "ADMIN", "MANAGER", "INVENTORY"]);
-const allLocations: readonly InventoryAdjustmentLocation[] = ["AVAILABLE", "QUARANTINE", "DAMAGED", "WASTE"];
-
-export function inventoryAdjustmentPayload(itemId: string, draft: InventoryAdjustmentDraft): InventoryAdjustmentInput | null {
-  const quantity = Number(draft.quantity);
-  const note = draft.note.trim();
-  if (!Number.isFinite(quantity) || quantity <= 0 || !note) return null;
-  if (draft.action === "COUNT_CORRECTION") {
-    return draft.direction === "ADD"
-      ? { itemId, destinationLocation: draft.countLocation, quantity, reasonCode: "COUNT_CORRECTION", note }
-      : { itemId, sourceLocation: draft.countLocation, quantity, reasonCode: "COUNT_CORRECTION", note };
-  }
-  if (draft.action === "QUARANTINE") {
-    return { itemId, sourceLocation: draft.sourceLocation, destinationLocation: "QUARANTINE", quantity, reasonCode: "QUARANTINE", note };
-  }
-  if (draft.action === "DAMAGE") {
-    return { itemId, sourceLocation: draft.sourceLocation, destinationLocation: "DAMAGED", quantity, reasonCode: "DAMAGE", note };
-  }
-  return { itemId, sourceLocation: draft.sourceLocation, destinationLocation: "WASTE", quantity, reasonCode: "WASTE", note };
+  onSaved: () => void;
 }
 
-export function inventoryAdjustmentMessage(code: string | null | undefined, fallback = "Inventory adjustment could not be applied."): string {
-  if (code === "INVENTORY_INSUFFICIENT_STOCK") return "Available stock changed before this adjustment applied. Refresh inventory and review the quantity before retrying.";
-  if (code === "INVENTORY_ITEM_NOT_FOUND") return "This inventory item is no longer available for adjustment. Refresh inventory before trying again.";
-  if (code === "INVENTORY_BRANCH_NOT_FOUND") return "This branch is no longer available for inventory changes. Refresh the workspace.";
-  if (code === "INVENTORY_ITEM_NOT_TRACKED") return "This item is not configured for tracked stock, so no inventory adjustment can be posted.";
-  return fallback;
-}
+const ADJUSTMENT_REASONS = [
+  { value: "STOCK_COUNT", label: "Stock count correction" },
+  { value: "DAMAGE", label: "Damaged / spoiled" },
+  { value: "THEFT", label: "Theft / loss" },
+  { value: "GIVEAWAY", label: "Giveaway / sample" },
+  { value: "SUPPLIER_RETURN", label: "Returned to supplier" },
+  { value: "OTHER", label: "Other" },
+] as const;
 
-export function InventoryAdjustmentSheet({ open, item, businessId, branchId, role, onClose, onQueued }: Props) {
-  const [draft, setDraft] = useState<InventoryAdjustmentDraft>(() => defaultDraft());
+export function InventoryAdjustmentSheet({ item, onClose, onSaved }: InventoryAdjustmentSheetProps) {
+  const { session, role, refreshCatalog } = useWorkspace();
+  const [newQuantity, setNewQuantity] = useState<number | null>(null);
+  const [reason, setReason] = useState<typeof ADJUSTMENT_REASONS[number]["value"]>("STOCK_COUNT");
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const sheetRef = useRef<HTMLDivElement | null>(null);
-  const quantityRef = useRef<HTMLInputElement | null>(null);
-  const previousActive = useRef<HTMLElement | null>(null);
-  const canAdjust = writeRoles.has(role);
+  const [error, setError] = useState<string | null>(null);
+
+  const canWrite = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
 
   useEffect(() => {
-    if (!open) return;
-    setDraft(defaultDraft());
-    setMessage(null);
-    previousActive.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => quantityRef.current?.focus());
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
-      if (event.key !== "Tab" || !sheetRef.current) return;
-      const focusable = Array.from(sheetRef.current.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'));
-      if (!focusable.length) return;
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", keydown);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", keydown);
-      previousActive.current?.focus();
-    };
-  }, [onClose, open]);
+    if (item) {
+      setNewQuantity(item.inventoryOnHand ?? 0);
+      setReason("STOCK_COUNT");
+      setNote("");
+      setBusy(false);
+      setError(null);
+    }
+  }, [item]);
 
-  const payload = useMemo(() => item ? inventoryAdjustmentPayload(item.id, draft) : null, [draft, item]);
-  const preview = useMemo(() => item ? previewText(item, draft) : "", [draft, item]);
-  if (!open || !item || !canAdjust) return null;
+  if (!item || !session) return null;
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!payload || busy) return;
+  const delta = newQuantity !== null ? newQuantity - (item.inventoryOnHand ?? 0) : 0;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newQuantity === null || busy || !canWrite) return;
     setBusy(true);
-    setMessage(null);
+    setError(null);
     try {
-      enqueueMutation({
-        clientId: getOrCreateClientId(),
-        clientMutationId: crypto.randomUUID(),
-        businessId,
-        branchId,
+      const queue = getOfflineQueue();
+      const mutation = queue.build({
+        businessId: session.businessId,
+        branchId: session.branchId,
         mutationType: "INVENTORY_ADJUSTMENT_CREATE",
-        occurredAt: new Date().toISOString(),
-        payload,
+        payload: {
+          itemId: item.id,
+          newQuantity,
+          reason,
+          note: note.trim() || null,
+        },
       });
-      if (!navigator.onLine) {
-        await onQueued("Inventory adjustment saved offline and pending synchronization.");
-        onClose();
-        return;
-      }
-      const summary = await flushPendingMutations();
-      if (summary.rejected > 0) {
-        await onQueued("Inventory adjustment needs review before it can be applied.");
-        onClose();
-        return;
-      }
-      if (summary.received > 0 || summary.applied === 0) {
-        await onQueued("Inventory adjustment is saved and pending synchronization.");
-        onClose();
-        return;
-      }
-      await onQueued("Inventory adjustment posted. Stock balances were recalculated from movement history.");
-      onClose();
-    } catch (reason) {
-      setMessage(messageFrom(reason));
+      await queue.enqueue(mutation);
+      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await refreshCatalog();
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not post adjustment.");
     } finally {
       setBusy(false);
     }
   };
 
-  const sourceOptions = draft.action === "QUARANTINE"
-    ? (["AVAILABLE", "DAMAGED"] as const)
-    : draft.action === "DAMAGE"
-      ? (["AVAILABLE", "QUARANTINE"] as const)
-      : (["AVAILABLE", "QUARANTINE", "DAMAGED"] as const);
-
-  return <div className="inventory-adjustment-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <div ref={sheetRef} className="inventory-adjustment-sheet" role="dialog" aria-modal="true" aria-labelledby="inventory-adjustment-title">
-      <header className="inventory-adjustment-head">
-        <div><span>Inventory correction event</span><h2 id="inventory-adjustment-title">Adjust stock · {item.name}</h2><small>{item.stockUnitCode} · balances remain movement-derived</small></div>
-        <button type="button" aria-label="Close adjustment" onClick={onClose}>×</button>
-      </header>
-      <form className="inventory-adjustment-body" onSubmit={(event) => void submit(event)}>
-        <section>
-          <div className="inventory-adjustment-section-heading"><strong>Action</strong><span>Choose what physically happened to this stock.</span></div>
-          <div className="inventory-adjustment-actions" role="radiogroup" aria-label="Adjustment action">
-            {([ ["COUNT_CORRECTION", "Count correction"], ["QUARANTINE", "Quarantine"], ["DAMAGE", "Damage"], ["WASTE", "Waste"] ] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={draft.action === value} className={draft.action === value ? "active" : undefined} onClick={() => setDraft((current) => ({ ...current, action: value, sourceLocation: "AVAILABLE" }))}>{label}</button>)}
+  return (
+    <>
+      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet" role="dialog" aria-label="Inventory adjustment">
+        <div className="tos-sheet__head">
+          <div className="tos-sheet__head-main">
+            <span className="tos-sheet__eyebrow">Inventory</span>
+            <h2 className="tos-sheet__title">Adjust stock</h2>
+            <p className="tos-sheet__sub">{item.name}</p>
           </div>
-        </section>
-
-        <section className="inventory-adjustment-fields">
-          {draft.action === "COUNT_CORRECTION" ? <>
-            <label>Correction direction<select value={draft.direction} onChange={(event) => setDraft((current) => ({ ...current, direction: event.target.value as "ADD" | "REMOVE" }))}><option value="ADD">Add stock found</option><option value="REMOVE">Remove stock missing</option></select></label>
-            <label>Location<select value={draft.countLocation} onChange={(event) => setDraft((current) => ({ ...current, countLocation: event.target.value as InventoryAdjustmentLocation }))}>{allLocations.map((location) => <option key={location} value={location}>{title(location)}</option>)}</select></label>
-          </> : <label>Move from<select value={draft.sourceLocation} onChange={(event) => setDraft((current) => ({ ...current, sourceLocation: event.target.value as InventoryAdjustmentLocation }))}>{sourceOptions.map((location) => <option key={location} value={location}>{title(location)}</option>)}</select></label>}
-          <label>Quantity<input ref={quantityRef} required inputMode="decimal" value={draft.quantity} onChange={(event) => setDraft((current) => ({ ...current, quantity: event.target.value }))} placeholder="0" /></label>
-          <label className="inventory-adjustment-explanation">Explanation <span>Required</span><textarea required maxLength={1000} value={draft.note} onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))} placeholder="Why is this stock changing?" /></label>
-        </section>
-
-        <section className="inventory-adjustment-preview">
-          <div className="inventory-adjustment-section-heading"><strong>Preview</strong><span>New movement evidence only; posted history is not edited.</span></div>
-          <p>{preview}</p>
-          <small>TradeOS calculates valuation from current server stock when this adjustment synchronizes.</small>
-        </section>
-
-        {message ? <div className="inventory-adjustment-message" role="status">{message}</div> : null}
-        <footer className="inventory-adjustment-footer"><Button variant="ghost" type="button" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy || !payload}>{busy ? "Saving…" : "Save adjustment"}</Button></footer>
-      </form>
-    </div>
-  </div>;
+          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
+            <IconClose style={{ width: 18, height: 18 }} />
+          </button>
+        </div>
+        <form className="tos-sheet__body" onSubmit={handleSubmit}>
+          <dl className="tos-kv">
+            <div><dt className="tos-kv__key">Current on-hand</dt><dd className="tos-kv__val">{item.inventoryOnHand ?? "—"}</dd></div>
+            <div><dt className="tos-kv__key">Available</dt><dd className="tos-kv__val">{item.inventoryAvailable ?? "—"}</dd></div>
+            <div><dt className="tos-kv__key">Delta</dt><dd className="tos-kv__val" style={{ color: delta > 0 ? "var(--tos-positive)" : delta < 0 ? "var(--tos-danger)" : undefined }}>{delta > 0 ? `+${delta}` : delta}</dd></div>
+          </dl>
+          <div className="tos-field">
+            <label className="tos-field__label" htmlFor="adj-qty">New counted quantity<span className="tos-field__label-required">*</span></label>
+            <input
+              id="adj-qty"
+              type="number"
+              className="tos-input"
+              value={newQuantity ?? ""}
+              onChange={(e) => setNewQuantity(e.target.value === "" ? null : Number(e.target.value))}
+              min={0}
+              step="any"
+              required
+              disabled={!canWrite}
+            />
+          </div>
+          <div className="tos-field">
+            <label className="tos-field__label" htmlFor="adj-reason">Reason<span className="tos-field__label-required">*</span></label>
+            <select id="adj-reason" className="tos-select" value={reason} onChange={(e) => setReason(e.target.value as typeof reason)} disabled={!canWrite}>
+              {ADJUSTMENT_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+          <div className="tos-field">
+            <label className="tos-field__label" htmlFor="adj-note">Note (optional)</label>
+            <textarea id="adj-note" className="tos-textarea" value={note} onChange={(e) => setNote(e.target.value)} disabled={!canWrite} />
+          </div>
+          {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
+        </form>
+        <div className="tos-sheet__foot">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" onClick={handleSubmit} loading={busy} disabled={newQuantity === null || !canWrite}>
+            {canWrite ? "Post adjustment" : "No permission"}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
 }
-
-function defaultDraft(): InventoryAdjustmentDraft {
-  return { action: "COUNT_CORRECTION", direction: "ADD", sourceLocation: "AVAILABLE", countLocation: "AVAILABLE", quantity: "", note: "" };
-}
-
-function previewText(item: InventoryItem, draft: InventoryAdjustmentDraft): string {
-  const quantity = Number(draft.quantity);
-  const value = Number.isFinite(quantity) && quantity > 0 ? `${formatQuantity(quantity)} ${item.stockUnitCode}` : `the entered ${item.stockUnitCode} quantity`;
-  if (draft.action === "COUNT_CORRECTION") return draft.direction === "ADD" ? `Add ${value} to ${title(draft.countLocation)} after a physical count.` : `Remove ${value} from ${title(draft.countLocation)} after a physical count.`;
-  return `Move ${value} from ${title(draft.sourceLocation)} to ${title(draft.action === "QUARANTINE" ? "QUARANTINE" : draft.action === "DAMAGE" ? "DAMAGED" : "WASTE")}.`;
-}
-function title(value: string): string { return value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase()); }
-function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }

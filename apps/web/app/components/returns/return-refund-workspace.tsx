@@ -1,57 +1,133 @@
 "use client";
 
-import React, { type FormEvent, useMemo, useState } from "react";
-import { formatMoney } from "@tradeos/contracts";
+import { useState } from "react";
+import { useWorkspace } from "../workspace/use-workspace";
+import { useApiFetch } from "../../../lib/use-api-fetch";
+import { ReturnRefundSheet } from "./return-refund-sheet";
+import { ExchangeSheet } from "./exchange-sheet";
+import { MoneyValue } from "../business/money-value";
+import { StatePanel } from "../ui/state-panel";
 import { Button } from "../ui/button";
-import type { SaleSummary } from "../sales/types";
+import { IconRefresh, IconReturns, IconSearch } from "../ui/icons";
+import type { SaleSummary } from "../workspace/workspace-provider";
 
-type Props = {
-  sales: SaleSummary[];
-  selectedId: string | null;
-  loading: boolean;
-  onSelect: (saleId: string) => void;
-  onSearch: (query: string) => void;
-};
+interface SalesResponse { sales: SaleSummary[] }
 
-export function ReturnRefundWorkspace({ sales, selectedId, loading, onSelect, onSearch }: Props) {
+export function ReturnRefundWorkspace() {
+  const { session, role } = useWorkspace();
   const [query, setQuery] = useState("");
-  const visible = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return sales;
-    return sales.filter((sale) => [sale.id, sale.customer?.name ?? "", sale.customer?.phone ?? "", sale.cashierName ?? ""]
-      .join(" ")
-      .toLowerCase()
-      .includes(normalized));
-  }, [query, sales]);
+  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+  const [mode, setMode] = useState<"return" | "refund" | "exchange">("return");
+  const path = session
+    ? `/v1/sales?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=50${query ? `&query=${encodeURIComponent(query)}` : ""}`
+    : null;
+  const { data, loading, error, refetch } = useApiFetch<SalesResponse>(path);
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    onSearch(query);
+  const canWrite = ["OWNER", "ADMIN", "MANAGER", "CASHIER"].includes(role);
+
+  const open = (saleId: string, m: typeof mode) => {
+    setSelectedSaleId(saleId);
+    setMode(m);
   };
 
   return (
-    <section className="return-workspace-shell" aria-label="Return and refund sales">
-      <form className="return-commandbar" onSubmit={submit}>
-        <label><span>Find original sale</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Receipt, customer or phone" /></label>
-        <Button variant="secondary" type="submit">Search</Button>
-      </form>
+    <div className="tos-page">
+      <header className="tos-page__head">
+        <div className="tos-page__heading">
+          <span className="tos-page__eyebrow">TradeOS · Trade</span>
+          <h1 className="tos-page__title">Returns, refunds &amp; exchanges</h1>
+          <p className="tos-page__subtitle">Corrective transactions on completed sales. The original receipt is never edited.</p>
+        </div>
+        <div className="tos-page__actions">
+          <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => refetch()}>Refresh</Button>
+        </div>
+      </header>
 
-      <div className="return-sale-list" aria-busy={loading}>
-        {loading && sales.length === 0 ? <div className="return-sale-empty">Loading completed sales…</div> : null}
-        {!loading && visible.length === 0 ? <div className="return-sale-empty"><strong>No eligible sale found.</strong><span>Returns and refunds always start from the original posted sale.</span></div> : null}
-        {visible.map((sale) => (
-          <button type="button" className={selectedId === sale.id ? "return-sale-row active" : "return-sale-row"} key={sale.id} onClick={() => onSelect(sale.id)}>
-            <div><strong>{shortReceipt(sale.id)}</strong><span>{formatDate(sale.completedAt ?? sale.createdAt)}</span></div>
-            <div><strong>{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in customer"}</strong><span>{sale.cashierName ? `Served by ${sale.cashierName}` : "Staff sale"}</span></div>
-            <div><strong>{formatMoney(sale.totalMinor, sale.currencyCode)}</strong><span>{sale.refundTotalMinor > 0 ? `${formatMoney(sale.refundTotalMinor, sale.currencyCode)} already refunded` : "No refund yet"}</span></div>
-            <span className="return-sale-status">{humanize(sale.status)}</span>
-          </button>
-        ))}
+      {!canWrite ? (
+        <div className="tos-callout tos-callout--info">
+          You do not have permission to process returns or refunds. Only owners, admins, managers, and cashiers can.
+        </div>
+      ) : null}
+
+      <div className="tos-toolbar">
+        <div className="tos-toolbar__search">
+          <IconSearch className="tos-toolbar__search-icon" />
+          <input
+            type="search"
+            className="tos-toolbar__search-input"
+            placeholder="Search receipts to correct…"
+            aria-label="Search sales"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <span className="tos-toolbar__spacer" />
+        <span className="tos-section__sub">{data?.sales.length ?? 0} receipt(s)</span>
       </div>
-    </section>
+
+      {loading ? (
+        <div className="tos-card tos-card--padded"><StatePanel inline variant="loading" /></div>
+      ) : error ? (
+        <StatePanel variant="error" title="Could not load receipts" text={error} actionLabel="Retry" onAction={() => refetch()} />
+      ) : (data?.sales.length ?? 0) === 0 ? (
+        <StatePanel
+          variant="empty"
+          icon={<IconReturns className="tos-state__icon" />}
+          title="No receipts to correct"
+          text="Find the receipt you want to correct, then choose Return, Refund, or Exchange."
+        />
+      ) : (
+        <div className="tos-table-wrap">
+          <div className="tos-table-scroll">
+            <table className="tos-table">
+              <thead>
+                <tr>
+                  <th>Receipt</th>
+                  <th>Customer</th>
+                  <th>When</th>
+                  <th data-align="right">Total</th>
+                  {canWrite ? <th data-align="center">Actions</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {data!.sales.map((sale) => (
+                  <tr key={sale.id}>
+                    <td><span className="tos-table__cell-title tos-table__mono">{sale.id.slice(0, 8)}</span></td>
+                    <td className="tos-table__muted">{sale.customer?.name ?? "Walk-in"}</td>
+                    <td className="tos-table__muted">{sale.completedAt ? new Date(sale.completedAt).toLocaleDateString() : "—"}</td>
+                    <td data-align="right"><MoneyValue minor={sale.totalMinor} currencyCode={sale.currencyCode} tone="muted" /></td>
+                    {canWrite ? (
+                      <td data-align="center">
+                        <div className="tos-row" style={{ justifyContent: "center", gap: "var(--tos-space-1)" }}>
+                          <Button size="sm" variant="ghost" onClick={() => open(sale.id, "return")}>Return</Button>
+                          <Button size="sm" variant="ghost" onClick={() => open(sale.id, "refund")}>Refund</Button>
+                          <Button size="sm" variant="ghost" onClick={() => open(sale.id, "exchange")}>Exchange</Button>
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {selectedSaleId && (mode === "return" || mode === "refund") ? (
+        <ReturnRefundSheet
+          saleId={selectedSaleId}
+          mode={mode}
+          onClose={() => setSelectedSaleId(null)}
+          onComplete={() => setSelectedSaleId(null)}
+        />
+      ) : null}
+      {selectedSaleId && mode === "exchange" ? (
+        <ExchangeSheet
+          saleId={selectedSaleId}
+          onClose={() => setSelectedSaleId(null)}
+          onComplete={() => setSelectedSaleId(null)}
+        />
+      ) : null}
+    </div>
   );
 }
-
-function shortReceipt(id: string): string { return `#${id.slice(0, 8).toUpperCase()}`; }
-function humanize(value: string): string { return value.replaceAll("_", " "); }
-function formatDate(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }

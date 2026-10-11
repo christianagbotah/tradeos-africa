@@ -1,113 +1,129 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { formatMoney } from "@tradeos/contracts";
-import { Button } from "../ui/button";
-import { CommandBar } from "../ui/command-bar";
-import { MobileRecordCard } from "../ui/mobile-record-card";
-import { StatusBadge } from "../ui/status-badge";
-import { getFailedMutations, queueChangedEvent } from "../../lib/offline-sync";
+import { useMemo, useState } from "react";
+import { useWorkspace } from "../workspace/use-workspace";
 import { InventoryAdjustmentSheet } from "./inventory-adjustment-sheet";
-import type { InventoryItem } from "./types";
+import { StatePanel } from "../ui/state-panel";
+import { Button } from "../ui/button";
+import { IconBox, IconRefresh, IconSearch } from "../ui/icons";
+import type { CatalogItem } from "../workspace/workspace-provider";
 
-export type InventoryFilter = "ALL" | "EMPTY" | "EXCEPTIONS";
-
-export function filterInventory(items: InventoryItem[], query: string, filter: InventoryFilter): InventoryItem[] {
-  const normalized = query.trim().toLowerCase();
-  return items.filter((item) => {
-    if (filter === "EMPTY" && item.available > 0) return false;
-    if (filter === "EXCEPTIONS" && item.quarantine <= 0 && item.damaged <= 0 && item.waste <= 0) return false;
-    if (!normalized) return true;
-    return [item.name, item.sku ?? "", item.stockUnitCode].join(" ").toLowerCase().includes(normalized);
-  });
-}
-
-export function InventoryWorkspace({ items, currencyCode, loadingId, onOpen, businessId, branchId, role, onRefresh }: {
-  items: InventoryItem[];
-  currencyCode: string;
-  loadingId: string | null;
-  onOpen: (item: InventoryItem) => void;
-  businessId: string;
-  branchId: string;
-  role: string;
-  onRefresh: () => void | Promise<void>;
-}) {
+export function InventoryWorkspace() {
+  const { catalog, role, refreshCatalog } = useWorkspace();
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<InventoryFilter>("ALL");
-  const [adjustmentItem, setAdjustmentItem] = useState<InventoryItem | null>(null);
-  const [failedAdjustments, setFailedAdjustments] = useState(() => failedFor(businessId, branchId));
-  const [message, setMessage] = useState<string | null>(null);
-  const canAdjust = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
-  useEffect(() => {
-    const refreshFailed = () => setFailedAdjustments(failedFor(businessId, branchId));
-    refreshFailed();
-    window.addEventListener(queueChangedEvent, refreshFailed);
-    return () => window.removeEventListener(queueChangedEvent, refreshFailed);
-  }, [businessId, branchId]);
-  const visible = useMemo(() => filterInventory(items, query, filter), [items, query, filter]);
-  const counts = useMemo(() => ({
-    ALL: items.length,
-    EMPTY: items.filter((item) => item.available <= 0).length,
-    EXCEPTIONS: items.filter((item) => item.quarantine > 0 || item.damaged > 0 || item.waste > 0).length,
-  }), [items]);
-  const totalValue = useMemo(() => items.reduce((sum, item) => sum + item.inventoryValueMinor, 0), [items]);
+  const [filter, setFilter] = useState<"ALL" | "LOW" | "OUT" | "TRACKED">("ALL");
+  const [adjusting, setAdjusting] = useState<CatalogItem | null>(null);
 
-  return <section className="inventory-workspace">
-    <div className="inventory-workspace-head">
-      <div><span>Movement-derived stock</span><h3>Branch inventory</h3><p>Balances come from posted movements. Open an item to see why stock changed; TradeOS never edits an on-hand number directly.</p></div>
-      <div className="inventory-value-summary"><span>Inventory value</span><strong>{formatMoney(totalValue, currencyCode)}</strong></div>
-    </div>
-    <CommandBar ariaLabel="Inventory filters">
-    <div className="inventory-commandbar">
-      <label className="inventory-search"><span>Search inventory</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Product, SKU or stock unit" /></label>
-      <div className="inventory-filterbar" role="tablist" aria-label="Inventory filters">
-        {([ ["ALL", "All"], ["EMPTY", "Empty"], ["EXCEPTIONS", "Exceptions"] ] as const).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={filter === value} className={filter === value ? "active" : undefined} onClick={() => setFilter(value)}><span>{label}</span><strong>{counts[value]}</strong></button>)}
+  const canWrite = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
+
+  const tracked = useMemo(() => catalog.filter((c) => c.trackInventory && c.status === "ACTIVE"), [catalog]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return tracked.filter((c) => {
+      if (filter === "OUT" && (c.inventoryAvailable ?? 0) > 0) return false;
+      if (filter === "LOW" && (c.inventoryAvailable ?? 0) > 5) return false;
+      if (filter === "TRACKED" && !c.trackInventory) return false;
+      if (!q) return true;
+      return c.name.toLowerCase().includes(q) || (c.sku ?? "").toLowerCase().includes(q);
+    });
+  }, [tracked, query, filter]);
+
+  return (
+    <div className="tos-page">
+      <header className="tos-page__head">
+        <div className="tos-page__heading">
+          <span className="tos-page__eyebrow">TradeOS · Inventory</span>
+          <h1 className="tos-page__title">Inventory</h1>
+          <p className="tos-page__subtitle">Stock on hand for tracked items. Adjustments are evidence-grade and reconcile to the cashbook.</p>
+        </div>
+        <div className="tos-page__actions">
+          <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => void refreshCatalog()}>Refresh</Button>
+        </div>
+      </header>
+
+      <div className="tos-toolbar">
+        <div className="tos-toolbar__search">
+          <IconSearch className="tos-toolbar__search-icon" />
+          <input
+            type="search"
+            className="tos-toolbar__search-input"
+            placeholder="Search tracked items…"
+            aria-label="Search inventory"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <select className="tos-select" style={{ width: "auto", height: 40 }} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+          <option value="ALL">All tracked</option>
+          <option value="LOW">Low stock (≤5)</option>
+          <option value="OUT">Out of stock</option>
+        </select>
+        <span className="tos-toolbar__spacer" />
+        <span className="tos-section__sub">{filtered.length} item(s)</span>
       </div>
-    </div>
-    </CommandBar>
-    {failedAdjustments.length > 0 ? <div className="inventory-adjustment-review" role="status"><strong>{failedAdjustments.length} inventory adjustment{failedAdjustments.length === 1 ? "" : "s"} needs review</strong><span>{failedAdjustments[0]?.result.errorMessage ?? "Refresh the item and review the rejected quantity before retrying."}</span></div> : null}
-    {message ? <div className="inventory-adjustment-status" role="status">{message}</div> : null}
-    <div className="inventory-modern-list">
-      {visible.length === 0 ? <div className="inventory-empty-modern"><strong>No inventory items match this view.</strong><span>Change the search or stock-state filter.</span></div> : visible.map((item) => (
-        <React.Fragment key={item.id}>
-        <article className="inventory-row-modern inventory-row-modern--desktop">
-        <div className="inventory-row-identity"><strong>{item.name}</strong><span>{item.sku ?? `Stock unit · ${item.stockUnitCode}`}</span></div>
-        <StockFact label="Available" value={`${formatQuantity(item.available)} ${item.stockUnitCode}`} alert={item.available <= 0} />
-        <StockFact label="Quarantine" value={formatQuantity(item.quarantine)} alert={item.quarantine > 0} />
-        <StockFact label="Damaged" value={formatQuantity(item.damaged)} alert={item.damaged > 0} />
-        <StockFact label="Waste" value={formatQuantity(item.waste)} alert={item.waste > 0} />
-        <div className="inventory-row-financial"><span>Average cost</span><strong>{item.averageStockUnitCostMinor === null ? "—" : `${formatMoney(item.averageStockUnitCostMinor, currencyCode)} / ${item.stockUnitCode}`}</strong><small>Inventory value {formatMoney(item.inventoryValueMinor, currencyCode)}</small></div>
-        <div className="inventory-row-actions"><Button variant="secondary" type="button" disabled={loadingId === item.id} onClick={() => onOpen(item)}>{loadingId === item.id ? "Opening…" : "Movement history"}</Button>{canAdjust ? <Button type="button" onClick={() => setAdjustmentItem(item)}>Adjust stock</Button> : null}</div>
-      </article>
-      {/* Mobile record-card representation */}
-      <div className="inventory-row-modern--mobile">
-        <MobileRecordCard
-          title={<span>{item.name}</span>}
-          meta={<span>{item.sku ?? `Stock unit · ${item.stockUnitCode}`} · Avail {formatQuantity(item.available)} {item.stockUnitCode}</span>}
-          status={<StatusBadge tone={item.available <= 0 ? "danger" : item.quarantine > 0 || item.damaged > 0 ? "warning" : "positive"}>{item.available <= 0 ? "Empty" : item.quarantine > 0 || item.damaged > 0 ? "Exceptions" : "Healthy"}</StatusBadge>}
-          actions={
-            <>
-              <Button variant="secondary" size="compact" type="button" disabled={loadingId === item.id} onClick={() => onOpen(item)}>{loadingId === item.id ? "Opening…" : "Movement history"}</Button>
-              {canAdjust ? <Button size="compact" type="button" onClick={() => setAdjustmentItem(item)}>Adjust stock</Button> : null}
-            </>
-          }
-        >
-          <p>Quarantine {formatQuantity(item.quarantine)} · Damaged {formatQuantity(item.damaged)} · Waste {formatQuantity(item.waste)}</p>
-          <p>Avg cost {item.averageStockUnitCostMinor === null ? "—" : formatMoney(item.averageStockUnitCostMinor, currencyCode)} · Value {formatMoney(item.inventoryValueMinor, currencyCode)}</p>
-        </MobileRecordCard>
-      </div>
-      </React.Fragment>
-      ))}
-    </div>
-    <InventoryAdjustmentSheet open={Boolean(adjustmentItem)} item={adjustmentItem} businessId={businessId} branchId={branchId} role={role} onClose={() => setAdjustmentItem(null)} onQueued={async (nextMessage) => { setMessage(nextMessage); setFailedAdjustments(failedFor(businessId, branchId)); await onRefresh(); }} />
-  </section>;
-}
 
-function failedFor(businessId: string, branchId: string) {
-  return getFailedMutations().filter((entry) => entry.mutation.businessId === businessId && entry.mutation.branchId === branchId && entry.mutation.mutationType === "INVENTORY_ADJUSTMENT_CREATE");
-}
+      {tracked.length === 0 ? (
+        <StatePanel
+          variant="empty"
+          icon={<IconBox className="tos-state__icon" />}
+          title="No tracked inventory"
+          text="Mark catalog items as 'track inventory' to manage stock levels here."
+          actionLabel="Open catalog"
+          onAction={() => { window.location.href = "/catalog"; }}
+        />
+      ) : filtered.length === 0 ? (
+        <StatePanel inline variant="empty" title="No matches" text="No items match the current filter." />
+      ) : (
+        <div className="tos-table-wrap">
+          <div className="tos-table-scroll">
+            <table className="tos-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>SKU</th>
+                  <th data-align="right">On-hand</th>
+                  <th data-align="right">Available</th>
+                  <th data-align="center">Status</th>
+                  {canWrite ? <th data-align="center">Action</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c) => {
+                  const avail = c.inventoryAvailable ?? 0;
+                  const out = avail <= 0;
+                  const low = avail > 0 && avail <= 5;
+                  return (
+                    <tr key={c.id}>
+                      <td>
+                        <div className="tos-table__cell-main">
+                          <span className="tos-table__cell-title">{c.name}</span>
+                          <span className="tos-table__cell-sub">{c.saleUnitName}</span>
+                        </div>
+                      </td>
+                      <td className="tos-table__mono">{c.sku ?? "—"}</td>
+                      <td data-align="right" className="tos-table__num">{c.inventoryOnHand ?? "—"}</td>
+                      <td data-align="right" className="tos-table__num">{c.inventoryAvailable ?? "—"}</td>
+                      <td data-align="center">
+                        <span className={`tos-badge ${out ? "tos-badge--danger" : low ? "tos-badge--warning" : "tos-badge--positive"}`}>
+                          <span className="tos-badge__dot" />{out ? "Out" : low ? "Low" : "OK"}
+                        </span>
+                      </td>
+                      {canWrite ? (
+                        <td data-align="center">
+                          <Button size="sm" variant="outline" onClick={() => setAdjusting(c)}>Adjust</Button>
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
-function StockFact({ label, value, alert = false }: { label: string; value: string; alert?: boolean }) {
-  return <div className={alert ? "inventory-row-fact alert" : "inventory-row-fact"}><span>{label}</span><strong>{value}</strong></div>;
+      <InventoryAdjustmentSheet item={adjusting} onClose={() => setAdjusting(null)} onSaved={() => setAdjusting(null)} />
+    </div>
+  );
 }
-function formatQuantity(value: number): string { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value); }

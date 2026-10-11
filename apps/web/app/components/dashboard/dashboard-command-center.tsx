@@ -2,157 +2,251 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { formatMoney } from "@tradeos/contracts";
-import { canAccessWorkspaceRoute } from "../workspace/workspace-navigation";
-import { buildDashboardModel, type DashboardAttention } from "./dashboard-model";
-import { useDashboardData } from "./dashboard-data";
-import { dashboardAttentionForRole, dashboardCanViewReports, dashboardQuickActions } from "./dashboard-actions";
-import { ReferenceIcon } from "../ui/reference-icon";
+import { useWorkspace } from "../workspace/use-workspace";
+import { useApiFetch } from "../../../lib/use-api-fetch";
+import { MoneyValue } from "../business/money-value";
+import { StatePanel } from "../ui/state-panel";
+import { IconArrowLeft, IconBox, IconCashbook, IconCustomers, IconReceipt, IconRefresh, IconSales, IconSell, IconTrending } from "../ui/icons";
+import { Button } from "../ui/button";
+import type { SaleSummary } from "../workspace/workspace-provider";
 
-const frontlineRoles = new Set(["CASHIER", "SALES", "STAFF"]);
-
-function packCopy(type: string) {
-  const copy: Record<string, { label: string; text: string }> = {
-    RETAIL_HARDWARE: { label: "Retail / Provisions", text: "Stock and credit are your levers — reorder fast, collect gently." },
-    FOOD: { label: "Food / Hospitality", text: "Watch daily sales, ingredient stock and waste before the next rush." },
-    SALON_BARBER: { label: "Salon / Barber", text: "Keep services moving, protect consumable stock and follow up on customer balances." },
-    DRINKING_SPOT: { label: "Drinks / Hospitality", text: "Track fast-moving drinks, selling units and cash position throughout the day." },
-    WASHING_BAY: { label: "Washing bay", text: "Keep service volume, consumables and shift cash visible from opening to close." },
-    CAR_PARK: { label: "Car park", text: "Keep vehicle activity, shift custody and collected cash easy to reconcile." },
-    DISTRIBUTION: { label: "Wholesale / Distribution", text: "Protect stock availability, customer credit and supplier obligations as volume grows." },
-    SERVICES: { label: "Services", text: "Keep jobs, customer balances and operating cash visible in one place." },
-  };
-  return copy[type] ?? { label: "Business workspace", text: "Use today’s evidence to decide what needs action next." };
+interface SalesResponse {
+  sales: SaleSummary[];
 }
 
-function actionLabel(href: string, fallback: string) {
-  if (href === "/sell") return "New sale";
-  if (href === "/customers") return "Send reminders";
-  return fallback;
-}
+export function DashboardCommandCenter() {
+  const { session, catalog, queue, role } = useWorkspace();
+  const salesPath = session
+    ? `/v1/sales?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=8`
+    : null;
+  const { data, loading, error, refetch } = useApiFetch<SalesResponse>(salesPath);
 
-function actionIcon(href: string) {
-  if (href === "/sell") return <ReferenceIcon name="cart" />;
-  if (href === "/purchases") return <ReferenceIcon name="box" />;
-  if (href === "/cashbook") return <ReferenceIcon name="wallet" />;
-  if (href === "/customers") return <ReferenceIcon name="reply" />;
-  return <ReferenceIcon name="sparkles" />;
-}
+  const stats = useMemo(() => {
+    const sales = data?.sales ?? [];
+    const today = new Date();
+    const todaySales = sales.filter((s) => {
+      const d = s.completedAt ? new Date(s.completedAt) : new Date(s.createdAt);
+      return d.toDateString() === today.toDateString();
+    });
+    const todayRevenue = todaySales.reduce((sum, s) => sum + (s.totalMinor - s.refundTotalMinor), 0);
+    const activeCatalog = catalog.filter((c) => c.status === "ACTIVE");
+    const lowStock = activeCatalog.filter((c) => c.trackInventory && c.inventoryAvailable !== null && c.inventoryAvailable <= 5);
+    return {
+      todayCount: todaySales.length,
+      todayRevenue,
+      activeCount: activeCatalog.length,
+      lowStockCount: lowStock.length,
+    };
+  }, [data, catalog]);
 
-function evidenceCard(item: DashboardAttention, currencyCode: string) {
-  return (
-    <article className={`zai-ai-action zai-ai-action--${item.priority}`} key={item.id}>
-      <div className="zai-ai-action-title"><span aria-hidden="true">{item.priority === "critical" ? "!" : item.priority === "warning" ? "△" : "○"}</span><strong>{item.title}</strong></div>
-      <p>{item.detail}</p>
-      {item.amountMinor != null ? <small>{formatMoney(item.amountMinor, currencyCode)}</small> : null}
-      <Link href={item.href}>{item.actionLabel} <span aria-hidden="true">→</span></Link>
-    </article>
-  );
-}
-
-export function DashboardCommandCenter({
-  businessId,
-  businessName,
-  businessType,
-  branchId,
-  branchName,
-  currencyCode,
-  role,
-  branchTimezone,
-}: {
-  businessId: string;
-  businessName: string;
-  businessType: string;
-  branchId: string;
-  branchName: string;
-  currencyCode: string;
-  role: string;
-  branchTimezone: string;
-}) {
-  const { evidence, busy, message } = useDashboardData({ businessId, branchId, currencyCode, branchTimezone });
-  const model = useMemo(() => buildDashboardModel(evidence), [evidence]);
-  const actions = dashboardQuickActions(role).slice(0, 4);
-  const visibleAttention = dashboardAttentionForRole(role, model.attention).slice(0, 3);
-  const canSell = canAccessWorkspaceRoute(role, "/sell");
-  const isFrontline = frontlineRoles.has(role);
-  const pack = packCopy(businessType);
-
-  const aiCards: React.ReactNode[] = visibleAttention.map((item) => evidenceCard(item, currencyCode));
-  if (aiCards.length === 0) {
-    aiCards.push(
-      <article className="zai-ai-action zai-ai-action--info" key="quiet-evidence">
-        <div className="zai-ai-action-title"><span aria-hidden="true">✣</span><strong>{model.today.salesCount === 0 ? "No sales recorded yet today" : "No urgent exception right now"}</strong></div>
-        <p>{model.today.salesCount === 0 ? "TradeOS has not received a sale in the current reporting period." : "The available business evidence does not currently show an urgent exception."}</p>
-        <small>{model.dataStatus.coverage}</small>
-        {canSell ? <Link href="/sell">Start a sale <span aria-hidden="true">→</span></Link> : dashboardCanViewReports(role) ? <Link href="/reports">See report <span aria-hidden="true">→</span></Link> : null}
-      </article>,
-    );
-  }
-  if (aiCards.length < 3 && model.momentum && !isFrontline) {
-    aiCards.push(
-      <article className="zai-ai-action zai-ai-action--positive" key="momentum-evidence">
-        <div className="zai-ai-action-title"><span aria-hidden="true">↗</span><strong>Business momentum</strong></div>
-        <p>{model.momentum.revenueChangePercent == null ? "More history is needed before TradeOS can compare revenue reliably." : `Revenue is ${Math.abs(model.momentum.revenueChangePercent).toFixed(1)}% ${model.momentum.revenueChangePercent >= 0 ? "above" : "below"} ${model.momentum.baselineLabel}.`}</p>
-        <small>Evidence from the current reporting period</small>
-        {dashboardCanViewReports(role) ? <Link href="/reports">See report <span aria-hidden="true">→</span></Link> : null}
-      </article>,
+  if (loading) {
+    return (
+      <div className="tos-page">
+        <DashboardHeader />
+        <div className="tos-grid-stats">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="tos-card tos-card--padded">
+              <span className="tos-skeleton tos-skeleton--line-short" />
+              <span className="tos-skeleton tos-skeleton--block" />
+            </div>
+          ))}
+        </div>
+        <div className="tos-card tos-card--padded">
+          <span className="tos-skeleton tos-skeleton--block" />
+        </div>
+      </div>
     );
   }
 
-  const todaySales = model.today.netRevenueMinor == null ? "—" : formatMoney(model.today.netRevenueMinor, currencyCode);
-  const grossProfit = model.today.grossProfitMinor == null ? "—" : formatMoney(model.today.grossProfitMinor, currencyCode);
-  const cashPosition = model.moneyPosition.cashMinor == null ? "—" : formatMoney(model.moneyPosition.cashMinor, currencyCode);
-  const credit = model.moneyPosition.receivablesMinor == null ? "—" : formatMoney(model.moneyPosition.receivablesMinor, currencyCode);
+  if (error) {
+    return (
+      <div className="tos-page">
+        <DashboardHeader />
+        <StatePanel
+          variant="error"
+          title="Could not load dashboard"
+          text={error}
+          actionLabel="Retry"
+          onAction={() => refetch()}
+        />
+      </div>
+    );
+  }
+
+  const currency = session?.currencyCode ?? "GHS";
+  const sales = data?.sales ?? [];
 
   return (
-    <div className="zai-dashboard" data-workspace-route="dashboard">
-      <header className="zai-dashboard-header">
-        <div>
-          <h1>Dashboard</h1>
-          <p>{businessName} · {branchName} — Here&apos;s your shop today.</p>
+    <div className="tos-page">
+      <DashboardHeader />
+
+      {!queue.online ? (
+        <div className="tos-banner tos-banner--warning" role="status">
+          <IconArrowLeft className="tos-banner__icon" />
+          <div className="tos-banner__body">
+            <span className="tos-banner__title">You are offline</span>
+            <span className="tos-banner__text">
+              Sales will queue locally and reconcile automatically when you reconnect.
+              {queue.pending > 0 ? ` ${queue.pending} mutation(s) pending.` : ""}
+            </span>
+          </div>
         </div>
-        <div className="zai-dashboard-header-actions">
-          <span className="zai-online-pill"><ReferenceIcon name="wifi" /> Online</span>
-          <time className="zai-date-pill" dateTime={new Date().toISOString().slice(0, 10)}><ReferenceIcon name="calendar" /> Today</time>
-          {canSell ? <Link className="zai-new-sale" href="/sell"><ReferenceIcon name="cart" /> New sale</Link> : null}
-        </div>
-      </header>
-
-      {message ? <p className="tos-dashboard-message" role="status">{message}</p> : null}
-
-      <section className="zai-business-guidance" aria-label="Business pack guidance">
-        <span aria-hidden="true"><ReferenceIcon name="sparkles" /></span><p><strong>{pack.label}:</strong> {pack.text}</p>
-      </section>
-
-      {actions.length > 0 ? (
-        <nav className="zai-action-rail" aria-label="Quick business actions">
-          {actions.map((item) => <Link href={item.href} key={item.href}><span aria-hidden="true">{actionIcon(item.href)}</span>{actionLabel(item.href, item.label)}</Link>)}
-        </nav>
       ) : null}
 
-      <section className="zai-ai-actions" aria-labelledby="zai-ai-actions-title">
-        <div className="zai-ai-actions-heading"><h2 id="zai-ai-actions-title"><ReferenceIcon name="sparkles" /> AI ACTIONS FOR TODAY</h2><span>Suggestions · not accounting records</span></div>
-        <div className="zai-ai-actions-grid">{aiCards.slice(0, 3)}</div>
-      </section>
+      <div className="tos-grid-stats">
+        <StatCard
+          label="Today's revenue"
+          icon={<IconTrending className="tos-stat__icon" />}
+          value={<MoneyValue minor={stats.todayRevenue} currencyCode={currency} size="lg" />}
+          hint={`${stats.todayCount} sale(s) today`}
+        />
+        <StatCard
+          label="Active catalog"
+          icon={<IconBox className="tos-stat__icon" />}
+          value={<span className="tos-stat__value">{stats.activeCount}</span>}
+          hint={stats.lowStockCount > 0 ? `${stats.lowStockCount} low-stock item(s)` : "Stock levels healthy"}
+          hintTone={stats.lowStockCount > 0 ? "warning" : "default"}
+        />
+        <StatCard
+          label="Pending sync"
+          icon={<IconRefresh className="tos-stat__icon" />}
+          value={<span className="tos-stat__value">{queue.pending}</span>}
+          hint={queue.pending > 0 ? "Will sync automatically" : "All caught up"}
+        />
+        <StatCard
+          label="Recent sales"
+          icon={<IconReceipt className="tos-stat__icon" />}
+          value={<span className="tos-stat__value">{sales.length}</span>}
+          hint="Last 8 transactions"
+        />
+      </div>
 
-      <section className="zai-kpi-grid" aria-label="Today’s business metrics">
-        <article><span>Today&apos;s sales</span><strong>{busy && model.today.netRevenueMinor == null ? "Loading…" : todaySales}</strong><small>{model.today.comparisonText ?? `${model.today.salesCount ?? 0} sales recorded`}</small></article>
-        <article><span>Gross profit</span><strong>{grossProfit}</strong><small>{model.momentum?.grossProfitChangePercent == null ? "Current period" : `${model.momentum.grossProfitChangePercent >= 0 ? "+" : ""}${model.momentum.grossProfitChangePercent.toFixed(1)}% vs ${model.momentum.baselineLabel}`}</small></article>
-        <article><span>Cash position</span><strong>{cashPosition}</strong><small>Across available money accounts</small></article>
-        <article><span>Outstanding credit</span><strong>{credit}</strong><small>{model.moneyPosition.receivablesMinor && model.moneyPosition.receivablesMinor > 0 ? "Customer balances need follow-up" : "No outstanding amount visible"}</small></article>
-      </section>
+      <div className="tos-grid-two">
+        <div className="tos-section">
+          <div className="tos-section__head">
+            <h2 className="tos-section__title">Recent sales</h2>
+            <Link href="/sales" className="tos-public__form-link">View all →</Link>
+          </div>
+          <div className="tos-section__body">
+            {sales.length === 0 ? (
+              <StatePanel
+                inline
+                variant="empty"
+                title="No sales yet"
+                text="Once you make your first sale, it will appear here."
+                actionLabel="Open POS"
+                onAction={() => { window.location.href = "/sell"; }}
+              />
+            ) : (
+              <ul className="tos-list" style={{ borderRadius: 0, border: "none", boxShadow: "none" }}>
+                {sales.slice(0, 6).map((sale) => (
+                  <li key={sale.id} className="tos-list__row" style={{ borderBottom: "1px solid var(--tos-border)" }}>
+                    <div className="tos-list__row-main">
+                      <span className="tos-list__row-title">{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in"}</span>
+                      <span className="tos-list__row-sub">
+                        {sale.completedAt ? new Date(sale.completedAt).toLocaleString() : "Pending"}
+                        {sale.cashierName ? ` · ${sale.cashierName}` : ""}
+                      </span>
+                    </div>
+                    <div className="tos-list__row-meta">
+                      <MoneyValue minor={sale.totalMinor} currencyCode={sale.currencyCode} tone={sale.status === "COMPLETED" ? "default" : "muted"} />
+                      <SaleStatusBadge status={sale.status} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
 
-      <section className="zai-dashboard-lower-grid">
-        <article className="zai-dashboard-panel zai-sales-trend">
-          <div className="zai-dashboard-panel-heading"><div><h2>Sales — last 7 days</h2><p>Daily revenue and gross profit</p></div><span>7d</span></div>
-          <div className="zai-chart-placeholder"><strong>{todaySales}</strong><span>{model.today.salesCount ?? 0} transaction{model.today.salesCount === 1 ? "" : "s"} in the available current-period evidence</span><p>Daily trend points appear here as historical report evidence becomes available.</p></div>
-        </article>
-        <article className="zai-dashboard-panel zai-money-flow">
-          <div className="zai-dashboard-panel-heading"><div><h2>Money flow</h2><p>In vs out today</p></div></div>
-          <dl><div><dt>Net cash movement</dt><dd>{model.today.cashNetMinor == null ? "—" : formatMoney(model.today.cashNetMinor, currencyCode)}</dd></div><div><dt>Receivables</dt><dd>{credit}</dd></div><div><dt>Payables</dt><dd>{model.moneyPosition.payablesMinor == null ? "—" : formatMoney(model.moneyPosition.payablesMinor, currencyCode)}</dd></div></dl>
-          {dashboardCanViewReports(role) ? <Link href="/reports">Open full reports →</Link> : null}
-        </article>
-      </section>
+        <div className="tos-section">
+          <div className="tos-section__head">
+            <h2 className="tos-section__title">Quick actions</h2>
+          </div>
+          <div className="tos-section__body--padded">
+            <div className="tos-grid-two">
+              <QuickAction href="/sell" icon={<IconSell style={{ width: 20, height: 20 }} />} label="New sale" desc="Open the POS" />
+              <QuickAction href="/catalog" icon={<IconBox style={{ width: 20, height: 20 }} />} label="Add product" desc="Manage catalog" />
+              <QuickAction href="/customers" icon={<IconCustomers style={{ width: 20, height: 20 }} />} label="Add customer" desc="Track credit" />
+              <QuickAction href="/cashbook" icon={<IconCashbook style={{ width: 20, height: 20 }} />} label="Record expense" desc="Cashbook" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {role === "VIEWER" ? (
+        <div className="tos-callout tos-callout--info">
+          You are signed in as a viewer. Sales and inventory actions are hidden. Ask an owner or manager to upgrade your role.
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function DashboardHeader() {
+  return (
+    <header className="tos-page__head">
+      <div className="tos-page__heading">
+        <span className="tos-page__eyebrow">TradeOS</span>
+        <h1 className="tos-page__title">Dashboard</h1>
+        <p className="tos-page__subtitle">A live snapshot of today&apos;s trade, inventory, and reconciliation state.</p>
+      </div>
+      <div className="tos-page__actions">
+        <Link href="/sell">
+          <Button variant="gold" icon={<IconSell className="tos-btn__icon" />}>New sale</Button>
+        </Link>
+        <Link href="/reports">
+          <Button variant="outline" icon={<IconReceipt className="tos-btn__icon" />}>Reports</Button>
+        </Link>
+      </div>
+    </header>
+  );
+}
+
+function StatCard({
+  label,
+  icon,
+  value,
+  hint,
+  hintTone = "default",
+}: {
+  label: string;
+  icon: React.ReactNode;
+  value: React.ReactNode;
+  hint?: string;
+  hintTone?: "default" | "warning";
+}) {
+  return (
+    <div className="tos-stat">
+      <span className="tos-stat__label">
+        {icon}
+        {label}
+      </span>
+      {value}
+      {hint ? (
+        <span className="tos-stat__hint" style={hintTone === "warning" ? { color: "var(--tos-warning)" } : undefined}>
+          {hint}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function QuickAction({ href, icon, label, desc }: { href: string; icon: React.ReactNode; label: string; desc: string }) {
+  return (
+    <Link href={href} className="tos-more-tile" style={{ minHeight: 96, textAlign: "left" }}>
+      <span className="tos-more-tile__icon" style={{ color: "var(--tos-gold)" }}>{icon}</span>
+      <span className="tos-more-tile__label">{label}</span>
+      <span className="tos-list__row-sub">{desc}</span>
+    </Link>
+  );
+}
+
+function SaleStatusBadge({ status }: { status: string }) {
+  const variant =
+    status === "COMPLETED" ? "tos-badge--positive" :
+    status === "VOID" ? "tos-badge--danger" :
+    status === "REFUNDED" ? "tos-badge--warning" :
+    "tos-badge--neutral";
+  return <span className={`tos-badge ${variant}`}><span className="tos-badge__dot" />{status}</span>;
 }
