@@ -18,6 +18,15 @@ import {
   type PaymentMethod,
   type WorkspaceRole,
 } from "../../../lib/mutation-builders";
+import { useApiFetch } from "../../../lib/use-api-fetch";
+
+interface MoneyAccount {
+  id: string;
+  name: string;
+  method: string;
+  active: boolean;
+  currencyCode: string;
+}
 
 export interface Supplier {
   id: string;
@@ -113,6 +122,8 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
             <SupplierPaymentForm
               supplier={supplier}
               currencyCode={currencyCode}
+              businessId={session.businessId}
+              branchId={session.branchId}
               onCancel={() => setPaymentOpen(false)}
               onSubmit={async (payload) => {
                 const queue = getOfflineQueue();
@@ -228,20 +239,38 @@ function SupplierEditForm({ supplier, onCancel, onSubmit }: SupplierEditFormProp
 interface SupplierPaymentFormProps {
   supplier: Supplier;
   currencyCode: string;
+  businessId: string;
+  branchId: string;
   onCancel: () => void;
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
 }
 
-function SupplierPaymentForm({ supplier, currencyCode, onCancel, onSubmit }: SupplierPaymentFormProps) {
+function SupplierPaymentForm({ supplier, currencyCode, businessId, branchId, onCancel, onSubmit }: SupplierPaymentFormProps) {
   const [amountMinor, setAmountMinor] = useState<number | null>(null);
   const [method, setMethod] = useState<PaymentMethod>("CASH");
   const [providerReference, setProviderReference] = useState("");
+  const [moneyAccountId, setMoneyAccountId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const accountsPath = `/v1/money-accounts?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`;
+  const { data: accountsData, loading: accountsLoading } = useApiFetch<{ accounts: MoneyAccount[] }>(accountsPath);
+  const accounts = (accountsData?.accounts ?? []).filter((a) => a.active && a.currencyCode === currencyCode);
+  const matchingAccounts = accounts.filter((a) => a.method === method);
+  const noMatchingAccount = !accountsLoading && matchingAccounts.length === 0;
+
+  useEffect(() => {
+    if (matchingAccounts.length >= 1) {
+      const current = matchingAccounts.find((a) => a.id === moneyAccountId);
+      if (!current) setMoneyAccountId(matchingAccounts[0]!.id);
+    } else {
+      setMoneyAccountId(null);
+    }
+  }, [method, matchingAccounts.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (amountMinor === null || amountMinor <= 0 || busy) return;
+    if (amountMinor === null || amountMinor <= 0 || busy || !moneyAccountId) return;
     setBusy(true);
     setError(null);
     try {
@@ -249,6 +278,7 @@ function SupplierPaymentForm({ supplier, currencyCode, onCancel, onSubmit }: Sup
         supplierId: supplier.id,
         amountMinor,
         method,
+        moneyAccountId,
         providerReference: providerReference.trim() || null,
       });
       await onSubmit(payload);
@@ -262,7 +292,7 @@ function SupplierPaymentForm({ supplier, currencyCode, onCancel, onSubmit }: Sup
   return (
     <form className="tos-stack" onSubmit={handleSubmit} style={{ marginTop: "var(--tos-space-3)" }}>
       <div className="tos-callout tos-callout--info">
-        The server validates the payment does not exceed the supplier's outstanding payable. The new balance is computed server-side.
+        The server validates the payment does not exceed the supplier\'s outstanding payable. The new balance is computed server-side.
       </div>
       <MoneyInput currencyCode={currencyCode} valueMinor={amountMinor} onChange={setAmountMinor} label="Amount paid" size="lg" required />
       <div className="tos-field">
@@ -272,13 +302,30 @@ function SupplierPaymentForm({ supplier, currencyCode, onCancel, onSubmit }: Sup
         </select>
       </div>
       <div className="tos-field">
+        <label className="tos-field__label" htmlFor="sup-pay-account">Account</label>
+        {accountsLoading ? (
+          <div className="tos-input tos-input--readonly">Loading accounts\u2026</div>
+        ) : matchingAccounts.length > 1 ? (
+          <select id="sup-pay-account" className="tos-select" value={moneyAccountId ?? ""} onChange={(e) => setMoneyAccountId(e.target.value || null)}>
+            {matchingAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        ) : matchingAccounts.length === 1 ? (
+          <div className="tos-input tos-input--readonly">{matchingAccounts[0]!.name}</div>
+        ) : (
+          <div className="tos-banner tos-banner--warning">
+            <span className="tos-banner__title">No active {PAYMENT_METHODS.find((m) => m.value === method)?.label ?? method} account is configured for this branch.</span>
+            <a className="tos-banner__action" href="/cashbook">Configure in Cashbook \u2192</a>
+          </div>
+        )}
+      </div>
+      <div className="tos-field">
         <label className="tos-field__label" htmlFor="sup-pay-ref">Provider reference (optional)</label>
         <input id="sup-pay-ref" className="tos-input" value={providerReference} onChange={(e) => setProviderReference(e.target.value)} placeholder="e.g. cheque number, MoMo ref" />
       </div>
       {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
       <div className="tos-row tos-row--between">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
-        <Button type="submit" variant="primary" loading={busy} disabled={amountMinor === null || amountMinor <= 0}>Record payment</Button>
+        <Button type="submit" variant="primary" loading={busy} disabled={amountMinor === null || amountMinor <= 0 || noMatchingAccount || !moneyAccountId}>Record payment</Button>
       </div>
     </form>
   );

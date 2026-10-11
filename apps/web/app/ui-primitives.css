@@ -1375,3 +1375,32 @@
     align-items: stretch;
   }
 }
+
+/* Payment form: readonly input display */
+.tos-input--readonly {
+  display: flex;
+  align-items: center;
+  min-height: var(--tos-touch-mobile, 48px);
+  padding: 0 var(--tos-space-3);
+  background: var(--tos-surface-soft, #f8fafc);
+  border: 1px solid var(--tos-border, #dde3ea);
+  border-radius: var(--tos-radius-sm, 12px);
+  color: var(--tos-text-muted, #667085);
+  font-size: var(--tos-text-body, 16px);
+  font-weight: 600;
+}
+
+/* Payment form: banner action link */
+.tos-banner__action {
+  display: inline-flex;
+  align-items: center;
+  margin-top: var(--tos-space-2, 8px);
+  font-size: var(--tos-text-supporting, 14px);
+  font-weight: 700;
+  color: var(--tos-gold, #c99935);
+  text-decoration: none;
+  cursor: pointer;
+}
+.tos-banner__action:hover {
+  text-decoration: underline;
+}

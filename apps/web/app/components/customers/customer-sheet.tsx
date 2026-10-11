@@ -19,6 +19,15 @@ import {
   type PaymentMethod,
   type WorkspaceRole,
 } from "../../../lib/mutation-builders";
+import { useApiFetch } from "../../../lib/use-api-fetch";
+
+interface MoneyAccount {
+  id: string;
+  name: string;
+  method: string;
+  active: boolean;
+  currencyCode: string;
+}
 
 interface CustomerSheetProps {
   customer: Customer | null;
@@ -107,6 +116,8 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
             <CustomerPaymentForm
               customer={customer}
               currencyCode={currency}
+              businessId={session.businessId}
+              branchId={session.branchId}
               onCancel={() => setPaymentOpen(false)}
               onSubmit={async (payload) => {
                 const queue = getOfflineQueue();
@@ -214,20 +225,39 @@ function CustomerEditForm({ customer, onCancel, onSubmit }: CustomerEditFormProp
 interface CustomerPaymentFormProps {
   customer: Customer;
   currencyCode: string;
+  businessId: string;
+  branchId: string;
   onCancel: () => void;
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
 }
 
-function CustomerPaymentForm({ customer, currencyCode, onCancel, onSubmit }: CustomerPaymentFormProps) {
+function CustomerPaymentForm({ customer, currencyCode, businessId, branchId, onCancel, onSubmit }: CustomerPaymentFormProps) {
   const [amountMinor, setAmountMinor] = useState<number | null>(null);
   const [method, setMethod] = useState<PaymentMethod>("CASH");
   const [providerReference, setProviderReference] = useState("");
+  const [moneyAccountId, setMoneyAccountId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const accountsPath = `/v1/money-accounts?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`;
+  const { data: accountsData, loading: accountsLoading } = useApiFetch<{ accounts: MoneyAccount[] }>(accountsPath);
+  const accounts = (accountsData?.accounts ?? []).filter((a) => a.active && a.currencyCode === currencyCode);
+  const matchingAccounts = accounts.filter((a) => a.method === method);
+  const noMatchingAccount = !accountsLoading && matchingAccounts.length === 0;
+
+  // Auto-select default matching account when method changes or accounts load
+  useEffect(() => {
+    if (matchingAccounts.length >= 1) {
+      const current = matchingAccounts.find((a) => a.id === moneyAccountId);
+      if (!current) setMoneyAccountId(matchingAccounts[0]!.id);
+    } else {
+      setMoneyAccountId(null);
+    }
+  }, [method, matchingAccounts.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (amountMinor === null || amountMinor <= 0 || busy) return;
+    if (amountMinor === null || amountMinor <= 0 || busy || !moneyAccountId) return;
     setBusy(true);
     setError(null);
     try {
@@ -235,6 +265,7 @@ function CustomerPaymentForm({ customer, currencyCode, onCancel, onSubmit }: Cus
         customerId: customer.id,
         amountMinor,
         method,
+        moneyAccountId,
         providerReference: providerReference.trim() || null,
       });
       await onSubmit(payload);
@@ -258,13 +289,30 @@ function CustomerPaymentForm({ customer, currencyCode, onCancel, onSubmit }: Cus
         </select>
       </div>
       <div className="tos-field">
+        <label className="tos-field__label" htmlFor="cust-pay-account">Account</label>
+        {accountsLoading ? (
+          <div className="tos-input tos-input--readonly">Loading accounts…</div>
+        ) : matchingAccounts.length > 1 ? (
+          <select id="cust-pay-account" className="tos-select" value={moneyAccountId ?? ""} onChange={(e) => setMoneyAccountId(e.target.value || null)}>
+            {matchingAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        ) : matchingAccounts.length === 1 ? (
+          <div className="tos-input tos-input--readonly">{matchingAccounts[0]!.name}</div>
+        ) : (
+          <div className="tos-banner tos-banner--warning">
+            <span className="tos-banner__title">No active {PAYMENT_METHODS.find((m) => m.value === method)?.label ?? method} account is configured for this branch.</span>
+            <a className="tos-banner__action" href="/cashbook">Configure in Cashbook →</a>
+          </div>
+        )}
+      </div>
+      <div className="tos-field">
         <label className="tos-field__label" htmlFor="cust-pay-ref">Provider reference (optional)</label>
         <input id="cust-pay-ref" className="tos-input" value={providerReference} onChange={(e) => setProviderReference(e.target.value)} placeholder="e.g. MoMo transaction id" />
       </div>
       {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
       <div className="tos-row tos-row--between">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
-        <Button type="submit" variant="primary" loading={busy} disabled={amountMinor === null || amountMinor <= 0}>Record payment</Button>
+        <Button type="submit" variant="primary" loading={busy} disabled={amountMinor === null || amountMinor <= 0 || noMatchingAccount || !moneyAccountId}>Record payment</Button>
       </div>
     </form>
   );
