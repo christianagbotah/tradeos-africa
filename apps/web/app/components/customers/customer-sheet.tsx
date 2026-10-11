@@ -20,14 +20,13 @@ import {
   type WorkspaceRole,
 } from "../../../lib/mutation-builders";
 import { useApiFetch } from "../../../lib/use-api-fetch";
-
-interface MoneyAccount {
-  id: string;
-  name: string;
-  method: string;
-  active: boolean;
-  currencyCode: string;
-}
+import {
+  filterEligibleAccounts,
+  resolveDefaultAccountId,
+  isSelectionValid,
+  type MoneyAccount as PaymentAccount,
+  type MoneyAccountDefault,
+} from "../../../lib/payment-account-selection";
 
 interface CustomerSheetProps {
   customer: Customer | null;
@@ -59,8 +58,8 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
     };
   }, [customer]);
 
-  if (!customer) return null;
-  const currency = "GHS"; // customer balance currency not in the read model; use a stable default
+  if (!customer || !session) return null;
+  const currency = session.currencyCode;
 
   const canWrite = roleCan(role as WorkspaceRole, CUSTOMER_WRITE_ROLES);
   const canPay = roleCan(role as WorkspaceRole, CUSTOMER_PAYMENT_ROLES);
@@ -240,20 +239,23 @@ function CustomerPaymentForm({ customer, currencyCode, businessId, branchId, onC
   const [error, setError] = useState<string | null>(null);
 
   const accountsPath = `/v1/money-accounts?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`;
-  const { data: accountsData, loading: accountsLoading } = useApiFetch<{ accounts: MoneyAccount[] }>(accountsPath);
-  const accounts = (accountsData?.accounts ?? []).filter((a) => a.active && a.currencyCode === currencyCode);
-  const matchingAccounts = accounts.filter((a) => a.method === method);
-  const noMatchingAccount = !accountsLoading && matchingAccounts.length === 0;
+  const { data: accountsData, loading: accountsLoading } = useApiFetch<{ accounts: PaymentAccount[] }>(accountsPath);
+  const defaultsPath = `/v1/money-account-defaults?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`;
+  const { data: defaultsData } = useApiFetch<{ defaults: MoneyAccountDefault[] }>(defaultsPath);
 
-  // Auto-select default matching account when method changes or accounts load
+  const allAccounts = accountsData?.accounts ?? [];
+  const defaults = defaultsData?.defaults ?? [];
+  const eligibleAccounts = filterEligibleAccounts(allAccounts, method, currencyCode);
+  const noMatchingAccount = !accountsLoading && eligibleAccounts.length === 0;
+
+  // Resolve default using production helper: configured default wins,
+  // otherwise auto-select if exactly one, otherwise require explicit selection
   useEffect(() => {
-    if (matchingAccounts.length >= 1) {
-      const current = matchingAccounts.find((a) => a.id === moneyAccountId);
-      if (!current) setMoneyAccountId(matchingAccounts[0]!.id);
-    } else {
-      setMoneyAccountId(null);
-    }
-  }, [method, matchingAccounts.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (accountsLoading) return;
+    if (isSelectionValid(moneyAccountId, eligibleAccounts)) return;
+    const resolved = resolveDefaultAccountId(eligibleAccounts, defaults, method);
+    setMoneyAccountId(resolved);
+  }, [method, accountsLoading, eligibleAccounts.length, defaults.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -292,12 +294,12 @@ function CustomerPaymentForm({ customer, currencyCode, businessId, branchId, onC
         <label className="tos-field__label" htmlFor="cust-pay-account">Account</label>
         {accountsLoading ? (
           <div className="tos-input tos-input--readonly">Loading accounts…</div>
-        ) : matchingAccounts.length > 1 ? (
+        ) : eligibleAccounts.length > 1 ? (
           <select id="cust-pay-account" className="tos-select" value={moneyAccountId ?? ""} onChange={(e) => setMoneyAccountId(e.target.value || null)}>
-            {matchingAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {eligibleAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
-        ) : matchingAccounts.length === 1 ? (
-          <div className="tos-input tos-input--readonly">{matchingAccounts[0]!.name}</div>
+        ) : eligibleAccounts.length === 1 ? (
+          <div className="tos-input tos-input--readonly">{eligibleAccounts[0]!.name}</div>
         ) : (
           <div className="tos-banner tos-banner--warning">
             <span className="tos-banner__title">No active {PAYMENT_METHODS.find((m) => m.value === method)?.label ?? method} account is configured for this branch.</span>

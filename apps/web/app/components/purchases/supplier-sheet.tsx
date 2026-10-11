@@ -19,14 +19,13 @@ import {
   type WorkspaceRole,
 } from "../../../lib/mutation-builders";
 import { useApiFetch } from "../../../lib/use-api-fetch";
-
-interface MoneyAccount {
-  id: string;
-  name: string;
-  method: string;
-  active: boolean;
-  currencyCode: string;
-}
+import {
+  filterEligibleAccounts,
+  resolveDefaultAccountId,
+  isSelectionValid,
+  type MoneyAccount as PaymentAccount,
+  type MoneyAccountDefault,
+} from "../../../lib/payment-account-selection";
 
 export interface Supplier {
   id: string;
@@ -254,19 +253,21 @@ function SupplierPaymentForm({ supplier, currencyCode, businessId, branchId, onC
   const [error, setError] = useState<string | null>(null);
 
   const accountsPath = `/v1/money-accounts?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`;
-  const { data: accountsData, loading: accountsLoading } = useApiFetch<{ accounts: MoneyAccount[] }>(accountsPath);
-  const accounts = (accountsData?.accounts ?? []).filter((a) => a.active && a.currencyCode === currencyCode);
-  const matchingAccounts = accounts.filter((a) => a.method === method);
-  const noMatchingAccount = !accountsLoading && matchingAccounts.length === 0;
+  const { data: accountsData, loading: accountsLoading } = useApiFetch<{ accounts: PaymentAccount[] }>(accountsPath);
+  const defaultsPath = `/v1/money-account-defaults?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`;
+  const { data: defaultsData } = useApiFetch<{ defaults: MoneyAccountDefault[] }>(defaultsPath);
+
+  const allAccounts = accountsData?.accounts ?? [];
+  const defaults = defaultsData?.defaults ?? [];
+  const eligibleAccounts = filterEligibleAccounts(allAccounts, method, currencyCode);
+  const noMatchingAccount = !accountsLoading && eligibleAccounts.length === 0;
 
   useEffect(() => {
-    if (matchingAccounts.length >= 1) {
-      const current = matchingAccounts.find((a) => a.id === moneyAccountId);
-      if (!current) setMoneyAccountId(matchingAccounts[0]!.id);
-    } else {
-      setMoneyAccountId(null);
-    }
-  }, [method, matchingAccounts.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (accountsLoading) return;
+    if (isSelectionValid(moneyAccountId, eligibleAccounts)) return;
+    const resolved = resolveDefaultAccountId(eligibleAccounts, defaults, method);
+    setMoneyAccountId(resolved);
+  }, [method, accountsLoading, eligibleAccounts.length, defaults.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -305,12 +306,12 @@ function SupplierPaymentForm({ supplier, currencyCode, businessId, branchId, onC
         <label className="tos-field__label" htmlFor="sup-pay-account">Account</label>
         {accountsLoading ? (
           <div className="tos-input tos-input--readonly">Loading accounts\u2026</div>
-        ) : matchingAccounts.length > 1 ? (
+        ) : eligibleAccounts.length > 1 ? (
           <select id="sup-pay-account" className="tos-select" value={moneyAccountId ?? ""} onChange={(e) => setMoneyAccountId(e.target.value || null)}>
-            {matchingAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {eligibleAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
-        ) : matchingAccounts.length === 1 ? (
-          <div className="tos-input tos-input--readonly">{matchingAccounts[0]!.name}</div>
+        ) : eligibleAccounts.length === 1 ? (
+          <div className="tos-input tos-input--readonly">{eligibleAccounts[0]!.name}</div>
         ) : (
           <div className="tos-banner tos-banner--warning">
             <span className="tos-banner__title">No active {PAYMENT_METHODS.find((m) => m.value === method)?.label ?? method} account is configured for this branch.</span>
