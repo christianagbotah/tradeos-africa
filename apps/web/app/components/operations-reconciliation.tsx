@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { formatMoney as formatTradeMoney, parseMoneyInput } from "@tradeos/contracts";
 import { clientApi, messageFrom } from "../lib/client-api";
 import { ResponsiveTable } from "./ui/responsive-table";
-import { PageHeader } from "./ui/page-header";
+import { ZaiRouteHeader } from "./ui/zai-route-header";
 import { MoneyInput } from "./ui/money-input";
 import {
   enqueueMutation,
@@ -421,8 +421,8 @@ export function OperationsReconciliation({
   const shiftCloseQueued = pendingTypes.has("SHIFT_CLOSE_CREATE");
   return (
     <section className="operations-workspace" id="operations">
-      <PageHeader
-        eyebrow="Operating controls"
+      <ZaiRouteHeader
+        kicker="Operating controls"
         title="Day & shifts"
         subtitle="Open, count and close operating periods with clear custody, expected-balance and variance evidence."
         status={<span className="tradeos-badge">{queued} pending</span>}

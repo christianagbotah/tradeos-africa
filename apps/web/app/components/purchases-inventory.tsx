@@ -11,7 +11,7 @@ import type { PurchaseCatalogItem, PurchaseDetail, PurchaseSummary } from "./pur
 import { InventoryWorkspace } from "./inventory/inventory-workspace";
 import { InventoryDetailSheet } from "./inventory/inventory-detail-sheet";
 import type { InventoryDetail, InventoryItem } from "./inventory/types";
-import { PageHeader } from "./ui/page-header";
+import { ZaiRouteHeader } from "./ui/zai-route-header";
 import { readFeatureCache, writeFeatureCache } from "../lib/feature-cache";
 import { captureSessionEpoch, isSessionEpochCurrent } from "../lib/session-lifecycle";
 import { mutationAppliedEvent, type AppliedMutationDetail } from "../lib/offline-sync";
@@ -175,8 +175,8 @@ export function PurchasesInventory({ businessId, branchId, currencyCode, role, c
   const lowOrEmpty = useMemo(() => inventory.filter((item) => item.available <= 0).length, [inventory]);
 
   return <section className="purchase-inventory-workspace" id={view === "purchases" ? "purchases" : "inventory"} data-purchase-view={view}>
-    <PageHeader
-      eyebrow={view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}
+    <ZaiRouteHeader
+      kicker={view === "purchases" ? "Procurement · stock receiving" : "Stock control · branch inventory"}
       title={view === "purchases" ? "Suppliers & purchases" : "Inventory"}
       subtitle={view === "purchases"
         ? "Receive stock, inspect posted receipts and create linked supplier corrections without editing history."

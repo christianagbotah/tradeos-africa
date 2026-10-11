@@ -58,7 +58,7 @@ describe("multi-page review regressions", () => {
 
   it("keeps Treasury minimum table width inside a local horizontal scroll wrapper", () => {
     const treasury = read("components/treasury.tsx");
-    const css = read("tradeos-app.css");
+    const css = read("cashbook.css");
     expect(treasury).toContain('className="treasury-table-scroll"');
     expect(css).toMatch(/\.treasury-table-scroll\s*\{[^}]*overflow-x:\s*auto/);
     expect(css).toMatch(/\.treasury-table-scroll\s+table\s*\{[^}]*min-width:\s*680px/);
@@ -119,10 +119,12 @@ describe("multi-page review regressions", () => {
   });
 
 
-  it("keeps consolidated application CSS comments balanced so migrated styles remain active", () => {
-    const css = read("tradeos-app.css");
-    expect(css.match(/\/\*/g)?.length ?? 0).toBe(css.match(/\*\//g)?.length ?? 0);
-    expect(css).toContain("/* === Migrated feature styles (from deleted legacy CSS files) === */");
+  it("keeps focused Z.ai CSS comments balanced and the legacy monolith out of layout", () => {
+    for (const file of ["purchases-inventory.css", "returns.css", "cashbook.css", "operations.css", "reports.css", "public-entry.css", "zai-correctness.css"]) {
+      const css = read(file);
+      expect(css.match(/\/\*/g)?.length ?? 0).toBe(css.match(/\*\//g)?.length ?? 0);
+    }
+    expect(read("layout.tsx")).not.toContain("tradeos-app.css");
   });
 
   it("keeps frontend source free of batch-rewrite control-character artifacts", () => {
@@ -140,7 +142,7 @@ describe("multi-page review regressions", () => {
 
   it("makes the Treasury resolution dialog keyboard-safe and touch-safe", () => {
     const treasury = read("components/treasury.tsx");
-    const css = read("tradeos-app.css");
+    const css = read("zai-correctness.css");
     expect(treasury).toContain('aria-labelledby="treasury-resolution-title"');
     expect(treasury).toContain('id="treasury-resolution-title"');
     expect(treasury).toContain("resolutionInputRef");
@@ -168,7 +170,7 @@ describe("multi-page review regressions", () => {
   });
 
   it("keeps clickable controls pointer-aware and every native select surface opaque", () => {
-    const css = read("tradeos-app.css");
+    const css = read("zai-correctness.css");
     const shell = read("workspace-shell.css");
     expect(css).toMatch(/select:not\(:disabled\)[^\{]*\{[^}]*cursor:\s*pointer/);
     expect(css).toMatch(/select option,?\s*select optgroup|select option[\s\S]*select optgroup/);
@@ -202,11 +204,14 @@ describe("multi-page review regressions", () => {
     const purchases = read("components/purchases-inventory.tsx");
     const operations = read("components/operations-reconciliation.tsx");
     const reports = read("components/financial-reports.tsx");
-    expect(purchases).toContain("PageHeader");
+    expect(purchases).toContain("ZaiRouteHeader");
+    expect(purchases).not.toContain("<PageHeader");
     expect(purchases).toContain('className="purchase-inventory-workspace"');
-    expect(operations).toContain("PageHeader");
+    expect(operations).toContain("ZaiRouteHeader");
+    expect(operations).not.toContain("<PageHeader");
     expect(operations).toContain('className="operations-workspace"');
-    expect(reports).toContain("PageHeader");
+    expect(reports).toContain("ZaiRouteHeader");
+    expect(reports).not.toContain("<PageHeader");
     expect(reports).toContain("CommandBar");
     expect(reports).toContain('className="reports-workspace"');
     expect(reports).not.toContain("ai-tradeos-card");
