@@ -105,7 +105,7 @@ export function CustomerWorkspace() {
         </div>
       )}
 
-      <CustomerSheet customer={selected} onClose={() => setSelected(null)} />
+      <CustomerSheet customer={selected} onClose={() => setSelected(null)} onMutated={() => { void refreshCustomers(); setSelected(null); }} />
       <CustomerFormSheet open={formOpen} onClose={() => setFormOpen(false)} onCreated={() => { setFormOpen(false); void refreshCustomers(); }} />
     </div>
   );

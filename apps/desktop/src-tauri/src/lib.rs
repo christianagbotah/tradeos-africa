@@ -158,12 +158,18 @@ pub fn run() {
             use argon2::{hash_raw, Config, Variant, Version};
 
             let salt = SALT.get().cloned().unwrap_or_else(|| {
-                // Fallback: per-process random salt (won't persist — fail-closed
-                // on restart, which is correct if setup() didn't run).
-                let mut fallback = [0u8; 32];
-                rand::thread_rng().fill_bytes(&mut fallback);
-                fallback.to_vec()
+                // FAIL-CLOSED: no persisted salt means initialization failed.
+                // Do NOT generate an ephemeral salt — that would allow
+                // Stronghold to initialize with a key that can never decrypt
+                // the snapshot on restart, silently losing credentials.
+                // Instead, return a zero-length salt which will cause
+                // Argon2 to error, surfacing the failure explicitly.
+                Vec::new()
             });
+
+            if salt.is_empty() {
+                panic!("TradeOS desktop: Stronghold salt was not initialized. The application must fail to start rather than use an ephemeral salt.");
+            }
 
             let config = Config {
                 lanes: 4,

@@ -7,6 +7,14 @@ import { MoneyInput } from "../ui/money-input";
 import { Button } from "../ui/button";
 import { IconClose } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import {
+  buildCatalogLifecyclePayload,
+  CATALOG_ITEM_ARCHIVE_TYPE,
+  CATALOG_ITEM_REACTIVATE_TYPE,
+  CATALOG_WRITE_ROLES,
+  roleCan,
+  type WorkspaceRole,
+} from "../../../lib/mutation-builders";
 import type { CatalogItem } from "../workspace/workspace-provider";
 
 interface CatalogItemSheetProps {
@@ -26,9 +34,11 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
   const [trackInventory, setTrackInventory] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
 
   const isEdit = Boolean(item);
-  const canWrite = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
+  const canWrite = roleCan(role as WorkspaceRole, CATALOG_WRITE_ROLES);
 
   useEffect(() => {
     if (item) {
@@ -42,6 +52,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
       setName(""); setSku(""); setPriceMinor(null); setSaleUnitCode("EACH"); setKind("PRODUCT"); setTrackInventory(true);
     }
     setBusy(false); setError(null);
+    setLifecycleBusy(false); setLifecycleError(null);
   }, [item]);
 
   useEffect(() => {
@@ -87,7 +98,35 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
     }
   };
 
+  /** Enqueues CATALOG_ITEM_ARCHIVE or CATALOG_ITEM_REACTIVATE. Payload is `{ itemId, expectedUpdatedAt }` — the server derives `active` from the mutationType. */
+  const handleLifecycle = async (mutationType: "CATALOG_ITEM_ARCHIVE" | "CATALOG_ITEM_REACTIVATE") => {
+    if (!item || !canWrite || lifecycleBusy) return;
+    setLifecycleBusy(true);
+    setLifecycleError(null);
+    try {
+      const queue = getOfflineQueue();
+      const payload = buildCatalogLifecyclePayload(mutationType, {
+        itemId: item.id,
+        expectedUpdatedAt: item.updatedAt,
+      });
+      const mutation = queue.build({
+        businessId: session.businessId,
+        mutationType,
+        payload,
+      });
+      await queue.enqueue(mutation);
+      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await refreshCatalog();
+      onSaved();
+    } catch (err) {
+      setLifecycleError(err instanceof Error ? err.message : "Could not change item status.");
+    } finally {
+      setLifecycleBusy(false);
+    }
+  };
+
   const currencyCode = session.currencyCode;
+  const isArchived = item?.status === "ARCHIVED";
 
   return (
     <>
@@ -155,7 +194,29 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
             <dl className="tos-kv">
               <div><dt className="tos-kv__key">Current price</dt><dd className="tos-kv__val"><MoneyValue minor={item.priceMinor} currencyCode={currencyCode} /></dd></div>
               <div><dt className="tos-kv__key">Stock available</dt><dd className="tos-kv__val">{item.inventoryAvailable ?? "—"}</dd></div>
+              <div><dt className="tos-kv__key">Status</dt><dd className="tos-kv__val"><span className={`tos-badge ${item.status === "ACTIVE" ? "tos-badge--positive" : "tos-badge--neutral"}`}><span className="tos-badge__dot" />{item.status}</span></dd></div>
             </dl>
+          ) : null}
+
+          {item && canWrite ? (
+            <div className="tos-callout tos-callout--warning">
+              <div className="tos-row tos-row--between" style={{ flexWrap: "wrap", gap: "var(--tos-space-2)" }}>
+                <div>
+                  <strong>{isArchived ? "Reactivate item" : "Archive item"}</strong>
+                  <div className="tos-section__sub">{isArchived ? "Bring this item back into active use." : "Archived items are hidden from POS and inventory but kept for historical evidence."}</div>
+                </div>
+                <Button
+                  type="button"
+                  variant={isArchived ? "positive" : "outline"}
+                  onClick={() => handleLifecycle(isArchived ? CATALOG_ITEM_REACTIVATE_TYPE : CATALOG_ITEM_ARCHIVE_TYPE)}
+                  loading={lifecycleBusy}
+                  disabled={lifecycleBusy}
+                >
+                  {isArchived ? "Reactivate" : "Archive"}
+                </Button>
+              </div>
+              {lifecycleError ? <div className="tos-banner tos-banner--danger" style={{ marginTop: "var(--tos-space-2)" }}><span className="tos-banner__title">{lifecycleError}</span></div> : null}
+            </div>
           ) : null}
         </form>
         <div className="tos-sheet__foot">
