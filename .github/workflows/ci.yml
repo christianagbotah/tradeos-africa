@@ -64,6 +64,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+        env:
+          DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci
+          PGPASSWORD: tradeos
 
       - name: Build
         run: pnpm build
