@@ -23,6 +23,7 @@ export interface AuthContext {
 export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
+  clientId: string;
   accessExpiresAt: string;
   refreshExpiresAt: string;
 }
@@ -115,6 +116,7 @@ export async function issueSession(
   return {
     accessToken,
     refreshToken,
+    clientId: input.deviceKey,
     accessExpiresAt: accessExpiresAt.toISOString(),
     refreshExpiresAt: refreshExpiresAt.toISOString(),
   };
