@@ -110,8 +110,25 @@ describe("purchase detail and supplier payment evidence", () => {
     });
     expect(purchaseDetail.json().purchase.receivedAt).toEqual(expect.any(String));
 
+    const moneyAccountResponse = await app.inject({
+      method: "POST",
+      url: "/v1/money-accounts",
+      headers,
+      payload: {
+        businessId,
+        branchId,
+        name: "Evidence MoMo Wallet",
+        method: "MOMO",
+        kind: "MOMO_WALLET",
+        provider: "Test MoMo",
+      },
+    });
+    expect(moneyAccountResponse.statusCode).toBe(201);
+    const moneyAccountId = moneyAccountResponse.json().account.id as string;
+
     const paid = await sync("supplier-payment-evidence-1", "SUPPLIER_PAYMENT_CREATE", {
       supplierId,
+      moneyAccountId,
       amountMinor: 200,
       method: "MOMO",
       providerReference: "MOMO-REF-2026-77",
