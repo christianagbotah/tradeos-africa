@@ -46,6 +46,15 @@ describe("TradeOS shell hierarchy and permission presentation", () => {
     expect(source).toContain("{businessBranchSelectors}");
   });
 
+  it("resets native button chrome for the clickable Z.ai pack switcher", () => {
+    const css = readSrc("../../zai-reference.css");
+    const block = css.match(/\.workspace-pack-card\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(block).toMatch(/width:\s*100%/);
+    expect(block).toMatch(/border:\s*0/);
+    expect(block).toMatch(/font:\s*inherit/);
+    expect(block).toMatch(/cursor:\s*pointer/);
+  });
+
   it("provides an account menu with sign out", () => {
     const source = readSrc("app-shell.tsx");
     expect(source).toContain("workspace-profile-menu");

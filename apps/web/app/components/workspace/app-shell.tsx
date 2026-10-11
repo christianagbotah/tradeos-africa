@@ -145,11 +145,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span aria-hidden="true"><ReferenceIcon name="chevronDown" /></span>
           </button>
           {contextOpen ? <div className="workspace-business-switcher" role="dialog" aria-label="Switch business or branch">{businessBranchSelectors}</div> : null}
-          <div className="workspace-pack-card">
+          <button type="button" className="workspace-pack-card" onClick={() => setContextOpen((open) => !open)} aria-label="Switch business or branch">
             <span aria-hidden="true"><ReferenceIcon name="home" /></span>
             <div><strong>{packLabel}</strong><small>Business pack</small></div>
-            <span>Switch</span>
-          </div>
+            <span aria-hidden="true"><ReferenceIcon name="chevronDown" /></span>
+          </button>
         </section>
 
         <nav className="workspace-nav" aria-label="Primary navigation">
@@ -196,8 +196,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           </form>
           <div className="workspace-topbar-utilities">
             <Link className="workspace-utility-icon" href="/reports" aria-label="Open AI insights" title="AI insights"><ReferenceIcon name="sparkles" /></Link>
-            <span className="workspace-utility-icon" aria-hidden="true"><ReferenceIcon name="help" /></span>
-            <span className="workspace-utility-icon workspace-notification" aria-label="Notifications"><ReferenceIcon name="bell" /></span>
             {profile}
           </div>
         </header>

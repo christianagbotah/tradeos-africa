@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { formatMoney } from "@tradeos/contracts";
+import { formatMoney, getCurrencyMeta, parseMoneyInput } from "@tradeos/contracts";
 import {
   enqueueMutation,
   flushPendingMutations,
   getFailedMutations,
   getOrCreateClientId,
+  mutationAppliedEvent,
+  type AppliedMutationDetail,
   type PendingMutation,
 } from "../../lib/offline-sync";
 import { messageFrom } from "../../lib/client-api";
@@ -81,6 +83,54 @@ export function displayTotalMinor(cart: readonly CartLine[]): number {
   return cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0);
 }
 
+export type CheckoutSuccessSnapshot = {
+  saleId: string | null;
+  reference: string;
+  totalMinor: number;
+  lineCount: number;
+  customerName: string;
+  changeDueMinor: number | null;
+  synced: boolean;
+};
+
+export function calculateChangeDueMinor(amountTendered: string, totalMinor: number, currencyCode: string): number | null {
+  if (!amountTendered.trim()) return null;
+  const tenderedMinor = parseMoneyInput(amountTendered, currencyCode);
+  if (tenderedMinor === null || tenderedMinor < 0) return null;
+  return tenderedMinor - totalMinor;
+}
+
+export function createCheckoutSuccessSnapshot(input: {
+  clientMutationId: string;
+  estimatedTotalMinor: number;
+  lineCount: number;
+  customerName: string;
+  changeDueMinor: number | null;
+  synced: boolean;
+  appliedResult?: unknown;
+}): CheckoutSuccessSnapshot {
+  const applied = readAppliedSaleResult(input.appliedResult);
+  const saleId = applied?.saleId ?? null;
+  const totalMinor = applied?.totalMinor ?? input.estimatedTotalMinor;
+  return {
+    saleId,
+    reference: (saleId ?? input.clientMutationId).slice(0, 8).toUpperCase(),
+    totalMinor,
+    lineCount: input.lineCount,
+    customerName: input.customerName,
+    changeDueMinor: input.changeDueMinor,
+    synced: input.synced,
+  };
+}
+
+function readAppliedSaleResult(value: unknown): { saleId: string; totalMinor: number } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as { saleId?: unknown; totalMinor?: unknown };
+  if (typeof candidate.saleId !== "string" || candidate.saleId.length === 0) return null;
+  if (!Number.isSafeInteger(candidate.totalMinor) || (candidate.totalMinor as number) < 0) return null;
+  return { saleId: candidate.saleId, totalMinor: candidate.totalMinor as number };
+}
+
 export function CheckoutSheet({
   open,
   businessId,
@@ -107,10 +157,30 @@ export function CheckoutSheet({
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("CASH");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [amountTendered, setAmountTendered] = useState<string>("");
+  const [success, setSuccess] = useState<CheckoutSuccessSnapshot | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const totalMinor = useMemo(() => displayTotalMinor(cart), [cart]);
   const credit = useMemo(() => customerCreditReadiness(customer, totalMinor), [customer, totalMinor]);
+
+  const changeDueMinor = useMemo(() => {
+    if (paymentMethod !== "CASH") return null;
+    return calculateChangeDueMinor(amountTendered, totalMinor, currencyCode);
+  }, [paymentMethod, amountTendered, totalMinor, currencyCode]);
+  const cashStep = useMemo(() => {
+    const exponent = getCurrencyMeta(currencyCode)?.exponent;
+    if (exponent === undefined) return "any";
+    if (exponent === 0) return "1";
+    return `0.${"0".repeat(exponent - 1)}1`;
+  }, [currencyCode]);
+
+  useEffect(() => {
+    if (!open) {
+      setSuccess(null);
+      setAmountTendered("");
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -161,6 +231,13 @@ export function CheckoutSheet({
     setBusy(true);
     setMessage(null);
     const clientMutationId = crypto.randomUUID();
+    const receiptBase = {
+      clientMutationId,
+      estimatedTotalMinor: totalMinor,
+      lineCount: cart.length,
+      customerName: customer?.name ?? "Walk-in customer",
+      changeDueMinor: paymentMethod === "CASH" ? changeDueMinor : null,
+    };
     try {
       const mutation = buildSaleMutation({
         clientId: getOrCreateClientId(),
@@ -179,24 +256,33 @@ export function CheckoutSheet({
 
       if (!navigator.onLine) {
         onStatus("Saved offline · pending sync", "pending");
-        onClose();
+        setSuccess(createCheckoutSuccessSnapshot({ ...receiptBase, synced: false }));
         return;
       }
 
+      let appliedResult: unknown;
+      const handleApplied = (event: Event) => {
+        const detail = (event as CustomEvent<AppliedMutationDetail>).detail;
+        if (detail.clientMutationId === clientMutationId) appliedResult = detail.result;
+      };
+      window.addEventListener(mutationAppliedEvent, handleApplied);
       try {
         const summary = await flushPendingMutations();
         const failed = getFailedMutations().find((entry) => entry.mutation.clientMutationId === clientMutationId);
         if (failed) {
           onStatus(`Sale needs review · ${failed.result.errorMessage ?? failed.result.errorCode ?? "server rejected the sale"}`, "error");
-        } else if (summary.received > 0 || summary.pending > 0) {
-          onStatus("Sale saved · pending sync", "pending");
+          onClose();
         } else {
-          onStatus("Sale completed and synchronized", "success");
+          const synced = summary.received === 0 && summary.pending === 0;
+          onStatus(synced ? "Sale completed and synchronized" : "Sale saved · pending sync", synced ? "success" : "pending");
+          setSuccess(createCheckoutSuccessSnapshot({ ...receiptBase, synced, appliedResult }));
         }
       } catch {
         onStatus("Sale saved · pending sync", "pending");
+        setSuccess(createCheckoutSuccessSnapshot({ ...receiptBase, synced: false, appliedResult }));
+      } finally {
+        window.removeEventListener(mutationAppliedEvent, handleApplied);
       }
-      onClose();
     } catch (reason) {
       const nextMessage = messageFrom(reason);
       setMessage(nextMessage);
@@ -245,13 +331,62 @@ export function CheckoutSheet({
         </div>
 
         {message ? <div className="pos-checkout-message" role="status">{message}</div> : null}
+        {paymentMethod === "CASH" ? (
+          <label className="pos-cash-tendered">
+            <span>Cash received</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step={cashStep}
+              value={amountTendered}
+              onChange={(event) => setAmountTendered(event.target.value)}
+              placeholder={formatMoney(totalMinor, currencyCode)}
+              aria-label="Cash received from customer"
+            />
+            {changeDueMinor !== null && changeDueMinor > 0 ? (
+              <small className="pos-change-due">Change due: <strong>{formatMoney(changeDueMinor, currencyCode)}</strong></small>
+            ) : changeDueMinor !== null && changeDueMinor < 0 ? (
+              <small className="pos-change-due pos-change-due--short">Short by: <strong>{formatMoney(-changeDueMinor, currencyCode)}</strong></small>
+            ) : null}
+          </label>
+        ) : null}
         <footer className="pos-checkout-footer">
           <Button variant="ghost" type="button" disabled={busy} onClick={onClose}>Cancel</Button>
-          <Button type="button" disabled={busy || cart.length === 0 || (paymentMethod === "CUSTOMER_CREDIT" && !credit.allowed)} onClick={() => void charge()}>
+          <Button type="button" disabled={busy || cart.length === 0 || (paymentMethod === "CUSTOMER_CREDIT" && !credit.allowed) || (paymentMethod === "CASH" && changeDueMinor !== null && changeDueMinor < 0)} onClick={() => void charge()}>
             {busy ? "Saving…" : `Charge ${formatMoney(totalMinor, currencyCode)}`}
           </Button>
         </footer>
       </div>
+
+      {success ? (
+        <div className="pos-checkout-success-overlay" role="dialog" aria-modal="true" aria-labelledby="pos-success-title">
+          <div className="pos-checkout-success">
+            <div className="pos-checkout-success-icon" aria-hidden="true">{success.synced ? "✓" : "↻"}</div>
+            <span className="pos-checkout-success-eyebrow">{success.synced ? "Sale completed" : "Saved · pending sync"}</span>
+            <h2 id="pos-success-title">Receipt {success.reference}</h2>
+            <p className="pos-checkout-success-total">{formatMoney(totalMinor, currencyCode)}</p>
+            {success.changeDueMinor !== null && success.changeDueMinor > 0 ? (
+              <div className="pos-checkout-success-change">
+                <span>Change due</span>
+                <strong>{formatMoney(success.changeDueMinor, currencyCode)}</strong>
+              </div>
+            ) : null}
+            <div className="pos-checkout-success-customer">
+              {success.customerName} · {success.lineCount} line{success.lineCount === 1 ? "" : "s"}
+            </div>
+            <div className="pos-checkout-success-actions">
+              <Button variant="ghost" type="button" onClick={() => { if (typeof window !== "undefined") window.print(); }}>Print receipt</Button>
+              <Button variant="ghost" type="button" onClick={() => {
+                if (typeof navigator !== "undefined" && navigator.share) {
+                  void navigator.share({ title: "TradeOS receipt", text: `Receipt ${success.reference} · ${formatMoney(success.totalMinor, currencyCode)}` }).catch(() => undefined);
+                }
+              }}>Share receipt</Button>
+              <Button type="button" onClick={() => { setSuccess(null); setAmountTendered(""); onClose(); }}>New sale</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

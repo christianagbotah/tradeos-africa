@@ -114,16 +114,23 @@
   font-size: 11px;
 }
 .workspace-pack-card {
+  width: 100%;
   margin-top: 8px;
   padding: 9px 10px;
   display: grid;
   grid-template-columns: 26px minmax(0,1fr) auto;
   gap: 7px;
   align-items: center;
+  border: 0;
   border-radius: 12px;
   background: rgba(0,153,102,.08);
   color: #dbe9e2;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
 }
+.workspace-pack-card:focus-visible { box-shadow: var(--tos-focus-ring); }
 .workspace-pack-card > span:first-child { color: #27b77d; }
 .workspace-pack-card strong { display: block; font-size: 12px; }
 .workspace-pack-card small { display: block; margin-top: 2px; color: #82998e; font-size: 10px; }

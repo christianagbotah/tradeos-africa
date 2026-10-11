@@ -237,8 +237,8 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
           <p id="treasury-resolution-description">Account: {accounts.find((a) => a.id === resolving.moneyAccountId)?.name} · Difference: {money(resolving.differenceMinor)}</p>
           <label>Required explanation<textarea ref={resolutionInputRef} value={resolutionNote} onChange={(e) => setResolutionNote(e.target.value)} maxLength={1000} placeholder="Explain the reason for this correction" /></label>
           <div className="treasury-resolution-actions">
-            <button onClick={() => { setResolving(null); setResolutionNote(""); }}>Cancel</button>
-            <button disabled={!resolutionNote.trim()} onClick={() => { queue("MONEY_RECONCILIATION_RESOLVE", { reconciliationId: resolving.id, note: resolutionNote }); setResolving(null); setResolutionNote(""); }}>Resolve</button>
+            <Button variant="ghost" type="button" onClick={() => { setResolving(null); setResolutionNote(""); }}>Cancel</Button>
+            <Button type="button" disabled={!resolutionNote.trim()} onClick={() => { queue("MONEY_RECONCILIATION_RESOLVE", { reconciliationId: resolving.id, note: resolutionNote }); setResolving(null); setResolutionNote(""); }}>Resolve</Button>
           </div>
         </div>
       </div>
@@ -253,7 +253,7 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
           <label>To<select required value={destination} onChange={(event) => setDestination(event.target.value)}><option value="">Choose destination</option>{eligible.filter((item) => item.id !== source).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.method}</option>)}</select></label>
           <label>Amount<MoneyInput currencyCode={currencyCode} required value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
           <label>Note<input value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} /></label>
-          <button>Save transfer</button>
+          <Button type="submit">Save transfer</Button>
         </form>
       ) : null}
 
@@ -279,12 +279,12 @@ export function Treasury({ businessId, branchId, currencyCode, role, onAccounts 
           <label>Observed balance<MoneyInput currencyCode={currencyCode} required value={observed} onChange={(event) => setObserved(event.target.value)} /></label>
           <label>Note<input value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} /></label>
           <p>Variances stay open until explicitly resolved. Resolution posts a correction for the exact difference.</p>
-          <button>Save reconciliation</button>
+          <Button type="submit">Save reconciliation</Button>
         </form>
       ) : null}
 
       <h4>Reconciliations</h4>
-      <div className="treasury-reconciliation-list">{reconciliations.map((item) => <p key={item.id}>{accounts.find((candidate) => candidate.id === item.moneyAccountId)?.name} · {item.status} · Difference {money(item.differenceMinor)} {elevated && item.status === "VARIANCE" ? <button onClick={() => setResolving(item)}>Resolve with correction</button> : null}</p>)}</div>
+      <div className="treasury-reconciliation-list">{reconciliations.map((item) => <p key={item.id}>{accounts.find((candidate) => candidate.id === item.moneyAccountId)?.name} · {item.status} · Difference {money(item.differenceMinor)} {elevated && item.status === "VARIANCE" ? <Button variant="ghost" type="button" onClick={() => setResolving(item)}>Resolve with correction</Button> : null}</p>)}</div>
       {message ? <p className="treasury-message" role="status">{message}</p> : null}
 
       {editor !== undefined ? (

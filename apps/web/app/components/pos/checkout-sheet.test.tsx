@@ -125,6 +125,45 @@ describe("professional POS checkout", () => {
     expect(source).not.toContain("unitPriceMinor");
   });
 
+  it("freezes the completed receipt summary and prefers authoritative server sale data", async () => {
+    const module = await loadCheckout();
+    expect(module?.createCheckoutSuccessSnapshot).toBeTypeOf("function");
+    if (!module?.createCheckoutSuccessSnapshot) return;
+    const snapshot = module.createCheckoutSuccessSnapshot({
+      clientMutationId: "11111111-2222-4333-8444-555555555555",
+      estimatedTotalMinor: 6500,
+      lineCount: 2,
+      customerName: "Ama Mensah",
+      changeDueMinor: 500,
+      synced: true,
+      appliedResult: {
+        saleId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        status: "COMPLETED",
+        totalMinor: 6400,
+        idempotentReplay: false,
+      },
+    });
+    expect(snapshot).toEqual({
+      saleId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      reference: "AAAAAAAA",
+      totalMinor: 6400,
+      lineCount: 2,
+      customerName: "Ama Mensah",
+      changeDueMinor: 500,
+      synced: true,
+    });
+  });
+
+  it("calculates cash change with the configured currency exponent instead of assuming two decimals", async () => {
+    const module = await loadCheckout();
+    expect(module?.calculateChangeDueMinor).toBeTypeOf("function");
+    if (!module?.calculateChangeDueMinor) return;
+    expect(module.calculateChangeDueMinor("20.00", 1500, "GHS")).toBe(500);
+    expect(module.calculateChangeDueMinor("2000", 1500, "UGX")).toBe(500);
+    expect(module.calculateChangeDueMinor("20.500", 15000, "TND")).toBe(5500);
+    expect(module.calculateChangeDueMinor("20.1", 1500, "UGX")).toBeNull();
+  });
+
   it("pins accessible sheet semantics and phone-safe payment controls", async () => {
     const root = path.dirname(fileURLToPath(import.meta.url));
     const file = path.join(root, "checkout-sheet.tsx");

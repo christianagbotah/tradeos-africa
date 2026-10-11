@@ -7,20 +7,9 @@
 }
 
 /* Greeting */
-.tos-dashboard-greeting {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
+
 .tos-dashboard-greeting span,
-.tos-section-kicker {
-  color: #8a691f;
-  font-size: var(--tos-text-meta);
-  font-weight: 900;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
+
 .tos-dashboard-greeting h1 {
   margin: 4px 0 0;
   font-size: clamp(26px, 4vw, 36px);
@@ -64,35 +53,12 @@
 }
 
 /* Frontline Sell CTA — prominent for cashier/sales roles */
-.tos-dashboard-sell-cta {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 20px;
-  border: 1px solid var(--tos-gold);
-  border-radius: var(--tos-radius-md);
-  background: linear-gradient(135deg, var(--tos-gold-soft) 0%, var(--tos-surface) 100%);
-  text-decoration: none;
-  color: var(--tos-text);
-  transition: all var(--tos-motion-fast);
-  min-height: var(--tos-touch-mobile);
-}
+
 .tos-dashboard-sell-cta:hover {
   box-shadow: var(--tos-shadow-1);
   transform: translateY(-1px);
 }
-.tos-dashboard-sell-cta-icon {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: var(--tos-gold);
-  color: var(--tos-midnight);
-  font-size: 22px;
-  font-weight: 900;
-  flex-shrink: 0;
-}
+
 .tos-dashboard-sell-cta strong {
   display: block;
   font-size: var(--tos-text-section);
@@ -108,16 +74,7 @@
 }
 
 /* Today — hero business state */
-.tos-today {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-  gap: 16px;
-  padding: 24px;
-  border: 1px solid var(--tos-border);
-  border-radius: var(--tos-radius-lg);
-  background: var(--tos-surface);
-  box-shadow: var(--tos-shadow-1);
-}
+
 .tos-today h2 {
   margin: 6px 0 8px;
   font-size: 18px;
@@ -129,16 +86,8 @@
   color: var(--tos-text-muted);
   font-size: var(--tos-text-supporting);
 }
-.tos-today-empty {
-  display: block;
-  font-size: 42px;
-  color: var(--tos-text-muted);
-}
-.tos-today-support {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
+
+
 .tos-today-support article,
 .tos-money-grid article,
 .tos-momentum-grid article {
@@ -170,21 +119,8 @@
 }
 
 /* Dashboard sections */
-.tos-dashboard-section {
-  padding: 20px;
-  border: 1px solid var(--tos-border);
-  border-radius: var(--tos-radius-lg);
-  background: var(--tos-surface);
-  box-shadow: var(--tos-shadow-1);
-  min-width: 0;
-}
-.tos-section-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
+
+
 .tos-section-heading h2 {
   margin: 4px 0 0;
   font-size: 20px;
@@ -197,56 +133,31 @@
 }
 
 /* Quick actions grid */
-.tos-quick-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 9px;
-}
+
 .tos-quick-grid .tos-quick-action {
   min-height: var(--tos-touch-mobile);
 }
 
 /* Attention list */
-.tos-attention-list {
-  display: grid;
-  gap: 0;
-}
+
 
 /* Empty state */
-.tos-dashboard-empty {
-  margin: 0;
-  color: var(--tos-text-muted);
-  font-size: var(--tos-text-supporting);
-}
+
 
 /* Money position grid */
-.tos-money-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
+
 
 /* Momentum grid */
-.tos-momentum-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
+
 .tos-momentum-grid strong {
   font-size: 22px;
 }
 
 /* === Responsive: tablet ≤1099px === */
 @media (max-width: 1099px) {
-  .tos-quick-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .tos-today {
-    grid-template-columns: 1fr;
-  }
-  .tos-today-support {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+
+
+
 }
 
 /* === Responsive: phone ≤767px === */
@@ -254,50 +165,32 @@
   .tos-dashboard {
     gap: 14px;
   }
-  .tos-dashboard-greeting {
-    flex-direction: column;
-    gap: 8px;
-  }
+
   .tos-dashboard-greeting > a {
     display: none;
   }
   .tos-dashboard-greeting h1 {
     font-size: 24px;
   }
-  .tos-today {
-    padding: 18px;
-  }
-  .tos-today-support {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+
+
   .tos-today-support article:last-child {
     grid-column: 1 / -1;
   }
-  .tos-dashboard-section {
-    padding: 16px;
-  }
-  .tos-quick-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+
+
   .tos-quick-grid .tos-quick-action {
     min-height: var(--tos-touch-mobile);
   }
-  .tos-money-grid {
-    grid-template-columns: 1fr;
-  }
-  .tos-section-heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+
+
 }
 
 /* === Responsive: very narrow ≤480px === */
 @media (max-width: 480px) {
   .tos-today-support,
   .tos-quick-grid,
-  .tos-momentum-grid {
-    grid-template-columns: 1fr;
-  }
+
   .tos-today-support article:last-child {
     grid-column: auto;
   }
@@ -307,9 +200,7 @@
   .tos-money-value--hero {
     font-size: 36px;
   }
-  .tos-dashboard-sell-cta {
-    padding: 14px 16px;
-  }
+
 }
 
 /* === Reduced motion === */
