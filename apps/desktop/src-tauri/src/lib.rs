@@ -28,27 +28,58 @@ const SALT_FILENAME: &str = "stronghold-salt.bin";
 
 /// Read or create the per-installation Argon2 salt.
 /// Stored at <app_local_data_dir>/stronghold-salt.bin.
-fn resolve_stronghold_salt(app: &tauri::AppHandle) -> Vec<u8> {
+///
+/// FAIL-CLOSED: returns an error if:
+///   - the app-local data directory cannot be resolved
+///   - the directory cannot be created
+///   - a new salt cannot be written to disk
+///   - an existing salt file is present but unreadable/corrupt
+///
+/// Never falls back to the current working directory.
+/// Never continues with an ephemeral salt.
+fn resolve_stronghold_salt(app: &tauri::AppHandle) -> Result<Vec<u8>, String> {
     let data_dir = app
         .path()
         .app_local_data_dir()
-        .unwrap_or_else(|_| PathBuf::from("."));
+        .map_err(|e| format!("Failed to resolve app local data directory: {e}"))?;
     let salt_path = data_dir.join(SALT_FILENAME);
 
-    if let Ok(salt) = fs::read(&salt_path) {
-        if salt.len() >= 16 {
-            return salt;
+    // Try to read an existing salt
+    match fs::read(&salt_path) {
+        Ok(salt) => {
+            if salt.len() >= 16 {
+                return Ok(salt);
+            }
+            // Salt file exists but is too short — corrupt
+            return Err(format!(
+                "Persisted Stronghold salt at {:?} is corrupt ({} bytes, expected >= 16)",
+                salt_path,
+                salt.len()
+            ));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // First launch — generate and persist a new salt
+        }
+        Err(e) => {
+            // File exists but can't be read — explicit error
+            return Err(format!("Failed to read Stronghold salt at {:?}: {e}", salt_path));
         }
     }
 
+    // Generate a new 32-byte salt
     let mut salt = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut salt);
     let salt_vec = salt.to_vec();
 
-    let _ = fs::create_dir_all(&data_dir);
-    let _ = fs::write(&salt_path, &salt_vec);
+    // Create the directory (fail if it can't be created)
+    fs::create_dir_all(&data_dir)
+        .map_err(|e| format!("Failed to create app data directory {:?}: {e}", data_dir))?;
 
-    salt_vec
+    // Write the salt (fail if it can't be written)
+    fs::write(&salt_path, &salt_vec)
+        .map_err(|e| format!("Failed to write Stronghold salt to {:?}: {e}", salt_path))?;
+
+    Ok(salt_vec)
 }
 
 /// Tauri command: get or create the per-installation Stronghold vault secret.
@@ -111,9 +142,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
-            let salt = resolve_stronghold_salt(&app.handle());
-            let _ = SALT.set(salt);
-            Ok(())
+            match resolve_stronghold_salt(&app.handle()) {
+                Ok(salt) => {
+                    let _ = SALT.set(salt);
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("TradeOS desktop initialization failed: {e}");
+                    Err(e.into())
+                }
+            }
         })
         .plugin(tauri_plugin_stronghold::Builder::new(|password| {
             // Argon2id KDF with per-installation salt.

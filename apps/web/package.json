@@ -1,0 +1,27 @@
+{
+  "name": "@tradeos/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @tradeos/contracts build && next dev",
+    "build": "pnpm --filter @tradeos/contracts build && next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "@tradeos/contracts": "workspace:*",
+    "@tradeos/client-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.7"
+  }
+}

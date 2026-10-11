@@ -152,6 +152,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@tradeos/client-core':
+        specifier: workspace:*
+        version: link:../../packages/client-core
       '@tradeos/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -178,7 +181,7 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: ^3.2.7
         version: 3.2.7(@types/node@24.19.2)(happy-dom@20.14.6)(lightningcss@1.33.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/client-core:
