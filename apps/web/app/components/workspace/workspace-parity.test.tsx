@@ -33,7 +33,7 @@ describe("multi-page workspace parity", () => {
     for (const route of ["sell", "catalog", "returns"]) {
       const source = fs.readFileSync(path.join(appRoot, "(workspace)", route, "page.tsx"), "utf8");
       expect(source).toContain("canAccessWorkspaceRoute");
-      expect(source).toContain("Read-only access");
+      expect(source).toContain("ZaiAccessState");
     }
   });
 

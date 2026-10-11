@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { formatMoney, parseMoneyInput } from "@tradeos/contracts";
+import { ZaiRouteHeader } from "./ui/zai-route-header";
 import { Treasury, type MoneyAccount } from "./treasury";
 import { CashbookSummary } from "./cashbook/cashbook-summary";
 import { CashbookEntryForm } from "./cashbook/cashbook-entry-form";
@@ -171,10 +172,12 @@ export function CashbookExpenses({ businessId, branchId, currencyCode, role }: {
 
   return (
     <section className="cashbook-page" id="cashbook">
-      <header className="cashbook-page-header">
-        <div><p  className="tradeos-kicker">Money movements</p><h2>Cashbook & expenses</h2><p>Track real cash movement by branch. Credit is excluded until money actually moves, and cached records remain available offline.</p></div>
-        <span className={queued > 0 ? "cashbook-sync-badge pending" : "cashbook-sync-badge"}>{queued > 0 ? `${queued} pending sync` : "Fully synced"}</span>
-      </header>
+      <ZaiRouteHeader
+        kicker="Money movements"
+        title="Cashbook & expenses"
+        subtitle="Track real cash movement by branch. Credit is excluded until money actually moves, and cached records remain available offline."
+        status={<span className={queued > 0 ? "cashbook-sync-badge pending" : "cashbook-sync-badge"}>{queued > 0 ? `${queued} pending sync` : "Fully synced"}</span>}
+      />
 
       <CashbookSummary
         filter={filter}

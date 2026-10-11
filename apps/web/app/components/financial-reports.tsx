@@ -7,7 +7,7 @@ import { formatMoney, type CashForecastResponse, type CfoAction as ContractCfoAc
 import { CashForecastPanel } from "./cash-forecast";
 import { CfoActionCenter } from "./cfo-action-center";
 import { ResponsiveTable } from "./ui/responsive-table";
-import { PageHeader } from "./ui/page-header";
+import { ZaiRouteHeader } from "./ui/zai-route-header";
 import { CommandBar } from "./ui/command-bar";
 
 type Flow = {
@@ -169,8 +169,8 @@ export function FinancialReports({ businessId, branchId, currencyCode, role, bus
   const p = report?.position;
   return (
     <section className="reports-workspace" id="reports" data-report-view={view}>
-      <PageHeader
-        eyebrow="Owner intelligence"
+      <ZaiRouteHeader
+        kicker="Owner intelligence"
         title="Financial performance"
         subtitle="Follow operating performance from authoritative accounting evidence, then drill into cash, credit, stock and branch pressure."
         status={<span className="tradeos-badge">{busy ? "Refreshing…" : allBranches ? "All branches" : "Current branch"}</span>}
