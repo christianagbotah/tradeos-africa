@@ -155,9 +155,9 @@
 
 /* === Responsive: tablet ≤1099px === */
 @media (max-width: 1099px) {
-  
-  
-  
+
+
+
 }
 
 /* === Responsive: phone ≤767px === */
@@ -165,32 +165,32 @@
   .tos-dashboard {
     gap: 14px;
   }
-  
+
   .tos-dashboard-greeting > a {
     display: none;
   }
   .tos-dashboard-greeting h1 {
     font-size: 24px;
   }
-  
-  
+
+
   .tos-today-support article:last-child {
     grid-column: 1 / -1;
   }
-  
-  
+
+
   .tos-quick-grid .tos-quick-action {
     min-height: var(--tos-touch-mobile);
   }
-  
-  
+
+
 }
 
 /* === Responsive: very narrow ≤480px === */
 @media (max-width: 480px) {
   .tos-today-support,
   .tos-quick-grid,
-  
+
   .tos-today-support article:last-child {
     grid-column: auto;
   }
@@ -200,7 +200,7 @@
   .tos-money-value--hero {
     font-size: 36px;
   }
-  
+
 }
 
 /* === Reduced motion === */
