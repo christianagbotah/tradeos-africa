@@ -211,3 +211,12 @@ it('protects money-account and default lifecycle with optimistic revisions and a
  expect(audits.rows.some(row=>row.event_type==='MONEY_ACCOUNT_REACTIVATED')).toBe(true);
  expect(audits.rows.some(row=>row.event_type==='MONEY_ACCOUNT_DEFAULT_CHANGED')).toBe(true);
 });
+
+it('supports the Web treasury accounts compatibility route with the canonical response shape',async()=>{
+ const f=await fixture();
+ const canonical=await app.inject({method:'GET',url:`/v1/money-accounts?businessId=${f.businessId}&branchId=${f.branchId}`,headers:f.headers});
+ const compatibility=await app.inject({method:'GET',url:`/v1/treasury/accounts?businessId=${f.businessId}&branchId=${f.branchId}`,headers:f.headers});
+ expect(canonical.statusCode).toBe(200);
+ expect(compatibility.statusCode,compatibility.body).toBe(200);
+ expect(compatibility.json()).toEqual(canonical.json());
+});

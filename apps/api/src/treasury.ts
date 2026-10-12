@@ -52,7 +52,7 @@ function accountView(row: Record<string, unknown>) {
 }
 
 export function registerTreasuryRoutes(app: FastifyInstance, pool: DatabasePool): void {
-  app.get<{ Querystring: { businessId?: string; branchId?: string } }>("/v1/money-accounts", async (request, reply) => {
+  const readMoneyAccounts = async (request: FastifyRequest<{ Querystring: { businessId?: string; branchId?: string } }>, reply: FastifyReply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = id(request.query.businessId, "businessId");
@@ -80,7 +80,10 @@ export function registerTreasuryRoutes(app: FastifyInstance, pool: DatabasePool)
       }
       return { accounts, totalsByMethod, totalBalanceMinor };
     } catch (error) { return sendError(reply, error); }
-  });
+  };
+
+  app.get<{ Querystring: { businessId?: string; branchId?: string } }>("/v1/money-accounts", readMoneyAccounts);
+  app.get<{ Querystring: { businessId?: string; branchId?: string } }>("/v1/treasury/accounts", readMoneyAccounts);
 
   app.post<{ Body: { businessId?: string; branchId?: string | null; name?: string; method?: string; kind?: string; currencyCode?: string; provider?: string | null; referenceLabel?: string | null; allowNegative?: boolean } }>("/v1/money-accounts", async (request, reply) => {
     try {

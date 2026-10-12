@@ -193,3 +193,30 @@ describe("financial summary reports", () => {
   });
 
 });
+
+it("accepts preset report ranges used by the Web client", async () => {
+  const registration = await app.inject({ method:"POST", url:"/v1/auth/register", payload:{ displayName:"Preset Report Owner", email:"reports-preset@tradeos.test", password:"TradeOS-Test-1234", platform:"WEB", deviceKey:"report-preset-device", appVersion:"test" } });
+  expect(registration.statusCode).toBe(201);
+  const headers = { authorization:`Bearer ${registration.json().session.accessToken}` };
+  const onboard = await app.inject({ method:"POST", url:"/v1/onboarding/business", headers, payload:{ name:"Preset Shop", businessType:"OTHER", branchName:"Main" } });
+  expect(onboard.statusCode).toBe(201);
+  const { id: businessId } = onboard.json().business;
+  const { id: branchId } = onboard.json().branch;
+
+  for (const range of ["today", "week", "month", "quarter"] as const) {
+    const response = await app.inject({ method:"GET", url:`/v1/reports/financial-summary?businessId=${businessId}&branchId=${branchId}&range=${range}`, headers });
+    expect(response.statusCode, `${range}: ${response.body}`).toBe(200);
+    const report = response.json();
+    expect(report.businessId).toBe(businessId);
+    expect(report.branchId).toBe(branchId);
+    expect(report.summary?.flow).toEqual(report.flow);
+    expect(report.summary?.position).toEqual(report.position);
+    expect(Date.parse(report.period.from)).not.toBeNaN();
+    expect(Date.parse(report.period.to)).not.toBeNaN();
+    expect(Date.parse(report.period.to)).toBeGreaterThan(Date.parse(report.period.from));
+  }
+
+  const invalid = await app.inject({ method:"GET", url:`/v1/reports/financial-summary?businessId=${businessId}&branchId=${branchId}&range=year`, headers });
+  expect(invalid.statusCode).toBe(400);
+  expect(invalid.json().error).toBe("REPORT_INVALID");
+});
