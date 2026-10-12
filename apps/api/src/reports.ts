@@ -75,7 +75,9 @@ export function registerReportRoutes(app: FastifyInstance, pool: DatabasePool): 
         };
         return { ...basis, health: evaluateBusinessHealth(basis) } satisfies FinancialSummaryReport;
       });
-      return report;
+      // Additive compatibility envelope for the current Web preset-range reader.
+      // Canonical report fields remain top-level; Z.ai Web can migrate to those without an API break.
+      return request.query.range ? { ...report, summary: { flow: report.flow, position: report.position } } : report;
     } catch (error) {
       if (error instanceof ReportError || error instanceof AuthError) return reply.code(error.statusCode).send({ error: error.code, message: error.message });
       throw error;

@@ -209,6 +209,8 @@ it("accepts preset report ranges used by the Web client", async () => {
     const report = response.json();
     expect(report.businessId).toBe(businessId);
     expect(report.branchId).toBe(branchId);
+    expect(report.summary?.flow).toEqual(report.flow);
+    expect(report.summary?.position).toEqual(report.position);
     expect(Date.parse(report.period.from)).not.toBeNaN();
     expect(Date.parse(report.period.to)).not.toBeNaN();
     expect(Date.parse(report.period.to)).toBeGreaterThan(Date.parse(report.period.from));
