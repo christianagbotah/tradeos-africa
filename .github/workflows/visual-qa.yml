@@ -62,21 +62,21 @@ jobs:
           node --input-type=module << 'SEED'
           import pg from "pg";
           const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-          
+
           // Register a test user
           await pool.query(`
             INSERT INTO app_users (id, display_name, email, phone_e164, password_hash)
             VALUES ('qa-user-1', 'QA Owner', 'qa@tradeos.test', '+233500000001', '$2a$10$N9qo8uLOickgx2ZMRZoMy.MrqJ3sZBxqJWlQJxqJWlQJxqJWlQJ')
             ON CONFLICT DO NOTHING
           `);
-          
+
           // Register a test device
           await pool.query(`
             INSERT INTO registered_devices (id, business_id, branch_id, device_key, platform, app_version, status, last_seen_at, last_sync_at)
             VALUES ('qa-device-1', 'qa-biz-1', 'qa-branch-1', 'qa-device-key', 'WEB', 'qa-1.0', 'ACTIVE', now(), now())
             ON CONFLICT DO NOTHING
           `);
-          
+
           console.log("QA seed data inserted");
           await pool.end();
           SEED
@@ -104,11 +104,11 @@ jobs:
           mkdir -p docs/qa/evidence/zai-ui-ux-premium
           node --input-type=module << 'CAPTURE'
           import { chromium } from "playwright";
-          
+
           const browser = await chromium.launch();
           const widths = [360, 390, 768, 1280, 1440];
           const routes = ["/", "/dashboard", "/sell", "/sales", "/customers", "/catalog", "/inventory", "/purchases", "/returns", "/cashbook", "/operations", "/reports"];
-          
+
           for (const route of routes) {
             for (const w of widths) {
               const page = await browser.newPage({ viewport: { width: w, height: 900 } });
@@ -119,7 +119,7 @@ jobs:
               await page.close();
             }
           }
-          
+
           await browser.close();
           console.log("Screenshots captured");
           CAPTURE
