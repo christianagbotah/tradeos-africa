@@ -1,0 +1,131 @@
+name: Visual QA
+
+on:
+  pull_request:
+    branches: ain]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: tradeos_qa
+          POSTGRES_USER: tradeos
+          POSTGRES_PASSWORD: tradeos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tradeos -d tradeos_qa"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build contracts + client-core
+        run: |
+          pnpm --filter @tradeos/contracts build
+          pnpm --filter @tradeos/client-core build
+
+      - name: Apply migrations
+        env:
+          PGPASSWORD: tradeos
+        run: |
+          for migration in packages/db/migrations/*.sql; do
+            psql -h localhost -U tradeos -d tradeos_qa -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
+      - name: Seed QA data
+        env:
+          DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_qa
+        run: |
+          node --input-type=module << 'SEED'
+          import pg from "pg";
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          
+          // Register a test user
+          await pool.query(`
+            INSERT INTO app_users (id, display_name, email, phone_e164, password_hash)
+            VALUES ('qa-user-1', 'QA Owner', 'qa@tradeos.test', '+233500000001', '$2a$10$N9qo8uLOickgx2ZMRZoMy.MrqJ3sZBxqJWlQJxqJWlQJxqJWlQJ')
+            ON CONFLICT DO NOTHING
+          `);
+          
+          // Register a test device
+          await pool.query(`
+            INSERT INTO registered_devices (id, business_id, branch_id, device_key, platform, app_version, status, last_seen_at, last_sync_at)
+            VALUES ('qa-device-1', 'qa-biz-1', 'qa-branch-1', 'qa-device-key', 'WEB', 'qa-1.0', 'ACTIVE', now(), now())
+            ON CONFLICT DO NOTHING
+          `);
+          
+          console.log("QA seed data inserted");
+          await pool.end();
+          SEED
+
+      - name: Start API server
+        env:
+          DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_qa
+          PORT: 4000
+        run: |
+          pnpm --filter @tradeos/api dev &
+          sleep 10
+          curl -s http://127.0.0.1:4000/health || exit 1
+
+      - name: Start Web dev server
+        run: |
+          pnpm --filter @tradeos/web dev &
+          sleep 15
+          curl -s http://127.0.0.1:3000/ || exit 1
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Capture screenshots
+        run: |
+          mkdir -p docs/qa/evidence/zai-ui-ux-premium
+          node --input-type=module << 'CAPTURE'
+          import { chromium } from "playwright";
+          
+          const browser = await chromium.launch();
+          const widths = [360, 390, 768, 1280, 1440];
+          const routes = ["/", "/dashboard", "/sell", "/sales", "/customers", "/catalog", "/inventory", "/purchases", "/returns", "/cashbook", "/operations", "/reports"];
+          
+          for (const route of routes) {
+            for (const w of widths) {
+              const page = await browser.newPage({ viewport: { width: w, height: 900 } });
+              await page.goto(`http://localhost:3000${route}`, { waitUntil: "networkidle", timeout: 15000 }).catch(() => {});
+              await page.waitForTimeout(2000);
+              const name = route === "/" ? "login" : route.slice(1);
+              await page.screenshot({ path: `docs/qa/evidence/zai-ui-ux-premium/${name}-${w}.png`, fullPage: true });
+              await page.close();
+            }
+          }
+          
+          await browser.close();
+          console.log("Screenshots captured");
+          CAPTURE
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-qa-screenshots
+          path: docs/qa/evidence/zai-ui-ux-premium/
