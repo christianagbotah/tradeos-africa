@@ -214,7 +214,9 @@ jobs:
           curl -fsS http://127.0.0.1:3000/ || { echo "Web failed to start"; exit 1; }
 
       - name: Install Playwright
-        run: npx playwright install --with-deps chromium
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
 
       - name: Capture authenticated screenshots
         run: |
