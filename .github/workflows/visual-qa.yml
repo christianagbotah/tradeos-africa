@@ -61,13 +61,14 @@ jobs:
         env:
           DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_qa
           PORT: 4000
+        working-directory: apps/api
         run: |
           node --input-type=module << 'SEED'
           import pg from "pg";
           const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
           // 1. Create a test user with a known bcrypt hash for "TradeOS-QA-1234"
-          const bcrypt = await import("bcryptjs");
+          const bcrypt = await import("bcrypt");
           const passwordHash = await bcrypt.hash("TradeOS-QA-1234", 10);
           await pool.query(
             `INSERT INTO app_users (id, display_name, email, phone_e164, password_hash)
