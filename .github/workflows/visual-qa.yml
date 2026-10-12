@@ -215,7 +215,7 @@ jobs:
 
       - name: Install Playwright
         run: |
-          npm install playwright
+          pnpm add -w playwright
           npx playwright install --with-deps chromium
 
       - name: Capture authenticated screenshots
