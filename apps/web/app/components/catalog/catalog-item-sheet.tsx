@@ -1,11 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
 import { Button } from "../ui/button";
-import { IconClose } from "../ui/icons";
+import {
+  IconBox,
+  IconClose,
+  IconInventory,
+  IconPackage,
+  IconPackageOpen,
+  IconReceipt,
+  IconShield,
+} from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import {
   buildCatalogLifecyclePayload,
@@ -23,6 +32,50 @@ interface CatalogItemSheetProps {
   onClose: () => void;
   onSaved: () => void;
 }
+
+const SALE_UNITS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "EACH", label: "Each — piece" },
+  { value: "KG", label: "Kilogram (kg)" },
+  { value: "G", label: "Gram (g)" },
+  { value: "L", label: "Litre (L)" },
+  { value: "ML", label: "Millilitre (ml)" },
+  { value: "M", label: "Metre (m)" },
+  { value: "CM", label: "Centimetre (cm)" },
+  { value: "BOX", label: "Box" },
+  { value: "PACK", label: "Pack" },
+  { value: "BOTTLE", label: "Bottle" },
+  { value: "CRATE", label: "Crate" },
+  { value: "SACK", label: "Sack" },
+  { value: "COIL", label: "Coil" },
+];
+
+const KIND_OPTIONS: ReadonlyArray<{
+  value: CatalogItem["kind"];
+  label: string;
+  desc: string;
+}> = [
+  { value: "PRODUCT", label: "Product", desc: "Stocked item — tracks inventory" },
+  { value: "PREPARED_PRODUCT", label: "Prepared product", desc: "Made to order — tracks inventory" },
+  { value: "SERVICE", label: "Service", desc: "No stock tracked" },
+];
+
+const KIND_TILE_CLASS: Record<CatalogItem["kind"], string> = {
+  PRODUCT: "tos-kind-tile tos-kind-tile--product",
+  PREPARED_PRODUCT: "tos-kind-tile tos-kind-tile--prepared",
+  SERVICE: "tos-kind-tile tos-kind-tile--service",
+};
+
+const KIND_ICON: Record<CatalogItem["kind"], ReactNode> = {
+  PRODUCT: <IconPackage className="tos-kind-tile__svg" />,
+  PREPARED_PRODUCT: <IconPackageOpen className="tos-kind-tile__svg" />,
+  SERVICE: <IconReceipt className="tos-kind-tile__svg" />,
+};
+
+const KIND_LABEL: Record<CatalogItem["kind"], string> = {
+  PRODUCT: "Product",
+  PREPARED_PRODUCT: "Prepared",
+  SERVICE: "Service",
+};
 
 export function CatalogItemSheet({ item, open = false, onClose, onSaved }: CatalogItemSheetProps) {
   const { session, role, refreshCatalog } = useWorkspace();
@@ -49,23 +102,34 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
       setKind(item.kind);
       setTrackInventory(item.trackInventory);
     } else {
-      setName(""); setSku(""); setPriceMinor(null); setSaleUnitCode("EACH"); setKind("PRODUCT"); setTrackInventory(true);
+      setName("");
+      setSku("");
+      setPriceMinor(null);
+      setSaleUnitCode("EACH");
+      setKind("PRODUCT");
+      setTrackInventory(true);
     }
-    setBusy(false); setError(null);
-    setLifecycleBusy(false); setLifecycleError(null);
+    setBusy(false);
+    setError(null);
+    setLifecycleBusy(false);
+    setLifecycleError(null);
   }, [item]);
 
+  // Lock body scroll while the sheet is mounted.
   useEffect(() => {
-    if (!item && typeof document !== "undefined") {
-      // open as form sheet for create
-    }
+    if (typeof document === "undefined") return;
+    document.body.style.overflow = "hidden";
     return () => {
-      if (typeof document !== "undefined") document.body.style.overflow = "";
+      document.body.style.overflow = "";
     };
-  }, [item]);
+  }, []);
 
   if (!session) return null;
   if (!item && !open) return null;
+
+  const currencyCode = session.currencyCode;
+  const isArchived = item?.status === "ARCHIVED";
+  const effectiveTrack = kind === "SERVICE" ? false : trackInventory;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +144,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
         saleUnitCode,
         kind,
         priceMinor,
-        trackInventory,
+        trackInventory: effectiveTrack,
       };
       const mutation = queue.build({
         businessId: session.businessId,
@@ -98,7 +162,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
     }
   };
 
-  /** Enqueues CATALOG_ITEM_ARCHIVE or CATALOG_ITEM_REACTIVATE. Payload is `{ itemId, expectedUpdatedAt }` — the server derives `active` from the mutationType. */
+  /** Enqueues CATALOG_ITEM_ARCHIVE or CATALOG_ITEM_REACTIVATE. Payload is `{ itemId, expectedUpdatedAt }`. */
   const handleLifecycle = async (mutationType: "CATALOG_ITEM_ARCHIVE" | "CATALOG_ITEM_REACTIVATE") => {
     if (!item || !canWrite || lifecycleBusy) return;
     setLifecycleBusy(true);
@@ -125,9 +189,6 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
     }
   };
 
-  const currencyCode = session.currencyCode;
-  const isArchived = item?.status === "ARCHIVED";
-
   return (
     <>
       <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
@@ -136,81 +197,166 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Master data</span>
             <h2 className="tos-sheet__title">{isEdit ? "Edit item" : "Add catalog item"}</h2>
-            {item ? <p className="tos-sheet__sub">{item.name}</p> : null}
+            {item ? <p className="tos-sheet__sub">{item.name}</p> : <p className="tos-sheet__sub">Server-authoritative prices and stock</p>}
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
             <IconClose style={{ width: 18, height: 18 }} />
           </button>
         </div>
+
         <form className="tos-sheet__body" onSubmit={handleSubmit}>
+          {/* Gold hero — shows the item identity (or "New item") with kind + price + unit */}
+          <div className="tos-catalog-hero tos-animate-fade-in-up">
+            <div className="tos-catalog-hero__head">
+              <div className="tos-catalog-hero__head-main">
+                <span className="tos-catalog-hero__eyebrow">{KIND_LABEL[kind]}</span>
+                <h3 className="tos-catalog-hero__title">{name.trim() || (isEdit ? item?.name ?? "Untitled item" : "New catalog item")}</h3>
+                <p className="tos-catalog-hero__sub">
+                  {sku.trim() ? `SKU ${sku.trim()}` : "No SKU"} · Sold per {saleUnitCode}
+                </p>
+              </div>
+              <span className={KIND_TILE_CLASS[kind]} aria-hidden="true">
+                {KIND_ICON[kind]}
+              </span>
+            </div>
+            <div className="tos-catalog-hero__price-row">
+              <span className="tos-catalog-hero__price-label">Sale price</span>
+              <MoneyValue
+                minor={priceMinor ?? 0}
+                currencyCode={currencyCode}
+                className="tos-catalog-hero__price"
+              />
+            </div>
+            <p className="tos-catalog-hero__unit">
+              Priced per {saleUnitCode}. The server derives line totals, taxes and COGS from this — never the client.
+            </p>
+          </div>
+
+          {/* 3-up stats — only meaningful in edit mode (current saved state) */}
+          {item ? (
+            <div className="tos-catalog-stats tos-animate-fade-in-up">
+              <CatalogStat
+                label="Sale unit"
+                icon={<IconBox className="tos-stat__icon-tile-svg" />}
+                iconTone="midnight"
+                value={<span className="tos-stat__value">{item.saleUnitCode}</span>}
+                hint={item.saleUnitName}
+              />
+              <CatalogStat
+                label="Stock tracking"
+                icon={<IconInventory className="tos-stat__icon-tile-svg" />}
+                iconTone={item.trackInventory ? "positive" : "neutral"}
+                value={
+                  <span className="tos-stat__value">
+                    {item.trackInventory ? "Tracked" : "Off"}
+                  </span>
+                }
+                hint={
+                  item.trackInventory
+                    ? item.inventoryAvailable === null
+                      ? "No count yet"
+                      : `${item.inventoryAvailable} ${item.saleUnitName} available`
+                    : "No stock recorded"
+                }
+              />
+              <CatalogStat
+                label="Status"
+                icon={<IconShield className="tos-stat__icon-tile-svg" />}
+                iconTone={item.status === "ACTIVE" ? "positive" : "neutral"}
+                value={
+                  <span className="tos-stat__value">
+                    {item.status === "ACTIVE" ? "Active" : "Archived"}
+                  </span>
+                }
+                hint={item.status === "ACTIVE" ? "Visible in POS" : "Hidden from POS"}
+              />
+            </div>
+          ) : null}
+
+          {/* Form fields */}
           <div className="tos-field">
             <label className="tos-field__label" htmlFor="cat-name">Name<span className="tos-field__label-required">*</span></label>
-            <input id="cat-name" className="tos-input" value={name} onChange={(e) => setName(e.target.value)} required maxLength={160} disabled={!canWrite} />
+            <input id="cat-name" className="tos-input" value={name} onChange={(e) => setName(e.target.value)} required maxLength={160} disabled={!canWrite || busy} />
           </div>
           <div className="tos-public__form-row">
             <div className="tos-field">
               <label className="tos-field__label" htmlFor="cat-sku">SKU</label>
-              <input id="cat-sku" className="tos-input" value={sku} onChange={(e) => setSku(e.target.value)} disabled={!canWrite} />
+              <input id="cat-sku" className="tos-input" value={sku} onChange={(e) => setSku(e.target.value)} disabled={!canWrite || busy} placeholder="Optional" />
             </div>
             <div className="tos-field">
               <label className="tos-field__label" htmlFor="cat-unit">Sale unit</label>
-              <select id="cat-unit" className="tos-select" value={saleUnitCode} onChange={(e) => setSaleUnitCode(e.target.value)} disabled={!canWrite}>
-                <option value="EACH">Each</option>
-                <option value="KG">Kilogram</option>
-                <option value="G">Gram</option>
-                <option value="L">Litre</option>
-                <option value="ML">Millilitre</option>
-                <option value="M">Metre</option>
-                <option value="CM">Centimetre</option>
-                <option value="BOX">Box</option>
-                <option value="PACK">Pack</option>
-                <option value="BOTTLE">Bottle</option>
+              <select id="cat-unit" className="tos-select" value={saleUnitCode} onChange={(e) => setSaleUnitCode(e.target.value)} disabled={!canWrite || busy}>
+                {SALE_UNITS.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
               </select>
             </div>
           </div>
           <div className="tos-field">
             <label className="tos-field__label" htmlFor="cat-kind">Kind</label>
-            <select id="cat-kind" className="tos-select" value={kind} onChange={(e) => setKind(e.target.value as CatalogItem["kind"])} disabled={!canWrite}>
-              <option value="PRODUCT">Product (stocked)</option>
-              <option value="PREPARED_PRODUCT">Prepared product</option>
-              <option value="SERVICE">Service (no stock)</option>
+            <select id="cat-kind" className="tos-select" value={kind} onChange={(e) => setKind(e.target.value as CatalogItem["kind"])} disabled={!canWrite || busy}>
+              {KIND_OPTIONS.map((k) => <option key={k.value} value={k.value}>{k.label} — {k.desc}</option>)}
             </select>
           </div>
           <MoneyInput
             currencyCode={currencyCode}
             valueMinor={priceMinor}
             onChange={setPriceMinor}
-            label="Sale price"
+            label="Sale price (per unit)"
             size="lg"
             required
-            disabled={!canWrite}
+            disabled={!canWrite || busy}
           />
-          <label className="tos-row" style={{ gap: "var(--tos-space-2)" }}>
-            <input type="checkbox" checked={trackInventory} onChange={(e) => setTrackInventory(e.target.checked)} disabled={!canWrite || kind === "SERVICE"} />
-            <span>Track inventory for this item</span>
+          <label className="tos-row tos-row--between" style={{ gap: "var(--tos-space-2)", minHeight: "var(--tos-touch-mobile, 48px)", padding: "var(--tos-space-2) 0" }}>
+            <span>
+              <span style={{ display: "block", fontWeight: 700, color: "var(--tos-text-strong)" }}>Track inventory for this item</span>
+              <span className="tos-section__sub">Count on-hand and available stock in the sale unit.</span>
+            </span>
+            <input
+              type="checkbox"
+              checked={effectiveTrack}
+              onChange={(e) => setTrackInventory(e.target.checked)}
+              disabled={!canWrite || busy || kind === "SERVICE"}
+              aria-label="Track inventory"
+            />
           </label>
-          {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
-          {item ? (
-            <dl className="tos-kv">
-              <div><dt className="tos-kv__key">Current price</dt><dd className="tos-kv__val"><MoneyValue minor={item.priceMinor} currencyCode={currencyCode} /></dd></div>
-              <div><dt className="tos-kv__key">Stock available</dt><dd className="tos-kv__val">{item.inventoryAvailable ?? "—"}</dd></div>
-              <div><dt className="tos-kv__key">Status</dt><dd className="tos-kv__val"><span className={`tos-badge ${item.status === "ACTIVE" ? "tos-badge--positive" : "tos-badge--neutral"}`}><span className="tos-badge__dot" />{item.status}</span></dd></div>
-            </dl>
+          {kind === "SERVICE" ? (
+            <div className="tos-callout tos-callout--info">
+              <span className="tos-callout__body">
+                Services are never stocked — inventory tracking is disabled automatically.
+              </span>
+            </div>
           ) : null}
 
+          {/* Server-authoritative framing */}
+          <div className="tos-callout tos-callout--info">
+            <span className="tos-callout__icon-wrap" aria-hidden="true">
+              <IconShield style={{ width: 16, height: 16 }} />
+            </span>
+            <span className="tos-callout__body">
+              Prices, stock levels and valuations are server-authoritative.
+              <span className="tos-callout__sub"> This change is queued locally and reconciled on sync — the client never writes a balance or total directly.</span>
+            </span>
+          </div>
+
+          {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
+
+          {/* Lifecycle — archive / reactivate (edit mode only) */}
           {item && canWrite ? (
             <div className="tos-callout tos-callout--warning">
               <div className="tos-row tos-row--between" style={{ flexWrap: "wrap", gap: "var(--tos-space-2)" }}>
                 <div>
                   <strong>{isArchived ? "Reactivate item" : "Archive item"}</strong>
-                  <div className="tos-section__sub">{isArchived ? "Bring this item back into active use." : "Archived items are hidden from POS and inventory but kept for historical evidence."}</div>
+                  <div className="tos-section__sub">
+                    {isArchived
+                      ? "Bring this item back into active use at the POS."
+                      : "Archived items are hidden from the POS and inventory but kept for historical evidence."}
+                  </div>
                 </div>
                 <Button
                   type="button"
                   variant={isArchived ? "positive" : "outline"}
                   onClick={() => handleLifecycle(isArchived ? CATALOG_ITEM_REACTIVATE_TYPE : CATALOG_ITEM_ARCHIVE_TYPE)}
                   loading={lifecycleBusy}
-                  disabled={lifecycleBusy}
+                  disabled={lifecycleBusy || busy}
                 >
                   {isArchived ? "Reactivate" : "Archive"}
                 </Button>
@@ -219,13 +365,45 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
             </div>
           ) : null}
         </form>
+
         <div className="tos-sheet__foot">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button type="submit" variant="primary" onClick={handleSubmit} loading={busy} disabled={!name.trim() || priceMinor === null || !canWrite}>
+          <Button type="submit" variant="primary" onClick={handleSubmit} loading={busy} disabled={!name.trim() || priceMinor === null || !canWrite || busy}>
             {canWrite ? (isEdit ? "Save changes" : "Create item") : "No permission"}
           </Button>
         </div>
       </div>
     </>
+  );
+}
+
+interface CatalogStatProps {
+  label: string;
+  icon: ReactNode;
+  iconTone: "gold" | "positive" | "warning" | "midnight" | "neutral";
+  value: ReactNode;
+  hint?: string;
+}
+
+const CATALOG_STAT_TILE: Record<CatalogStatProps["iconTone"], string> = {
+  gold: "tos-stat__icon-tile tos-stat__icon-tile--gold",
+  positive: "tos-stat__icon-tile tos-stat__icon-tile--positive",
+  warning: "tos-stat__icon-tile tos-stat__icon-tile--warning",
+  midnight: "tos-stat__icon-tile tos-stat__icon-tile--midnight",
+  neutral: "tos-stat__icon-tile tos-stat__icon-tile--neutral",
+};
+
+function CatalogStat({ label, icon, iconTone, value, hint }: CatalogStatProps) {
+  return (
+    <div className="tos-stat tos-card-hover">
+      <div className="tos-stat__head">
+        <span className={CATALOG_STAT_TILE[iconTone]} aria-hidden="true">
+          {icon}
+        </span>
+        <span className="tos-stat__label">{label}</span>
+      </div>
+      {value}
+      {hint ? <span className="tos-stat__hint">{hint}</span> : null}
+    </div>
   );
 }

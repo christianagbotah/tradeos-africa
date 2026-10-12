@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { SupplierSheet, SupplierFormSheet, type Supplier } from "./supplier-sheet";
@@ -9,7 +10,14 @@ import { PurchaseDetailSheet } from "./purchase-detail-sheet";
 import { MoneyValue } from "../business/money-value";
 import { StatePanel } from "../ui/state-panel";
 import { Button } from "../ui/button";
-import { IconPlus, IconRefresh, IconSearch } from "../ui/icons";
+import {
+  IconPurchases,
+  IconCashbook,
+  IconReceipt,
+  IconRefresh,
+  IconSearch,
+  IconWallet,
+} from "../ui/icons";
 
 interface SuppliersResponse { suppliers: Supplier[] }
 
@@ -28,9 +36,42 @@ interface PurchaseListItem {
 
 interface PurchasesResponse { purchases: PurchaseListItem[] }
 
+type StatIconTone = "gold" | "positive" | "warning" | "midnight" | "neutral";
+
+const STAT_TILE_CLASS: Record<StatIconTone, string> = {
+  gold: "tos-stat__icon-tile tos-stat__icon-tile--gold",
+  positive: "tos-stat__icon-tile tos-stat__icon-tile--positive",
+  warning: "tos-stat__icon-tile tos-stat__icon-tile--warning",
+  midnight: "tos-stat__icon-tile tos-stat__icon-tile--midnight",
+  neutral: "tos-stat__icon-tile tos-stat__icon-tile--neutral",
+};
+
+type StatusFilter = "ALL" | "ACTIVE" | "INACTIVE";
+type BalanceFilter = "ALL" | "OWES" | "SETTLED";
+
+const STATUS_FILTERS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
+  { value: "ALL", label: "All" },
+  { value: "ACTIVE", label: "Active" },
+  { value: "INACTIVE", label: "Inactive" },
+];
+
+const BALANCE_FILTERS: ReadonlyArray<{ value: BalanceFilter; label: string }> = [
+  { value: "ALL", label: "All balances" },
+  { value: "OWES", label: "Owes payable" },
+  { value: "SETTLED", label: "Settled" },
+];
+
+function initialOf(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "S";
+  return trimmed.charAt(0).toUpperCase();
+}
+
 export function SupplierWorkspace() {
   const { session, role, bump } = useWorkspace();
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [balanceFilter, setBalanceFilter] = useState<BalanceFilter>("ALL");
   const [selected, setSelected] = useState<Supplier | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
@@ -53,11 +94,42 @@ export function SupplierWorkspace() {
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "INVENTORY"].includes(role);
 
   const suppliers = suppliersData?.suppliers ?? [];
-  const filtered = query.trim()
-    ? suppliers.filter((s) => s.name.toLowerCase().includes(query.trim().toLowerCase()) || (s.phone ?? "").includes(query.trim()))
-    : suppliers;
   const purchases = purchasesData?.purchases ?? [];
   const currencyCode = session?.currencyCode ?? "GHS";
+
+  const filteredSuppliers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return suppliers.filter((s) => {
+      if (statusFilter !== "ALL") {
+        if (statusFilter === "ACTIVE" && !s.active) return false;
+        if (statusFilter === "INACTIVE" && s.active) return false;
+      }
+      if (balanceFilter !== "ALL") {
+        if (balanceFilter === "OWES" && s.balanceMinor <= 0) return false;
+        if (balanceFilter === "SETTLED" && s.balanceMinor > 0) return false;
+      }
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        (s.phone ?? "").toLowerCase().includes(q) ||
+        (s.email ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [suppliers, query, statusFilter, balanceFilter]);
+
+  const stats = useMemo(() => {
+    const total = suppliers.length;
+    const active = suppliers.filter((s) => s.active).length;
+    const owesCount = suppliers.filter((s) => s.balanceMinor > 0).length;
+    const totalPayableMinor = suppliers.reduce((sum, s) => sum + Math.max(0, s.balanceMinor), 0);
+    return { total, active, owesCount, totalPayableMinor };
+  }, [suppliers]);
+
+  const clearFilters = () => {
+    setQuery("");
+    setStatusFilter("ALL");
+    setBalanceFilter("ALL");
+  };
 
   return (
     <div className="tos-page">
@@ -65,33 +137,85 @@ export function SupplierWorkspace() {
         <div className="tos-page__heading">
           <span className="tos-page__eyebrow">TradeOS · Inventory</span>
           <h1 className="tos-page__title">Purchases &amp; suppliers</h1>
-          <p className="tos-page__subtitle">Receive stock from suppliers, track payables, and return faulty goods. Costs flow into the cashbook and inventory valuation.</p>
+          <p className="tos-page__subtitle">
+            Receive stock from suppliers, track payables, and return faulty goods. Costs flow into the cashbook and inventory valuation — every receipt is server-authoritative.
+          </p>
         </div>
         <div className="tos-page__actions">
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => setNonce((n) => n + 1)}>Refresh</Button>
           {canWrite ? (
             <>
-              <Button variant="outline" icon={<IconPlus className="tos-btn__icon" />} onClick={() => setFormOpen(true)}>Add supplier</Button>
-              <Button variant="gold" icon={<IconPlus className="tos-btn__icon" />} onClick={() => setReceiptOpen(true)}>Record receipt</Button>
+              <Button variant="outline" icon={<IconPurchases className="tos-btn__icon" />} onClick={() => setFormOpen(true)}>Add supplier</Button>
+              <Button variant="gold" icon={<IconReceipt className="tos-btn__icon" />} onClick={() => setReceiptOpen(true)}>Record receipt</Button>
             </>
           ) : null}
         </div>
       </header>
 
-      <div className="tos-toolbar">
+      {/* KPI strip — 4-up desktop / 2x2 mobile */}
+      <div className="tos-dashboard-stats tos-stagger">
+        <StatCard
+          label="Total payable"
+          icon={<IconWallet className="tos-stat__icon-tile-svg" />}
+          iconTone="gold"
+          variant="hero"
+          value={<MoneyValue minor={stats.totalPayableMinor} currencyCode={currencyCode} className="tos-stat__value tos-stat__value--hero" />}
+          hint={`${stats.owesCount} supplier(s) owe a balance`}
+          hintTone={stats.owesCount > 0 ? "warning" : "positive"}
+        />
+        <StatCard
+          label="Suppliers"
+          icon={<IconPurchases className="tos-stat__icon-tile-svg" />}
+          iconTone="midnight"
+          value={<span className="tos-stat__value">{stats.total}</span>}
+          hint={`${stats.active} active`}
+        />
+        <StatCard
+          label="Owes payable"
+          icon={<IconCashbook className="tos-stat__icon-tile-svg" />}
+          iconTone={stats.owesCount > 0 ? "warning" : "positive"}
+          value={<span className="tos-stat__value">{stats.owesCount}</span>}
+          hint={stats.owesCount > 0 ? "Receivable balance" : "All settled"}
+          hintTone={stats.owesCount > 0 ? "warning" : "positive"}
+        />
+        <StatCard
+          label="Recent receipts"
+          icon={<IconReceipt className="tos-stat__icon-tile-svg" />}
+          iconTone="neutral"
+          value={<span className="tos-stat__value">{purchases.length}</span>}
+          hint="Last 50 receipts"
+        />
+      </div>
+
+      {/* Toolbar — search + status chips + balance chips */}
+      <div className="tos-toolbar tos-toolbar--stacked">
         <div className="tos-toolbar__search">
           <IconSearch className="tos-toolbar__search-icon" />
           <input
             type="search"
             className="tos-toolbar__search-input"
-            placeholder="Search suppliers…"
+            placeholder="Search suppliers by name, phone, or email…"
             aria-label="Search suppliers"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <span className="tos-toolbar__spacer" />
-        <span className="tos-section__sub">{filtered.length} supplier(s)</span>
+        <div className="tos-filter-row">
+          <span className="tos-filter-label">Status</span>
+          {STATUS_FILTERS.map((s) => (
+            <FilterChip key={s.value} pressed={statusFilter === s.value} onClick={() => setStatusFilter(s.value)}>
+              {s.label}
+            </FilterChip>
+          ))}
+          <span className="tos-filter-label" style={{ marginLeft: "var(--tos-space-2)" }}>Balance</span>
+          {BALANCE_FILTERS.map((b) => (
+            <FilterChip key={b.value} pressed={balanceFilter === b.value} onClick={() => setBalanceFilter(b.value)}>
+              {b.label}
+            </FilterChip>
+          ))}
+          <span className="tos-toolbar__spacer" />
+          <span className="tos-section__sub">{filteredSuppliers.length} supplier(s)</span>
+        </div>
       </div>
 
       {suppliersLoading ? (
@@ -101,44 +225,121 @@ export function SupplierWorkspace() {
       ) : suppliers.length === 0 ? (
         <StatePanel
           variant="empty"
+          icon={<IconPurchases className="tos-state__icon" />}
           title="No suppliers yet"
-          text="Add suppliers so you can record purchase receipts and track payables."
+          text="Add suppliers so you can record purchase receipts, track payables, and post returns to suppliers. Each supplier carries its own payment terms and payable balance."
           actionLabel={canWrite ? "Add supplier" : undefined}
           onAction={canWrite ? () => setFormOpen(true) : undefined}
         />
-      ) : filtered.length === 0 ? (
-        <StatePanel inline variant="empty" title="No matches" text={`No suppliers match "${query}".`} />
+      ) : filteredSuppliers.length === 0 ? (
+        <StatePanel
+          inline
+          variant="empty"
+          icon={<IconSearch className="tos-state__icon" />}
+          title="No matches"
+          text="No suppliers match the current filters. Try widening the status or balance filter or clearing the search."
+          actionLabel="Clear filters"
+          onAction={clearFilters}
+        />
       ) : (
-        <div className="tos-table-wrap">
-          <div className="tos-table-scroll">
-            <table className="tos-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Phone</th>
-                  <th>Terms</th>
-                  <th data-align="center">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((s) => (
-                  <tr key={s.id} data-clickable="true" onClick={() => setSelected(s)}>
-                    <td><div className="tos-table__cell-main"><span className="tos-table__cell-title">{s.name}</span>{s.email ? <span className="tos-table__cell-sub">{s.email}</span> : null}</div></td>
-                    <td className="tos-table__muted">{s.phone ?? "—"}</td>
-                    <td className="tos-table__muted">{s.paymentTermsDays !== null ? `${s.paymentTermsDays} days` : "—"}</td>
-                    <td data-align="center"><span className={`tos-badge ${s.active ? "tos-badge--positive" : "tos-badge--neutral"}`}><span className="tos-badge__dot" />{s.active ? "Active" : "Inactive"}</span></td>
+        <>
+          {/* Mobile: premium tappable supplier cards with balance color stripe */}
+          <ul className="tos-list-cards tos-stagger" aria-label="Suppliers">
+            {filteredSuppliers.map((s) => {
+              const owes = s.balanceMinor > 0;
+              const cardCls = owes
+                ? "tos-supplier-card tos-supplier-card--owes tos-card-hover tos-animate-fade-in-up"
+                : s.active
+                  ? "tos-supplier-card tos-supplier-card--settled tos-card-hover tos-animate-fade-in-up"
+                  : "tos-supplier-card tos-supplier-card--neutral tos-card-hover tos-animate-fade-in-up";
+              const balanceCls = owes
+                ? "tos-supplier-card__balance tos-supplier-card__balance--owes"
+                : "tos-supplier-card__balance tos-supplier-card__balance--settled";
+              return (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    className={cardCls}
+                    onClick={() => setSelected(s)}
+                    aria-label={`Open ${s.name}`}
+                  >
+                    <span className="tos-supplier-card__avatar" aria-hidden="true">{initialOf(s.name)}</span>
+                    <span className="tos-supplier-card__body">
+                      <span className="tos-supplier-card__name">{s.name}</span>
+                      <span className="tos-supplier-card__sub">
+                        {s.phone ?? "No phone"} · {s.email ?? "No email"}
+                      </span>
+                      <span className="tos-supplier-card__sub">
+                        {s.paymentTermsDays !== null ? `${s.paymentTermsDays} day terms` : "No credit terms"}
+                      </span>
+                    </span>
+                    <span className="tos-supplier-card__meta">
+                      {owes ? (
+                        <MoneyValue minor={s.balanceMinor} currencyCode={currencyCode} className={balanceCls} />
+                      ) : (
+                        <span className={balanceCls}>Settled</span>
+                      )}
+                      <span className={`tos-badge ${s.active ? "tos-badge--positive" : "tos-badge--neutral"}`}>
+                        <span className="tos-badge__dot" />{s.active ? "Active" : "Inactive"}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* Desktop: clean table with balance + terms + status */}
+          <div className="tos-table-wrap tos-table-wrap--desktop">
+            <div className="tos-table-scroll">
+              <table className="tos-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Terms</th>
+                    <th data-align="right">Balance owed</th>
+                    <th data-align="center">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredSuppliers.map((s) => (
+                    <tr key={s.id} data-clickable="true" onClick={() => setSelected(s)}>
+                      <td>
+                        <div className="tos-table__cell-main">
+                          <span className="tos-table__cell-title">{s.name}</span>
+                        </div>
+                      </td>
+                      <td className="tos-table__muted">{s.phone ?? "—"}</td>
+                      <td className="tos-table__muted">{s.email ?? "—"}</td>
+                      <td className="tos-table__muted">{s.paymentTermsDays !== null ? `${s.paymentTermsDays} days` : "—"}</td>
+                      <td data-align="right" className="tos-table__num">
+                        {s.balanceMinor > 0 ? (
+                          <MoneyValue minor={s.balanceMinor} currencyCode={currencyCode} tone="negative" />
+                        ) : (
+                          <span className="tos-table__muted">Settled</span>
+                        )}
+                      </td>
+                      <td data-align="center">
+                        <span className={`tos-badge ${s.active ? "tos-badge--positive" : "tos-badge--neutral"}`}>
+                          <span className="tos-badge__dot" />{s.active ? "Active" : "Inactive"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
+      {/* Recent purchase receipts section */}
       <section className="tos-section" style={{ marginTop: "var(--tos-space-5)" }}>
         <div className="tos-section__head">
           <h2 className="tos-section__title">Recent purchase receipts</h2>
-          <span className="tos-section__sub">Tap a row to view detail and post returns</span>
+          <span className="tos-section__sub">Tap a receipt to view lines, returns, and post supplier returns</span>
         </div>
         <div className="tos-section__body">
           {purchasesLoading ? (
@@ -146,46 +347,181 @@ export function SupplierWorkspace() {
           ) : purchasesError ? (
             <StatePanel inline variant="error" text={purchasesError} actionLabel="Retry" onAction={() => refetchPurchases()} />
           ) : purchases.length === 0 ? (
-            <StatePanel inline variant="empty" title="No purchases yet" text="Record a purchase receipt to see it here. Stock and cashbook will update automatically." />
+            <StatePanel
+              inline
+              variant="empty"
+              icon={<IconReceipt className="tos-state__icon" />}
+              title="No purchases yet"
+              text="Record a purchase receipt to receive stock. The cashbook and inventory valuation will update automatically — every receipt is server-authoritative."
+              actionLabel={canWrite ? "Record receipt" : undefined}
+              onAction={canWrite ? () => setReceiptOpen(true) : undefined}
+            />
           ) : (
-            <div className="tos-table-wrap">
-              <div className="tos-table-scroll">
-                <table className="tos-table">
-                  <thead>
-                    <tr>
-                      <th>Supplier</th>
-                      <th>Reference</th>
-                      <th>Settlement</th>
-                      <th data-align="right">Total</th>
-                      <th data-align="right">Lines</th>
-                      <th>Received</th>
-                      <th>Receiver</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {purchases.map((p) => (
-                      <tr key={p.id} data-clickable="true" onClick={() => setPurchaseDetailId(p.id)}>
-                        <td><div className="tos-table__cell-main"><span className="tos-table__cell-title">{p.supplierName}</span></div></td>
-                        <td className="tos-table__mono">{p.supplierReference ?? "—"}</td>
-                        <td className="tos-table__muted">{p.settlementMethod}</td>
-                        <td data-align="right" className="tos-table__num"><MoneyValue minor={p.totalMinor} currencyCode={p.currencyCode ?? currencyCode} tone="muted" /></td>
-                        <td data-align="right" className="tos-table__muted">{p.lineCount}</td>
-                        <td className="tos-table__muted">{new Date(p.receivedAt).toLocaleDateString()}</td>
-                        <td className="tos-table__muted">{p.receiverName ?? "—"}</td>
+            <>
+              {/* Mobile: premium purchase cards */}
+              <ul className="tos-list-cards tos-stagger" aria-label="Purchase receipts">
+                {purchases.map((p) => (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      className="tos-purchase-card tos-card-hover tos-animate-fade-in-up"
+                      onClick={() => setPurchaseDetailId(p.id)}
+                      aria-label={`Open receipt ${p.id.slice(0, 8)}`}
+                    >
+                      <span className="tos-purchase-card__icon" aria-hidden="true">
+                        <IconReceipt style={{ width: 20, height: 20 }} />
+                      </span>
+                      <span className="tos-purchase-card__body">
+                        <span className="tos-purchase-card__title">{p.supplierName}</span>
+                        <span className="tos-purchase-card__sub">
+                          {p.supplierReference ? `Ref ${p.supplierReference}` : `Receipt #${p.id.slice(0, 8)}`}
+                        </span>
+                        <span className="tos-purchase-card__row">
+                          <span className="tos-purchase-card__lines">{p.lineCount} line(s)</span>
+                          <span className="tos-purchase-card__lines">·</span>
+                          <span className="tos-purchase-card__lines">{p.settlementMethod}</span>
+                          {p.receiverName ? (
+                            <>
+                              <span className="tos-purchase-card__lines">·</span>
+                              <span className="tos-purchase-card__lines">{p.receiverName}</span>
+                            </>
+                          ) : null}
+                        </span>
+                      </span>
+                      <span className="tos-purchase-card__meta">
+                        <MoneyValue minor={p.totalMinor} currencyCode={p.currencyCode ?? currencyCode} className="tos-purchase-card__total" />
+                        <span className="tos-purchase-card__date">{new Date(p.receivedAt).toLocaleDateString()}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Desktop: clean table */}
+              <div className="tos-table-wrap tos-table-wrap--desktop">
+                <div className="tos-table-scroll">
+                  <table className="tos-table">
+                    <thead>
+                      <tr>
+                        <th>Receipt</th>
+                        <th>Supplier</th>
+                        <th>Reference</th>
+                        <th>Settlement</th>
+                        <th data-align="right">Total</th>
+                        <th data-align="right">Lines</th>
+                        <th>Received</th>
+                        <th>Receiver</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {purchases.map((p) => (
+                        <tr key={p.id} data-clickable="true" onClick={() => setPurchaseDetailId(p.id)}>
+                          <td className="tos-table__mono">{p.id.slice(0, 8)}</td>
+                          <td>
+                            <div className="tos-table__cell-main">
+                              <span className="tos-table__cell-title">{p.supplierName}</span>
+                            </div>
+                          </td>
+                          <td className="tos-table__mono">{p.supplierReference ?? "—"}</td>
+                          <td className="tos-table__muted">{p.settlementMethod}</td>
+                          <td data-align="right" className="tos-table__num">
+                            <MoneyValue minor={p.totalMinor} currencyCode={p.currencyCode ?? currencyCode} tone="muted" />
+                          </td>
+                          <td data-align="right" className="tos-table__muted">{p.lineCount}</td>
+                          <td className="tos-table__muted">{new Date(p.receivedAt).toLocaleDateString()}</td>
+                          <td className="tos-table__muted">{p.receiverName ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            </>
           )}
         </div>
       </section>
+
+      {/* Payables callout — guides users to record supplier payments */}
+      {stats.owesCount > 0 ? (
+        <div className="tos-callout tos-callout--warning">
+          <span className="tos-callout__icon-wrap" aria-hidden="true">
+            <IconWallet style={{ width: 16, height: 16 }} />
+          </span>
+          <span className="tos-callout__body">
+            {stats.owesCount} supplier(s) are owed a total payable balance.
+            <span className="tos-callout__sub"> Open a supplier to record a payment — the new balance is computed server-side from the supplier ledger.</span>
+          </span>
+        </div>
+      ) : null}
 
       <SupplierSheet supplier={selected} onClose={() => setSelected(null)} onMutated={() => { bump(); setNonce((n) => n + 1); }} />
       <SupplierFormSheet open={formOpen} onClose={() => setFormOpen(false)} onCreated={() => { setFormOpen(false); bump(); setNonce((n) => n + 1); }} />
       <PurchaseReceiptBuilder open={receiptOpen} suppliers={suppliers} onClose={() => setReceiptOpen(false)} onComplete={() => { setReceiptOpen(false); bump(); setNonce((n) => n + 1); }} />
       <PurchaseDetailSheet purchaseId={purchaseDetailId} onClose={() => setPurchaseDetailId(null)} onMutated={() => { bump(); setNonce((n) => n + 1); }} />
     </div>
+  );
+}
+
+interface StatCardProps {
+  label: string;
+  icon: ReactNode;
+  value: ReactNode;
+  hint?: string;
+  hintTone?: "default" | "warning" | "positive";
+  variant?: "default" | "hero";
+  iconTone?: StatIconTone;
+}
+
+function StatCard({
+  label,
+  icon,
+  value,
+  hint,
+  hintTone = "default",
+  variant = "default",
+  iconTone = "neutral",
+}: StatCardProps) {
+  const cls = variant === "hero"
+    ? "tos-stat tos-card-hover tos-animate-fade-in-up tos-stat--hero"
+    : "tos-stat tos-card-hover tos-animate-fade-in-up";
+
+  const hintCls = hintTone === "warning"
+    ? "tos-stat__hint tos-stat__hint--warning"
+    : hintTone === "positive"
+      ? "tos-stat__hint tos-stat__hint--positive"
+      : "tos-stat__hint";
+
+  return (
+    <div className={cls}>
+      <div className="tos-stat__head">
+        <span className={STAT_TILE_CLASS[iconTone]} aria-hidden="true">
+          {icon}
+        </span>
+        <span className="tos-stat__label">{label}</span>
+      </div>
+      {value}
+      {hint ? <span className={hintCls}>{hint}</span> : null}
+    </div>
+  );
+}
+
+function FilterChip({
+  pressed,
+  onClick,
+  children,
+}: {
+  pressed: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="tos-filter-chip"
+      aria-pressed={pressed}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
