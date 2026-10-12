@@ -1385,10 +1385,44 @@
   .tos-pos {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
+    gap: var(--tos-space-3);
   }
 
-  .tos-pos__cart {
-    max-height: 60vh;
+  /* On tablet/phone the inline cart pane is hidden; the cart lives in a
+     bottom sheet summoned by the sticky charge bar. */
+  .tos-pos__cart-wrap {
+    display: none;
+  }
+
+  .tos-charge-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+
+  /* POS owns the bottom on mobile — hide the global bottom nav on /sell so
+     the sticky charge bar is the single, uncluttered bottom edge. */
+  .tos-main[data-view="sell"] .tos-bottomnav {
+    display: none;
+  }
+
+  .tos-main[data-view="sell"] .tos-content {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Tablet + phone: checkout becomes a full-screen sheet. */
+  .tos-sheet--fullscreen {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .tos-pay-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .tos-topbar__search {
@@ -1412,4 +1446,1085 @@
   .tos-topbar {
     padding: 0 var(--tos-space-3);
   }
+
+  /* Phone: product grid is 2 columns (never 3-4 — too cramped). */
+  .tos-product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--tos-space-2);
+  }
+
+  .tos-product-tile {
+    min-height: 0;
+    padding: var(--tos-space-2) var(--tos-space-2) var(--tos-space-3);
+  }
+
+  .tos-product-tile__media {
+    height: 56px;
+    margin-bottom: var(--tos-space-2);
+  }
+
+}
+
+/* ========================================================================
+   POS PREMIUM REBUILD — speed-first sell UX
+   Enhanced product tiles, prominent search w/ F2 hint, kind filter chips,
+   readable cart lines w/ 48px qty buttons, warm empty states, inline clear
+   confirm, mobile sticky charge bar + bottom-sheet cart, payment cards.
+   ======================================================================== */
+
+/* --- POS layout shell (enhanced) --------------------------------------- */
+.tos-pos {
+  align-items: stretch;
+}
+
+.tos-pos__browser {
+  gap: var(--tos-space-4);
+}
+
+/* Desktop cart wrapper — static right pane. On tablet/phone this is hidden
+   via the responsive block above and the cart renders in a bottom sheet. */
+.tos-pos__cart-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tos-pos__cart-wrap > .tos-pos__cart {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+}
+
+/* --- Prominent search --------------------------------------------------- */
+.tos-pos-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tos-pos-search__icon {
+  position: absolute;
+  left: var(--tos-space-4);
+  width: 20px;
+  height: 20px;
+  color: var(--tos-text-soft);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.tos-pos-search__input {
+  width: 100%;
+  height: 56px;
+  padding: 0 var(--tos-space-8) 0 56px;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface);
+  color: var(--tos-text-strong);
+  font-size: var(--tos-text-nav);
+  font-weight: 500;
+  box-shadow: var(--tos-shadow-1);
+  transition: border-color var(--tos-motion-fast) ease, box-shadow var(--tos-motion-fast) ease,
+    background var(--tos-motion-fast) ease;
+}
+
+.tos-pos-search__input::placeholder {
+  color: var(--tos-text-soft);
+  font-weight: 400;
+}
+
+.tos-pos-search__input:focus {
+  outline: none;
+  border-color: var(--tos-gold-border);
+  background: var(--tos-surface);
+  box-shadow: var(--tos-shadow-glow), var(--tos-shadow-1);
+}
+
+.tos-pos-search__clear {
+  position: absolute;
+  right: var(--tos-space-2);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--tos-surface-soft);
+  color: var(--tos-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--tos-motion-fast) ease, color var(--tos-motion-fast) ease;
+}
+
+.tos-pos-search__clear:hover {
+  background: var(--tos-danger-soft);
+  color: var(--tos-danger);
+}
+
+.tos-pos-search__clear:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+/* F2 keyboard hint pill — desktop only (hidden on touch). */
+.tos-pos-search__hint {
+  position: absolute;
+  right: var(--tos-space-4);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-space-1);
+  padding: 2px var(--tos-space-2);
+  border-radius: var(--tos-space-2);
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border);
+  color: var(--tos-text-soft);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--tos-font-mono);
+  pointer-events: none;
+}
+
+.tos-pos-search__hint-kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--tos-surface);
+  border: 1px solid var(--tos-border-strong);
+  color: var(--tos-text-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+/* When the clear button is visible, nudge the hint left. */
+.tos-pos-search__input:not(:placeholder-shown) ~ .tos-pos-search__hint {
+  right: var(--tos-space-8);
+}
+
+/* --- Filter chips (by catalog kind) ------------------------------------ */
+.tos-pos-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-2);
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.tos-pos-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.tos-pos-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-space-2);
+  height: 38px;
+  padding: 0 var(--tos-space-4);
+  border-radius: 999px;
+  border: 1px solid var(--tos-border);
+  background: var(--tos-surface);
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-supporting);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background var(--tos-motion-fast) ease, border-color var(--tos-motion-fast) ease,
+    color var(--tos-motion-fast) ease, transform var(--tos-motion-fast) ease;
+}
+
+.tos-pos-chip:hover:not([aria-pressed="true"]) {
+  border-color: var(--tos-border-strong);
+  color: var(--tos-text);
+}
+
+.tos-pos-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-pos-chip[aria-pressed="true"] {
+  background: var(--tos-midnight);
+  border-color: var(--tos-midnight);
+  color: #ffffff;
+}
+
+.tos-pos-chip__count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--tos-surface-soft);
+  color: var(--tos-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 16px;
+}
+
+.tos-pos-chip[aria-pressed="true"] .tos-pos-chip__count {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.tos-pos-chips-meta {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-soft);
+  white-space: nowrap;
+  padding-left: var(--tos-space-1);
+}
+
+/* --- Premium product tiles --------------------------------------------- */
+.tos-product-grid {
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: var(--tos-space-3);
+}
+
+.tos-product-tile {
+  position: relative;
+  gap: var(--tos-space-2);
+  padding: var(--tos-space-3);
+  border-radius: var(--tos-radius-md);
+  min-height: 152px;
+  overflow: hidden;
+  transition: border-color var(--tos-motion-medium) var(--tos-motion-ease-out),
+    box-shadow var(--tos-motion-medium) var(--tos-motion-ease-out),
+    transform var(--tos-motion-medium) var(--tos-motion-ease-out);
+}
+
+.tos-product-tile:hover:not(:disabled) {
+  border-color: var(--tos-gold-border);
+  box-shadow: var(--tos-shadow-hover);
+  transform: translateY(-2px);
+}
+
+.tos-product-tile:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Top media strip — a tinted band that gives each tile a premium "card" feel. */
+.tos-product-tile__media {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  margin-bottom: var(--tos-space-2);
+  border-radius: var(--tos-space-2);
+  background: linear-gradient(135deg, var(--tos-gold-soft) 0%, var(--tos-surface-soft) 100%);
+  border: 1px solid var(--tos-border);
+  padding: 0 var(--tos-space-2);
+  color: var(--tos-warning);
+}
+
+.tos-product-tile__media-icon {
+  width: 26px;
+  height: 26px;
+  color: var(--tos-warning);
+}
+
+.tos-product-tile__kind {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--tos-warning);
+  background: rgba(255, 255, 255, 0.7);
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.tos-product-tile__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-space-2);
+}
+
+.tos-product-tile__name {
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: calc(1.3em * 2);
+}
+
+.tos-product-tile__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-product-tile__price {
+  margin-top: auto;
+  font-size: var(--tos-text-nav);
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-product-tile__stock {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tos-text-soft);
+}
+
+.tos-product-tile__stock--low {
+  color: var(--tos-warning);
+}
+
+.tos-product-tile__stock--out {
+  color: var(--tos-danger);
+}
+
+/* "In cart" pill — surfaces when an item is already in the cart. */
+.tos-product-tile__pill {
+  position: absolute;
+  top: var(--tos-space-2);
+  right: var(--tos-space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px var(--tos-space-2);
+  border-radius: 999px;
+  background: var(--tos-midnight);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--tos-shadow-1);
+  z-index: 1;
+}
+
+/* Out-of-stock treatment — desaturated, dashed border, badge. */
+.tos-product-tile--out {
+  background: var(--tos-surface-soft);
+  border-style: dashed;
+  border-color: var(--tos-border-strong);
+}
+
+.tos-product-tile--out .tos-product-tile__media {
+  background: var(--tos-surface-soft);
+  border-style: dashed;
+  color: var(--tos-text-soft);
+}
+
+.tos-product-tile--out .tos-product-tile__media-icon,
+.tos-product-tile--out .tos-product-tile__kind {
+  color: var(--tos-text-soft);
+  opacity: 0.7;
+}
+
+.tos-product-tile--out .tos-product-tile__name {
+  color: var(--tos-text-muted);
+}
+
+.tos-product-tile--out .tos-product-tile__price {
+  color: var(--tos-text-muted);
+}
+
+.tos-product-tile__badge {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.tos-product-tile__badge-tag {
+  padding: 4px var(--tos-space-3);
+  border-radius: 999px;
+  background: var(--tos-danger);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  box-shadow: var(--tos-shadow-1);
+  transform: rotate(-6deg);
+}
+
+/* Stagger tile entrance. */
+.tos-product-grid > .tos-product-tile:nth-child(1) { animation-delay: 0ms; }
+.tos-product-grid > .tos-product-tile:nth-child(2) { animation-delay: 30ms; }
+.tos-product-grid > .tos-product-tile:nth-child(3) { animation-delay: 60ms; }
+.tos-product-grid > .tos-product-tile:nth-child(4) { animation-delay: 90ms; }
+.tos-product-grid > .tos-product-tile:nth-child(5) { animation-delay: 120ms; }
+.tos-product-grid > .tos-product-tile:nth-child(6) { animation-delay: 150ms; }
+.tos-product-grid > .tos-product-tile:nth-child(7) { animation-delay: 180ms; }
+.tos-product-grid > .tos-product-tile:nth-child(8) { animation-delay: 210ms; }
+
+/* --- Cart line (readable, 48px touch targets) -------------------------- */
+.tos-cart-line {
+  grid-template-columns: 1fr;
+  gap: var(--tos-space-2);
+  padding: var(--tos-space-3);
+  border-radius: var(--tos-radius-sm);
+  transition: border-color var(--tos-motion-fast) ease, box-shadow var(--tos-motion-fast) ease;
+}
+
+.tos-cart-line:hover {
+  border-color: var(--tos-border-strong);
+}
+
+.tos-cart-line__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-space-2);
+  min-width: 0;
+}
+
+.tos-cart-line__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tos-cart-line__name {
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-cart-line__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+}
+
+.tos-cart-line__unit {
+  font-size: 11px;
+  color: var(--tos-text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-cart-line__remove {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--tos-space-2);
+  flex-shrink: 0;
+}
+
+.tos-cart-line__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+}
+
+/* 48px touch-target qty stepper. */
+.tos-cart-line__qty {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-space-1);
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.tos-cart-line__qty-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--tos-border);
+  background: var(--tos-surface);
+  color: var(--tos-text-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--tos-motion-fast) ease, color var(--tos-motion-fast) ease,
+    border-color var(--tos-motion-fast) ease, transform var(--tos-motion-fast) ease;
+}
+
+.tos-cart-line__qty-btn:hover:not(:disabled) {
+  background: var(--tos-midnight);
+  color: #ffffff;
+  border-color: var(--tos-midnight);
+}
+
+.tos-cart-line__qty-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.tos-cart-line__qty-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-cart-line__qty-btn:disabled {
+  opacity: 0.45;
+}
+
+.tos-cart-line__qty-val {
+  min-width: 36px;
+  text-align: center;
+  font-size: var(--tos-text-nav);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-cart-line__total {
+  font-size: var(--tos-text-nav);
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* --- Warm empty cart --------------------------------------------------- */
+.tos-cart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-8) var(--tos-space-4);
+  flex: 1 1 auto;
+  min-height: 240px;
+}
+
+.tos-cart-empty__icon-wrap {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--tos-gold-soft);
+  border: 1px dashed var(--tos-gold-border);
+  color: var(--tos-warning);
+}
+
+.tos-cart-empty__icon {
+  width: 32px;
+  height: 32px;
+}
+
+.tos-cart-empty__title {
+  margin: 0;
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+}
+
+.tos-cart-empty__text {
+  margin: 0;
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  max-width: 26ch;
+  line-height: 1.5;
+}
+
+/* --- Inline clear confirmation ----------------------------------------- */
+.tos-cart-clear-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3);
+  border-radius: var(--tos-radius-sm);
+  background: var(--tos-danger-soft);
+  border: 1px solid var(--tos-danger);
+  animation: tos-fade-in-down var(--tos-motion-fast) var(--tos-motion-ease-out) both;
+}
+
+.tos-cart-clear-confirm__text {
+  font-size: var(--tos-text-supporting);
+  font-weight: 600;
+  color: var(--tos-danger);
+  line-height: 1.3;
+}
+
+.tos-cart-clear-confirm__actions {
+  display: flex;
+  gap: var(--tos-space-2);
+  flex-shrink: 0;
+}
+
+/* --- Prominent total block in cart foot -------------------------------- */
+.tos-pos__cart-foot {
+  gap: var(--tos-space-2);
+}
+
+.tos-cart-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-2) 0;
+}
+
+.tos-cart-total__label {
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tos-text-soft);
+}
+
+.tos-cart-total__val {
+  font-size: var(--tos-text-page);
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.tos-cart-total__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Mobile sticky charge bar ------------------------------------------ */
+.tos-charge-bar {
+  display: none;
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  align-items: center;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3) var(--tos-space-3) calc(var(--tos-space-3) + env(safe-area-inset-bottom, 0px));
+  background: var(--tos-glass-bg);
+  backdrop-filter: var(--tos-glass-blur);
+  border-top: 1px solid var(--tos-border);
+  box-shadow: 0 -8px 24px rgba(16, 24, 40, 0.08);
+}
+
+.tos-charge-bar__cart-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-space-2);
+  height: 52px;
+  padding: 0 var(--tos-space-4);
+  border-radius: var(--tos-radius-sm);
+  border: 1px solid var(--tos-border);
+  background: var(--tos-surface);
+  color: var(--tos-text-strong);
+  font-weight: 700;
+  flex-shrink: 0;
+  position: relative;
+  transition: background var(--tos-motion-fast) ease;
+}
+
+.tos-charge-bar__cart-btn:hover {
+  background: var(--tos-surface-soft);
+}
+
+.tos-charge-bar__cart-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-charge-bar__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--tos-gold);
+  color: #1a1206;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-charge-bar__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tos-charge-bar__total {
+  font-size: var(--tos-text-section);
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-charge-bar__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+}
+
+.tos-charge-bar__charge {
+  height: 52px;
+  padding: 0 var(--tos-space-5);
+  flex-shrink: 0;
+  font-size: var(--tos-text-nav);
+}
+
+/* --- Mobile cart bottom sheet ------------------------------------------ */
+.tos-pos__cart-scrim {
+  display: none;
+}
+
+.tos-pos__cart-sheet-handle {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .tos-pos__cart-wrap {
+    display: flex;
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 56;
+    max-height: 82vh;
+    background: var(--tos-surface);
+    border-radius: var(--tos-radius-lg) var(--tos-radius-lg) 0 0;
+    box-shadow: var(--tos-shadow-elevated);
+    transform: translateY(100%);
+    transition: transform var(--tos-motion-slow) var(--tos-motion-ease-out);
+    overflow: hidden;
+  }
+
+  .tos-pos__cart-wrap[data-open="true"] {
+    transform: translateY(0);
+  }
+
+  .tos-pos__cart-wrap > .tos-pos__cart {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .tos-pos__cart-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(7, 17, 31, 0.55);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--tos-motion-medium) ease;
+  }
+
+  .tos-pos__cart-scrim[data-open="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .tos-pos__cart-sheet-handle {
+    display: block;
+    width: 44px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--tos-border-strong);
+    margin: var(--tos-space-2) auto 0;
+    flex-shrink: 0;
+  }
+
+  /* The cart sheet needs its own header handle row on mobile. */
+  .tos-pos__cart-wrap > .tos-pos__cart > .tos-pos__cart-head {
+    padding-top: var(--tos-space-1);
+  }
+}
+
+/* --- Payment method cards (checkout) ----------------------------------- */
+.tos-pay-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-space-3);
+}
+
+.tos-pay-card {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3) var(--tos-space-4);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface);
+  text-align: left;
+  min-height: 56px;
+  transition: border-color var(--tos-motion-fast) ease, background var(--tos-motion-fast) ease,
+    box-shadow var(--tos-motion-fast) ease, transform var(--tos-motion-fast) ease;
+}
+
+.tos-pay-card:hover:not([aria-pressed="true"]) {
+  border-color: var(--tos-border-strong);
+  background: var(--tos-surface-soft);
+}
+
+.tos-pay-card:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-pay-card[aria-pressed="true"] {
+  border-color: var(--tos-gold);
+  background: var(--tos-gold-soft);
+  box-shadow: var(--tos-shadow-gold-glow);
+}
+
+.tos-pay-card__icon-wrap {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--tos-space-2);
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border);
+  color: var(--tos-text-muted);
+  flex-shrink: 0;
+  transition: background var(--tos-motion-fast) ease, color var(--tos-motion-fast) ease,
+    border-color var(--tos-motion-fast) ease;
+}
+
+.tos-pay-card[aria-pressed="true"] .tos-pay-card__icon-wrap {
+  background: var(--tos-gold);
+  border-color: var(--tos-gold);
+  color: #1a1206;
+}
+
+.tos-pay-card__icon {
+  width: 20px;
+  height: 20px;
+}
+
+.tos-pay-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.tos-pay-card__label {
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+}
+
+.tos-pay-card__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+}
+
+/* --- Prominent amount display (checkout) ------------------------------- */
+.tos-amount-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--tos-space-1);
+  padding: var(--tos-space-4) var(--tos-space-5);
+  border-radius: var(--tos-radius-md);
+  background: linear-gradient(135deg, var(--tos-midnight) 0%, var(--tos-midnight-soft) 100%);
+  color: #ffffff;
+  text-align: center;
+}
+
+.tos-amount-display__label {
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tos-gold-border);
+}
+
+.tos-amount-display__val {
+  font-size: var(--tos-text-page);
+  font-weight: 800;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+
+.tos-amount-display__sub {
+  font-size: var(--tos-text-meta);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* --- Quick-cash row (checkout) ----------------------------------------- */
+.tos-quick-cash {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--tos-space-2);
+}
+
+.tos-quick-cash__btn {
+  height: 44px;
+  border-radius: var(--tos-radius-sm);
+  border: 1px solid var(--tos-border-strong);
+  background: var(--tos-surface);
+  color: var(--tos-text-strong);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--tos-text-supporting);
+  transition: background var(--tos-motion-fast) ease, border-color var(--tos-motion-fast) ease,
+    transform var(--tos-motion-fast) ease;
+}
+
+.tos-quick-cash__btn:hover:not(:disabled) {
+  background: var(--tos-surface-soft);
+  border-color: var(--tos-gold-border);
+}
+
+.tos-quick-cash__btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.tos-quick-cash__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-quick-cash__btn[aria-pressed="true"] {
+  background: var(--tos-gold-soft);
+  border-color: var(--tos-gold);
+  color: var(--tos-warning);
+}
+
+/* --- Success panel enhancements ---------------------------------------- */
+.tos-success {
+  animation: tos-scale-in var(--tos-motion-medium) var(--tos-motion-ease-out) both;
+}
+
+.tos-success--pending .tos-success__check {
+  background: var(--tos-warning-soft);
+  border-color: var(--tos-warning);
+  color: var(--tos-warning);
+}
+
+.tos-success__status-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-space-2);
+  padding: var(--tos-space-1) var(--tos-space-3);
+  border-radius: 999px;
+  background: var(--tos-positive-soft);
+  color: var(--tos-positive);
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+}
+
+.tos-success__status-row--pending {
+  background: var(--tos-warning-soft);
+  color: var(--tos-warning);
+}
+
+.tos-success__status-row-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tos-success__status-row--pending .tos-success__status-row-dot {
+  animation: tos-pulse 1.6s ease-in-out infinite;
+}
+
+/* --- Checkout sheet: smooth slide-in (already animated; add scale pop) - */
+.tos-sheet {
+  animation: tos-sheet-slide-in var(--tos-motion-medium) var(--tos-motion-ease-out) both;
+}
+
+@keyframes tos-sheet-slide-in {
+  from { transform: translateX(40px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Order summary line tweaks inside checkout */
+.tos-checkout-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--tos-surface);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  overflow: hidden;
+}
+
+.tos-checkout-lines__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3) var(--tos-space-4);
+  border-bottom: 1px solid var(--tos-border);
+}
+
+.tos-checkout-lines__row:last-child {
+  border-bottom: none;
+}
+
+.tos-checkout-lines__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tos-checkout-lines__title {
+  font-size: var(--tos-text-supporting);
+  font-weight: 600;
+  color: var(--tos-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-checkout-lines__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-checkout-lines__amount {
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* --- POS workspace header keyboard hint (desktop) ---------------------- */
+.tos-pos__hint-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-2);
+  flex-wrap: wrap;
+  margin-top: var(--tos-space-1);
+  color: var(--tos-text-soft);
+  font-size: var(--tos-text-meta);
+}
+
+.tos-pos__hint-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border-strong);
+  border-bottom-width: 2px;
+  color: var(--tos-text-muted);
+  font-family: var(--tos-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
 }

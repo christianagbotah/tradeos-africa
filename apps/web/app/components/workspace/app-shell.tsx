@@ -103,7 +103,7 @@ export function AppShell({ children }: AppShellProps) {
 
       <div className="tos-sidebar-scrim" data-open={drawerOpen} onClick={() => setDrawerOpen(false)} aria-hidden="true" />
 
-      <div className="tos-main">
+      <div className="tos-main" data-view={activeSegment}>
         <header className="tos-topbar">
           <button
             type="button"

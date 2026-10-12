@@ -9,17 +9,30 @@ import { CustomerPicker } from "./customer-picker";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
 import { Button } from "../ui/button";
-import { IconCheck, IconClose, IconPrint, IconShare } from "../ui/icons";
-import type { CatalogItem, Customer } from "../workspace/workspace-provider";
+import {
+  IconCheck,
+  IconClose,
+  IconPrint,
+  IconShare,
+  IconBanknote,
+  IconSmartphone,
+  IconCreditCard,
+  IconBuilding,
+  IconWallet,
+  IconCloudOff,
+} from "../ui/icons";
+import type { Customer } from "../workspace/workspace-provider";
 
 type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER";
 
-const PAYMENT_METHODS: ReadonlyArray<{ value: PaymentMethod; label: string }> = [
-  { value: "CASH", label: "Cash" },
-  { value: "MOMO", label: "Mobile money" },
-  { value: "CARD", label: "Card" },
-  { value: "BANK", label: "Bank transfer" },
-  { value: "OTHER", label: "Other" },
+type PayMethodDef = { value: PaymentMethod; label: string; sub: string; Icon: typeof IconBanknote };
+
+const PAYMENT_METHODS: ReadonlyArray<PayMethodDef> = [
+  { value: "CASH", label: "Cash", sub: "Notes & coins", Icon: IconBanknote },
+  { value: "MOMO", label: "Mobile money", sub: "MTN, Vodafone, Airtel", Icon: IconSmartphone },
+  { value: "CARD", label: "Card", sub: "POS terminal", Icon: IconCreditCard },
+  { value: "BANK", label: "Bank transfer", sub: "Direct deposit", Icon: IconBuilding },
+  { value: "OTHER", label: "Other", sub: "Credit / custom", Icon: IconWallet },
 ];
 
 interface CheckoutSheetProps {
@@ -77,8 +90,6 @@ export function CheckoutSheet({
   }, [open]);
 
   if (!open) return null;
-
-  const meta = getCurrencyMeta(currencyCode);
 
   const handleCharge = async () => {
     if (!canCharge || busy) return;
@@ -182,12 +193,14 @@ export function CheckoutSheet({
   return (
     <>
       <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
-      <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label="Checkout">
+      <div className="tos-sheet tos-sheet--wide tos-sheet--fullscreen" role="dialog" aria-label="Checkout">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Checkout</span>
             <h2 className="tos-sheet__title">{result ? "Sale complete" : "Take payment"}</h2>
-            <p className="tos-sheet__sub">{online ? "Online — server-authoritative" : "Offline — sale will queue"}</p>
+            <p className="tos-sheet__sub">
+              {online ? "Online — server-authoritative" : "Offline — sale will queue locally"}
+            </p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close checkout">
             <IconClose style={{ width: 18, height: 18 }} />
@@ -198,6 +211,7 @@ export function CheckoutSheet({
           {result ? (
             <SuccessPanel
               result={result}
+              online={online}
               currencyCode={currencyCode}
               onPrint={handlePrint}
               onShare={handleShare}
@@ -208,47 +222,62 @@ export function CheckoutSheet({
               <section className="tos-section">
                 <div className="tos-section__head">
                   <h3 className="tos-section__title">Order summary</h3>
-                  <span className="tos-section__sub">{lines.length} line(s)</span>
+                  <span className="tos-section__sub">
+                    {lines.reduce((n, l) => n + l.quantity, 0)} item(s) · {lines.length} line(s)
+                  </span>
                 </div>
                 <div className="tos-section__body">
-                  <ul className="tos-list" style={{ borderRadius: 0, border: "none", boxShadow: "none" }}>
+                  <ul className="tos-checkout-lines">
                     {lines.map((l) => (
-                      <li key={l.item.id} className="tos-list__row" style={{ borderBottom: "1px solid var(--tos-border)" }}>
-                        <div className="tos-list__row-main">
-                          <span className="tos-list__row-title">{l.item.name}</span>
-                          <span className="tos-list__row-sub">{l.quantity} × {l.item.saleUnitName}</span>
-                        </div>
-                        <div className="tos-list__row-meta">
-                          <span className="tos-list__row-amount">
-                            <MoneyValue minor={l.item.priceMinor * l.quantity} currencyCode={currencyCode} />
+                      <li key={l.item.id} className="tos-checkout-lines__row">
+                        <div className="tos-checkout-lines__main">
+                          <span className="tos-checkout-lines__title">{l.item.name}</span>
+                          <span className="tos-checkout-lines__sub">
+                            {l.quantity} × {l.item.saleUnitName} · {formatMoney(l.item.priceMinor, currencyCode)}
                           </span>
                         </div>
+                        <span className="tos-checkout-lines__amount">
+                          <MoneyValue minor={l.item.priceMinor * l.quantity} currencyCode={currencyCode} />
+                        </span>
                       </li>
                     ))}
                   </ul>
                 </div>
-                <div className="tos-section__foot">
-                  <span className="tos-page__eyebrow">Total</span>
-                  <MoneyValue minor={totalMinor} currencyCode={currencyCode} size="lg" />
-                </div>
               </section>
+
+              <div className="tos-amount-display" aria-label="Amount due">
+                <span className="tos-amount-display__label">Amount due</span>
+                <span className="tos-amount-display__val">{formatMoney(totalMinor, currencyCode)}</span>
+                <span className="tos-amount-display__sub">
+                  {lines.length} line(s) · pricing confirmed by server
+                </span>
+              </div>
 
               <CustomerPicker customers={customers} selected={customer} onSelect={setCustomer} />
 
               <div className="tos-field">
                 <span className="tos-field__label">Payment method</span>
-                <div className="tos-tabs">
-                  {PAYMENT_METHODS.map((m) => (
-                    <button
-                      key={m.value}
-                      type="button"
-                      className="tos-tabs__tab"
-                      aria-selected={paymentMethod === m.value}
-                      onClick={() => setPaymentMethod(m.value)}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
+                <div className="tos-pay-cards" role="group" aria-label="Payment method">
+                  {PAYMENT_METHODS.map((m) => {
+                    const Icon = m.Icon;
+                    return (
+                      <button
+                        key={m.value}
+                        type="button"
+                        className="tos-pay-card"
+                        aria-pressed={paymentMethod === m.value}
+                        onClick={() => setPaymentMethod(m.value)}
+                      >
+                        <span className="tos-pay-card__icon-wrap" aria-hidden="true">
+                          <Icon className="tos-pay-card__icon" />
+                        </span>
+                        <span className="tos-pay-card__text">
+                          <span className="tos-pay-card__label">{m.label}</span>
+                          <span className="tos-pay-card__sub">{m.sub}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -272,12 +301,13 @@ export function CheckoutSheet({
                       )}
                     </span>
                   </div>
-                  <div className="tos-row">
+                  <div className="tos-quick-cash" role="group" aria-label="Quick cash amounts">
                     {[totalMinor, totalMinor * 2, roundToNextCashUnit(totalMinor, currencyCode)].map((amt, i) => (
                       <button
                         key={i}
                         type="button"
-                        className="tos-btn tos-btn--sm tos-btn--outline"
+                        className="tos-quick-cash__btn"
+                        aria-pressed={cashReceivedMinor === amt}
                         onClick={() => setCashReceivedMinor(amt)}
                       >
                         {formatMoney(amt, currencyCode)}
@@ -307,7 +337,7 @@ export function CheckoutSheet({
               disabled={!canCharge}
             >
               {paymentMethod === "CASH" && changeMinor !== null && changeMinor >= 0
-                ? `Charge (${formatMoney(totalMinor, currencyCode)})`
+                ? `Charge ${formatMoney(totalMinor, currencyCode)}`
                 : `Charge ${formatMoney(totalMinor, currencyCode)}`}
             </Button>
           </div>
@@ -319,28 +349,41 @@ export function CheckoutSheet({
 
 function SuccessPanel({
   result,
+  online,
   currencyCode,
   onPrint,
   onShare,
   onNewSale,
 }: {
   result: SaleResult;
+  online: boolean;
   currencyCode: string;
   onPrint: () => void;
   onShare: () => void;
   onNewSale: () => void;
 }) {
+  const pending = result.status !== "completed";
   return (
-    <div className="tos-success">
+    <div className={`tos-success${pending ? " tos-success--pending" : ""}`}>
       <div className="tos-success__check" aria-hidden="true">
-        {result.status === "completed" ? (
-          <IconCheck className="tos-success__check-icon" />
+        {pending ? (
+          <IconCloudOff className="tos-success__check-icon" />
         ) : (
-          <IconCheck className="tos-success__check-icon" style={{ color: "var(--tos-warning)" }} />
+          <IconCheck className="tos-success__check-icon" />
         )}
       </div>
+      <span
+        className={
+          pending
+            ? "tos-success__status-row tos-success__status-row--pending"
+            : "tos-success__status-row"
+        }
+      >
+        <span className="tos-success__status-row-dot" aria-hidden="true" />
+        {pending ? (online ? "Queued — processing" : "Queued — will sync when online") : "Synced"}
+      </span>
       <h2 className="tos-success__title">
-        {result.status === "completed" ? "Sale complete" : "Sale queued"}
+        {pending ? "Sale queued" : "Sale complete"}
       </h2>
       <p className="tos-success__text">{result.message}</p>
 
