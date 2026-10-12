@@ -67,9 +67,12 @@ jobs:
           import pg from "pg";
           const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
-          // 1. Create a test user with a known bcrypt hash for "TradeOS-QA-1234"
-          const bcrypt = await import("bcrypt");
-          const passwordHash = await bcrypt.hash("TradeOS-QA-1234", 10);
+          // 1. Create a test user with a known scrypt hash for "TradeOS-QA-1234"
+          //    Must match the API's hashPassword() implementation (node:crypto scrypt)
+          import { randomBytes, scryptSync } from "node:crypto";
+          const salt = randomBytes(16);
+          const derived = scryptSync("TradeOS-QA-1234", salt, 64);
+          const passwordHash = `scrypt:v1:${salt.toString("base64url")}:${derived.toString("base64url")}`;
           await pool.query(
             `INSERT INTO app_users (id, display_name, email, phone_e164, password_hash)
              VALUES ('qa-user-1', 'QA Owner', 'qa@tradeos.test', '+233500000001', $1)
