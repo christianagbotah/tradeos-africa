@@ -2528,3 +2528,776 @@
   font-weight: 600;
   line-height: 1.5;
 }
+
+/* ========================================================================
+   SALES & CUSTOMERS PREMIUM UX (Task: sales-customers-ux)
+   Mirrors the dashboard premium language: tinted icon tiles, gold-tinted
+   hero cards, staggered entrance animations, 48px touch targets, mobile
+   card rows + desktop tables. Every className here is consumed by the
+   sales-workspace / sale-detail-sheet / customer-workspace / customer-sheet
+   components and enforced by the className contract test.
+   ======================================================================== */
+
+/* --- Responsive show/hide: mobile cards vs desktop table --------------- */
+.tos-list-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tos-space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tos-table-wrap--desktop {
+  display: block;
+}
+
+@media (min-width: 769px) {
+  .tos-list-cards {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .tos-table-wrap--desktop {
+    display: none;
+  }
+}
+
+/* --- Toolbar stacked variant: search row + filter-chip row ------------ */
+.tos-toolbar--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--tos-space-3);
+}
+
+.tos-toolbar--stacked .tos-toolbar__search {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+/* --- Filter chip row + chips ------------------------------------------ */
+.tos-filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-2);
+  flex-wrap: wrap;
+}
+
+.tos-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-space-2);
+  height: 36px;
+  padding: 0 var(--tos-space-3);
+  border-radius: 999px;
+  border: 1px solid var(--tos-border);
+  background: var(--tos-surface);
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-meta);
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background var(--tos-motion-fast) ease, border-color var(--tos-motion-fast) ease,
+    color var(--tos-motion-fast) ease, transform var(--tos-motion-fast) ease;
+}
+
+.tos-filter-chip:hover:not([aria-pressed="true"]) {
+  border-color: var(--tos-border-strong);
+  color: var(--tos-text);
+}
+
+.tos-filter-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-filter-chip[aria-pressed="true"] {
+  background: var(--tos-midnight);
+  border-color: var(--tos-midnight);
+  color: #ffffff;
+}
+
+.tos-filter-chip__count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--tos-surface-soft);
+  color: var(--tos-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-filter-chip[aria-pressed="true"] .tos-filter-chip__count {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.tos-filter-label {
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tos-text-soft);
+  white-space: nowrap;
+  margin-right: var(--tos-space-1);
+}
+
+/* --- Premium mobile sale card ----------------------------------------- */
+.tos-sale-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tos-space-2);
+  width: 100%;
+  padding: var(--tos-space-4);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface);
+  text-align: left;
+  transition: border-color var(--tos-motion-fast) ease, background var(--tos-motion-fast) ease,
+    transform var(--tos-motion-fast) ease, box-shadow var(--tos-motion-fast) ease;
+}
+
+.tos-sale-card:hover {
+  border-color: var(--tos-gold-border);
+  background: var(--tos-surface-soft);
+  transform: translateY(-1px);
+  box-shadow: var(--tos-shadow-card);
+}
+
+.tos-sale-card:active {
+  transform: translateY(0);
+}
+
+.tos-sale-card:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-sale-card__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+}
+
+.tos-sale-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tos-sale-card__title {
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--tos-font-mono);
+}
+
+.tos-sale-card__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-sale-card__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.tos-sale-card__total {
+  font-size: var(--tos-text-nav);
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-sale-card__method {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tos-text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tos-sale-card__refund {
+  font-size: 11px;
+  color: var(--tos-warning);
+  font-weight: 600;
+}
+
+/* --- Premium mobile customer card with initial-avatar ----------------- */
+.tos-customer-card {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-3);
+  width: 100%;
+  padding: var(--tos-space-4);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface);
+  text-align: left;
+  min-height: 72px;
+  transition: border-color var(--tos-motion-fast) ease, background var(--tos-motion-fast) ease,
+    transform var(--tos-motion-fast) ease, box-shadow var(--tos-motion-fast) ease;
+}
+
+.tos-customer-card:hover {
+  border-color: var(--tos-gold-border);
+  background: var(--tos-surface-soft);
+  transform: translateY(-1px);
+  box-shadow: var(--tos-shadow-card);
+}
+
+.tos-customer-card:active {
+  transform: translateY(0);
+}
+
+.tos-customer-card:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-customer-card__avatar {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--tos-gold-soft) 0%, var(--tos-surface-soft) 100%);
+  border: 1px solid var(--tos-gold-border);
+  color: var(--tos-warning);
+  font-size: var(--tos-text-supporting);
+  font-weight: 800;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+}
+
+.tos-customer-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tos-customer-card__name {
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-customer-card__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-customer-card__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.tos-customer-card__balance {
+  font-size: var(--tos-text-nav);
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-customer-card__balance--owes {
+  color: var(--tos-danger);
+}
+
+.tos-customer-card__balance--credit {
+  color: var(--tos-positive);
+}
+
+/* --- Sale detail sheet — receipt hero (midnight + gold) --------------- */
+.tos-receipt-hero {
+  padding: var(--tos-space-5);
+  border-radius: var(--tos-radius-md);
+  background: linear-gradient(135deg, var(--tos-midnight) 0%, var(--tos-midnight-soft) 100%);
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tos-space-3);
+  position: relative;
+  overflow: hidden;
+}
+
+.tos-receipt-hero::after {
+  content: "";
+  position: absolute;
+  top: -48px;
+  right: -48px;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(201, 153, 53, 0.16) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.tos-receipt-hero__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  position: relative;
+  z-index: 1;
+}
+
+.tos-receipt-hero__head-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tos-receipt-hero__eyebrow {
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tos-gold-border);
+}
+
+.tos-receipt-hero__title {
+  font-size: var(--tos-text-section);
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.2;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-receipt-hero__sub {
+  font-size: var(--tos-text-meta);
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0;
+}
+
+.tos-receipt-hero__total-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tos-space-2);
+  position: relative;
+  z-index: 1;
+}
+
+.tos-receipt-hero__total-label {
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.tos-receipt-hero__total {
+  font-size: var(--tos-text-page);
+  font-weight: 800;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+/* --- Sale detail — clean line items ---------------------------------- */
+.tos-receipt-lines {
+  display: flex;
+  flex-direction: column;
+  background: var(--tos-surface);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  overflow: hidden;
+  box-shadow: var(--tos-shadow-1);
+}
+
+.tos-receipt-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3) var(--tos-space-4);
+  border-bottom: 1px solid var(--tos-border);
+}
+
+.tos-receipt-line:last-child {
+  border-bottom: none;
+}
+
+.tos-receipt-line__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tos-receipt-line__title {
+  font-size: var(--tos-text-supporting);
+  font-weight: 600;
+  color: var(--tos-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-receipt-line__qty {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-receipt-line__returned {
+  font-size: 11px;
+  color: var(--tos-warning);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.tos-receipt-line__total {
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* --- Sale detail — payment breakdown card ----------------------------- */
+.tos-receipt-payment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3) var(--tos-space-4);
+  border-radius: var(--tos-radius-sm);
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border);
+}
+
+.tos-receipt-payment__main {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-3);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tos-receipt-payment__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--tos-space-2);
+  background: var(--tos-surface);
+  border: 1px solid var(--tos-border);
+  color: var(--tos-text-muted);
+  flex-shrink: 0;
+}
+
+.tos-receipt-payment__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.tos-receipt-payment__label {
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+  text-transform: capitalize;
+}
+
+.tos-receipt-payment__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+}
+
+.tos-receipt-payment__amount {
+  font-size: var(--tos-text-supporting);
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* --- Customer sheet — gold-tinted hero with prominent balance --------- */
+.tos-customer-hero {
+  padding: var(--tos-space-5);
+  border-radius: var(--tos-radius-md);
+  background: linear-gradient(135deg, var(--tos-gold-soft) 0%, var(--tos-surface) 80%);
+  border: 1px solid var(--tos-gold-border);
+  border-left: 4px solid var(--tos-gold);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tos-space-3);
+}
+
+.tos-customer-hero::after {
+  content: "";
+  position: absolute;
+  top: -48px;
+  right: -48px;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(201, 153, 53, 0.14) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.tos-customer-hero__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  position: relative;
+  z-index: 1;
+}
+
+.tos-customer-hero__head-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tos-customer-hero__name {
+  font-size: var(--tos-text-section);
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  line-height: 1.2;
+  margin: 0;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-customer-hero__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  margin: 0;
+}
+
+.tos-customer-hero__balance-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  position: relative;
+  z-index: 1;
+  flex-wrap: wrap;
+}
+
+.tos-customer-hero__balance-label {
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tos-text-muted);
+}
+
+.tos-customer-hero__balance {
+  font-size: var(--tos-text-page);
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.tos-customer-hero__balance--owes {
+  color: var(--tos-danger);
+}
+
+.tos-customer-hero__balance--credit {
+  color: var(--tos-positive);
+}
+
+.tos-customer-hero__hint {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  position: relative;
+  z-index: 1;
+  line-height: 1.5;
+}
+
+/* --- Customer sheet — credit info stat grid (3-up) ------------------- */
+.tos-customer-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--tos-space-3);
+}
+
+@media (max-width: 640px) {
+  .tos-customer-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Customer sheet — ledger / activity row -------------------------- */
+.tos-ledger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3) var(--tos-space-4);
+  border-bottom: 1px solid var(--tos-border);
+}
+
+.tos-ledger-row:last-child {
+  border-bottom: none;
+}
+
+.tos-ledger-row__main {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-3);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tos-ledger-row__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--tos-space-2);
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border);
+  color: var(--tos-text-muted);
+  flex-shrink: 0;
+}
+
+.tos-ledger-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.tos-ledger-row__title {
+  font-size: var(--tos-text-supporting);
+  font-weight: 600;
+  color: var(--tos-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-ledger-row__sub {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+}
+
+.tos-ledger-row__amount {
+  font-size: var(--tos-text-supporting);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.tos-ledger-row__amount--positive {
+  color: var(--tos-positive);
+}
+
+.tos-ledger-row__amount--negative {
+  color: var(--tos-danger);
+}
+
+/* --- Customer sheet — contact row (icon + value) --------------------- */
+.tos-contact-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3) 0;
+  border-bottom: 1px solid var(--tos-border);
+}
+
+.tos-contact-row:last-child {
+  border-bottom: none;
+}
+
+.tos-contact-row__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--tos-space-2);
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border);
+  color: var(--tos-text-muted);
+  flex-shrink: 0;
+}
+
+.tos-contact-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tos-contact-row__label {
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tos-text-soft);
+}
+
+.tos-contact-row__value {
+  font-size: var(--tos-text-supporting);
+  font-weight: 600;
+  color: var(--tos-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-contact-row__value--muted {
+  color: var(--tos-text-muted);
+  font-weight: 500;
+}
+
+/* --- Sale detail — action button row (full-width on mobile) ---------- */
+.tos-receipt-actions {
+  display: flex;
+  gap: var(--tos-space-2);
+  flex-wrap: wrap;
+}
+
+.tos-receipt-actions .tos-btn {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
