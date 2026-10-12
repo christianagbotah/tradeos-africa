@@ -233,7 +233,13 @@ jobs:
           await page.waitForTimeout(2000);
 
           // Fill the sign-in form
-          await page.fill('input[autocomplete="email"]', "qa@tradeos.test");
+          const inputs = await page.locator(".tos-input").all();
+          if (inputs.length >= 2) {
+            await inputs[0].fill("qa@tradeos.test");
+            await inputs[1].fill("TradeOS-QA-1234");
+          } else {
+            await page.fill("input", "qa@tradeos.test");
+          }
           await page.fill('input[type="password"]', "TradeOS-QA-1234");
           await page.click('button[type="submit"]');
 
