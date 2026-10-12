@@ -65,47 +65,56 @@ jobs:
         run: |
           node --input-type=module << 'SEED'
           import pg from "pg";
+          import { randomBytes, scryptSync } from "node:crypto";
           const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
-          // 1. Create a test user with a known scrypt hash for "TradeOS-QA-1234"
-          //    Must match the API's hashPassword() implementation (node:crypto scrypt)
-          import { randomBytes, scryptSync } from "node:crypto";
+          // 1. Create a test user with scrypt hash (matching API's hashPassword)
           const salt = randomBytes(16);
           const derived = scryptSync("TradeOS-QA-1234", salt, 64);
           const passwordHash = `scrypt:v1:${salt.toString("base64url")}:${derived.toString("base64url")}`;
-          await pool.query(
-            `INSERT INTO app_users (id, display_name, email, phone_e164, password_hash)
-             VALUES ('qa-user-1', 'QA Owner', 'qa@tradeos.test', '+233500000001', $1)
-             ON CONFLICT (id) DO UPDATE SET password_hash = $1`,
+          const userRes = await pool.query(
+            `INSERT INTO app_users (display_name, email, phone_e164, password_hash)
+             VALUES ('QA Owner', 'qa@tradeos.test', '+233500000001', $1)
+             RETURNING id`,
             [passwordHash]
           );
+          const userId = userRes.rows[0].id;
 
           // 2. Create a business + branch + staff + membership
-          await pool.query(`
-            INSERT INTO businesses (id, name, country_code, currency_code, business_type, timezone, status)
-            VALUES ('qa-biz-1', 'QA Trading Co', 'GH', 'GHS', 'RETAIL_HARDWARE', 'Africa/Accra', 'ACTIVE')
-            ON CONFLICT (id) DO NOTHING
-          `);
-          await pool.query(`
-            INSERT INTO branches (id, business_id, name, code, timezone, active)
-            VALUES ('qa-branch-1', 'qa-biz-1', 'Main', 'MAIN', 'Africa/Accra', true)
-            ON CONFLICT (id) DO NOTHING
-          `);
-          await pool.query(`
-            INSERT INTO staff (id, business_id, display_name, phone, email, role)
-            VALUES ('qa-staff-1', 'qa-biz-1', 'QA Owner', '+233500000001', 'qa@tradeos.test', 'OWNER')
-            ON CONFLICT (id) DO NOTHING
-          `);
-          await pool.query(`
-            INSERT INTO business_memberships (id, business_id, user_id, staff_id, role, status, created_by_user_id)
-            VALUES ('qa-membership-1', 'qa-biz-1', 'qa-user-1', 'qa-staff-1', 'OWNER', 'ACTIVE', 'qa-user-1')
-            ON CONFLICT (id) DO NOTHING
-          `);
-          await pool.query(`
-            INSERT INTO registered_devices (id, business_id, branch_id, device_key, platform, app_version, status, last_seen_at, last_sync_at)
-            VALUES ('qa-device-1', 'qa-biz-1', 'qa-branch-1', 'qa-device-key', 'WEB', 'qa-1.0', 'ACTIVE', now(), now())
-            ON CONFLICT (id) DO NOTHING
-          `);
+          const bizRes = await pool.query(
+            `INSERT INTO businesses (name, country_code, currency_code, business_type, timezone, status)
+             VALUES ('QA Trading Co', 'GH', 'GHS', 'RETAIL_HARDWARE', 'Africa/Accra', 'ACTIVE')
+             RETURNING id`
+          );
+          const businessId = bizRes.rows[0].id;
+
+          const branchRes = await pool.query(
+            `INSERT INTO branches (business_id, name, code, timezone, active)
+             VALUES ($1, 'Main', 'MAIN', 'Africa/Accra', true)
+             RETURNING id`,
+            [businessId]
+          );
+          const branchId = branchRes.rows[0].id;
+
+          const staffRes = await pool.query(
+            `INSERT INTO staff (business_id, display_name, phone, email, role)
+             VALUES ($1, 'QA Owner', '+233500000001', 'qa@tradeos.test', 'OWNER')
+             RETURNING id`,
+            [businessId]
+          );
+          const staffId = staffRes.rows[0].id;
+
+          await pool.query(
+            `INSERT INTO business_memberships (business_id, user_id, staff_id, role, status, created_by_user_id)
+             VALUES ($1, $2, $3, 'OWNER', 'ACTIVE', $2)`,
+            [businessId, userId, staffId]
+          );
+
+          await pool.query(
+            `INSERT INTO registered_devices (business_id, branch_id, device_key, platform, app_version, status, last_seen_at, last_sync_at)
+             VALUES ($1, $2, 'qa-device-key', 'WEB', 'qa-1.0', 'ACTIVE', now(), now())`,
+            [businessId, branchId]
+          );
 
           // 3. Create money accounts (Cash, MoMo, Bank, Card)
           for (const [name, method, kind] of [
@@ -115,10 +124,9 @@ jobs:
             ['Card Clearing', 'CARD', 'CLEARING'],
           ]) {
             await pool.query(
-              `INSERT INTO money_accounts (id, business_id, branch_id, name, method, kind, currency_code, active, allow_negative, created_at, updated_at)
-               VALUES (gen_random_uuid(), 'qa-biz-1', 'qa-branch-1', $1, $2, $3, 'GHS', true, false, now(), now())
-               ON CONFLICT DO NOTHING`,
-              [name, method, kind]
+              `INSERT INTO money_accounts (business_id, branch_id, name, method, kind, currency_code, active, allow_negative, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, 'GHS', true, false, now(), now())`,
+              [businessId, branchId, name, method, kind]
             );
           }
 
@@ -131,40 +139,43 @@ jobs:
             ['Rice 5kg Bag', 'STP-001', 'PRODUCT', 'bag', 7200, true, 40],
           ]) {
             const itemRes = await pool.query(
-              `INSERT INTO catalog_items (id, business_id, sku, name, kind, stock_unit_code, track_inventory, active, created_at, updated_at)
-               VALUES (gen_random_uuid(), 'qa-biz-1', $2, $1, $3, $4, $5, true, now(), now()) RETURNING id`,
-              [name, sku, kind, unit, trackStock]
+              `INSERT INTO catalog_items (business_id, sku, name, kind, stock_unit_code, track_inventory, active, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, true, now(), now()) RETURNING id`,
+              [businessId, sku, name, kind, unit, trackStock]
             );
             const itemId = itemRes.rows[0].id;
             await pool.query(
-              `INSERT INTO catalog_units (id, item_id, business_id, code, label, can_purchase, can_sell, can_stock, default_sale_price_minor)
-               VALUES (gen_random_uuid(), $1, 'qa-biz-1', $2, $2, true, true, true, $3)`,
-              [itemId, unit, price]
+              `INSERT INTO catalog_units (item_id, business_id, code, label, can_purchase, can_sell, can_stock, default_sale_price_minor)
+               VALUES ($1, $2, $3, $3, true, true, true, $4)`,
+              [itemId, businessId, unit, price]
             );
             if (trackStock && stock !== null) {
               await pool.query(
-                `INSERT INTO inventory_balances (id, business_id, branch_id, item_id, stock_unit_code, quantity_on_hand, quantity_reserved, location)
-                 VALUES (gen_random_uuid(), 'qa-biz-1', 'qa-branch-1', $1, $2, $3, 0, 'AVAILABLE')`,
-                [itemId, unit, stock]
+                `INSERT INTO inventory_balances (business_id, branch_id, item_id, stock_unit_code, quantity_on_hand, quantity_reserved, location)
+                 VALUES ($1, $2, $3, $4, $5, 0, 'AVAILABLE')`,
+                [businessId, branchId, itemId, unit, stock]
               );
             }
           }
 
           // 5. Create a customer with a balance
           await pool.query(
-            `INSERT INTO customers (id, business_id, name, phone, email, active, credit_enabled, credit_limit_minor, balance_minor, created_at, updated_at)
-             VALUES ('qa-cust-1', 'qa-biz-1', 'Kwame Mensah', '+233500000002', 'kwame@test.com', true, true, 50000, 15000, now(), now())
-             ON CONFLICT (id) DO NOTHING`
+            `INSERT INTO customers (business_id, name, phone, email, active, credit_enabled, credit_limit_minor, balance_minor, created_at, updated_at)
+             VALUES ($1, 'Kwame Mensah', '+233500000002', 'kwame@test.com', true, true, 50000, 15000, now(), now())`,
+            [businessId]
           );
 
           // 6. Create a supplier
           await pool.query(
-            `INSERT INTO suppliers (id, business_id, name, phone, email, active, balance_minor, created_at, updated_at)
-             VALUES ('qa-sup-1', 'qa-biz-1', 'Accra Wholesale Ltd', '+233500000003', 'accra@wholesale.com', true, 25000, now(), now())
-             ON CONFLICT (id) DO NOTHING`
+            `INSERT INTO suppliers (business_id, name, phone, email, active, balance_minor, created_at, updated_at)
+             VALUES ($1, 'Accra Wholesale Ltd', '+233500000003', 'accra@wholesale.com', true, 25000, now(), now())`,
+            [businessId]
           );
 
           console.log("QA seed data inserted successfully");
+          console.log("Login: qa@tradeos.test / TradeOS-QA-1234");
+          console.log("Business ID:", businessId);
+          console.log("Branch ID:", branchId);
           await pool.end();
           SEED
 
