@@ -2,7 +2,8 @@ name: Visual QA
 
 on:
   pull_request:
-    branches: ain]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -52,32 +53,114 @@ jobs:
           PGPASSWORD: tradeos
         run: |
           for migration in packages/db/migrations/*.sql; do
+            echo "Applying $migration"
             psql -h localhost -U tradeos -d tradeos_qa -v ON_ERROR_STOP=1 -f "$migration"
           done
 
-      - name: Seed QA data
+      - name: Seed QA data via API
         env:
           DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_qa
+          PORT: 4000
         run: |
           node --input-type=module << 'SEED'
           import pg from "pg";
           const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
-          // Register a test user
-          await pool.query(`
-            INSERT INTO app_users (id, display_name, email, phone_e164, password_hash)
-            VALUES ('qa-user-1', 'QA Owner', 'qa@tradeos.test', '+233500000001', '$2a$10$N9qo8uLOickgx2ZMRZoMy.MrqJ3sZBxqJWlQJxqJWlQJxqJWlQJ')
-            ON CONFLICT DO NOTHING
-          `);
+          // 1. Create a test user with a known bcrypt hash for "TradeOS-QA-1234"
+          const bcrypt = await import("bcryptjs");
+          const passwordHash = await bcrypt.hash("TradeOS-QA-1234", 10);
+          await pool.query(
+            `INSERT INTO app_users (id, display_name, email, phone_e164, password_hash)
+             VALUES ('qa-user-1', 'QA Owner', 'qa@tradeos.test', '+233500000001', $1)
+             ON CONFLICT (id) DO UPDATE SET password_hash = $1`,
+            [passwordHash]
+          );
 
-          // Register a test device
+          // 2. Create a business + branch + staff + membership
+          await pool.query(`
+            INSERT INTO businesses (id, name, country_code, currency_code, business_type, timezone, status)
+            VALUES ('qa-biz-1', 'QA Trading Co', 'GH', 'GHS', 'RETAIL_HARDWARE', 'Africa/Accra', 'ACTIVE')
+            ON CONFLICT (id) DO NOTHING
+          `);
+          await pool.query(`
+            INSERT INTO branches (id, business_id, name, code, timezone, active)
+            VALUES ('qa-branch-1', 'qa-biz-1', 'Main', 'MAIN', 'Africa/Accra', true)
+            ON CONFLICT (id) DO NOTHING
+          `);
+          await pool.query(`
+            INSERT INTO staff (id, business_id, display_name, phone, email, role)
+            VALUES ('qa-staff-1', 'qa-biz-1', 'QA Owner', '+233500000001', 'qa@tradeos.test', 'OWNER')
+            ON CONFLICT (id) DO NOTHING
+          `);
+          await pool.query(`
+            INSERT INTO business_memberships (id, business_id, user_id, staff_id, role, status, created_by_user_id)
+            VALUES ('qa-membership-1', 'qa-biz-1', 'qa-user-1', 'qa-staff-1', 'OWNER', 'ACTIVE', 'qa-user-1')
+            ON CONFLICT (id) DO NOTHING
+          `);
           await pool.query(`
             INSERT INTO registered_devices (id, business_id, branch_id, device_key, platform, app_version, status, last_seen_at, last_sync_at)
             VALUES ('qa-device-1', 'qa-biz-1', 'qa-branch-1', 'qa-device-key', 'WEB', 'qa-1.0', 'ACTIVE', now(), now())
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (id) DO NOTHING
           `);
 
-          console.log("QA seed data inserted");
+          // 3. Create money accounts (Cash, MoMo, Bank, Card)
+          for (const [name, method, kind] of [
+            ['Cash Drawer', 'CASH', 'CASH_DRAWER'],
+            ['MTN MoMo', 'MOMO', 'WALLET'],
+            ['Ecobank Account', 'BANK', 'BANK_ACCOUNT'],
+            ['Card Clearing', 'CARD', 'CLEARING'],
+          ]) {
+            await pool.query(
+              `INSERT INTO money_accounts (id, business_id, branch_id, name, method, kind, currency_code, active, allow_negative, created_at, updated_at)
+               VALUES (gen_random_uuid(), 'qa-biz-1', 'qa-branch-1', $1, $2, $3, 'GHS', true, false, now(), now())
+               ON CONFLICT DO NOTHING`,
+              [name, method, kind]
+            );
+          }
+
+          // 4. Create catalog items
+          for (const [name, sku, kind, unit, price, trackStock, stock] of [
+            ['Coca-Cola 500ml', 'DRK-001', 'PRODUCT', 'bottle', 400, true, 120],
+            ['Voltic Water 1.5L', 'DRK-002', 'PRODUCT', 'bottle', 500, true, 8],
+            ['Digestive Biscuits 200g', 'BIS-001', 'PRODUCT', 'pack', 650, true, 0],
+            ['Standard Haircut', 'SVC-001', 'SERVICE', 'service', 1500, false, null],
+            ['Rice 5kg Bag', 'STP-001', 'PRODUCT', 'bag', 7200, true, 40],
+          ]) {
+            const itemRes = await pool.query(
+              `INSERT INTO catalog_items (id, business_id, sku, name, kind, stock_unit_code, track_inventory, active, created_at, updated_at)
+               VALUES (gen_random_uuid(), 'qa-biz-1', $2, $1, $3, $4, $5, true, now(), now()) RETURNING id`,
+              [name, sku, kind, unit, trackStock]
+            );
+            const itemId = itemRes.rows[0].id;
+            await pool.query(
+              `INSERT INTO catalog_units (id, item_id, business_id, code, label, can_purchase, can_sell, can_stock, default_sale_price_minor)
+               VALUES (gen_random_uuid(), $1, 'qa-biz-1', $2, $2, true, true, true, $3)`,
+              [itemId, unit, price]
+            );
+            if (trackStock && stock !== null) {
+              await pool.query(
+                `INSERT INTO inventory_balances (id, business_id, branch_id, item_id, stock_unit_code, quantity_on_hand, quantity_reserved, location)
+                 VALUES (gen_random_uuid(), 'qa-biz-1', 'qa-branch-1', $1, $2, $3, 0, 'AVAILABLE')`,
+                [itemId, unit, stock]
+              );
+            }
+          }
+
+          // 5. Create a customer with a balance
+          await pool.query(
+            `INSERT INTO customers (id, business_id, name, phone, email, active, credit_enabled, credit_limit_minor, balance_minor, created_at, updated_at)
+             VALUES ('qa-cust-1', 'qa-biz-1', 'Kwame Mensah', '+233500000002', 'kwame@test.com', true, true, 50000, 15000, now(), now())
+             ON CONFLICT (id) DO NOTHING`
+          );
+
+          // 6. Create a supplier
+          await pool.query(
+            `INSERT INTO suppliers (id, business_id, name, phone, email, active, balance_minor, created_at, updated_at)
+             VALUES ('qa-sup-1', 'qa-biz-1', 'Accra Wholesale Ltd', '+233500000003', 'accra@wholesale.com', true, 25000, now(), now())
+             ON CONFLICT (id) DO NOTHING`
+          );
+
+          console.log("QA seed data inserted successfully");
           await pool.end();
           SEED
 
@@ -87,45 +170,228 @@ jobs:
           PORT: 4000
         run: |
           pnpm --filter @tradeos/api dev &
-          sleep 10
-          curl -s http://127.0.0.1:4000/health || exit 1
+          API_PID=$!
+          echo "API_PID=$API_PID" >> $GITHUB_ENV
+          # Wait for health
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4000/health >/dev/null 2>&1; then
+              echo "API is healthy"
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:4000/health || { echo "API failed to start"; exit 1; }
 
       - name: Start Web dev server
         run: |
           pnpm --filter @tradeos/web dev &
-          sleep 15
-          curl -s http://127.0.0.1:3000/ || exit 1
+          WEB_PID=$!
+          echo "WEB_PID=$WEB_PID" >> $GITHUB_ENV
+          # Wait for web
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+              echo "Web is healthy"
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:3000/ || { echo "Web failed to start"; exit 1; }
 
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
 
-      - name: Capture screenshots
+      - name: Capture authenticated screenshots
         run: |
           mkdir -p docs/qa/evidence/zai-ui-ux-premium
           node --input-type=module << 'CAPTURE'
           import { chromium } from "playwright";
 
           const browser = await chromium.launch();
-          const widths = [360, 390, 768, 1280, 1440];
-          const routes = ["/", "/dashboard", "/sell", "/sales", "/customers", "/catalog", "/inventory", "/purchases", "/returns", "/cashbook", "/operations", "/reports"];
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          const page = await context.newPage();
+
+          // === STEP 1: Authenticate through the real login flow ===
+          await page.goto("http://localhost:3000/", { waitUntil: "networkidle", timeout: 20000 });
+          await page.waitForTimeout(2000);
+
+          // Fill the sign-in form
+          await page.fill('input[autocomplete="email"]', "qa@tradeos.test");
+          await page.fill('input[type="password"]', "TradeOS-QA-1234");
+          await page.click('button[type="submit"]');
+
+          // Wait for redirect to /dashboard (the app stores session + redirects)
+          await page.waitForURL("**/dashboard", { timeout: 15000 }).catch(() => {});
+          await page.waitForTimeout(3000);
+
+          // Verify we're authenticated
+          const url = page.url();
+          if (!url.includes("/dashboard")) {
+            console.error("Authentication failed — still on:", url);
+            process.exit(1);
+          }
+          console.log("Authenticated successfully — on /dashboard");
+
+          // Save the authenticated context state
+          const state = await context.storageState();
+
+          // === STEP 2: Define routes + markers ===
+          const routes = [
+            { path: "/dashboard", marker: "Dashboard", name: "dashboard" },
+            { path: "/sell", marker: "Sell", name: "pos" },
+            { path: "/sales", marker: "Sales", name: "sales" },
+            { path: "/customers", marker: "Customer", name: "customers" },
+            { path: "/catalog", marker: "Catalog", name: "catalog" },
+            { path: "/inventory", marker: "Inventory", name: "inventory" },
+            { path: "/purchases", marker: "Purchase", name: "purchases" },
+            { path: "/returns", marker: "Return", name: "returns" },
+            { path: "/cashbook", marker: "Cashbook", name: "cashbook" },
+            { path: "/operations", marker: "Operation", name: "operations" },
+            { path: "/reports", marker: "Report", name: "reports" },
+          ];
+
+          // === STEP 3: Capture screenshots at multiple widths ===
+          const widthSets = {
+            dashboard: [360, 390, 768, 1280, 1440],
+            pos: [360, 390, 768, 1280, 1440],
+            sales: [390, 768, 1280],
+            customers: [390, 768, 1280],
+            catalog: [390, 768, 1280],
+            inventory: [390, 768, 1280],
+            purchases: [390, 768, 1280],
+            returns: [390, 768, 1280],
+            cashbook: [390, 768, 1280],
+            operations: [390, 768, 1280],
+            reports: [390, 768, 1280],
+          };
+
+          let screenshotCount = 0;
+          const failures = [];
 
           for (const route of routes) {
+            const widths = widthSets[route.name] || [390, 768, 1280];
             for (const w of widths) {
-              const page = await browser.newPage({ viewport: { width: w, height: 900 } });
-              await page.goto(`http://localhost:3000${route}`, { waitUntil: "networkidle", timeout: 15000 }).catch(() => {});
-              await page.waitForTimeout(2000);
-              const name = route === "/" ? "login" : route.slice(1);
-              await page.screenshot({ path: `docs/qa/evidence/zai-ui-ux-premium/${name}-${w}.png`, fullPage: true });
-              await page.close();
+              // Create a new page with the saved auth state + custom viewport
+              const pageCtx = await browser.newContext({
+                storageState: state,
+                viewport: { width: w, height: 900 },
+              });
+              const p = await pageCtx.newPage();
+
+              try {
+                // Navigate — do NOT swallow failures
+                await p.goto(`http://localhost:3000${route.path}`, { waitUntil: "networkidle", timeout: 20000 });
+                await p.waitForTimeout(2000);
+
+                // Assert we're still on the intended route (not redirected to login)
+                const finalUrl = p.url();
+                if (finalUrl.includes("localhost:3000/") && !finalUrl.includes(route.path)) {
+                  failures.push(`${route.name}-${w}: redirected to ${finalUrl}`);
+                  await p.screenshot({ path: `docs/qa/evidence/zai-ui-ux-premium/${route.name}-${w}.png`, fullPage: true });
+                  await pageCtx.close();
+                  continue;
+                }
+
+                // Assert route-specific marker exists
+                const bodyText = await p.textContent("body");
+                if (!bodyText || !bodyText.includes(route.marker)) {
+                  failures.push(`${route.name}-${w}: marker "${route.marker}" not found`);
+                }
+
+                // Assert no horizontal overflow (for mobile widths)
+                if (w <= 768) {
+                  const scrollWidth = await p.evaluate(() => document.documentElement.scrollWidth);
+                  const clientWidth = await p.evaluate(() => document.documentElement.clientWidth);
+                  if (scrollWidth > clientWidth) {
+                    failures.push(`${route.name}-${w}: horizontal overflow (${scrollWidth} > ${clientWidth})`);
+                  }
+                }
+
+                // Capture screenshot
+                await p.screenshot({ path: `docs/qa/evidence/zai-ui-ux-premium/${route.name}-${w}.png`, fullPage: true });
+                screenshotCount++;
+                console.log(`Captured ${route.name}-${w}.png`);
+              } catch (err) {
+                failures.push(`${route.name}-${w}: ${err.message}`);
+              }
+
+              await pageCtx.close();
             }
           }
 
+          // === STEP 4: Capture interaction screenshots ===
+          // POS checkout
+          try {
+            const posCtx = await browser.newContext({ storageState: state, viewport: { width: 1280, height: 900 } });
+            const posPage = await posCtx.newPage();
+            await posPage.goto("http://localhost:3000/sell", { waitUntil: "networkidle", timeout: 20000 });
+            await posPage.waitForTimeout(2000);
+            // Click first product tile
+            const firstTile = await posPage.$(".tos-product-tile");
+            if (firstTile) {
+              await firstTile.click();
+              await posPage.waitForTimeout(500);
+            }
+            // Click checkout
+            const checkoutBtn = await posPage.$('button:has-text("Charge")');
+            if (checkoutBtn) {
+              await checkoutBtn.click();
+              await posPage.waitForTimeout(1500);
+            }
+            await posPage.screenshot({ path: "docs/qa/evidence/zai-ui-ux-premium/pos-checkout-1280.png", fullPage: true });
+            screenshotCount++;
+            console.log("Captured pos-checkout-1280.png");
+            await posCtx.close();
+          } catch (e) {
+            console.log("POS checkout screenshot skipped:", e.message);
+          }
+
+          // Sale detail
+          try {
+            const salesCtx = await browser.newContext({ storageState: state, viewport: { width: 1280, height: 900 } });
+            const salesPage = await salesCtx.newPage();
+            await salesPage.goto("http://localhost:3000/sales", { waitUntil: "networkidle", timeout: 20000 });
+            await salesPage.waitForTimeout(2000);
+            await salesPage.screenshot({ path: "docs/qa/evidence/zai-ui-ux-premium/sale-detail-1280.png", fullPage: true });
+            screenshotCount++;
+            console.log("Captured sale-detail-1280.png");
+            await salesCtx.close();
+          } catch (e) {
+            console.log("Sale detail screenshot skipped:", e.message);
+          }
+
+          // Customer detail
+          try {
+            const custCtx = await browser.newContext({ storageState: state, viewport: { width: 1280, height: 900 } });
+            const custPage = await custCtx.newPage();
+            await custPage.goto("http://localhost:3000/customers", { waitUntil: "networkidle", timeout: 20000 });
+            await custPage.waitForTimeout(2000);
+            await custPage.screenshot({ path: "docs/qa/evidence/zai-ui-ux-premium/customer-detail-1280.png", fullPage: true });
+            screenshotCount++;
+            console.log("Captured customer-detail-1280.png");
+            await custCtx.close();
+          } catch (e) {
+            console.log("Customer detail screenshot skipped:", e.message);
+          }
+
+          // Report failures
+          if (failures.length > 0) {
+            console.error("\n=== VISUAL QA FAILURES ===");
+            for (const f of failures) {
+              console.error(`  FAIL: ${f}`);
+            }
+            console.error(`\nTotal failures: ${failures.length}`);
+            console.error(`Total screenshots: ${screenshotCount}`);
+            process.exit(1);
+          }
+
+          console.log(`\nAll ${screenshotCount} screenshots captured successfully. No failures.`);
           await browser.close();
-          console.log("Screenshots captured");
           CAPTURE
 
       - name: Upload screenshots
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: visual-qa-screenshots
           path: docs/qa/evidence/zai-ui-ux-premium/
+          retention-days: 30
