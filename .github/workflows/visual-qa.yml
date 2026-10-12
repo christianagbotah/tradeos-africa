@@ -145,8 +145,8 @@ jobs:
             );
             const itemId = itemRes.rows[0].id;
             await pool.query(
-              `INSERT INTO catalog_item_units (item_id, unit_code, unit_label, can_purchase, can_sell, can_stock, default_sale_price_minor)
-               VALUES ($1, $2, $2, true, true, true, $3)`,
+              `INSERT INTO catalog_item_units (business_id, item_id, unit_code, unit_label, can_purchase, can_sell, can_stock, default_sale_price_minor)
+               VALUES ($2, $1, $2, $2, true, true, true, $3)`,
               [itemId, unit, price]
             );
             if (trackStock && stock !== null) {
