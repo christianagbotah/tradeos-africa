@@ -329,16 +329,16 @@ function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
   };
 
   return (
-    <div className="tos-public">
+    <div className="tos-public tos-animate-fade-in">
       <BrandPanel />
       <div className="tos-public__form-side">
-        <div className="tos-public__form">
+        <div className="tos-public__form tos-stagger">
           <div className="tos-public__form-head">
-            <span className="tos-public__form-eyebrow">Secure access</span>
-            <h1 className="tos-public__form-title">
+            <span className="tos-public__form-eyebrow tos-animate-fade-in-down">Secure access</span>
+            <h1 className="tos-public__form-title tos-animate-fade-in-up">
               {tab === "signin" ? "Sign in to TradeOS" : "Create your TradeOS account"}
             </h1>
-            <p className="tos-public__form-sub">
+            <p className="tos-public__form-sub tos-animate-fade-in-up">
               {tab === "signin"
                 ? "Use the same owner or staff account you use on the mobile and desktop apps."
                 : "One account works across every TradeOS client. Your data stays server-authoritative."}
@@ -530,10 +530,10 @@ function OnboardingForm({ pendingAuth, onComplete, onCancel }: OnboardingFormPro
   };
 
   return (
-    <div className="tos-public">
+    <div className="tos-public tos-animate-fade-in">
       <BrandPanel />
       <div className="tos-public__form-side">
-        <div className="tos-public__form">
+        <div className="tos-public__form tos-stagger">
           <div className="tos-public__form-head">
             <div className="tos-public__onboarding-progress">
               <span className="tos-public__onboarding-step tos-public__onboarding-step--done" aria-label="Step 1 complete">
@@ -544,9 +544,9 @@ function OnboardingForm({ pendingAuth, onComplete, onCancel }: OnboardingFormPro
               <span className="tos-public__onboarding-step tos-public__onboarding-step--active">2</span>
               <span>Business</span>
             </div>
-            <span className="tos-public__form-eyebrow">Set up your business</span>
-            <h1 className="tos-public__form-title">Tell us about your business</h1>
-            <p className="tos-public__form-sub">
+            <span className="tos-public__form-eyebrow tos-animate-fade-in-down">Set up your business</span>
+            <h1 className="tos-public__form-title tos-animate-fade-in-up">Tell us about your business</h1>
+            <p className="tos-public__form-sub tos-animate-fade-in-up">
               This creates your first branch and registers this device. You can add more branches later.
             </p>
           </div>
@@ -727,22 +727,22 @@ function BrandPanel() {
           Sell, track inventory, reconcile cash, and report on every branch — through one
           server-authoritative ledger that survives offline.
         </p>
-        <div className="tos-public__brand-pillars">
-          <div className="tos-public__brand-pillar">
+        <div className="tos-public__brand-pillars tos-stagger">
+          <div className="tos-public__brand-pillar tos-animate-fade-in-up">
             <IconCheck className="tos-public__brand-pillar-icon" />
             <span className="tos-public__brand-pillar-text">
               <span className="tos-public__brand-pillar-title">Server-authoritative sales</span>
               The client sends only itemId, saleUnitCode, and quantity. Pricing and stock are enforced by the API.
             </span>
           </div>
-          <div className="tos-public__brand-pillar">
+          <div className="tos-public__brand-pillar tos-animate-fade-in-up">
             <IconCheck className="tos-public__brand-pillar-icon" />
             <span className="tos-public__brand-pillar-text">
               <span className="tos-public__brand-pillar-title">Offline-first by default</span>
               Mutations queue in your browser and reconcile through the same durable ledger as mobile and desktop.
             </span>
           </div>
-          <div className="tos-public__brand-pillar">
+          <div className="tos-public__brand-pillar tos-animate-fade-in-up">
             <IconCheck className="tos-public__brand-pillar-icon" />
             <span className="tos-public__brand-pillar-text">
               <span className="tos-public__brand-pillar-title">Exponent-aware money</span>

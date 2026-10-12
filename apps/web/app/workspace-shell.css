@@ -609,7 +609,7 @@
 
 .tos-public__brand {
   position: relative;
-  background: linear-gradient(160deg, var(--tos-midnight) 0%, var(--tos-midnight-soft) 60%, #0b1424 100%);
+  background: var(--tos-gradient-midnight, linear-gradient(160deg, var(--tos-midnight) 0%, var(--tos-midnight-soft) 60%, #0b1424 100%));
   color: #ffffff;
   padding: var(--tos-space-8) var(--tos-space-6);
   display: flex;
@@ -618,17 +618,45 @@
   overflow: hidden;
 }
 
+/* Premium ambient glow on the brand panel */
+.tos-public__brand::before {
+  content: "";
+  position: absolute;
+  top: -20%;
+  right: -10%;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(201, 153, 53, 0.12) 0%, transparent 60%);
+  pointer-events: none;
+  animation: tos-fade-in 1s ease-out;
+}
+
+.tos-public__brand::after {
+  content: "";
+  position: absolute;
+  bottom: -15%;
+  left: -8%;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(22, 132, 86, 0.08) 0%, transparent 55%);
+  pointer-events: none;
+}
+
 .tos-public__brand-mark {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: var(--tos-radius-sm);
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.06);
+  background: linear-gradient(135deg, rgba(201, 153, 53, 0.15), rgba(233, 196, 106, 0.05));
   color: var(--tos-gold);
-  font-weight: 800;
-  font-size: 20px;
+  font-weight: 900;
+  font-size: 22px;
   border: 1px solid var(--tos-gold-border);
+  box-shadow: 0 4px 16px rgba(201, 153, 53, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
 }
 
 .tos-public__brand-eyebrow {
@@ -697,6 +725,7 @@
 }
 
 .tos-public__form-side {
+  background: var(--tos-gradient-surface, linear-gradient(180deg, #ffffff 0%, #f8fafc 100%));
   display: flex;
   align-items: center;
   justify-content: center;

@@ -82,12 +82,31 @@
   --tos-sidebar-width: 248px;
   --tos-topbar-height: 60px;
   --tos-bottomnav-height: 64px;
+
+  /* --- Premium UI/UX tokens --- */
+  --tos-motion-slow: 350ms;
+  --tos-motion-spring: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --tos-motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --tos-motion-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --tos-shadow-glow: 0 0 0 4px rgba(201, 153, 53, 0.08);
+  --tos-shadow-hover: 0 12px 40px rgba(16, 24, 40, 0.10);
+  --tos-shadow-card: 0 2px 8px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --tos-shadow-elevated: 0 20px 60px -12px rgba(16, 24, 40, 0.18), 0 8px 24px -8px rgba(16, 24, 40, 0.08);
+  --tos-shadow-gold-glow: 0 4px 20px rgba(201, 153, 53, 0.15);
+  --tos-gradient-midnight: linear-gradient(160deg, #0b1424 0%, #152238 50%, #0b1424 100%);
+  --tos-gradient-gold: linear-gradient(135deg, #c99935 0%, #e9c46a 100%);
+  --tos-gradient-surface: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  --tos-gradient-positive: linear-gradient(135deg, #168456 0%, #1ba86d 100%);
+  --tos-glass-bg: rgba(255, 255, 255, 0.72);
+  --tos-glass-border: rgba(255, 255, 255, 0.5);
+  --tos-glass-blur: blur(16px);
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
     --tos-motion-fast: 0ms;
     --tos-motion-medium: 0ms;
+    --tos-motion-slow: 0ms;
   }
   *,
   *::before,
