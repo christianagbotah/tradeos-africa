@@ -145,7 +145,7 @@ jobs:
             );
             const itemId = itemRes.rows[0].id;
             await pool.query(
-              `INSERT INTO catalog_item_units (item_id, unit_code, label, can_purchase, can_sell, can_stock, default_sale_price_minor)
+              `INSERT INTO catalog_item_units (item_id, unit_code, unit_label, can_purchase, can_sell, can_stock, default_sale_price_minor)
                VALUES ($1, $2, $2, true, true, true, $3)`,
               [itemId, unit, price]
             );
