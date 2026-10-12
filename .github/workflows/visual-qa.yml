@@ -152,8 +152,8 @@ jobs:
             if (trackStock && stock !== null) {
               // Insert an inventory movement to set initial stock
               await pool.query(
-                `INSERT INTO inventory_movements (business_id, branch_id, item_id, stock_unit_code, movement_type, quantity, reason, location_type, occurred_at)
-                 VALUES ($1, $2, $3, $4, 'RECEIPT', $5, 'INITIAL_STOCK', 'AVAILABLE', now())`,
+                `INSERT INTO inventory_movements (business_id, branch_id, item_id, stock_unit_code, quantity_delta, location_type, reason, reference_type, reference_id, idempotency_key, occurred_at)
+                 VALUES ($1, $2, $3, $4, $5, 'AVAILABLE', 'OPENING_BALANCE', 'MANUAL', gen_random_uuid(), gen_random_uuid(), now())`,
                 [businessId, branchId, itemId, unit, stock]
               );
             }
