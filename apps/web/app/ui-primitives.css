@@ -1498,15 +1498,13 @@
 
 .tos-spinner--lg { width: 28px; height: 28px; border-width: 3px; }
 
-/* --- Enhanced button hover (lift effect) --- */
+/* --- Enhanced button hover (subtle lift) --- */
 .tos-btn-primary:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: var(--tos-shadow-gold-glow);
 }
 
 .tos-btn-gold:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: var(--tos-shadow-gold-glow);
 }
 
 /* --- Enhanced input focus (gold glow) --- */
@@ -1629,11 +1627,7 @@
   background: var(--tos-text-soft);
 }
 
-/* --- Premium link hover --- */
-a:hover {
-  opacity: 0.85;
-  transition: opacity var(--tos-motion-fast);
-}
+
 
 /* --- Premium badge pulse for live/new --- */
 .tos-badge--live {
