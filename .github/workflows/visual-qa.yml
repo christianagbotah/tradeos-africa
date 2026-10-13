@@ -256,13 +256,16 @@ jobs:
           let screenshotCount = 0;
 
           async function assertCleanBody(p, label) {
-            const bodyText = (await p.textContent("body")) ?? "";
+            // innerText = RENDERED text only. textContent would also read
+            // inline script/RSC payloads and flag phantom "undefined"s that
+            // no user ever sees.
+            const visibleText = await p.evaluate(() => document.body.innerText);
             for (const needle of FORBIDDEN) {
-              if (bodyText.includes(needle)) {
+              if (visibleText.includes(needle)) {
                 failures.push(`${label}: forbidden content visible: "${needle}"`);
               }
             }
-            if (RAW_API_ERROR.test(bodyText)) {
+            if (RAW_API_ERROR.test(visibleText)) {
               failures.push(`${label}: raw API error payload visible`);
             }
           }

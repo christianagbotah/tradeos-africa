@@ -2105,6 +2105,20 @@
   box-shadow: 0 -8px 24px rgba(16, 24, 40, 0.08);
 }
 
+/* Cascade repair: the base rule above (display:none) comes LATER in this
+   file than the (max-width:768px) block, so it defeats it at the same
+   specificity and the mobile charge bar never renders. Re-assert the
+   mobile display AFTER the base so tablet/phone keep their sticky bar. */
+@media (max-width: 768px) {
+  .tos-charge-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+}
+
 .tos-charge-bar__cart-btn {
   display: inline-flex;
   align-items: center;
