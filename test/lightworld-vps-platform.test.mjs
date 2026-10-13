@@ -302,6 +302,29 @@ const deployShimPath = path.join(shimRoot, 'lightworld-deploy-tradeos-staging');
 const rollbackShimPath = path.join(shimRoot, 'lightworld-rollback-tradeos-staging');
 const diagnosticWorkflowPath = path.join(repoRoot, '.github', 'workflows', 'vps-runner-diagnostic.yml');
 
+
+test('installed flat libexec layout resolves the shared runtime library', () => {
+  const installedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lightworld-installed-libexec-'));
+  try {
+    fs.copyFileSync(commonPath, path.join(installedRoot, 'common.sh'));
+    for (const sourcePath of [deployPath, statusPath, rollbackPath]) {
+      const installedPath = path.join(installedRoot, path.basename(sourcePath));
+      fs.copyFileSync(sourcePath, installedPath);
+      fs.chmodSync(installedPath, 0o755);
+      const result = run(installedPath, []);
+      assert.equal(
+        result.status,
+        64,
+        `${path.basename(sourcePath)} must reach its usage guard in the flat installed layout; stderr=${result.stderr}`,
+      );
+      assert.match(result.stderr, /usage:/i);
+      assert.doesNotMatch(result.stderr, /No such file or directory/i);
+    }
+  } finally {
+    fs.rmSync(installedRoot, { recursive: true, force: true });
+  }
+});
+
 test('TradeOS sudoers policy grants only the three application-specific staging shims', () => {
   assert.equal(fs.existsSync(sudoersPath), true, 'TradeOS sudoers template must exist');
   const source = fs.readFileSync(sudoersPath, 'utf8');
