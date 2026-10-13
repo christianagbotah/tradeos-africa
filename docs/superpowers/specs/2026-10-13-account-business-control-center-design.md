@@ -1,7 +1,7 @@
 # TradeOS Account & Business Control Center Design
 
 ## Status
-Approved for implementation on 2026-10-13.
+Implemented and acceptance-verified locally on 2026-10-13; pending exact-head CI, Visual QA, and merge.
 
 ## Goal
 Give every TradeOS user a complete, secure lifecycle after initial signup: manage their personal account and password, create and switch between businesses, create and manage branches, and update business/branch details without compromising accounting history, tenant isolation, or offline durability.
@@ -42,6 +42,14 @@ Add optional account/business/branch profile columns and `account_security_event
 The avatar opens an account menu with My profile, Security, Settings, and Sign out. The business context area becomes a real business/branch switcher when alternatives exist and includes Add business and, for OWNER/ADMIN, Add branch.
 
 `/settings` is a first-class responsive page with Profile, Security, Business, Branches, Team, Devices sections. Sensitive actions are online-only and use inline confirmation/error states rather than browser alerts/prompts. Mobile uses touch-first sheets/cards; desktop uses a two-column settings navigation/content composition.
+
+## Implementation verification
+- A fresh disposable PostgreSQL database accepted every migration currently present in the branch, including reserved account/business migration `0018_account_business_control.sql`, with `0017` intentionally left for the parallel staff-management work.
+- Account/security, business/branch lifecycle, and legacy identity/onboarding/catalog real-database integration tests pass 17/17; the complete API integration suite passes 99/99.
+- Web typecheck and production build pass, and the complete Web suite passes 1,836/1,836 tests. Settings is included in authenticated Visual QA at 390px, 768px, and 1280px widths.
+- Desktop passes 63/63 tests, mobile 50/50, domain 35/35, client-core 16/16, and system-admin 8/8.
+- Repository typecheck, lint, and build pass. The VPS deployment-adapter/platform suite passes 35/35 under its intended unprivileged execution model; its root override guard remains intact.
+- Final diff audit finds no browser `alert`/`prompt`/`confirm` flows, no staff-backend duplication, no secret-like additions, and no whitespace errors.
 
 ## Non-goals
 This implementation does not add organization/group companies above businesses, billing/subscription administration, branch-level staff authorization, 2FA, document uploads, or duplicate the separate staff invitation/lifecycle backend.
