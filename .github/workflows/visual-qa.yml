@@ -296,6 +296,54 @@ jobs:
             process.exit(1);
           }
           console.log("Authenticated successfully — on /dashboard");
+
+          // Regression guard: Web access tokens expire after 15 minutes while
+          // refresh tokens remain valid. Corrupt only the access token and
+          // require the next authenticated route to recover transparently.
+          let refreshResponses = 0;
+          loginPage.on("response", (response) => {
+            if (response.url().includes("/v1/auth/refresh") && response.status() === 200) {
+              refreshResponses += 1;
+            }
+          });
+          const sessionBeforeRefresh = await loginPage.evaluate(() => {
+            const raw = localStorage.getItem("tradeos.web.session.v1");
+            return raw ? JSON.parse(raw) : null;
+          });
+          if (!sessionBeforeRefresh?.refreshToken) {
+            failures.push("session-refresh: authenticated Web session must persist a refresh token");
+          } else {
+            await loginPage.evaluate(() => {
+              const key = "tradeos.web.session.v1";
+              const raw = localStorage.getItem(key);
+              if (!raw) return;
+              const session = JSON.parse(raw);
+              session.accessToken = "tos_access_intentionally_invalid_visual_qa";
+              localStorage.setItem(key, JSON.stringify(session));
+            });
+            await loginPage.goto(`${WEB}/purchases`, { waitUntil: "networkidle", timeout: 30000 });
+            await loginPage.waitForTimeout(1500);
+            const sessionAfterRefresh = await loginPage.evaluate(() => {
+              const raw = localStorage.getItem("tradeos.web.session.v1");
+              return raw ? JSON.parse(raw) : null;
+            });
+            if (refreshResponses < 1) {
+              failures.push("session-refresh: expired access token did not call /v1/auth/refresh");
+            }
+            if (!sessionAfterRefresh || sessionAfterRefresh.accessToken === "tos_access_intentionally_invalid_visual_qa") {
+              failures.push("session-refresh: access token was not rotated after ACCESS_REJECTED");
+            }
+            if (sessionAfterRefresh?.refreshToken === sessionBeforeRefresh.refreshToken) {
+              failures.push("session-refresh: refresh-token rotation was not persisted");
+            }
+            const recoveredText = await loginPage.evaluate(() => document.body.innerText);
+            if (recoveredText.includes("ACCESS_REJECTED") || recoveredText.includes("Access token is expired or revoked")) {
+              failures.push("session-refresh: raw token-expiry error became visible after recovery");
+            }
+            await assertCleanBody(loginPage, "session-refresh");
+            console.log("Session refresh regression guard completed");
+          }
+
           const state = await loginContext.storageState();
           await loginContext.close();
 
