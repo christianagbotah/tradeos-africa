@@ -4,7 +4,8 @@
  * Verifies the pure routing decision helpers used by <PublicEntry />:
  *   - derivePhase() initial phase machine
  *   - needsOnboarding() membership check
- *   - buildSessionFromMembership() session construction
+ *   - buildSessionFromMembership() legacy session construction
+ *   - buildSessionFromBusinessContext() authoritative branch/session hydration
  *
  * The React component itself is not rendered here; these tests cover the
  * pure decision logic so the routing invariants are locked independently
@@ -13,10 +14,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  buildSessionFromBusinessContext,
   buildSessionFromMembership,
   derivePhase,
   needsOnboarding,
   type AuthSession,
+  type BusinessContextResponse,
   type MeResponse,
   type Membership,
   type PublicEntryPhase,
@@ -46,6 +49,25 @@ function makeMe(memberships: Membership[] = [makeMembership()]): MeResponse {
     user: { id: "u-1", displayName: "Ama", email: "a@b.com", phoneE164: null },
     client: { platform: "WEB", deviceKey: "k", appVersion: "0.0.1" },
     memberships,
+  };
+}
+
+function makeBusinessContext(overrides: Partial<BusinessContextResponse> = {}): BusinessContextResponse {
+  return {
+    business: {
+      id: "b-1",
+      name: "Authoritative Shop",
+      businessType: "RETAIL_HARDWARE",
+      countryCode: "GH",
+      currencyCode: "GHS",
+      timezone: "Africa/Accra",
+      status: "ACTIVE",
+    },
+    membership: { role: "OWNER", staffId: "s-1" },
+    branches: [
+      { id: "branch-main", name: "Main", code: "MAIN", timezone: "Africa/Accra", active: true },
+    ],
+    ...overrides,
   };
 }
 
@@ -117,5 +139,86 @@ describe("buildSessionFromMembership", () => {
     for (const key of keys) {
       expect(session[key], `expected ${key} to be defined`).toBeDefined();
     }
+  });
+});
+
+describe("buildSessionFromBusinessContext", () => {
+  it("hydrates branch, currency, timezone, role and staff from authoritative business context", () => {
+    const m = makeMembership({ businessId: "b-1", businessName: "Stale Name", role: "CASHIER", staffId: "stale-staff" });
+    const context = makeBusinessContext({
+      business: {
+        id: "b-1",
+        name: "Authoritative Shop",
+        businessType: "RETAIL_HARDWARE",
+        countryCode: "KE",
+        currencyCode: "KES",
+        timezone: "Africa/Nairobi",
+        status: "ACTIVE",
+      },
+      membership: { role: "MANAGER", staffId: "staff-authoritative" },
+      branches: [
+        { id: "branch-1", name: "Nairobi", code: "MAIN", timezone: "Africa/Nairobi", active: true },
+      ],
+    });
+
+    const session = buildSessionFromBusinessContext(VALID_AUTH, makeMe([m]), m, context);
+    expect(session.businessId).toBe("b-1");
+    expect(session.businessName).toBe("Authoritative Shop");
+    expect(session.branchId).toBe("branch-1");
+    expect(session.currencyCode).toBe("KES");
+    expect(session.timezone).toBe("Africa/Nairobi");
+    expect(session.role).toBe("MANAGER");
+    expect(session.staffId).toBe("staff-authoritative");
+    expect(session.branchId).not.toBe("00000000-0000-0000-0000-000000000000");
+  });
+
+  it("prefers an active MAIN branch even when another active branch appears first", () => {
+    const context = makeBusinessContext({
+      branches: [
+        { id: "branch-secondary", name: "Airport", code: "AIR", timezone: "Africa/Accra", active: true },
+        { id: "branch-main", name: "Main", code: "MAIN", timezone: "Africa/Accra", active: true },
+      ],
+    });
+    const m = makeMembership();
+    const session = buildSessionFromBusinessContext(VALID_AUTH, makeMe([m]), m, context);
+    expect(session.branchId).toBe("branch-main");
+  });
+
+  it("falls back to the first active branch when MAIN is inactive", () => {
+    const context = makeBusinessContext({
+      branches: [
+        { id: "branch-main", name: "Main", code: "MAIN", timezone: "Africa/Accra", active: false },
+        { id: "branch-secondary", name: "Tema", code: "TEMA", timezone: "Africa/Accra", active: true },
+      ],
+    });
+    const m = makeMembership();
+    const session = buildSessionFromBusinessContext(VALID_AUTH, makeMe([m]), m, context);
+    expect(session.branchId).toBe("branch-secondary");
+  });
+
+  it("fails closed when the business has no active branch", () => {
+    const context = makeBusinessContext({
+      branches: [
+        { id: "branch-main", name: "Main", code: "MAIN", timezone: "Africa/Accra", active: false },
+      ],
+    });
+    const m = makeMembership();
+    expect(() => buildSessionFromBusinessContext(VALID_AUTH, makeMe([m]), m, context)).toThrow(/NO_ACTIVE_BRANCH/);
+  });
+
+  it("rejects business context for a different business", () => {
+    const m = makeMembership({ businessId: "b-1" });
+    const context = makeBusinessContext({
+      business: {
+        id: "b-2",
+        name: "Wrong Business",
+        businessType: "RETAIL_HARDWARE",
+        countryCode: "GH",
+        currencyCode: "GHS",
+        timezone: "Africa/Accra",
+        status: "ACTIVE",
+      },
+    });
+    expect(() => buildSessionFromBusinessContext(VALID_AUTH, makeMe([m]), m, context)).toThrow(/BUSINESS_CONTEXT_MISMATCH/);
   });
 });
