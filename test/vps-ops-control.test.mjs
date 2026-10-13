@@ -42,3 +42,10 @@ test('VPS ops workflow never interpolates untrusted comment text directly into s
   assert.match(source, /COMMENT_BODY:\s*\$\{\{\s*github\.event\.comment\.body\s*\}\}/);
   assert.match(source, /case\s+"\$COMMENT_BODY"\s+in/);
 });
+
+test('VPS ops result poster uses unambiguous Node module syntax', () => {
+  assert.equal(fs.existsSync(workflowPath), true, 'vps-ops-control.yml must exist');
+  const source = fs.readFileSync(workflowPath, 'utf8');
+  assert.match(source, /async function postResult\(\)/);
+  assert.match(source, /postResult\(\)\.catch/);
+});
