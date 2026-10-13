@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$#" -ne 0 ]]; then
+  printf 'usage: lightworld-rollback-tradeos-staging\n' >&2
+  exit 64
+fi
+exec /usr/local/libexec/lightworld-deploy/lightworld-rollback tradeos-africa staging

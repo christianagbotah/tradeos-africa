@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=../lib/common.sh
+source "$SCRIPT_DIR/../lib/common.sh"
+
+usage() {
+  printf 'usage: lightworld-deploy <app> <environment> <sha> <workspace>\n' >&2
+}
+
+if [[ "$#" -ne 4 ]]; then usage; exit 64; fi
+app="$1"; environment="$2"; sha="${3,,}"; workspace="$4"
+
+validate_identifier "$app" 'app'
+validate_identifier "$environment" 'environment'
+validate_sha "$sha"
+load_app_config "$app" "$environment"
+require_release_config
+acquire_global_lock
+acquire_app_lock "$app" "$environment"
+
+if is_test_mode && [[ -n "${LIGHTWORLD_TEST_LOCK_READY_MARKER:-}" ]]; then
+  : > "$LIGHTWORLD_TEST_LOCK_READY_MARKER"
+fi
+if is_test_mode && [[ -n "${LIGHTWORLD_TEST_HOLD_LOCK_SECONDS:-}" ]]; then
+  sleep "$LIGHTWORLD_TEST_HOLD_LOCK_SECONDS"
+fi
+
+assert_workspace_identity "$workspace" "$GITHUB_REPO" "$sha"
+verify_canonical_main_sha "$sha"
+assert_env_outside_workspace "$workspace"
+
+release_dir="$(prepare_release_source "$workspace" "$sha")"
+run_release_build "$release_dir"
+
+previous_target=''
+if [[ -L "$CURRENT_LINK" ]]; then
+  previous_target="$(realpath -- "$CURRENT_LINK" 2>/dev/null || true)"
+fi
+previous_success="$(read_metadata_sha last-successful-release 2>/dev/null || true)"
+
+activate_release_target "$release_dir"
+restart_configured_processes
+if ! verify_configured_health; then
+  if [[ -n "$previous_target" && -d "$previous_target" ]]; then
+    activate_release_target "$previous_target" || true
+    restart_configured_processes || true
+  else
+    rm -f -- "$CURRENT_LINK"
+  fi
+  lightworld_die "activation health verification failed for $sha"
+  exit 1
+fi
+
+if [[ -n "$previous_success" && "$previous_success" != "$sha" ]]; then
+  write_metadata_sha previous-release "$previous_success"
+fi
+write_metadata_sha last-successful-release "$sha"
+
+if is_test_mode && [[ -n "${LIGHTWORLD_TEST_ACTION_MARKER:-}" ]]; then
+  printf '%s %s\n' "$sha" "$release_dir" > "$LIGHTWORLD_TEST_ACTION_MARKER"
+fi
+printf 'deployed=%s\nrelease=%s\n' "$sha" "$release_dir"

@@ -1,0 +1,22 @@
+name: VPS Runner Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: [self-hosted, linux, x64, lightworld-vps, staging, tradeos-staging]
+    timeout-minutes: 5
+    steps:
+      - name: Verify isolated runner and host health
+        shell: bash
+        run: |
+          set -euo pipefail
+          whoami
+          id
+          df -h /
+          free -m
+          sudo -n /usr/local/sbin/lightworld-status-tradeos-staging

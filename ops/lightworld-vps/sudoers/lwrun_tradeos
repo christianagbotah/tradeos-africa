@@ -1,0 +1,1 @@
+lwrun_tradeos ALL=(root) NOPASSWD: /usr/local/sbin/lightworld-status-tradeos-staging, /usr/local/sbin/lightworld-deploy-tradeos-staging, /usr/local/sbin/lightworld-rollback-tradeos-staging
