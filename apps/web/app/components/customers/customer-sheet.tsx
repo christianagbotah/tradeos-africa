@@ -5,7 +5,15 @@ import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
 import { Button } from "../ui/button";
-import { IconClose } from "../ui/icons";
+import {
+  IconCalendar,
+  IconClose,
+  IconMail,
+  IconPhone,
+  IconRefresh,
+  IconShield,
+  IconWallet,
+} from "../ui/icons";
 import type { Customer } from "../workspace/workspace-provider";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import {
@@ -64,6 +72,9 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
   const canWrite = roleCan(role as WorkspaceRole, CUSTOMER_WRITE_ROLES);
   const canPay = roleCan(role as WorkspaceRole, CUSTOMER_PAYMENT_ROLES);
 
+  const owesAmount = customer.balanceMinor > 0;
+  const hasCredit = customer.balanceMinor < 0;
+
   return (
     <>
       <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
@@ -72,21 +83,175 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Customer</span>
             <h2 className="tos-sheet__title">{customer.name}</h2>
-            <p className="tos-sheet__sub">{customer.active ? "Active" : "Inactive"}</p>
+            <p className="tos-sheet__sub">
+              {customer.active ? "Active account" : "Inactive account"} · Updated {new Date(customer.updatedAt).toLocaleString()}
+            </p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close customer detail">
             <IconClose style={{ width: 18, height: 18 }} />
           </button>
         </div>
         <div className="tos-sheet__body">
-          <dl className="tos-kv">
-            <div><dt className="tos-kv__key">Phone</dt><dd className="tos-kv__val">{customer.phone ?? "—"}</dd></div>
-            <div><dt className="tos-kv__key">Email</dt><dd className="tos-kv__val">{customer.email ?? "—"}</dd></div>
-            <div><dt className="tos-kv__key">Credit limit</dt><dd className="tos-kv__val">{customer.creditLimitMinor !== null ? <MoneyValue minor={customer.creditLimitMinor} currencyCode={currency} tone="muted" /> : "—"}</dd></div>
-            <div><dt className="tos-kv__key">Credit terms</dt><dd className="tos-kv__val">{customer.creditTermsDays !== null ? `${customer.creditTermsDays} days` : "—"}</dd></div>
-            <div><dt className="tos-kv__key">Outstanding balance</dt><dd className="tos-kv__val"><MoneyValue minor={customer.balanceMinor} currencyCode={currency} tone={customer.balanceMinor > 0 ? "negative" : "positive"} /></dd></div>
-            <div><dt className="tos-kv__key">Updated</dt><dd className="tos-kv__val">{new Date(customer.updatedAt).toLocaleString()}</dd></div>
-          </dl>
+          {/* Customer hero — gold-tinted card with prominent balance. */}
+          <div className="tos-customer-hero tos-animate-fade-in-up">
+            <div className="tos-customer-hero__head">
+              <div className="tos-customer-hero__head-main">
+                <h3 className="tos-customer-hero__name">{customer.name}</h3>
+                <p className="tos-customer-hero__sub">
+                  {customer.active ? "Active account" : "Inactive account"}
+                </p>
+              </div>
+              <span className={`tos-badge ${customer.active ? "tos-badge--positive" : "tos-badge--neutral"}`}>
+                <span className="tos-badge__dot" />{customer.active ? "Active" : "Inactive"}
+              </span>
+            </div>
+            <div className="tos-customer-hero__balance-row">
+              <span className="tos-customer-hero__balance-label">
+                {owesAmount ? "Outstanding balance" : hasCredit ? "Credit balance" : "Balance"}
+              </span>
+              <MoneyValue
+                minor={customer.balanceMinor}
+                currencyCode={currency}
+                className={
+                  owesAmount
+                    ? "tos-customer-hero__balance tos-customer-hero__balance--owes"
+                    : hasCredit
+                      ? "tos-customer-hero__balance tos-customer-hero__balance--credit"
+                      : "tos-customer-hero__balance"
+                }
+              />
+            </div>
+            <p className="tos-customer-hero__hint">
+              {owesAmount
+                ? "This customer owes the amount above. Record a payment to settle it — the new balance is computed server-side from the customer ledger."
+                : hasCredit
+                  ? "This customer has credit (paid in advance). It will be applied automatically to their next sale."
+                  : "Balance is settled. The customer ledger is server-authoritative — the client never writes a balance directly."}
+            </p>
+          </div>
+
+          {/* Credit info — 3-up stat row. Stays 1-col on phone. */}
+          <div className="tos-customer-stats tos-animate-fade-in-up">
+            <CreditStat
+              label="Credit limit"
+              icon={<IconWallet className="tos-stat__icon-tile-svg" />}
+              iconTone={customer.creditLimitMinor !== null ? "midnight" : "neutral"}
+              value={
+                customer.creditLimitMinor !== null ? (
+                  <MoneyValue minor={customer.creditLimitMinor} currencyCode={currency} />
+                ) : (
+                  <span className="tos-stat__value tos-stat__value--muted">—</span>
+                )
+              }
+              hint={customer.creditLimitMinor !== null ? "Server-checked" : "No limit set"}
+            />
+            <CreditStat
+              label="Credit terms"
+              icon={<IconCalendar className="tos-stat__icon-tile-svg" />}
+              iconTone={customer.creditTermsDays !== null ? "midnight" : "neutral"}
+              value={
+                customer.creditTermsDays !== null ? (
+                  <span className="tos-stat__value">{customer.creditTermsDays} days</span>
+                ) : (
+                  <span className="tos-stat__value tos-stat__value--muted">—</span>
+                )
+              }
+              hint={customer.creditTermsDays !== null ? "Pay within" : "No terms"}
+            />
+            <CreditStat
+              label="Last updated"
+              icon={<IconRefresh className="tos-stat__icon-tile-svg" />}
+              iconTone="neutral"
+              value={<span className="tos-stat__value">{new Date(customer.updatedAt).toLocaleDateString()}</span>}
+              hint={new Date(customer.updatedAt).toLocaleTimeString()}
+            />
+          </div>
+
+          {/* Profile / contact info */}
+          <div className="tos-section tos-animate-fade-in-up">
+            <div className="tos-section__head">
+              <h3 className="tos-section__title">Profile</h3>
+              <span className="tos-section__sub">Contact details</span>
+            </div>
+            <div className="tos-section__body--padded">
+              <div className="tos-contact-row">
+                <span className="tos-contact-row__icon" aria-hidden="true">
+                  <IconPhone style={{ width: 16, height: 16 }} />
+                </span>
+                <div className="tos-contact-row__body">
+                  <span className="tos-contact-row__label">Phone</span>
+                  <span className={customer.phone ? "tos-contact-row__value" : "tos-contact-row__value tos-contact-row__value--muted"}>
+                    {customer.phone ?? "No phone on file"}
+                  </span>
+                </div>
+              </div>
+              <div className="tos-contact-row">
+                <span className="tos-contact-row__icon" aria-hidden="true">
+                  <IconMail style={{ width: 16, height: 16 }} />
+                </span>
+                <div className="tos-contact-row__body">
+                  <span className="tos-contact-row__label">Email</span>
+                  <span className={customer.email ? "tos-contact-row__value" : "tos-contact-row__value tos-contact-row__value--muted"}>
+                    {customer.email ?? "No email on file"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Customer ledger / activity — server-authoritative framing. */}
+          <div className="tos-section tos-animate-fade-in-up">
+            <div className="tos-section__head">
+              <h3 className="tos-section__title">Customer ledger</h3>
+              <span className="tos-section__sub">Server-authoritative</span>
+            </div>
+            <div className="tos-section__body">
+              <div className="tos-ledger-row">
+                <div className="tos-ledger-row__main">
+                  <span className="tos-ledger-row__icon" aria-hidden="true">
+                    <IconWallet style={{ width: 16, height: 16 }} />
+                  </span>
+                  <div className="tos-ledger-row__body">
+                    <span className="tos-ledger-row__title">Outstanding balance</span>
+                    <span className="tos-ledger-row__sub">
+                      Derived from credit sales − payments received
+                    </span>
+                  </div>
+                </div>
+                <MoneyValue
+                  minor={customer.balanceMinor}
+                  currencyCode={currency}
+                  className={
+                    owesAmount
+                      ? "tos-ledger-row__amount tos-ledger-row__amount--negative"
+                      : "tos-ledger-row__amount"
+                  }
+                />
+              </div>
+              <div className="tos-ledger-row">
+                <div className="tos-ledger-row__main">
+                  <span className="tos-ledger-row__icon" aria-hidden="true">
+                    <IconShield style={{ width: 16, height: 16 }} />
+                  </span>
+                  <div className="tos-ledger-row__body">
+                    <span className="tos-ledger-row__title">Last account update</span>
+                    <span className="tos-ledger-row__sub">
+                      {new Date(customer.updatedAt).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+                <span className="tos-ledger-row__amount">Recorded</span>
+              </div>
+            </div>
+            <div className="tos-section__foot">
+              <span className="tos-callout tos-callout--info" style={{ flex: "1 1 auto" }}>
+                <span style={{ display: "flex", flexDirection: "column", gap: "var(--tos-space-1)" }}>
+                  <span>Ledger entries (credit sales, payments, adjustments) are recorded as server-authoritative transactions.</span>
+                  <span style={{ fontWeight: 400 }}>View the customer&apos;s sales in the Sales screen to see their full purchase history.</span>
+                </span>
+              </span>
+            </div>
+          </div>
 
           {editOpen && session ? (
             <CustomerEditForm
@@ -154,6 +319,37 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
         </div>
       </div>
     </>
+  );
+}
+
+interface CreditStatProps {
+  label: string;
+  icon: React.ReactNode;
+  iconTone: "gold" | "positive" | "warning" | "midnight" | "neutral";
+  value: React.ReactNode;
+  hint?: string;
+}
+
+const CREDIT_STAT_TILE: Record<CreditStatProps["iconTone"], string> = {
+  gold: "tos-stat__icon-tile tos-stat__icon-tile--gold",
+  positive: "tos-stat__icon-tile tos-stat__icon-tile--positive",
+  warning: "tos-stat__icon-tile tos-stat__icon-tile--warning",
+  midnight: "tos-stat__icon-tile tos-stat__icon-tile--midnight",
+  neutral: "tos-stat__icon-tile tos-stat__icon-tile--neutral",
+};
+
+function CreditStat({ label, icon, iconTone, value, hint }: CreditStatProps) {
+  return (
+    <div className="tos-stat tos-card-hover">
+      <div className="tos-stat__head">
+        <span className={CREDIT_STAT_TILE[iconTone]} aria-hidden="true">
+          {icon}
+        </span>
+        <span className="tos-stat__label">{label}</span>
+      </div>
+      {value}
+      {hint ? <span className="tos-stat__hint">{hint}</span> : null}
+    </div>
   );
 }
 

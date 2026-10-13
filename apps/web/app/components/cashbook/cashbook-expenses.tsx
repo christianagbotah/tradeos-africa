@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyAccountSheet, MoneyAccountFormSheet, type MoneyAccount } from "../treasury/money-account-sheet";
@@ -8,7 +9,17 @@ import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
 import { StatePanel } from "../ui/state-panel";
 import { Button } from "../ui/button";
-import { IconCashbook, IconPlus, IconRefresh, IconWallet } from "../ui/icons";
+import {
+  IconBanknote,
+  IconCashbook,
+  IconChevronRight,
+  IconCreditCard,
+  IconPlus,
+  IconRefresh,
+  IconShield,
+  IconSmartphone,
+  IconWallet,
+} from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import {
   buildMoneyTransferPayload,
@@ -31,6 +42,16 @@ import {
 } from "../../../lib/mutation-builders";
 
 interface MoneyAccountsResponse { accounts: MoneyAccount[]; totalBalanceMinor: number }
+
+interface MoneyAccountDefaultsResponse {
+  defaults: ReadonlyArray<{
+    branchId: string | null;
+    method: string;
+    moneyAccountId: string;
+    accountName: string;
+    updatedAt: string;
+  }>;
+}
 
 interface Reconciliation {
   id: string;
@@ -69,6 +90,60 @@ const ADJUSTMENT_REASONS: ReadonlyArray<{ value: CashbookAdjustmentReason; label
 
 type ActionTab = "expense" | "transfer" | "reconcile" | "adjust";
 
+const ACCOUNT_METHOD_GROUPS: ReadonlyArray<{ method: PaymentMethod; label: string; kind: "cash" | "momo" | "bank" | "card" | "other" }> = [
+  { method: "CASH", label: "Cash drawers", kind: "cash" },
+  { method: "MOMO", label: "Mobile money wallets", kind: "momo" },
+  { method: "BANK", label: "Bank accounts", kind: "bank" },
+  { method: "CARD", label: "Card clearing", kind: "card" },
+  { method: "OTHER", label: "Other accounts", kind: "other" },
+];
+
+function methodIconTileClass(method: PaymentMethod): string {
+  switch (method) {
+    case "CASH": return "tos-account-card__icon tos-account-card__icon--cash";
+    case "MOMO": return "tos-account-card__icon tos-account-card__icon--momo";
+    case "BANK": return "tos-account-card__icon tos-account-card__icon--bank";
+    case "CARD": return "tos-account-card__icon tos-account-card__icon--card";
+    default: return "tos-account-card__icon tos-account-card__icon--other";
+  }
+}
+
+function methodGroupIconTileClass(kind: "cash" | "momo" | "bank" | "card" | "other"): string {
+  switch (kind) {
+    case "cash": return "tos-account-group__icon tos-account-group__icon--cash";
+    case "momo": return "tos-account-group__icon tos-account-group__icon--momo";
+    case "bank": return "tos-account-group__icon tos-account-group__icon--bank";
+    case "card": return "tos-account-group__icon tos-account-group__icon--card";
+    default: return "tos-account-group__icon tos-account-group__icon--other";
+  }
+}
+
+function methodGroupTotalClass(totalMinor: number): string {
+  return totalMinor < 0
+    ? "tos-account-group__total tos-account-group__total--negative"
+    : "tos-account-group__total";
+}
+
+function methodCardClass(method: PaymentMethod): string {
+  switch (method) {
+    case "CASH": return "tos-account-card tos-account-card--cash";
+    case "MOMO": return "tos-account-card tos-account-card--momo";
+    case "BANK": return "tos-account-card tos-account-card--bank";
+    case "CARD": return "tos-account-card tos-account-card--card";
+    default: return "tos-account-card tos-account-card--other";
+  }
+}
+
+function methodIconSvg(method: PaymentMethod): ReactNode {
+  switch (method) {
+    case "CASH": return <IconBanknote style={{ width: 18, height: 18 }} />;
+    case "MOMO": return <IconSmartphone style={{ width: 18, height: 18 }} />;
+    case "BANK": return <IconWallet style={{ width: 18, height: 18 }} />;
+    case "CARD": return <IconCreditCard style={{ width: 18, height: 18 }} />;
+    default: return <IconCashbook style={{ width: 18, height: 18 }} />;
+  }
+}
+
 export function CashbookExpenses() {
   const { session, role, bump } = useWorkspace();
   const [accountSheet, setAccountSheet] = useState<MoneyAccount | null>(null);
@@ -76,17 +151,23 @@ export function CashbookExpenses() {
   const [nonce, setNonce] = useState(0);
   const [tab, setTab] = useState<ActionTab>("expense");
 
-  const accountsPath = session ? `/v1/treasury/accounts?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}` : null;
+  // Canonical treasury read paths. /v1/money-accounts does NOT carry default
+  // flags — defaults are loaded explicitly from /v1/money-account-defaults
+  // and joined client-side below. No silent assumptions.
+  const accountsPath = session ? `/v1/money-accounts?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}` : null;
+  const defaultsPath = session ? `/v1/money-account-defaults?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}` : null;
   const reconciliationsPath = session ? `/v1/money-reconciliations?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=20` : null;
   const { data, loading, error: loadError, refetch } = useApiFetch<MoneyAccountsResponse>(accountsPath);
+  const { data: defaultsData, refetch: refetchDefaults } = useApiFetch<MoneyAccountDefaultsResponse>(defaultsPath);
   const { data: recData, loading: recLoading, error: recError, refetch: refetchRec } = useApiFetch<ReconciliationsResponse>(reconciliationsPath);
 
   useEffect(() => {
     if (nonce > 0) {
       refetch();
+      refetchDefaults();
       refetchRec();
     }
-  }, [nonce, refetch, refetchRec]);
+  }, [nonce, refetch, refetchDefaults, refetchRec]);
 
   const canAdjust = roleCan(role as WorkspaceRole, CASHBOOK_ADJUSTMENT_ROLES);
   const canReconcile = roleCan(role as WorkspaceRole, TREASURY_RECONCILE_ROLES);
@@ -95,10 +176,46 @@ export function CashbookExpenses() {
   const canWrite = canAdjust || canReconcile || canTransfer || canExpense;
 
   const currencyCode = session?.currencyCode ?? "GHS";
-  const accounts = data?.accounts ?? [];
+  const defaultAccountIds = useMemo(
+    () => new Set((defaultsData?.defaults ?? []).map((d) => d.moneyAccountId)),
+    [defaultsData],
+  );
+  const accounts = useMemo(
+    () => (data?.accounts ?? []).map((a) => ({ ...a, isDefault: defaultAccountIds.has(a.id) })),
+    [data, defaultAccountIds],
+  );
   const totalBalanceMinor = data?.totalBalanceMinor ?? accounts.reduce((sum, a) => sum + a.balanceMinor, 0);
   const reconciliations = recData?.reconciliations ?? [];
   const openVariances = reconciliations.filter((r) => r.status === "VARIANCE");
+  const matchedCount = reconciliations.filter((r) => r.status === "MATCHED").length;
+  const resolvedCount = reconciliations.filter((r) => r.status === "RESOLVED").length;
+
+  const groupedAccounts = useMemo(() => {
+    return ACCOUNT_METHOD_GROUPS.map((g) => ({
+      ...g,
+      accounts: accounts.filter((a) => a.method === g.method),
+      totalMinor: accounts.filter((a) => a.method === g.method).reduce((sum, a) => sum + a.balanceMinor, 0),
+    })).filter((g) => g.accounts.length > 0);
+  }, [accounts]);
+
+  const activeTabs = useMemo(() => {
+    const tabs: ReadonlyArray<{ value: ActionTab; label: string; allowed: boolean }> = [
+      { value: "expense", label: "Expense", allowed: canExpense },
+      { value: "transfer", label: "Transfer", allowed: canTransfer },
+      { value: "reconcile", label: "Reconcile", allowed: canReconcile },
+      { value: "adjust", label: "Adjust", allowed: canAdjust },
+    ];
+    return tabs;
+  }, [canExpense, canTransfer, canReconcile, canAdjust]);
+
+  // If the active tab is not allowed (role changed), fall back to the first allowed tab.
+  useEffect(() => {
+    const active = activeTabs.find((t) => t.value === tab);
+    if (!active || !active.allowed) {
+      const firstAllowed = activeTabs.find((t) => t.allowed);
+      if (firstAllowed) setTab(firstAllowed.value);
+    }
+  }, [activeTabs, tab]);
 
   return (
     <div className="tos-page">
@@ -116,26 +233,70 @@ export function CashbookExpenses() {
         </div>
       </header>
 
-      <div className="tos-grid-stats">
-        <div className="tos-stat">
-          <span className="tos-stat__label"><IconWallet className="tos-stat__icon" /> Total balance</span>
-          <span className="tos-stat__value"><MoneyValue minor={totalBalanceMinor} currencyCode={currencyCode} size="lg" /></span>
-          <span className="tos-stat__hint">{accounts.length} account(s)</span>
+      {/* Treasury hero — midnight gradient with prominent total balance */}
+      <div className="tos-treasury-hero tos-animate-fade-in-up">
+        <div className="tos-treasury-hero__head">
+          <div className="tos-treasury-hero__head-main">
+            <span className="tos-treasury-hero__eyebrow">Treasury position</span>
+            <h2 className="tos-treasury-hero__title">Total balance across accounts</h2>
+            <p className="tos-treasury-hero__sub">{accounts.length} account(s) · {groupedAccounts.length} method group(s)</p>
+          </div>
+          <span className={`tos-ops-status-pill ${openVariances.length > 0 ? "tos-ops-status-pill--open" : "tos-ops-status-pill--closed"}`}>
+            <span className="tos-ops-status-pill__dot" />{openVariances.length > 0 ? `${openVariances.length} variance` : "Balanced"}
+          </span>
         </div>
-        <div className="tos-stat">
-          <span className="tos-stat__label"><IconCashbook className="tos-stat__icon" /> Open variances</span>
-          <span className="tos-stat__value">{openVariances.length}</span>
-          <span className="tos-stat__hint">{reconciliations.length} reconciliation(s) recent</span>
+        <div className="tos-treasury-hero__balance-row">
+          <span className="tos-treasury-hero__balance-label">Total balance</span>
+          <MoneyValue minor={totalBalanceMinor} currencyCode={currencyCode} className="tos-treasury-hero__balance" />
+          <span className="tos-treasury-hero__currency">{currencyCode}</span>
         </div>
+        <p className="tos-treasury-hero__hint">
+          Balances are server-authoritative — derived from the immutable cashbook ledger of sales, purchases, expenses, transfers, reconciliations and adjustments. The client never computes an authoritative balance.
+        </p>
       </div>
 
-      <div className="tos-grid-two">
-        <div className="tos-section">
+      {/* KPI strip — 4-up desktop / 2x2 mobile */}
+      <div className="tos-dashboard-stats tos-stagger">
+        <ReconStat
+          label="Open variances"
+          icon={<IconCashbook className="tos-stat__icon-tile-svg" />}
+          iconTone={openVariances.length > 0 ? "warning" : "positive"}
+          variant="hero"
+          value={<span className="tos-stat__value tos-stat__value--hero">{openVariances.length}</span>}
+          hint={openVariances.length > 0 ? "Need resolution" : "All clear"}
+          hintTone={openVariances.length > 0 ? "warning" : "positive"}
+        />
+        <ReconStat
+          label="Matched"
+          icon={<IconShield className="tos-stat__icon-tile-svg" />}
+          iconTone="positive"
+          value={<span className="tos-stat__value">{matchedCount}</span>}
+          hint="Counts balanced"
+        />
+        <ReconStat
+          label="Resolved"
+          icon={<IconShield className="tos-stat__icon-tile-svg" />}
+          iconTone="midnight"
+          value={<span className="tos-stat__value">{resolvedCount}</span>}
+          hint="Adjustments posted"
+        />
+        <ReconStat
+          label="Reconciliations"
+          icon={<IconRefresh className="tos-stat__icon-tile-svg" />}
+          iconTone="neutral"
+          value={<span className="tos-stat__value">{reconciliations.length}</span>}
+          hint="Recent records"
+        />
+      </div>
+
+      <div className="tos-ops-grid">
+        {/* Money accounts — hierarchy by method */}
+        <section className="tos-section tos-animate-fade-in-up">
           <div className="tos-section__head">
             <h2 className="tos-section__title">Money accounts</h2>
-            <span className="tos-section__sub">Tap to view detail</span>
+            <span className="tos-section__sub">Tap to view detail · grouped by method</span>
           </div>
-          <div className="tos-section__body">
+          <div className="tos-section__body--padded tos-stack">
             {loading ? (
               <StatePanel inline variant="loading" />
             ) : loadError ? (
@@ -143,36 +304,120 @@ export function CashbookExpenses() {
             ) : accounts.length === 0 ? (
               <StatePanel inline variant="empty" title="No money accounts" text="Add a cash drawer, MoMo wallet, or bank account to start tracking balances." actionLabel={canAdjust ? "Add account" : undefined} onAction={canAdjust ? () => setAccountFormOpen(true) : undefined} />
             ) : (
-              <ul className="tos-list" style={{ borderRadius: 0, border: "none", boxShadow: "none" }}>
-                {accounts.map((a) => (
-                  <li key={a.id} className="tos-list__row" style={{ borderBottom: "1px solid var(--tos-border)" }}>
-                    <button type="button" className="tos-list__row" style={{ width: "100%", background: "transparent", padding: 0, border: "none" }} onClick={() => setAccountSheet(a)}>
-                      <div className="tos-list__row-main">
-                        <span className="tos-list__row-title">{a.name}</span>
-                        <span className="tos-list__row-sub">{a.method}{a.provider ? ` · ${a.provider}` : ""}{a.isDefault ? " · Default" : ""}</span>
+              <div className="tos-stack">
+                {groupedAccounts.map((group) => (
+                  <div key={group.method} className="tos-account-group">
+                    <div className="tos-account-group__head">
+                      <span className={methodGroupIconTileClass(group.kind)} aria-hidden="true">
+                        {methodIconSvg(group.method)}
+                      </span>
+                      <div className="tos-account-group__body">
+                        <span className="tos-account-group__title">{group.label}</span>
+                        <span className="tos-account-group__meta">{group.accounts.length} account(s) · {group.accounts.filter((a) => a.isDefault).length} default</span>
                       </div>
-                      <div className="tos-list__row-meta">
-                        <span className="tos-list__row-amount"><MoneyValue minor={a.balanceMinor} currencyCode={a.currencyCode} tone={a.balanceMinor < 0 ? "negative" : "default"} /></span>
+                      <MoneyValue minor={group.totalMinor} currencyCode={currencyCode} className={methodGroupTotalClass(group.totalMinor)} />
+                    </div>
+                    {/* Mobile: premium account cards with method color stripe */}
+                    <ul className="tos-list-cards" aria-label={group.label}>
+                      {group.accounts.map((a) => (
+                        <li key={a.id}>
+                          <button
+                            type="button"
+                            className={`${methodCardClass(a.method)} tos-card-hover tos-animate-fade-in-up`}
+                            onClick={() => setAccountSheet(a)}
+                            aria-label={`Open ${a.name}`}
+                          >
+                            <span className={methodIconTileClass(a.method)} aria-hidden="true">
+                              {methodIconSvg(a.method)}
+                            </span>
+                            <span className="tos-account-card__body">
+                              <span className="tos-account-card__name">{a.name}</span>
+                              <span className="tos-account-card__sub">
+                                {a.provider ? `${a.provider}` : a.kind}{a.provider && a.referenceLabel ? " · " : ""}{a.referenceLabel ?? ""}
+                              </span>
+                              {a.isDefault ? <span className="tos-account-card__default">Default for {a.method.toLowerCase()}</span> : null}
+                            </span>
+                            <span className="tos-account-card__meta">
+                              <MoneyValue
+                                minor={a.balanceMinor}
+                                currencyCode={a.currencyCode}
+                                className={a.balanceMinor < 0 ? "tos-account-card__balance tos-account-card__balance--negative" : "tos-account-card__balance"}
+                              />
+                              <span className="tos-account-card__currency">{a.currencyCode}</span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {/* Desktop: clean table */}
+                    <div className="tos-table-wrap tos-table-wrap--desktop">
+                      <div className="tos-table-scroll">
+                        <table className="tos-table">
+                          <thead>
+                            <tr>
+                              <th>Account</th>
+                              <th>Provider</th>
+                              <th>Reference</th>
+                              <th data-align="center">Default</th>
+                              <th data-align="right">Balance</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.accounts.map((a) => (
+                              <tr key={a.id} data-clickable="true" onClick={() => setAccountSheet(a)}>
+                                <td>
+                                  <div className="tos-table__cell-main">
+                                    <span className="tos-table__cell-title">{a.name}</span>
+                                    <span className="tos-table__cell-sub">{a.kind}</span>
+                                  </div>
+                                </td>
+                                <td className="tos-table__muted">{a.provider ?? "—"}</td>
+                                <td className="tos-table__mono">{a.referenceLabel ?? "—"}</td>
+                                <td data-align="center">
+                                  {a.isDefault ? (
+                                    <span className="tos-badge tos-badge--positive"><span className="tos-badge__dot" />Default</span>
+                                  ) : (
+                                    <span className="tos-table__muted">—</span>
+                                  )}
+                                </td>
+                                <td data-align="right" className="tos-table__num">
+                                  <MoneyValue minor={a.balanceMinor} currencyCode={a.currencyCode} tone={a.balanceMinor < 0 ? "negative" : "default"} />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    </button>
-                  </li>
+                    </div>
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </div>
-        </div>
+        </section>
 
-        <div className="tos-section">
+        {/* Treasury actions — server-authoritative tabbed forms */}
+        <section className="tos-section tos-animate-fade-in-up">
           <div className="tos-section__head">
             <h2 className="tos-section__title">Treasury actions</h2>
             <span className="tos-section__sub">Server-authoritative</span>
           </div>
           <div className="tos-section__body--padded tos-stack">
-            <div className="tos-tabs">
-              <button type="button" className="tos-tabs__tab" aria-selected={tab === "expense"} onClick={() => setTab("expense")} disabled={!canExpense}>Expense</button>
-              <button type="button" className="tos-tabs__tab" aria-selected={tab === "transfer"} onClick={() => setTab("transfer")} disabled={!canTransfer}>Transfer</button>
-              <button type="button" className="tos-tabs__tab" aria-selected={tab === "reconcile"} onClick={() => setTab("reconcile")} disabled={!canReconcile}>Reconcile</button>
-              <button type="button" className="tos-tabs__tab" aria-selected={tab === "adjust"} onClick={() => setTab("adjust")} disabled={!canAdjust}>Adjust</button>
+            <div className="tos-action-tabs" role="tablist" aria-label="Treasury action">
+              {activeTabs.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  role="tab"
+                  className="tos-action-tab"
+                  aria-selected={tab === t.value}
+                  onClick={() => setTab(t.value)}
+                  disabled={!t.allowed}
+                  title={t.allowed ? t.label : "No permission for this action"}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
 
             {tab === "expense" ? <ExpenseForm accounts={accounts} currencyCode={currencyCode} canWrite={canExpense} session={session} onDone={() => { bump(); setNonce((n) => n + 1); }} /> : null}
@@ -180,10 +425,11 @@ export function CashbookExpenses() {
             {tab === "reconcile" ? <ReconcileForm accounts={accounts} currencyCode={currencyCode} canWrite={canReconcile} session={session} onDone={() => { bump(); setNonce((n) => n + 1); }} /> : null}
             {tab === "adjust" ? <AdjustForm accounts={accounts} currencyCode={currencyCode} canWrite={canAdjust} session={session} onDone={() => { bump(); setNonce((n) => n + 1); }} /> : null}
           </div>
-        </div>
+        </section>
       </div>
 
-      <section className="tos-section" style={{ marginTop: "var(--tos-space-5)" }}>
+      {/* Recent reconciliations — premium mobile cards + desktop table */}
+      <section className="tos-section tos-animate-fade-in-up" style={{ marginTop: "var(--tos-space-5)" }}>
         <div className="tos-section__head">
           <h2 className="tos-section__title">Recent reconciliations</h2>
           <span className="tos-section__sub">{reconciliations.length} record(s) · {openVariances.length} need resolution</span>
@@ -194,36 +440,49 @@ export function CashbookExpenses() {
           ) : recError ? (
             <StatePanel inline variant="error" text={recError} actionLabel="Retry" onAction={() => refetchRec()} />
           ) : reconciliations.length === 0 ? (
-            <StatePanel inline variant="empty" title="No reconciliations" text="Run a cash count or statement reconciliation to see it here." />
+            <StatePanel inline variant="empty" title="No reconciliations" text="Run a cash count or statement reconciliation to see it here. The expected balance is computed server-side from the cashbook ledger." />
           ) : (
-            <div className="tos-table-wrap">
-              <div className="tos-table-scroll">
-                <table className="tos-table">
-                  <thead>
-                    <tr>
-                      <th>Account</th>
-                      <th>Type</th>
-                      <th>Period</th>
-                      <th data-align="right">Expected</th>
-                      <th data-align="right">Observed</th>
-                      <th data-align="right">Difference</th>
-                      <th data-align="center">Status</th>
-                      <th>Resolve</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reconciliations.map((r) => (
-                      <tr key={r.id}>
-                        <td><div className="tos-table__cell-main"><span className="tos-table__cell-title">{r.accountName}</span></div></td>
-                        <td className="tos-table__muted">{r.type}</td>
-                        <td className="tos-table__muted">{new Date(r.periodStart).toLocaleDateString()} → {new Date(r.periodEnd).toLocaleDateString()}</td>
-                        <td data-align="right" className="tos-table__num"><MoneyValue minor={r.expectedBalanceMinor} currencyCode={currencyCode} tone="muted" /></td>
-                        <td data-align="right" className="tos-table__num"><MoneyValue minor={r.observedBalanceMinor} currencyCode={currencyCode} /></td>
-                        <td data-align="right" className="tos-table__num"><MoneyValue minor={r.differenceMinor} currencyCode={currencyCode} tone={r.differenceMinor === 0 ? "muted" : "negative"} /></td>
-                        <td data-align="center">
-                          <span className={`tos-badge ${r.status === "MATCHED" ? "tos-badge--positive" : r.status === "VARIANCE" ? "tos-badge--danger" : "tos-badge--neutral"}`}><span className="tos-badge__dot" />{r.status}</span>
-                        </td>
-                        <td>
+            <>
+              {/* Mobile: premium reconciliation cards with variance state */}
+              <ul className="tos-list-cards tos-stagger" aria-label="Recent reconciliations">
+                {reconciliations.map((r) => {
+                  const cardCls = r.status === "MATCHED"
+                    ? "tos-recon-card tos-recon-card--matched"
+                    : r.status === "VARIANCE"
+                      ? "tos-recon-card tos-recon-card--variance"
+                      : "tos-recon-card tos-recon-card--resolved";
+                  const diffCls = r.differenceMinor === 0
+                    ? "tos-recon-card__row-val tos-recon-card__row-val--positive"
+                    : "tos-recon-card__row-val tos-recon-card__row-val--negative";
+                  return (
+                    <li key={r.id}>
+                      <div className={`${cardCls} tos-card-hover tos-animate-fade-in-up`}>
+                        <div className="tos-recon-card__head">
+                          <div className="tos-recon-card__body">
+                            <span className="tos-recon-card__account">{r.accountName}</span>
+                            <span className="tos-recon-card__meta">
+                              {r.type === "CASH_COUNT" ? "Cash count" : "Statement"} · {new Date(r.periodStart).toLocaleDateString()} → {new Date(r.periodEnd).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <span className={`tos-badge ${r.status === "MATCHED" ? "tos-badge--positive" : r.status === "VARIANCE" ? "tos-badge--danger" : "tos-badge--neutral"}`}>
+                            <span className="tos-badge__dot" />{r.status}
+                          </span>
+                        </div>
+                        <div className="tos-recon-card__rows">
+                          <div className="tos-recon-card__row">
+                            <span className="tos-recon-card__row-label">Expected</span>
+                            <MoneyValue minor={r.expectedBalanceMinor} currencyCode={currencyCode} className="tos-recon-card__row-val tos-recon-card__row-val--muted" />
+                          </div>
+                          <div className="tos-recon-card__row">
+                            <span className="tos-recon-card__row-label">Observed</span>
+                            <MoneyValue minor={r.observedBalanceMinor} currencyCode={currencyCode} className="tos-recon-card__row-val" />
+                          </div>
+                          <div className="tos-recon-card__row">
+                            <span className="tos-recon-card__row-label">Difference</span>
+                            <MoneyValue minor={r.differenceMinor} currencyCode={currencyCode} className={diffCls} />
+                          </div>
+                        </div>
+                        <div className="tos-recon-card__foot">
                           {r.status === "VARIANCE" && canAdjust ? (
                             <ResolveVarianceForm
                               reconciliationId={r.id}
@@ -233,23 +492,130 @@ export function CashbookExpenses() {
                               onResolved={() => { bump(); setNonce((n) => n + 1); }}
                             />
                           ) : r.status === "RESOLVED" ? (
-                            <span className="tos-table__muted">{r.resolutionNote ?? "Resolved"}</span>
+                            <span className="tos-recon-card__resolution">{r.resolutionNote ?? "Resolved"}</span>
+                          ) : r.status === "MATCHED" ? (
+                            <span className="tos-recon-card__resolution">Counted balance matches ledger — no action needed.</span>
                           ) : (
-                            <span className="tos-table__muted">—</span>
+                            <span className="tos-recon-card__resolution">—</span>
                           )}
-                        </td>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* Desktop: clean table */}
+              <div className="tos-table-wrap tos-table-wrap--desktop">
+                <div className="tos-table-scroll">
+                  <table className="tos-table">
+                    <thead>
+                      <tr>
+                        <th>Account</th>
+                        <th>Type</th>
+                        <th>Period</th>
+                        <th data-align="right">Expected</th>
+                        <th data-align="right">Observed</th>
+                        <th data-align="right">Difference</th>
+                        <th data-align="center">Status</th>
+                        <th>Resolve</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {reconciliations.map((r) => (
+                        <tr key={r.id}>
+                          <td><div className="tos-table__cell-main"><span className="tos-table__cell-title">{r.accountName}</span></div></td>
+                          <td className="tos-table__muted">{r.type === "CASH_COUNT" ? "Cash count" : "Statement"}</td>
+                          <td className="tos-table__muted">{new Date(r.periodStart).toLocaleDateString()} → {new Date(r.periodEnd).toLocaleDateString()}</td>
+                          <td data-align="right" className="tos-table__num"><MoneyValue minor={r.expectedBalanceMinor} currencyCode={currencyCode} tone="muted" /></td>
+                          <td data-align="right" className="tos-table__num"><MoneyValue minor={r.observedBalanceMinor} currencyCode={currencyCode} /></td>
+                          <td data-align="right" className="tos-table__num"><MoneyValue minor={r.differenceMinor} currencyCode={currencyCode} tone={r.differenceMinor === 0 ? "muted" : "negative"} /></td>
+                          <td data-align="center">
+                            <span className={`tos-badge ${r.status === "MATCHED" ? "tos-badge--positive" : r.status === "VARIANCE" ? "tos-badge--danger" : "tos-badge--neutral"}`}><span className="tos-badge__dot" />{r.status}</span>
+                          </td>
+                          <td>
+                            {r.status === "VARIANCE" && canAdjust ? (
+                              <ResolveVarianceForm
+                                reconciliationId={r.id}
+                                differenceMinor={r.differenceMinor}
+                                currencyCode={currencyCode}
+                                session={session}
+                                onResolved={() => { bump(); setNonce((n) => n + 1); }}
+                              />
+                            ) : r.status === "RESOLVED" ? (
+                              <span className="tos-table__muted">{r.resolutionNote ?? "Resolved"}</span>
+                            ) : (
+                              <span className="tos-table__muted">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            </>
           )}
         </div>
       </section>
 
+      <div className="tos-callout tos-callout--info">
+        <span className="tos-callout__icon-wrap" aria-hidden="true">
+          <IconShield style={{ width: 16, height: 16 }} />
+        </span>
+        <span className="tos-callout__body">
+          Cashbook entries are immutable business evidence.
+          <span className="tos-callout__sub"> Expenses, transfers, reconciliations and adjustments all post through the server — the new balances, variance deltas and ledger movements are computed server-side. The client only ever submits the observed count, the signed delta, or the transfer instruction.</span>
+        </span>
+      </div>
+
       <MoneyAccountSheet account={accountSheet} onClose={() => setAccountSheet(null)} />
       <MoneyAccountFormSheet open={accountFormOpen} onClose={() => setAccountFormOpen(false)} onCreated={() => { setAccountFormOpen(false); setNonce((n) => n + 1); }} />
+    </div>
+  );
+}
+
+// --- Stat card (reuses tos-stat + tos-stat__icon-tile) ------------------
+
+interface ReconStatProps {
+  label: string;
+  icon: ReactNode;
+  iconTone: "gold" | "positive" | "warning" | "midnight" | "neutral";
+  value: ReactNode;
+  hint?: string;
+  hintTone?: "default" | "warning" | "positive";
+  variant?: "default" | "hero";
+}
+
+const RECON_STAT_TILE_CLASS: Record<ReconStatProps["iconTone"], string> = {
+  gold: "tos-stat__icon-tile tos-stat__icon-tile--gold",
+  positive: "tos-stat__icon-tile tos-stat__icon-tile--positive",
+  warning: "tos-stat__icon-tile tos-stat__icon-tile--warning",
+  midnight: "tos-stat__icon-tile tos-stat__icon-tile--midnight",
+  neutral: "tos-stat__icon-tile tos-stat__icon-tile--neutral",
+};
+
+function ReconStat({ label, icon, iconTone, value, hint, hintTone = "default", variant = "default" }: ReconStatProps) {
+  const cls = variant === "hero"
+    ? "tos-stat tos-card-hover tos-animate-fade-in-up tos-stat--hero"
+    : "tos-stat tos-card-hover tos-animate-fade-in-up";
+
+  const hintCls = hintTone === "warning"
+    ? "tos-stat__hint tos-stat__hint--warning"
+    : hintTone === "positive"
+      ? "tos-stat__hint tos-stat__hint--positive"
+      : "tos-stat__hint";
+
+  return (
+    <div className={cls}>
+      <div className="tos-stat__head">
+        <span className={RECON_STAT_TILE_CLASS[iconTone]} aria-hidden="true">
+          {icon}
+        </span>
+        <span className="tos-stat__label">{label}</span>
+      </div>
+      {value}
+      {hint ? <span className={hintCls}>{hint}</span> : null}
     </div>
   );
 }
@@ -274,6 +640,7 @@ function ExpenseForm({ accounts, currencyCode, canWrite, session, onDone }: Acti
   const [error, setError] = useState<string | null>(null);
 
   const filteredAccounts = useMemo(() => accounts.filter((a) => a.method === method && a.active), [accounts, method]);
+  const defaultAccount = filteredAccounts.find((a) => a.isDefault);
 
   if (!session) return null;
 
@@ -298,7 +665,13 @@ function ExpenseForm({ accounts, currencyCode, canWrite, session, onDone }: Acti
 
   return (
     <form className="tos-stack" onSubmit={handleSubmit}>
-      <div className="tos-callout tos-callout--info">Expenses reduce the chosen money account balance. The server validates the account and computes the new balance.</div>
+      <div className="tos-callout tos-callout--info">
+        <span className="tos-callout__icon-wrap" aria-hidden="true"><IconWallet style={{ width: 16, height: 16 }} /></span>
+        <span className="tos-callout__body">
+          Expenses reduce the chosen money account balance.
+          <span className="tos-callout__sub"> The server validates the account, computes the new balance, and records the cashbook movement. If no account is selected, the server uses the default {method.toLowerCase()} account for this branch.</span>
+        </span>
+      </div>
       <MoneyInput currencyCode={currencyCode} valueMinor={amount} onChange={setAmount} label="Amount" size="lg" required disabled={!canWrite} />
       <div className="tos-public__form-row">
         <div className="tos-field">
@@ -310,8 +683,8 @@ function ExpenseForm({ accounts, currencyCode, canWrite, session, onDone }: Acti
         <div className="tos-field">
           <label className="tos-field__label" htmlFor="cb-account">Account (optional)</label>
           <select id="cb-account" className="tos-select" value={moneyAccountId} onChange={(e) => setMoneyAccountId(e.target.value)} disabled={!canWrite}>
-            <option value="">Default for method</option>
-            {filteredAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            <option value="">{defaultAccount ? `Default (${defaultAccount.name})` : "Default for method"}</option>
+            {filteredAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.isDefault ? " · default" : ""}</option>)}
           </select>
         </div>
       </div>
@@ -347,6 +720,9 @@ function TransferForm({ accounts, currencyCode, canWrite, session, onDone }: Act
     return accounts.filter((a) => a.active);
   }, [accounts]);
 
+  const sourceAccount = sameCurrencyPairs.find((a) => a.id === sourceAccountId);
+  const destOptions = sameCurrencyPairs.filter((a) => a.id !== sourceAccountId && (!sourceAccount || a.currencyCode === sourceAccount.currencyCode));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!session || !sourceAccountId || !destinationAccountId || sourceAccountId === destinationAccountId || amountMinor === null || amountMinor <= 0 || busy || !canWrite) return;
@@ -371,20 +747,31 @@ function TransferForm({ accounts, currencyCode, canWrite, session, onDone }: Act
 
   return (
     <form className="tos-stack" onSubmit={handleSubmit}>
-      <div className="tos-callout tos-callout--info">Transfers move money between two accounts of the same currency. The server validates balances and overdraft rules.</div>
-      <div className="tos-field">
-        <label className="tos-field__label" htmlFor="tf-src">From account<span className="tos-field__label-required">*</span></label>
-        <select id="tf-src" className="tos-select" value={sourceAccountId} onChange={(e) => setSourceAccountId(e.target.value)} disabled={!canWrite}>
-          <option value="">Select source…</option>
-          {sameCurrencyPairs.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currencyCode})</option>)}
-        </select>
+      <div className="tos-callout tos-callout--info">
+        <span className="tos-callout__icon-wrap" aria-hidden="true"><IconWallet style={{ width: 16, height: 16 }} /></span>
+        <span className="tos-callout__body">
+          Transfers move money between two accounts of the same currency.
+          <span className="tos-callout__sub"> The server validates balances, overdraft rules, and currency match. Both the source debit and destination credit are recorded as a single atomic cashbook movement.</span>
+        </span>
       </div>
-      <div className="tos-field">
-        <label className="tos-field__label" htmlFor="tf-dst">To account<span className="tos-field__label-required">*</span></label>
-        <select id="tf-dst" className="tos-select" value={destinationAccountId} onChange={(e) => setDestinationAccountId(e.target.value)} disabled={!canWrite}>
-          <option value="">Select destination…</option>
-          {sameCurrencyPairs.filter((a) => a.id !== sourceAccountId).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currencyCode})</option>)}
-        </select>
+      <div className="tos-transfer-flow">
+        <div className="tos-field">
+          <label className="tos-field__label" htmlFor="tf-src">From account<span className="tos-field__label-required">*</span></label>
+          <select id="tf-src" className="tos-select" value={sourceAccountId} onChange={(e) => { setSourceAccountId(e.target.value); setDestinationAccountId(""); }} disabled={!canWrite}>
+            <option value="">Select source…</option>
+            {sameCurrencyPairs.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currencyCode})</option>)}
+          </select>
+        </div>
+        <div className="tos-transfer-flow__arrow" aria-hidden="true">
+          <IconChevronRight style={{ width: 18, height: 18 }} />
+        </div>
+        <div className="tos-field">
+          <label className="tos-field__label" htmlFor="tf-dst">To account<span className="tos-field__label-required">*</span></label>
+          <select id="tf-dst" className="tos-select" value={destinationAccountId} onChange={(e) => setDestinationAccountId(e.target.value)} disabled={!canWrite || destOptions.length === 0}>
+            <option value="">{destOptions.length === 0 ? "Select source first" : "Select destination…"}</option>
+            {destOptions.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currencyCode})</option>)}
+          </select>
+        </div>
       </div>
       <MoneyInput currencyCode={currencyCode} valueMinor={amountMinor} onChange={setAmountMinor} label="Amount" size="lg" required disabled={!canWrite} />
       <div className="tos-field">
@@ -443,7 +830,13 @@ function ReconcileForm({ accounts, currencyCode, canWrite, session, onDone }: Ac
 
   return (
     <form className="tos-stack" onSubmit={handleSubmit}>
-      <div className="tos-callout tos-callout--info">The expected balance is computed server-side from the cashbook ledger. The client only sends the observed count.</div>
+      <div className="tos-callout tos-callout--info">
+        <span className="tos-callout__icon-wrap" aria-hidden="true"><IconShield style={{ width: 16, height: 16 }} /></span>
+        <span className="tos-callout__body">
+          The expected balance is computed server-side from the cashbook ledger.
+          <span className="tos-callout__sub"> The client only sends the observed count. The server derives the variance and posts a MATCHED or VARIANCE record — never trust a client-side variance figure.</span>
+        </span>
+      </div>
       <div className="tos-field">
         <label className="tos-field__label" htmlFor="rc-type">Type</label>
         <select id="rc-type" className="tos-select" value={type} onChange={(e) => { setType(e.target.value as ReconciliationType); setMoneyAccountId(""); }} disabled={!canWrite}>
@@ -468,7 +861,7 @@ function ReconcileForm({ accounts, currencyCode, canWrite, session, onDone }: Ac
           <input id="rc-end" type="datetime-local" className="tos-input" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} disabled={!canWrite} />
         </div>
       </div>
-      <MoneyInput currencyCode={currencyCode} valueMinor={observedBalanceMinor} onChange={setObservedBalanceMinor} label="Observed balance" size="lg" required disabled={!canWrite} />
+      <MoneyInput currencyCode={currencyCode} valueMinor={observedBalanceMinor} onChange={setObservedBalanceMinor} label="Observed balance (counted)" size="lg" required disabled={!canWrite} hint="Enter the physical count from the drawer or the statement balance." />
       <div className="tos-field">
         <label className="tos-field__label" htmlFor="rc-note">Note (optional)</label>
         <textarea id="rc-note" className="tos-textarea" value={note} onChange={(e) => setNote(e.target.value)} disabled={!canWrite} />
@@ -495,6 +888,7 @@ function AdjustForm({ accounts, currencyCode, canWrite, session, onDone }: Actio
   if (!session) return null;
 
   const filteredAccounts = useMemo(() => accounts.filter((a) => a.method === method && a.active), [accounts, method]);
+  const defaultAccount = filteredAccounts.find((a) => a.isDefault);
 
   // For OPENING_BALANCE / OWNER_INJECTION the delta must be positive; for OWNER_WITHDRAWAL negative; CORRECTION any non-zero.
   const signHint = reason === "OPENING_BALANCE" || reason === "OWNER_INJECTION"
@@ -530,7 +924,13 @@ function AdjustForm({ accounts, currencyCode, canWrite, session, onDone }: Actio
 
   return (
     <form className="tos-stack" onSubmit={handleSubmit}>
-      <div className="tos-callout tos-callout--warning">Adjustments are immutable evidence. A non-empty note is required.</div>
+      <div className="tos-callout tos-callout--warning">
+        <span className="tos-callout__icon-wrap" aria-hidden="true"><IconShield style={{ width: 16, height: 16 }} /></span>
+        <span className="tos-callout__body">
+          Adjustments are immutable evidence. A non-empty note is required.
+          <span className="tos-callout__sub"> Use these for opening balances, owner injections/withdrawals, and authorized corrections. The server validates the sign against the reason and computes the new balance.</span>
+        </span>
+      </div>
       <div className="tos-public__form-row">
         <div className="tos-field">
           <label className="tos-field__label" htmlFor="ad-reason">Reason<span className="tos-field__label-required">*</span></label>
@@ -548,8 +948,8 @@ function AdjustForm({ accounts, currencyCode, canWrite, session, onDone }: Actio
       <div className="tos-field">
         <label className="tos-field__label" htmlFor="ad-account">Account (optional)</label>
         <select id="ad-account" className="tos-select" value={moneyAccountId} onChange={(e) => setMoneyAccountId(e.target.value)} disabled={!canWrite}>
-          <option value="">Default for method</option>
-          {filteredAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          <option value="">{defaultAccount ? `Default (${defaultAccount.name})` : "Default for method"}</option>
+          {filteredAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.isDefault ? " · default" : ""}</option>)}
         </select>
       </div>
       <MoneyInput currencyCode={currencyCode} valueMinor={amountDeltaMinor} onChange={setAmountDeltaMinor} label="Amount (signed)" size="lg" required disabled={!canWrite} hint={signHint} />
@@ -604,12 +1004,24 @@ function ResolveVarianceForm({ reconciliationId, differenceMinor, currencyCode, 
 
   if (!open) {
     return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Resolve</Button>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Resolve variance</Button>
     );
   }
+  const diffCls = differenceMinor < 0
+    ? "tos-variance-banner__amount tos-variance-banner__amount--negative"
+    : "tos-variance-banner__amount tos-variance-banner__amount--positive";
   return (
-    <div className="tos-stack" style={{ minWidth: 240 }}>
-      <div className="tos-section__sub">Difference: <MoneyValue minor={differenceMinor} currencyCode={currencyCode} tone="negative" /></div>
+    <div className="tos-stack" style={{ minWidth: 0, flex: "1 1 240px" }}>
+      <div className="tos-variance-banner">
+        <span className="tos-variance-banner__icon" aria-hidden="true">
+          <IconShield style={{ width: 16, height: 16 }} />
+        </span>
+        <div className="tos-variance-banner__body">
+          <span className="tos-variance-banner__label">{differenceMinor < 0 ? "Shortage" : "Surplus"}</span>
+          <MoneyValue minor={differenceMinor} currencyCode={currencyCode} className={diffCls} />
+          <span className="tos-variance-banner__hint">Resolve posts a server-authoritative adjustment for the difference. A clear explanation is required.</span>
+        </div>
+      </div>
       <div className="tos-field">
         <label className="tos-field__label" htmlFor={`rv-note-${reconciliationId}`}>Explanation<span className="tos-field__label-required">*</span></label>
         <textarea id={`rv-note-${reconciliationId}`} className="tos-textarea" value={note} onChange={(e) => setNote(e.target.value)} disabled={busy} placeholder="e.g. cash shortage during shift" />

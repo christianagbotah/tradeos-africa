@@ -1,0 +1,505 @@
+name: Visual QA
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: tradeos_qa
+          POSTGRES_USER: tradeos
+          POSTGRES_PASSWORD: tradeos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tradeos -d tradeos_qa"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      # Playwright is a committed root devDependency; the lockfile is the
+      # single source of truth. CI never mutates package manifests.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build contracts + client-core
+        run: |
+          pnpm --filter @tradeos/contracts build
+          pnpm --filter @tradeos/client-core build
+
+      - name: Apply migrations
+        env:
+          PGPASSWORD: tradeos
+        run: |
+          for migration in packages/db/migrations/*.sql; do
+            echo "Applying $migration"
+            psql -h localhost -U tradeos -d tradeos_qa -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
+      - name: Start API server
+        env:
+          DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_qa
+          PORT: 4000
+        run: |
+          pnpm --filter @tradeos/api dev &
+          API_PID=$!
+          echo "API_PID=$API_PID" >> $GITHUB_ENV
+          # Wait for health
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4000/health >/dev/null 2>&1; then
+              echo "API is healthy"
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:4000/health || { echo "API failed to start"; exit 1; }
+
+      # Fixtures are created through the PUBLIC application contracts:
+      # register -> onboarding -> money accounts -> catalog (+ opening stock)
+      # -> customer -> supplier. Branch creation seeds default money accounts
+      # + defaults via DB trigger, so no direct SQL is required anywhere.
+      - name: Seed QA data via API
+        run: |
+          node --input-type=module << 'SEED'
+          const API = "http://127.0.0.1:4000";
+
+          async function api(path, { method = "GET", token, body } = {}) {
+            const res = await fetch(`${API}${path}`, {
+              method,
+              headers: {
+                "content-type": "application/json",
+                ...(token ? { authorization: `Bearer ${token}` } : {}),
+              },
+              body: body === undefined ? undefined : JSON.stringify(body),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              throw new Error(`Seed API failure ${method} ${path} -> ${res.status}: ${JSON.stringify(json)}`);
+            }
+            return json;
+          }
+
+          // 1. Register the owner through the public auth API.
+          const reg = await api("/v1/auth/register", {
+            method: "POST",
+            body: {
+              displayName: "QA Owner",
+              email: "qa@tradeos.test",
+              password: "TradeOS-QA-1234",
+              platform: "WEB",
+              deviceKey: "qa-device-key",
+              appVersion: "qa-1.0",
+            },
+          });
+          const token = reg.session.accessToken;
+
+          // 2. Onboard through the public onboarding API. Creates business,
+          //    MAIN branch, owner staff + membership, and registers the device.
+          const onboard = await api("/v1/onboarding/business", {
+            method: "POST",
+            token,
+            body: {
+              name: "QA Trading Co",
+              businessType: "RETAIL_HARDWARE",
+              branchName: "Main",
+              countryCode: "GH",
+              currencyCode: "GHS",
+              timezone: "Africa/Accra",
+            },
+          });
+          const businessId = onboard.business.id;
+          const branchId = onboard.branch.id;
+
+          // 3. Named money accounts through the public treasury API.
+          for (const [name, method, kind] of [
+            ["MTN MoMo", "MOMO", "MOMO_WALLET"],
+            ["Ecobank Account", "BANK", "BANK_ACCOUNT"],
+          ]) {
+            await api("/v1/money-accounts", {
+              method: "POST",
+              token,
+              body: { businessId, branchId, name, method, kind },
+            });
+          }
+
+          // 4. Catalog through the public API, opening stock included for
+          //    tracked products. Club Beer is the multi-unit product:
+          //    crate ₵96.00 and bottle ₵4.00 with 1 crate = 24 bottles.
+          const items = [
+            {
+              name: "Coca-Cola 500ml", sku: "DRK-001", kind: "PRODUCT",
+              stockUnitCode: "bottle", trackStock: true,
+              units: [{ code: "bottle", label: "bottle", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 400 }],
+              openingStock: { branchId, quantity: 120 },
+            },
+            {
+              name: "Voltic Water 1.5L", sku: "DRK-002", kind: "PRODUCT",
+              stockUnitCode: "bottle", trackStock: true,
+              units: [{ code: "bottle", label: "bottle", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 500 }],
+              openingStock: { branchId, quantity: 8 },
+            },
+            {
+              name: "Digestive Biscuits 200g", sku: "BIS-001", kind: "PRODUCT",
+              stockUnitCode: "pack", trackStock: true,
+              units: [{ code: "pack", label: "pack", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 650 }],
+            },
+            {
+              name: "Standard Haircut", sku: "SVC-001", kind: "SERVICE",
+              units: [{ code: "service", label: "service", canSell: true, defaultSalePriceMinor: 1500 }],
+            },
+            {
+              name: "Rice 5kg Bag", sku: "STP-001", kind: "PRODUCT",
+              stockUnitCode: "bag", trackStock: true,
+              units: [{ code: "bag", label: "bag", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 7200 }],
+              openingStock: { branchId, quantity: 40 },
+            },
+            {
+              name: "Club Beer", sku: "DRK-003", kind: "PRODUCT",
+              stockUnitCode: "crate", trackStock: true,
+              units: [
+                { code: "crate", label: "crate", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 9600 },
+                { code: "bottle", label: "bottle", canPurchase: false, canSell: true, canStock: false, defaultSalePriceMinor: 400 },
+              ],
+              conversions: [{ fromUnitCode: "crate", toUnitCode: "bottle", factor: 24 }],
+              openingStock: { branchId, quantity: 10 },
+            },
+          ];
+          for (const item of items) {
+            await api("/v1/catalog/items", { method: "POST", token, body: { businessId, ...item } });
+          }
+
+          // 5. Customer + supplier through public master-data APIs.
+          await api("/v1/customers", {
+            method: "POST",
+            token,
+            body: { businessId, name: "Kwame Mensah", phone: "+233500000002", email: "kwame@test.com", creditLimitMinor: 50000 },
+          });
+          await api("/v1/suppliers", {
+            method: "POST",
+            token,
+            body: { businessId, name: "Accra Wholesale Ltd", phone: "+233500000003", email: "accra@wholesale.com" },
+          });
+
+          console.log("QA seed data created via public APIs");
+          console.log("Login: qa@tradeos.test / TradeOS-QA-1234");
+          console.log("Business:", businessId, "Branch:", branchId);
+          SEED
+
+      # API_BASE_URL is EXPLICIT: web installs /v1 + /api rewrites against the
+      # running API. Without it, next.config.ts installs no rewrites at all —
+      # production never silently assumes localhost.
+      - name: Start Web dev server
+        env:
+          API_BASE_URL: http://127.0.0.1:4000
+        run: |
+          API_BASE_URL=http://127.0.0.1:4000 pnpm --filter @tradeos/web dev &
+          WEB_PID=$!
+          echo "WEB_PID=$WEB_PID" >> $GITHUB_ENV
+          # Wait for web
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+              echo "Web is healthy"
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:3000/ || { echo "Web failed to start"; exit 1; }
+
+      - name: Install Playwright chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Capture authenticated screenshots
+        run: |
+          mkdir -p docs/qa/evidence/zai-ui-ux-premium
+          node --input-type=module << 'CAPTURE'
+          import { chromium } from "playwright";
+
+          // Browser navigates on localhost: Next dev blocks non-localhost origins
+          // from loading /_next dev resources (hydration never completes otherwise).
+          // The API_BASE_URL rewrite target (127.0.0.1:4000) is server-side and unaffected.
+          const WEB = "http://localhost:3000";
+          const EVIDENCE = "docs/qa/evidence/zai-ui-ux-premium";
+          // Visible content that indicates a broken application state.
+          const FORBIDDEN = [
+            "BRANCH_NOT_FOUND",
+            "BUSINESS_NOT_FOUND",
+            "undefined",
+            "Could not load",
+            "Something went wrong",
+          ];
+          const RAW_API_ERROR = /"error"\s*:/;
+
+          const failures = [];
+          let screenshotCount = 0;
+
+          async function assertCleanBody(p, label) {
+            // innerText = RENDERED text only. textContent would also read
+            // inline script/RSC payloads and flag phantom "undefined"s that
+            // no user ever sees.
+            const visibleText = await p.evaluate(() => document.body.innerText);
+            for (const needle of FORBIDDEN) {
+              if (visibleText.includes(needle)) {
+                failures.push(`${label}: forbidden content visible: "${needle}"`);
+              }
+            }
+            if (RAW_API_ERROR.test(visibleText)) {
+              failures.push(`${label}: raw API error payload visible`);
+            }
+          }
+
+          const browser = await chromium.launch();
+
+          // === STEP 1: Authenticate through the real login flow ===
+          const loginContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          const loginPage = await loginContext.newPage();
+          await loginPage.goto(`${WEB}/`, { waitUntil: "networkidle", timeout: 30000 });
+          await loginPage.waitForTimeout(2000);
+
+          const inputs = await loginPage.locator(".tos-input").all();
+          if (inputs.length >= 2) {
+            await inputs[0].fill("qa@tradeos.test");
+            await inputs[1].fill("TradeOS-QA-1234");
+          } else {
+            await loginPage.fill("input", "qa@tradeos.test");
+          }
+          await loginPage.fill('input[type="password"]', "TradeOS-QA-1234");
+          await loginPage.click('button[type="submit"]');
+
+          // The dashboard redirect is REQUIRED — never swallow this wait.
+          await loginPage.waitForURL("**/dashboard", { timeout: 20000 });
+          await loginPage.waitForTimeout(3000);
+          if (!loginPage.url().includes("/dashboard")) {
+            console.error("Authentication failed — still on:", loginPage.url());
+            process.exit(1);
+          }
+          console.log("Authenticated successfully — on /dashboard");
+          const state = await loginContext.storageState();
+          await loginContext.close();
+
+          // === STEP 2: Routes + markers ===
+          const routes = [
+            { path: "/dashboard", marker: "Dashboard", name: "dashboard" },
+            { path: "/sell", marker: "Sell", name: "pos" },
+            { path: "/sales", marker: "Sales", name: "sales" },
+            { path: "/customers", marker: "Customer", name: "customers" },
+            { path: "/catalog", marker: "Catalog", name: "catalog" },
+            { path: "/inventory", marker: "Inventory", name: "inventory" },
+            { path: "/purchases", marker: "Purchase", name: "purchases" },
+            { path: "/returns", marker: "Return", name: "returns" },
+            { path: "/cashbook", marker: "Cashbook", name: "cashbook" },
+            { path: "/operations", marker: "Operation", name: "operations" },
+            { path: "/reports", marker: "Report", name: "reports" },
+          ];
+
+          const widthSets = {
+            dashboard: [360, 390, 768, 1280, 1440],
+            pos: [360, 390, 768, 1280, 1440],
+            sales: [390, 768, 1280],
+            customers: [390, 768, 1280],
+            catalog: [390, 768, 1280],
+            inventory: [390, 768, 1280],
+            purchases: [390, 768, 1280],
+            returns: [390, 768, 1280],
+            cashbook: [390, 768, 1280],
+            operations: [390, 768, 1280],
+            reports: [390, 768, 1280],
+          };
+
+          // === STEP 3: Capture every authenticated route at every width ===
+          for (const route of routes) {
+            const widths = widthSets[route.name] || [390, 768, 1280];
+            for (const w of widths) {
+              const pageCtx = await browser.newContext({ storageState: state, viewport: { width: w, height: 900 } });
+              const p = await pageCtx.newPage();
+              try {
+                await p.goto(`${WEB}${route.path}`, { waitUntil: "networkidle", timeout: 30000 });
+                await p.waitForTimeout(2000);
+
+                const finalUrl = p.url();
+                if (!finalUrl.includes(route.path)) {
+                  failures.push(`${route.name}-${w}: redirected to ${finalUrl}`);
+                } else {
+                  const bodyText = await p.textContent("body");
+                  if (!bodyText || !bodyText.includes(route.marker)) {
+                    failures.push(`${route.name}-${w}: marker "${route.marker}" not found`);
+                  }
+                  await assertCleanBody(p, `${route.name}-${w}`);
+                  if (w <= 768) {
+                    const scrollWidth = await p.evaluate(() => document.documentElement.scrollWidth);
+                    const clientWidth = await p.evaluate(() => document.documentElement.clientWidth);
+                    if (scrollWidth > clientWidth) {
+                      failures.push(`${route.name}-${w}: horizontal overflow (${scrollWidth} > ${clientWidth})`);
+                    }
+                  }
+                }
+
+                await p.screenshot({ path: `${EVIDENCE}/${route.name}-${w}.png`, fullPage: true });
+                screenshotCount++;
+                console.log(`Captured ${route.name}-${w}.png`);
+              } catch (err) {
+                failures.push(`${route.name}-${w}: ${err.message}`);
+              }
+              await pageCtx.close();
+            }
+          }
+
+          // === STEP 4: POS multi-unit flow — every step REQUIRED ===
+          async function posFlow(width, label, cartShot, checkoutShot) {
+            const posCtx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
+            const p = await posCtx.newPage();
+            try {
+              await p.goto(`${WEB}/sell`, { waitUntil: "networkidle", timeout: 30000 });
+              await p.waitForTimeout(2000);
+
+              // Both Club Beer sale units MUST render as separate enabled tiles.
+              const crateTile = p.locator('button.tos-product-tile:not([disabled])[aria-label="Add Club Beer (crate) to cart"]');
+              const bottleTile = p.locator('button.tos-product-tile:not([disabled])[aria-label="Add Club Beer (bottle) to cart"]');
+              if ((await crateTile.count()) !== 1) failures.push(`${label}: exactly one enabled Club Beer (crate) tile is required`);
+              if ((await bottleTile.count()) !== 1) failures.push(`${label}: exactly one enabled Club Beer (bottle) tile is required`);
+
+              await crateTile.click();
+              await p.waitForTimeout(400);
+              await bottleTile.click();
+              await p.waitForTimeout(400);
+
+              // Cart MUST contain both selections as distinct unit-aware lines.
+              if ((await p.locator(".tos-cart-line", { hasText: "crate" }).count()) < 1) {
+                failures.push(`${label}: cart must contain the crate selection`);
+              }
+              if ((await p.locator(".tos-cart-line", { hasText: "bottle" }).count()) < 1) {
+                failures.push(`${label}: cart must contain the bottle selection`);
+              }
+              if ((await p.locator(".tos-cart-line").count()) < 2) {
+                failures.push(`${label}: crate and bottle must be distinct cart lines`);
+              }
+
+              // Charge MUST exist, be enabled, and open checkout when clicked.
+              const charge = width <= 768
+                ? p.locator(".tos-charge-bar__charge")
+                : p.locator("aside button:has-text('Charge')");
+              if ((await charge.count()) !== 1) failures.push(`${label}: exactly one Charge button is required`);
+              if ((await charge.count()) === 1 && !(await charge.isEnabled())) {
+                failures.push(`${label}: Charge must be enabled with a populated cart`);
+              }
+
+              await p.screenshot({ path: `${EVIDENCE}/${cartShot}.png`, fullPage: true });
+              screenshotCount++;
+              console.log(`Captured ${cartShot}.png`);
+
+              await charge.click();
+              await p.waitForTimeout(800);
+              if ((await p.locator('div[role="dialog"][aria-label="Checkout"]').count()) < 1) {
+                failures.push(`${label}: checkout must open when Charge is clicked`);
+              }
+
+              // Cart item details MUST be itemized, visible, and rendered BEFORE
+              // the payment section. Regression guard: sheet bodies are column
+              // flex; without flex-shrink:0 the Order summary section (overflow
+              // hidden) silently collapses to ~0px when content overflows.
+              const checkoutLines = p.locator('div[role="dialog"][aria-label="Checkout"] .tos-checkout-lines__row');
+              if ((await checkoutLines.count()) < 2) {
+                failures.push(`${label}: checkout must itemize at least 2 cart lines before payment`);
+              }
+              const linesBox = await p.locator('div[role="dialog"][aria-label="Checkout"] .tos-checkout-lines').first().boundingBox();
+              if (!linesBox || linesBox.height < 48) {
+                failures.push(`${label}: checkout cart item details are collapsed or invisible (height ${linesBox ? Math.round(linesBox.height) : "none"})`);
+              }
+              const firstLineTop = linesBox ? linesBox.y : null;
+              const payField = p.locator('div[role="dialog"][aria-label="Checkout"] .tos-field', { hasText: "Payment method" }).first();
+              const payBox = await payField.boundingBox();
+              if (firstLineTop !== null && payBox && !(firstLineTop < payBox.y)) {
+                failures.push(`${label}: cart item details must render before the payment section`);
+              }
+
+              await p.screenshot({ path: `${EVIDENCE}/${checkoutShot}.png`, fullPage: true });
+              screenshotCount++;
+              console.log(`Captured ${checkoutShot}.png`);
+            } catch (err) {
+              failures.push(`${label}: ${err.message}`);
+            }
+            await posCtx.close();
+          }
+
+          await posFlow(1280, "pos-multiunit-1280", "pos-multiunit-1280", "pos-checkout-1280");
+          await posFlow(390, "pos-multiunit-390", "pos-multiunit-390", "pos-checkout-390");
+
+          // === STEP 5: Purchase receipt sheet OPEN (desktop + narrow mobile) ===
+          async function receiptFlow(width, label, shot) {
+            const ctx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
+            const p = await ctx.newPage();
+            try {
+              await p.goto(`${WEB}/purchases`, { waitUntil: "networkidle", timeout: 30000 });
+              await p.waitForTimeout(2000);
+              const trigger = p.locator("button:has-text('Record receipt')").first();
+              if ((await trigger.count()) < 1) {
+                failures.push(`${label}: Record receipt trigger not found`);
+              } else {
+                await trigger.click();
+                await p.waitForTimeout(600);
+                const sheet = p.locator('div[role="dialog"][aria-label="Record purchase receipt"]');
+                if ((await sheet.count()) < 1) {
+                  failures.push(`${label}: purchase receipt sheet did not open`);
+                } else {
+                  if ((await p.locator(".tos-receipt-line").count()) < 1) {
+                    failures.push(`${label}: compact receipt line row missing`);
+                  }
+                  await assertCleanBody(p, label);
+                }
+              }
+              await p.screenshot({ path: `${EVIDENCE}/${shot}.png`, fullPage: true });
+              screenshotCount++;
+              console.log(`Captured ${shot}.png`);
+            } catch (err) {
+              failures.push(`${label}: ${err.message}`);
+            }
+            await ctx.close();
+          }
+
+          await receiptFlow(1280, "purchases-receipt-1280", "purchase-receipt-open-1280");
+          await receiptFlow(390, "purchases-receipt-390", "purchase-receipt-open-390");
+
+          // === Report failures ===
+          if (failures.length > 0) {
+            console.error("\n=== VISUAL QA FAILURES ===");
+            for (const f of failures) {
+              console.error(`  FAIL: ${f}`);
+            }
+            console.error(`\nTotal failures: ${failures.length}`);
+            console.error(`Total screenshots: ${screenshotCount}`);
+            process.exit(1);
+          }
+
+          console.log(`\nAll ${screenshotCount} screenshots captured successfully. No failures.`);
+          await browser.close();
+          CAPTURE
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-qa-screenshots
+          path: docs/qa/evidence/zai-ui-ux-premium/
+          retention-days: 30

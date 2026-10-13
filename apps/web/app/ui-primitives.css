@@ -931,6 +931,14 @@
   scrollbar-color: var(--tos-border-strong) transparent;
 }
 
+/* Sheet bodies scroll — children must never flex-collapse. A column flex
+   container shrinks overflowing children, and any child with overflow:hidden
+   (e.g. .tos-section) loses its automatic minimum size, silently collapsing
+   to zero height. Pin every direct child so overflowing content scrolls. */
+.tos-sheet__body > * {
+  flex-shrink: 0;
+}
+
 .tos-sheet__foot {
   flex-shrink: 0;
   padding: var(--tos-space-4) var(--tos-space-5);
@@ -1352,6 +1360,39 @@
   color: var(--tos-info);
 }
 
+.tos-callout__icon-wrap {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--tos-surface);
+  border: 1px solid var(--tos-border);
+  color: var(--tos-text-muted);
+  flex-shrink: 0;
+}
+
+.tos-callout--info .tos-callout__icon-wrap {
+  color: var(--tos-info);
+  border-color: #cfe0ec;
+}
+
+.tos-callout__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--tos-text-strong);
+  font-size: var(--tos-text-supporting);
+}
+
+.tos-callout__sub {
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-meta);
+  font-weight: 400;
+}
+
 /* --- Responsive grids ---------------------------------------------------- */
 @media (max-width: 1100px) {
   .tos-grid-stats,
@@ -1403,4 +1444,595 @@
 }
 .tos-banner__action:hover {
   text-decoration: underline;
+}
+
+/* ============================================
+   PREMIUM ANIMATIONS & MICRO-INTERACTIONS
+   ============================================ */
+
+/* --- Keyframe animations --- */
+@keyframes tos-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes tos-fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tos-fade-in-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tos-scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes tos-slide-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes tos-shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+@keyframes tos-pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201, 153, 53, 0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(201, 153, 53, 0); }
+}
+
+@keyframes tos-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- Animation utility classes --- */
+.tos-animate-fade-in { animation: tos-fade-in var(--tos-motion-medium) var(--tos-motion-ease-out) both; }
+.tos-animate-fade-in-up { animation: tos-fade-in-up var(--tos-motion-medium) var(--tos-motion-ease-out) both; }
+.tos-animate-fade-in-down { animation: tos-fade-in-down var(--tos-motion-medium) var(--tos-motion-ease-out) both; }
+.tos-animate-scale-in { animation: tos-scale-in var(--tos-motion-medium) var(--tos-motion-ease-out) both; }
+.tos-animate-slide-in-right { animation: tos-slide-in-right var(--tos-motion-medium) var(--tos-motion-ease-out) both; }
+
+/* Staggered children: add tos-stagger to parent, children animate in sequence */
+.tos-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.tos-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.tos-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.tos-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.tos-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.tos-stagger > *:nth-child(6) { animation-delay: 300ms; }
+
+/* --- Skeleton loading --- */
+.tos-skeleton {
+  background: linear-gradient(90deg, var(--tos-surface-soft) 25%, var(--tos-border) 50%, var(--tos-surface-soft) 75%);
+  background-size: 1000px 100%;
+  animation: tos-shimmer 2s infinite linear;
+  border-radius: var(--tos-radius-sm);
+}
+
+.tos-skeleton-text {
+  height: 14px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+}
+
+.tos-skeleton-text--lg { height: 24px; width: 60%; }
+.tos-skeleton-text--sm { height: 12px; width: 40%; }
+.tos-skeleton-card {
+  height: 120px;
+  border-radius: var(--tos-radius-md);
+}
+
+/* --- Spinner --- */
+.tos-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--tos-border);
+  border-top-color: var(--tos-gold);
+  border-radius: 50%;
+  animation: tos-spin 0.6s linear infinite;
+}
+
+.tos-spinner--lg { width: 28px; height: 28px; border-width: 3px; }
+
+/* --- Enhanced button hover (subtle lift) --- */
+.tos-btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.tos-btn-gold:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+/* --- Enhanced input focus (gold glow) --- */
+.tos-input:focus,
+.tos-select:focus {
+  border-color: var(--tos-gold);
+  box-shadow: var(--tos-shadow-glow), var(--tos-focus-ring);
+  background: var(--tos-surface);
+}
+
+/* --- Card hover (lift) --- */
+.tos-card-hover {
+  transition: transform var(--tos-motion-medium) var(--tos-motion-ease-out),
+              box-shadow var(--tos-motion-medium) var(--tos-motion-ease-out);
+}
+
+.tos-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--tos-shadow-hover);
+}
+
+/* --- Glassmorphism panel --- */
+.tos-glass {
+  background: var(--tos-glass-bg);
+  backdrop-filter: var(--tos-glass-blur);
+  -webkit-backdrop-filter: var(--tos-glass-blur);
+  border: 1px solid var(--tos-glass-border);
+}
+
+/* --- Gradient text --- */
+.tos-gradient-text {
+  background: var(--tos-gradient-gold);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* --- Pulsing dot (live status indicator) --- */
+.tos-pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tos-positive);
+  animation: tos-pulse-gold 2s infinite;
+}
+
+.tos-pulse-dot--gold {
+  background: var(--tos-gold);
+}
+
+.tos-pulse-dot--danger {
+  background: var(--tos-danger);
+}
+
+/* --- Sheet/dialog backdrop animation --- */
+.tos-sheet-scrim {
+  animation: tos-fade-in var(--tos-motion-fast) ease-out;
+}
+
+.tos-sheet {
+  animation: tos-slide-in-right var(--tos-motion-medium) var(--tos-motion-ease-out);
+}
+
+/* --- Toast/notification slide --- */
+@keyframes tos-toast-in {
+  from { opacity: 0; transform: translateY(-20px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.tos-toast {
+  animation: tos-toast-in var(--tos-motion-spring);
+}
+
+/* --- Number count-up (for KPIs) --- */
+@keyframes tos-count-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tos-stat-value {
+  animation: tos-count-up var(--tos-motion-medium) var(--tos-motion-ease-out);
+}
+
+/* --- Empty state illustration container --- */
+.tos-empty-illustration {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto var(--tos-space-4);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--tos-surface-soft);
+  color: var(--tos-text-soft);
+  font-size: 32px;
+}
+
+/* --- Smooth scrollbar --- */
+.tos-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--tos-border-strong) transparent;
+}
+
+.tos-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.tos-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tos-scroll::-webkit-scrollbar-thumb {
+  background: var(--tos-border-strong);
+  border-radius: 3px;
+}
+
+.tos-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--tos-text-soft);
+}
+
+
+
+/* --- Premium badge pulse for live/new --- */
+.tos-badge--live {
+  position: relative;
+}
+
+.tos-badge--live::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tos-positive);
+  animation: tos-pulse-gold 2s infinite;
+}
+
+/* ============================================
+   DASHBOARD COMMAND CENTER — premium polish
+   Visual hierarchy, mobile density, staggered
+   entrance, premium tappable cards.
+   ============================================ */
+
+/* Stat card head: tinted icon-tile + label row (replaces inline icon) */
+.tos-stat__head {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-3);
+}
+
+/* Tinted icon tile — premium feel, color-coded by metric tone */
+.tos-stat__icon-tile {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--tos-radius-sm);
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border);
+  color: var(--tos-text-muted);
+  flex-shrink: 0;
+}
+
+.tos-stat__icon-tile-svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tos-stat__icon-tile--neutral {
+  background: var(--tos-surface-soft);
+  border-color: var(--tos-border);
+  color: var(--tos-text-muted);
+}
+
+.tos-stat__icon-tile--gold {
+  background: var(--tos-gold);
+  border-color: var(--tos-gold);
+  color: #1a1206;
+}
+
+.tos-stat__icon-tile--positive {
+  background: var(--tos-positive-soft);
+  border-color: #c3e6d3;
+  color: var(--tos-positive);
+}
+
+.tos-stat__icon-tile--warning {
+  background: var(--tos-warning-soft);
+  border-color: var(--tos-gold-border);
+  color: var(--tos-warning);
+}
+
+.tos-stat__icon-tile--midnight {
+  background: var(--tos-midnight);
+  border-color: var(--tos-midnight);
+  color: #ffffff;
+}
+
+/* Hero KPI — today's revenue is visually dominant */
+.tos-stat--hero {
+  background: linear-gradient(135deg, var(--tos-gold-soft) 0%, var(--tos-surface) 72%);
+  border-color: var(--tos-gold-border);
+  border-left: 4px solid var(--tos-gold);
+  position: relative;
+  overflow: hidden;
+}
+
+.tos-stat--hero::after {
+  content: "";
+  position: absolute;
+  top: -48px;
+  right: -48px;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(201, 153, 53, 0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.tos-stat--hero .tos-stat__label {
+  color: var(--tos-warning);
+}
+
+.tos-stat__value--hero {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--tos-text-strong);
+  line-height: 1.1;
+}
+
+@media (max-width: 480px) {
+  .tos-stat__value--hero {
+    font-size: 21px;
+  }
+}
+
+.tos-stat__hint--warning {
+  color: var(--tos-warning);
+  font-weight: 600;
+}
+
+.tos-stat__hint--positive {
+  color: var(--tos-positive);
+  font-weight: 600;
+}
+
+/* Dashboard KPI grid — stays 2x2 on phone so the owner sees all four
+   business-health signals at a glance. Intentionally does NOT collapse
+   to a single column at 640px (override of the generic grid rule). */
+.tos-dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--tos-space-4);
+}
+
+@media (max-width: 1100px) {
+  .tos-dashboard-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Phone-width guard: long single-word KPI labels (e.g. "RECONCILIATIONS")
+   cannot wrap by default and would expand the document scroll width beyond
+   the 360-390px viewport. Tighten the card padding and label typography,
+   and let words break as a last-resort safety net. */
+@media (max-width: 480px) {
+  .tos-stat {
+    padding: var(--tos-space-4);
+  }
+
+  .tos-stat__head {
+    min-width: 0;
+    gap: var(--tos-space-2);
+  }
+
+  .tos-stat__label {
+    min-width: 0;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Recent sales — tighter, mobile-optimized rows (larger touch targets) */
+.tos-dashboard-sales {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tos-dashboard-sales__row {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3) var(--tos-space-4);
+  border-bottom: 1px solid var(--tos-border);
+  text-align: left;
+  width: 100%;
+  background: var(--tos-surface);
+  transition: background var(--tos-motion-fast) ease;
+  min-height: 56px;
+}
+
+.tos-dashboard-sales__row:last-child {
+  border-bottom: none;
+}
+
+.tos-dashboard-sales__row:hover {
+  background: var(--tos-surface-soft);
+}
+
+.tos-dashboard-sales__row:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+/* Premium quick-action grid — 2 columns on desktop, full-width stacked
+   rows on mobile (the 2x2 grid is too small on a phone). */
+.tos-quick-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-space-3);
+}
+
+@media (max-width: 640px) {
+  .tos-quick-action-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Premium tappable quick-action card — icon tile + label/desc + chevron */
+.tos-quick-action {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-3);
+  padding: var(--tos-space-3) var(--tos-space-4);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-sm);
+  background: var(--tos-surface);
+  color: var(--tos-text);
+  text-decoration: none;
+  text-align: left;
+  min-height: 64px;
+  transition: background var(--tos-motion-fast) ease, border-color var(--tos-motion-fast) ease,
+    transform var(--tos-motion-fast) ease, box-shadow var(--tos-motion-fast) ease;
+}
+
+.tos-quick-action:hover {
+  background: var(--tos-surface-soft);
+  border-color: var(--tos-gold-border);
+  transform: translateY(-1px);
+  box-shadow: var(--tos-shadow-card);
+}
+
+.tos-quick-action:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-quick-action:active {
+  transform: translateY(0);
+}
+
+.tos-quick-action__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--tos-radius-sm);
+  background: var(--tos-gold-soft);
+  color: var(--tos-gold);
+  flex-shrink: 0;
+}
+
+.tos-quick-action__icon-svg {
+  width: 20px;
+  height: 20px;
+}
+
+.tos-quick-action__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tos-quick-action__label {
+  font-size: var(--tos-text-supporting);
+  font-weight: 600;
+  color: var(--tos-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-quick-action__desc {
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tos-quick-action__chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--tos-text-soft);
+  flex-shrink: 0;
+}
+
+/* Prominent "View all" link — a pill, not a plain text link */
+.tos-view-all-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-space-1);
+  padding: var(--tos-space-1) var(--tos-space-3);
+  border-radius: var(--tos-radius-sm);
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border);
+  color: var(--tos-text-strong);
+  font-size: var(--tos-text-meta);
+  font-weight: 600;
+  text-decoration: none;
+  line-height: 1.5;
+  transition: background var(--tos-motion-fast) ease, border-color var(--tos-motion-fast) ease,
+    color var(--tos-motion-fast) ease;
+}
+
+.tos-view-all-link:hover {
+  background: var(--tos-gold-soft);
+  border-color: var(--tos-gold-border);
+  color: var(--tos-warning);
+}
+
+.tos-view-all-link__icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Offline banner — more visually distinct (left accent + icon tile + entrance
+   animation) while remaining calm (amber, not red). */
+.tos-banner--offline {
+  border-left-width: 4px;
+  border-left-color: var(--tos-gold);
+  padding-left: var(--tos-space-4);
+  animation: tos-fade-in-down var(--tos-motion-medium) var(--tos-motion-ease-out) both;
+}
+
+.tos-banner__icon-tile {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--tos-gold);
+  color: #1a1206;
+  flex-shrink: 0;
+}
+
+.tos-banner__icon-tile-svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tos-banner__offline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-space-1);
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tos-warning);
+}
+
+.tos-banner__offline-label-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tos-gold);
+  animation: tos-pulse-gold 2s infinite;
 }

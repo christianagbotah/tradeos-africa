@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
 import { Button } from "../ui/button";
-import { IconClose } from "../ui/icons";
+import { IconCalendar, IconClose, IconMail, IconPhone, IconReceipt, IconShield, IconWallet } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import {
   buildSupplierUpdatePayload,
@@ -54,6 +55,16 @@ const PAYMENT_METHODS: ReadonlyArray<{ value: PaymentMethod; label: string }> = 
   { value: "OTHER", label: "Other" },
 ];
 
+type StatIconTone = "gold" | "positive" | "warning" | "midnight" | "neutral";
+
+const STAT_TILE_CLASS: Record<StatIconTone, string> = {
+  gold: "tos-stat__icon-tile tos-stat__icon-tile--gold",
+  positive: "tos-stat__icon-tile tos-stat__icon-tile--positive",
+  warning: "tos-stat__icon-tile tos-stat__icon-tile--warning",
+  midnight: "tos-stat__icon-tile tos-stat__icon-tile--midnight",
+  neutral: "tos-stat__icon-tile tos-stat__icon-tile--neutral",
+};
+
 export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetProps) {
   const { session, role, bump } = useWorkspace();
   const [editOpen, setEditOpen] = useState(false);
@@ -67,11 +78,16 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
     return () => { if (typeof document !== "undefined") document.body.style.overflow = ""; };
   }, [supplier]);
 
-  if (!supplier) return null;
+  if (!supplier || !session) return null;
 
   const canWrite = roleCan(role as WorkspaceRole, SUPPLIER_WRITE_ROLES);
   const canPay = roleCan(role as WorkspaceRole, SUPPLIER_PAYMENT_ROLES);
-  const currencyCode = session?.currencyCode ?? "GHS";
+  const currencyCode = session.currencyCode;
+
+  const owesAmount = supplier.balanceMinor > 0;
+  const balanceCls = owesAmount
+    ? "tos-supplier-hero__balance tos-supplier-hero__balance--owes"
+    : "tos-supplier-hero__balance tos-supplier-hero__balance--settled";
 
   return (
     <>
@@ -81,18 +97,156 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Supplier</span>
             <h2 className="tos-sheet__title">{supplier.name}</h2>
-            <p className="tos-sheet__sub">{supplier.active ? "Active" : "Inactive"}</p>
+            <p className="tos-sheet__sub">{supplier.active ? "Active account" : "Inactive account"} · Updated {new Date(supplier.updatedAt).toLocaleString()}</p>
           </div>
-          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close"><IconClose style={{ width: 18, height: 18 }} /></button>
+          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close supplier detail"><IconClose style={{ width: 18, height: 18 }} /></button>
         </div>
         <div className="tos-sheet__body">
-          <dl className="tos-kv">
-            <div><dt className="tos-kv__key">Phone</dt><dd className="tos-kv__val">{supplier.phone ?? "—"}</dd></div>
-            <div><dt className="tos-kv__key">Email</dt><dd className="tos-kv__val">{supplier.email ?? "—"}</dd></div>
-            <div><dt className="tos-kv__key">Address</dt><dd className="tos-kv__val">{supplier.address ?? "—"}</dd></div>
-            <div><dt className="tos-kv__key">Payment terms</dt><dd className="tos-kv__val">{supplier.paymentTermsDays !== null ? `${supplier.paymentTermsDays} days` : "—"}</dd></div>
-            <div><dt className="tos-kv__key">Balance owed</dt><dd className="tos-kv__val">{supplier.balanceMinor > 0 ? <MoneyValue minor={supplier.balanceMinor} currencyCode={currencyCode} tone="negative" /> : <span className="tos-money-value tos-money-value--muted">—</span>}</dd></div>
-          </dl>
+          {/* Supplier hero — gold-tinted card with prominent payable balance */}
+          <div className="tos-supplier-hero tos-animate-fade-in-up">
+            <div className="tos-supplier-hero__head">
+              <div className="tos-supplier-hero__head-main">
+                <span className="tos-supplier-hero__eyebrow">{supplier.active ? "Active supplier" : "Inactive supplier"}</span>
+                <h3 className="tos-supplier-hero__name">{supplier.name}</h3>
+                <p className="tos-supplier-hero__sub">{supplier.address ?? "No address on file"}</p>
+              </div>
+              <span className={`tos-badge ${supplier.active ? "tos-badge--positive" : "tos-badge--neutral"}`}>
+                <span className="tos-badge__dot" />{supplier.active ? "Active" : "Inactive"}
+              </span>
+            </div>
+            <div className="tos-supplier-hero__balance-row">
+              <span className="tos-supplier-hero__balance-label">
+                {owesAmount ? "Outstanding payable" : "Payable balance"}
+              </span>
+              <MoneyValue
+                minor={supplier.balanceMinor}
+                currencyCode={currencyCode}
+                className={balanceCls}
+              />
+            </div>
+            <p className="tos-supplier-hero__hint">
+              {owesAmount
+                ? "This supplier is owed the amount above. Record a payment to settle it — the new balance is computed server-side from the supplier ledger."
+                : "Payable balance is settled. Purchase receipts will create new payables; payments reduce them — both are server-authoritative."}
+            </p>
+          </div>
+
+          {/* Supplier credit info — 3-up stats grid */}
+          <div className="tos-supplier-stats tos-animate-fade-in-up">
+            <SupplierStat
+              label="Payment terms"
+              icon={<IconCalendar className="tos-stat__icon-tile-svg" />}
+              iconTone={supplier.paymentTermsDays !== null ? "midnight" : "neutral"}
+              value={
+                supplier.paymentTermsDays !== null ? (
+                  <span className="tos-stat__value">{supplier.paymentTermsDays} days</span>
+                ) : (
+                  <span className="tos-stat__value tos-stat__value--muted">—</span>
+                )
+              }
+              hint={supplier.paymentTermsDays !== null ? "Pay within" : "No terms set"}
+            />
+            <SupplierStat
+              label="Account status"
+              icon={<IconShield className="tos-stat__icon-tile-svg" />}
+              iconTone={supplier.active ? "positive" : "warning"}
+              value={<span className="tos-stat__value">{supplier.active ? "Active" : "Inactive"}</span>}
+              hint={supplier.active ? "Can receive POs" : "Hidden from new POs"}
+            />
+            <SupplierStat
+              label="Last updated"
+              icon={<IconWallet className="tos-stat__icon-tile-svg" />}
+              iconTone="neutral"
+              value={<span className="tos-stat__value">{new Date(supplier.updatedAt).toLocaleDateString()}</span>}
+              hint={new Date(supplier.updatedAt).toLocaleTimeString()}
+            />
+          </div>
+
+          {/* Contact info — phone / email rows */}
+          <div className="tos-section tos-animate-fade-in-up">
+            <div className="tos-section__head">
+              <h3 className="tos-section__title">Contact</h3>
+              <span className="tos-section__sub">Reach the supplier</span>
+            </div>
+            <div className="tos-section__body--padded">
+              <div className="tos-contact-row">
+                <span className="tos-contact-row__icon" aria-hidden="true">
+                  <IconPhone style={{ width: 16, height: 16 }} />
+                </span>
+                <div className="tos-contact-row__body">
+                  <span className="tos-contact-row__label">Phone</span>
+                  <span className={supplier.phone ? "tos-contact-row__value" : "tos-contact-row__value tos-contact-row__value--muted"}>
+                    {supplier.phone ?? "No phone on file"}
+                  </span>
+                </div>
+              </div>
+              <div className="tos-contact-row">
+                <span className="tos-contact-row__icon" aria-hidden="true">
+                  <IconMail style={{ width: 16, height: 16 }} />
+                </span>
+                <div className="tos-contact-row__body">
+                  <span className="tos-contact-row__label">Email</span>
+                  <span className={supplier.email ? "tos-contact-row__value" : "tos-contact-row__value tos-contact-row__value--muted"}>
+                    {supplier.email ?? "No email on file"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Supplier ledger section — server-authoritative framing */}
+          <div className="tos-section tos-animate-fade-in-up">
+            <div className="tos-section__head">
+              <h3 className="tos-section__title">Supplier ledger</h3>
+              <span className="tos-section__sub">Server-authoritative</span>
+            </div>
+            <div className="tos-section__body">
+              <div className="tos-ledger-row">
+                <div className="tos-ledger-row__main">
+                  <span className="tos-ledger-row__icon" aria-hidden="true">
+                    <IconWallet style={{ width: 16, height: 16 }} />
+                  </span>
+                  <div className="tos-ledger-row__body">
+                    <span className="tos-ledger-row__title">Outstanding payable</span>
+                    <span className="tos-ledger-row__sub">
+                      Derived from purchase receipts − supplier payments
+                    </span>
+                  </div>
+                </div>
+                <MoneyValue
+                  minor={supplier.balanceMinor}
+                  currencyCode={currencyCode}
+                  className={
+                    owesAmount
+                      ? "tos-ledger-row__amount tos-ledger-row__amount--negative"
+                      : "tos-ledger-row__amount"
+                  }
+                />
+              </div>
+              <div className="tos-ledger-row">
+                <div className="tos-ledger-row__main">
+                  <span className="tos-ledger-row__icon" aria-hidden="true">
+                    <IconReceipt style={{ width: 16, height: 16 }} />
+                  </span>
+                  <div className="tos-ledger-row__body">
+                    <span className="tos-ledger-row__title">Last account update</span>
+                    <span className="tos-ledger-row__sub">
+                      {new Date(supplier.updatedAt).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+                <span className="tos-ledger-row__amount">Recorded</span>
+              </div>
+            </div>
+            <div className="tos-section__foot">
+              <span className="tos-callout tos-callout--info" style={{ flex: "1 1 auto" }}>
+                <span style={{ display: "flex", flexDirection: "column", gap: "var(--tos-space-1)" }}>
+                  <span>Ledger entries (purchase receipts, supplier payments, purchase returns) are recorded as server-authoritative transactions.</span>
+                  <span style={{ fontWeight: 400 }}>View the Purchases screen to see this supplier&apos;s recent receipts and post returns to them.</span>
+                </span>
+              </span>
+            </div>
+          </div>
 
           {editOpen && session ? (
             <SupplierEditForm
@@ -233,7 +387,7 @@ function SupplierEditForm({ supplier, onCancel, onSubmit }: SupplierEditFormProp
   );
 }
 
-// --- SUPPLIER_PAYMENT_CREATE form ---------------------------------------
+// --- SUPPLIER_PAYMENT_CREATE form (account-selection logic byte-identical) --
 
 interface SupplierPaymentFormProps {
   supplier: Supplier;
@@ -293,7 +447,7 @@ function SupplierPaymentForm({ supplier, currencyCode, businessId, branchId, onC
   return (
     <form className="tos-stack" onSubmit={handleSubmit} style={{ marginTop: "var(--tos-space-3)" }}>
       <div className="tos-callout tos-callout--info">
-        The server validates the payment does not exceed the supplier\'s outstanding payable. The new balance is computed server-side.
+        The server validates the payment does not exceed the supplier's outstanding payable. The new balance is computed server-side.
       </div>
       <MoneyInput currencyCode={currencyCode} valueMinor={amountMinor} onChange={setAmountMinor} label="Amount paid" size="lg" required />
       <div className="tos-field">
@@ -305,7 +459,7 @@ function SupplierPaymentForm({ supplier, currencyCode, businessId, branchId, onC
       <div className="tos-field">
         <label className="tos-field__label" htmlFor="sup-pay-account">Account</label>
         {accountsLoading ? (
-          <div className="tos-input tos-input--readonly">Loading accounts\u2026</div>
+          <div className="tos-input tos-input--readonly">Loading accounts…</div>
         ) : eligibleAccounts.length > 1 ? (
           <select id="sup-pay-account" className="tos-select" value={moneyAccountId ?? ""} onChange={(e) => setMoneyAccountId(e.target.value || null)}>
             {eligibleAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -315,7 +469,7 @@ function SupplierPaymentForm({ supplier, currencyCode, businessId, branchId, onC
         ) : (
           <div className="tos-banner tos-banner--warning">
             <span className="tos-banner__title">No active {PAYMENT_METHODS.find((m) => m.value === method)?.label ?? method} account is configured for this branch.</span>
-            <a className="tos-banner__action" href="/cashbook">Configure in Cashbook \u2192</a>
+            <a className="tos-banner__action" href="/cashbook">Configure in Cashbook →</a>
           </div>
         )}
       </div>
@@ -383,6 +537,7 @@ export function SupplierFormSheet({ open, onClose, onCreated }: SupplierFormShee
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Master data</span>
             <h2 className="tos-sheet__title">Add supplier</h2>
+            <p className="tos-sheet__sub">Suppliers carry payment terms and a payable balance derived server-side.</p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close"><IconClose style={{ width: 18, height: 18 }} /></button>
         </div>
@@ -419,5 +574,30 @@ export function SupplierFormSheet({ open, onClose, onCreated }: SupplierFormShee
         </div>
       </div>
     </>
+  );
+}
+
+// --- Supplier stat card (reuses tos-stat + tos-stat__icon-tile) ----------
+
+interface SupplierStatProps {
+  label: string;
+  icon: ReactNode;
+  iconTone: StatIconTone;
+  value: ReactNode;
+  hint?: string;
+}
+
+function SupplierStat({ label, icon, iconTone, value, hint }: SupplierStatProps) {
+  return (
+    <div className="tos-stat tos-card-hover">
+      <div className="tos-stat__head">
+        <span className={STAT_TILE_CLASS[iconTone]} aria-hidden="true">
+          {icon}
+        </span>
+        <span className="tos-stat__label">{label}</span>
+      </div>
+      {value}
+      {hint ? <span className="tos-stat__hint">{hint}</span> : null}
+    </div>
   );
 }

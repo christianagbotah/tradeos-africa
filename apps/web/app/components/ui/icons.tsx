@@ -456,3 +456,52 @@ export function IconEdit(props: IconProps) {
     </svg>
   );
 }
+
+export function IconBanknote(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <circle cx="12" cy="12" r="2.5" />
+      <path d="M6 12h.01M18 12h.01" />
+    </svg>
+  );
+}
+
+export function IconCreditCard(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20" />
+      <path d="M6 15h4" />
+    </svg>
+  );
+}
+
+export function IconSmartphone(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="6" y="2" width="12" height="20" rx="2" />
+      <path d="M11 18h2" />
+    </svg>
+  );
+}
+
+export function IconCloudOff(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M9.5 2.5A6.5 6.5 0 0 1 16 9c0 .35-.03.7-.08 1.04" />
+      <path d="M3 3l18 18" />
+      <path d="M5.5 5.5A6.5 6.5 0 0 0 8 18h8a4 4 0 0 0 1.6-.33" />
+    </svg>
+  );
+}
+
+export function IconPackageOpen(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 3L2 8l10 5 10-5-10-5z" />
+      <path d="M2 8v8l10 5 10-5V8" />
+      <path d="M12 13v8" />
+    </svg>
+  );
+}

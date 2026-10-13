@@ -1,12 +1,23 @@
 "use client";
 
 import { useMemo } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyValue } from "../business/money-value";
 import { StatePanel } from "../ui/state-panel";
-import { IconArrowLeft, IconBox, IconCashbook, IconCustomers, IconReceipt, IconRefresh, IconSales, IconSell, IconTrending } from "../ui/icons";
+import {
+  IconAlert,
+  IconBox,
+  IconCashbook,
+  IconChevronRight,
+  IconCustomers,
+  IconReceipt,
+  IconRefresh,
+  IconSell,
+  IconTrending,
+} from "../ui/icons";
 import { Button } from "../ui/button";
 import type { SaleSummary } from "../workspace/workspace-provider";
 
@@ -14,8 +25,18 @@ interface SalesResponse {
   sales: SaleSummary[];
 }
 
+type StatIconTone = "gold" | "positive" | "warning" | "midnight" | "neutral";
+
+const STAT_TILE_CLASS: Record<StatIconTone, string> = {
+  gold: "tos-stat__icon-tile tos-stat__icon-tile--gold",
+  positive: "tos-stat__icon-tile tos-stat__icon-tile--positive",
+  warning: "tos-stat__icon-tile tos-stat__icon-tile--warning",
+  midnight: "tos-stat__icon-tile tos-stat__icon-tile--midnight",
+  neutral: "tos-stat__icon-tile tos-stat__icon-tile--neutral",
+};
+
 export function DashboardCommandCenter() {
-  const { session, catalog, queue, role } = useWorkspace();
+  const { session, catalog, inventory, queue, role } = useWorkspace();
   const salesPath = session
     ? `/v1/sales?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=8`
     : null;
@@ -29,21 +50,21 @@ export function DashboardCommandCenter() {
       return d.toDateString() === today.toDateString();
     });
     const todayRevenue = todaySales.reduce((sum, s) => sum + (s.totalMinor - s.refundTotalMinor), 0);
-    const activeCatalog = catalog.filter((c) => c.status === "ACTIVE");
-    const lowStock = activeCatalog.filter((c) => c.trackInventory && c.inventoryAvailable !== null && c.inventoryAvailable <= 5);
+    const activeCount = catalog.filter((c) => c.active).length;
+    const lowStockCount = inventory.filter((i) => i.available <= 5).length;
     return {
       todayCount: todaySales.length,
       todayRevenue,
-      activeCount: activeCatalog.length,
-      lowStockCount: lowStock.length,
+      activeCount,
+      lowStockCount,
     };
-  }, [data, catalog]);
+  }, [data, catalog, inventory]);
 
   if (loading) {
     return (
       <div className="tos-page">
         <DashboardHeader />
-        <div className="tos-grid-stats">
+        <div className="tos-dashboard-stats">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="tos-card tos-card--padded">
               <span className="tos-skeleton tos-skeleton--line-short" />
@@ -81,66 +102,69 @@ export function DashboardCommandCenter() {
       <DashboardHeader />
 
       {!queue.online ? (
-        <div className="tos-banner tos-banner--warning" role="status">
-          <IconArrowLeft className="tos-banner__icon" />
-          <div className="tos-banner__body">
-            <span className="tos-banner__title">You are offline</span>
-            <span className="tos-banner__text">
-              Sales will queue locally and reconcile automatically when you reconnect.
-              {queue.pending > 0 ? ` ${queue.pending} mutation(s) pending.` : ""}
-            </span>
-          </div>
-        </div>
+        <OfflineBanner pending={queue.pending} />
       ) : null}
 
-      <div className="tos-grid-stats">
+      {/* KPI grid — 4-up on desktop, 2x2 on phone. Order is deliberate:
+          row 1 = revenue + sales count, row 2 = catalog + sync. */}
+      <div className="tos-dashboard-stats tos-stagger">
         <StatCard
           label="Today's revenue"
-          icon={<IconTrending className="tos-stat__icon" />}
-          value={<MoneyValue minor={stats.todayRevenue} currencyCode={currency} size="lg" />}
+          icon={<IconTrending className="tos-stat__icon-tile-svg" />}
+          iconTone="gold"
+          variant="hero"
+          value={<MoneyValue minor={stats.todayRevenue} currencyCode={currency} className="tos-stat__value--hero" />}
           hint={`${stats.todayCount} sale(s) today`}
         />
         <StatCard
+          label="Recent sales"
+          icon={<IconReceipt className="tos-stat__icon-tile-svg" />}
+          iconTone="midnight"
+          value={<span className="tos-stat__value">{sales.length}</span>}
+          hint="Last 8 transactions"
+        />
+        <StatCard
           label="Active catalog"
-          icon={<IconBox className="tos-stat__icon" />}
+          icon={<IconBox className="tos-stat__icon-tile-svg" />}
+          iconTone={stats.lowStockCount > 0 ? "warning" : "positive"}
           value={<span className="tos-stat__value">{stats.activeCount}</span>}
           hint={stats.lowStockCount > 0 ? `${stats.lowStockCount} low-stock item(s)` : "Stock levels healthy"}
-          hintTone={stats.lowStockCount > 0 ? "warning" : "default"}
+          hintTone={stats.lowStockCount > 0 ? "warning" : "positive"}
         />
         <StatCard
           label="Pending sync"
-          icon={<IconRefresh className="tos-stat__icon" />}
+          icon={<IconRefresh className="tos-stat__icon-tile-svg" />}
+          iconTone={queue.pending > 0 ? "warning" : "neutral"}
           value={<span className="tos-stat__value">{queue.pending}</span>}
           hint={queue.pending > 0 ? "Will sync automatically" : "All caught up"}
-        />
-        <StatCard
-          label="Recent sales"
-          icon={<IconReceipt className="tos-stat__icon" />}
-          value={<span className="tos-stat__value">{sales.length}</span>}
-          hint="Last 8 transactions"
+          hintTone={queue.pending > 0 ? "warning" : "default"}
         />
       </div>
 
       <div className="tos-grid-two">
-        <div className="tos-section">
+        <section className="tos-section">
           <div className="tos-section__head">
             <h2 className="tos-section__title">Recent sales</h2>
-            <Link href="/sales" className="tos-public__form-link">View all →</Link>
+            <Link href="/sales" className="tos-view-all-link">
+              View all
+              <IconChevronRight className="tos-view-all-link__icon" />
+            </Link>
           </div>
           <div className="tos-section__body">
             {sales.length === 0 ? (
               <StatePanel
                 inline
                 variant="empty"
-                title="No sales yet"
-                text="Once you make your first sale, it will appear here."
+                icon={<IconReceipt className="tos-state__icon" />}
+                title="No sales yet today"
+                text="Once you make your first sale, it will appear here with the customer, amount, and status. Your dashboard updates automatically."
                 actionLabel="Open POS"
                 onAction={() => { window.location.href = "/sell"; }}
               />
             ) : (
-              <ul className="tos-list" style={{ borderRadius: 0, border: "none", boxShadow: "none" }}>
+              <ul className="tos-dashboard-sales tos-stagger">
                 {sales.slice(0, 6).map((sale) => (
-                  <li key={sale.id} className="tos-list__row" style={{ borderBottom: "1px solid var(--tos-border)" }}>
+                  <li key={sale.id} className="tos-dashboard-sales__row tos-animate-fade-in-up">
                     <div className="tos-list__row-main">
                       <span className="tos-list__row-title">{sale.customer?.name ?? sale.customer?.phone ?? "Walk-in"}</span>
                       <span className="tos-list__row-sub">
@@ -157,21 +181,21 @@ export function DashboardCommandCenter() {
               </ul>
             )}
           </div>
-        </div>
+        </section>
 
-        <div className="tos-section">
+        <section className="tos-section">
           <div className="tos-section__head">
             <h2 className="tos-section__title">Quick actions</h2>
           </div>
           <div className="tos-section__body--padded">
-            <div className="tos-grid-two">
-              <QuickAction href="/sell" icon={<IconSell style={{ width: 20, height: 20 }} />} label="New sale" desc="Open the POS" />
-              <QuickAction href="/catalog" icon={<IconBox style={{ width: 20, height: 20 }} />} label="Add product" desc="Manage catalog" />
-              <QuickAction href="/customers" icon={<IconCustomers style={{ width: 20, height: 20 }} />} label="Add customer" desc="Track credit" />
-              <QuickAction href="/cashbook" icon={<IconCashbook style={{ width: 20, height: 20 }} />} label="Record expense" desc="Cashbook" />
+            <div className="tos-quick-action-grid">
+              <QuickAction href="/sell" icon={<IconSell className="tos-quick-action__icon-svg" />} label="New sale" desc="Open the POS" />
+              <QuickAction href="/catalog" icon={<IconBox className="tos-quick-action__icon-svg" />} label="Add product" desc="Manage catalog" />
+              <QuickAction href="/customers" icon={<IconCustomers className="tos-quick-action__icon-svg" />} label="Add customer" desc="Track credit" />
+              <QuickAction href="/cashbook" icon={<IconCashbook className="tos-quick-action__icon-svg" />} label="Record expense" desc="Cashbook" />
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
       {role === "VIEWER" ? (
@@ -203,41 +227,91 @@ function DashboardHeader() {
   );
 }
 
+function OfflineBanner({ pending }: { pending: number }) {
+  return (
+    <div className="tos-banner tos-banner--warning tos-banner--offline" role="status">
+      <span className="tos-banner__icon-tile" aria-hidden="true">
+        <IconAlert className="tos-banner__icon-tile-svg" />
+      </span>
+      <div className="tos-banner__body">
+        <span className="tos-banner__offline-label">
+          <span className="tos-banner__offline-label-dot" aria-hidden="true" />
+          Offline
+        </span>
+        <span className="tos-banner__title">You are offline</span>
+        <span className="tos-banner__text">
+          Sales will queue locally and reconcile automatically when you reconnect.
+          {pending > 0 ? ` ${pending} mutation(s) pending.` : ""}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+interface StatCardProps {
+  label: string;
+  icon: ReactNode;
+  value: ReactNode;
+  hint?: string;
+  hintTone?: "default" | "warning" | "positive";
+  variant?: "default" | "hero";
+  iconTone?: StatIconTone;
+}
+
 function StatCard({
   label,
   icon,
   value,
   hint,
   hintTone = "default",
-}: {
-  label: string;
-  icon: React.ReactNode;
-  value: React.ReactNode;
-  hint?: string;
-  hintTone?: "default" | "warning";
-}) {
+  variant = "default",
+  iconTone = "neutral",
+}: StatCardProps) {
+  const cls = variant === "hero"
+    ? "tos-stat tos-card-hover tos-animate-fade-in-up tos-stat--hero"
+    : "tos-stat tos-card-hover tos-animate-fade-in-up";
+
+  const hintCls = hintTone === "warning"
+    ? "tos-stat__hint tos-stat__hint--warning"
+    : hintTone === "positive"
+      ? "tos-stat__hint tos-stat__hint--positive"
+      : "tos-stat__hint";
+
   return (
-    <div className="tos-stat">
-      <span className="tos-stat__label">
-        {icon}
-        {label}
-      </span>
-      {value}
-      {hint ? (
-        <span className="tos-stat__hint" style={hintTone === "warning" ? { color: "var(--tos-warning)" } : undefined}>
-          {hint}
+    <div className={cls}>
+      <div className="tos-stat__head">
+        <span className={STAT_TILE_CLASS[iconTone]} aria-hidden="true">
+          {icon}
         </span>
-      ) : null}
+        <span className="tos-stat__label">{label}</span>
+      </div>
+      {value}
+      {hint ? <span className={hintCls}>{hint}</span> : null}
     </div>
   );
 }
 
-function QuickAction({ href, icon, label, desc }: { href: string; icon: React.ReactNode; label: string; desc: string }) {
+function QuickAction({
+  href,
+  icon,
+  label,
+  desc,
+}: {
+  href: string;
+  icon: ReactNode;
+  label: string;
+  desc: string;
+}) {
   return (
-    <Link href={href} className="tos-more-tile" style={{ minHeight: 96, textAlign: "left" }}>
-      <span className="tos-more-tile__icon" style={{ color: "var(--tos-gold)" }}>{icon}</span>
-      <span className="tos-more-tile__label">{label}</span>
-      <span className="tos-list__row-sub">{desc}</span>
+    <Link href={href} className="tos-quick-action tos-card-hover">
+      <span className="tos-quick-action__icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="tos-quick-action__body">
+        <span className="tos-quick-action__label">{label}</span>
+        <span className="tos-quick-action__desc">{desc}</span>
+      </span>
+      <IconChevronRight className="tos-quick-action__chevron" aria-hidden="true" />
     </Link>
   );
 }
