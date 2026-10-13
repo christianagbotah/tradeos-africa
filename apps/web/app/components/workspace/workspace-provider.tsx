@@ -166,9 +166,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const refreshCatalog = useCallback(async () => {
     if (!session) return;
     try {
-      const res = await fetch(`/v1/catalog/items?businessId=${encodeURIComponent(session.businessId)}`, {
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-      });
+      const res = await offlineQueue.authenticatedFetch(`/v1/catalog/items?businessId=${encodeURIComponent(session.businessId)}`);
       if (!res.ok) {
         setFatal(`Could not load catalog (${res.status}).`);
         return;
@@ -179,14 +177,13 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     } catch (error) {
       setFatal(error instanceof Error ? error.message : "Could not load catalog.");
     }
-  }, [session]);
+  }, [offlineQueue, session]);
 
   const refreshInventory = useCallback(async () => {
     if (!session) return;
     try {
-      const res = await fetch(
+      const res = await offlineQueue.authenticatedFetch(
         `/v1/inventory?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}`,
-        { headers: { Authorization: `Bearer ${session.accessToken}` } },
       );
       if (!res.ok) {
         // Stock levels are non-blocking — POS/Catalog still work without them.
@@ -198,14 +195,12 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     } catch {
       setInventory([]);
     }
-  }, [session]);
+  }, [offlineQueue, session]);
 
   const refreshCustomers = useCallback(async () => {
     if (!session) return;
     try {
-      const res = await fetch(`/v1/customers?businessId=${encodeURIComponent(session.businessId)}`, {
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-      });
+      const res = await offlineQueue.authenticatedFetch(`/v1/customers?businessId=${encodeURIComponent(session.businessId)}`);
       if (!res.ok) {
         return;
       }
@@ -214,7 +209,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     } catch {
       // Customers are non-blocking — leave the list empty.
     }
-  }, [session]);
+  }, [offlineQueue, session]);
 
   useEffect(() => {
     if (!session) {

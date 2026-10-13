@@ -265,7 +265,7 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
                   payload,
                 });
                 await queue.enqueue(mutation);
-                await queue.flush({
+                await queue.flushOrThrow({
                   activeBusinessId: session.businessId,
                   online: typeof navigator !== "undefined" ? navigator.onLine : true,
                 });
@@ -292,7 +292,7 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
                   payload,
                 });
                 await queue.enqueue(mutation);
-                await queue.flush({
+                await queue.flushOrThrow({
                   activeBusinessId: session.businessId,
                   online: typeof navigator !== "undefined" ? navigator.onLine : true,
                 });
@@ -555,7 +555,7 @@ export function CustomerFormSheet({ open, onClose, onCreated }: CustomerFormShee
         payload,
       });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       bump();
       onCreated();
     } catch (err) {

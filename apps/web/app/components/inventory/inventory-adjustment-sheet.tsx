@@ -144,7 +144,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
         payload: buildInventoryAdjustmentPayload(payload),
       });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       await refreshInventory();
       onSaved();
     } catch (err) {

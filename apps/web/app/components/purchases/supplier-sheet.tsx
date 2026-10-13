@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
@@ -260,7 +260,7 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
                   payload,
                 });
                 await queue.enqueue(mutation);
-                await queue.flush({
+                await queue.flushOrThrow({
                   activeBusinessId: session.businessId,
                   online: typeof navigator !== "undefined" ? navigator.onLine : true,
                 });
@@ -287,7 +287,7 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
                   payload,
                 });
                 await queue.enqueue(mutation);
-                await queue.flush({
+                await queue.flushOrThrow({
                   activeBusinessId: session.businessId,
                   online: typeof navigator !== "undefined" ? navigator.onLine : true,
                 });
@@ -501,10 +501,15 @@ export function SupplierFormSheet({ open, onClose, onCreated }: SupplierFormShee
   const [terms, setTerms] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) { setName(""); setPhone(""); setEmail(""); setAddress(""); setTerms(""); setBusy(false); setError(null); }
   }, [open]);
+
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [error]);
 
   if (!open || !session) return null;
   const canWrite = roleCan(role as WorkspaceRole, SUPPLIER_WRITE_ROLES);
@@ -522,7 +527,7 @@ export function SupplierFormSheet({ open, onClose, onCreated }: SupplierFormShee
       if (terms.trim()) payload.paymentTermsDays = Number(terms);
       const mutation = queue.build({ businessId: session.businessId, mutationType: "SUPPLIER_CREATE", payload });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       bump(); onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create supplier.");
@@ -564,7 +569,7 @@ export function SupplierFormSheet({ open, onClose, onCreated }: SupplierFormShee
             <label className="tos-field__label" htmlFor="sup-terms">Payment terms (days)</label>
             <input id="sup-terms" type="number" min={0} className="tos-input" value={terms} onChange={(e) => setTerms(e.target.value)} disabled={!canWrite} />
           </div>
-          {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
+          {error ? <div ref={errorRef} className="tos-banner tos-banner--danger" role="alert"><span className="tos-banner__title">{error}</span></div> : null}
         </form>
         <div className="tos-sheet__foot">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>

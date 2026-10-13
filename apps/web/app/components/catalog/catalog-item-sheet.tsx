@@ -297,7 +297,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
         payload,
       });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       await refreshCatalog();
       onSaved();
     } catch (err) {
@@ -324,7 +324,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
         payload,
       });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       await refreshCatalog();
       onSaved();
     } catch (err) {

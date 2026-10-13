@@ -22,6 +22,7 @@ import {
   type SyncTransport,
 } from "@tradeos/client-core/sync-runtime";
 import type { SyncPushRequest, SyncResponse } from "@tradeos/contracts";
+import { fetchWithSessionRefresh, readApiErrorMessage } from "./auth-fetch";
 
 const STORAGE_KEY = "tradeos.web.mutationQueue.v1";
 const SESSION_KEY = "tradeos.web.session.v1";
@@ -141,30 +142,20 @@ class LocalStorageSessionStore implements SessionStorage {
 
 // --- Fetch-based sync transport ------------------------------------------
 
-interface FetchTransportOptions {
-  /** Returns the current access token, or null if signed out. */
-  getToken(): string | null;
-}
-
 class FetchSyncTransport implements SyncTransport {
-  constructor(private readonly options: FetchTransportOptions) {}
+  constructor(private readonly sessionStore: SessionStorage) {}
 
   async push(request: SyncPushRequest): Promise<SyncResponse> {
-    const token = this.options.getToken();
-    if (!token) {
-      throw new Error("Not authenticated");
-    }
-    const response = await fetch("/v1/sync", {
+    const response = await fetchWithSessionRefresh(this.sessionStore, "/v1/sync", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
     });
     if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new SyncTransportError(response.status, text || response.statusText);
+      throw new SyncTransportError(
+        response.status,
+        await readApiErrorMessage(response, "Sync failed"),
+      );
     }
     return (await response.json()) as SyncResponse;
   }
@@ -195,9 +186,7 @@ export class WebOfflineQueue {
     this.deps = deps;
     this.store = new LocalStorageQueueStore();
     this.sessionStore = new LocalStorageSessionStore();
-    this.transport = new FetchSyncTransport({
-      getToken: () => this.sessionStore.load()?.accessToken ?? null,
-    });
+    this.transport = new FetchSyncTransport(this.sessionStore);
     this.queue = new OfflineMutationQueue(this.store, {
       now: deps.now,
       createMutationId: deps.createMutationId,
@@ -207,6 +196,11 @@ export class WebOfflineQueue {
   /** Returns the localStorage-backed session store. */
   get sessions(): SessionStorage {
     return this.sessionStore;
+  }
+
+  /** Fetch an authenticated API resource, refreshing an expired access token once. */
+  authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    return fetchWithSessionRefresh(this.sessionStore, input, init);
   }
 
   /** Enqueue a mutation. Returns true if added, false if duplicate. */
@@ -242,6 +236,27 @@ export class WebOfflineQueue {
       transport: this.transport,
     };
     return this.queue.flush(flushOptions);
+  }
+
+  /**
+   * Flush from an interactive UI action and surface server REJECTED results.
+   * The failed mutation remains in durable storage so the user can retry it.
+   */
+  async flushOrThrow(options: { activeBusinessId: string | null; online: boolean }): Promise<FlushSummary> {
+    const before = await this.queue.getSnapshot();
+    const candidateIds = new Set(
+      before.pending
+        .filter((mutation) => !options.activeBusinessId || mutation.businessId === options.activeBusinessId)
+        .map((mutation) => mutation.clientMutationId),
+    );
+    const summary = await this.flush(options);
+    if (summary.rejected > 0) {
+      const after = await this.queue.getSnapshot();
+      const failed = after.failed.find((entry) => candidateIds.has(entry.mutation.clientMutationId));
+      const message = failed?.result.errorMessage ?? failed?.result.errorCode ?? "The server rejected this change.";
+      throw new Error(message);
+    }
+    return summary;
   }
 
   /** Clear all queued mutations (used on sign-out / business switch). */

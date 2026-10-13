@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useWorkspace } from "../app/components/workspace/use-workspace";
+import { getOfflineQueue } from "./offline-sync";
+import { readApiErrorMessage } from "./auth-fetch";
 
 export interface ApiFetchState<T> {
   data: T | null;
@@ -39,18 +41,17 @@ export function useApiFetch<T>(path: string | null, options?: { method?: string;
         const init: RequestInit = {
           method: options?.method ?? "GET",
           headers: {
-            Authorization: `Bearer ${session.accessToken}`,
             ...(options?.body ? { "Content-Type": "application/json" } : {}),
           },
         };
-      if (options?.body) {
-        init.body = JSON.stringify(options.body);
-      }
-      const res = await fetch(path, init);
+        if (options?.body) {
+          init.body = JSON.stringify(options.body);
+        }
+        const res = await getOfflineQueue().authenticatedFetch(path, init);
         if (cancelled) return;
         if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          setState({ data: null, loading: false, error: text || `Request failed (${res.status})` });
+          const message = await readApiErrorMessage(res);
+          setState({ data: null, loading: false, error: message });
           return;
         }
         const json = (await res.json()) as T;

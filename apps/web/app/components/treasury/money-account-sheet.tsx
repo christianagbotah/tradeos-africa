@@ -225,7 +225,7 @@ export function MoneyAccountFormSheet({ open, onClose, onCreated }: MoneyAccount
       if (referenceLabel.trim()) payload.referenceLabel = referenceLabel.trim();
       const mutation = queue.build({ businessId: session.businessId, mutationType: "MONEY_ACCOUNT_CREATE", payload });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       bump(); onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create account.");
