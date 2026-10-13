@@ -457,7 +457,7 @@ health_check_url() {
     fi
     [[ "$url" == test://* ]] && return 0
   fi
-  curl --fail --silent --show-error --max-time 8 --retry 2 --retry-delay 1 --output /dev/null -- "$url"
+  curl --fail --silent --show-error --max-time 8 --retry 8 --retry-delay 1 --retry-connrefused --retry-max-time 12 --output /dev/null -- "$url"
 }
 
 verify_configured_health() {

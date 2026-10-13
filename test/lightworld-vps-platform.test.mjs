@@ -134,6 +134,47 @@ function waitForChild(child) {
   });
 }
 
+test('health check retries initial connection refusal during bounded service startup', async () => {
+  const probe = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['-e', `
+      const http = require('node:http');
+      const probe = http.createServer((req, res) => { res.end('probe'); });
+      probe.listen(0, '127.0.0.1', () => {
+        const port = probe.address().port;
+        process.stdout.write(String(port) + '\\n');
+        probe.close(() => process.exit(0));
+      });
+      probe.on('error', (error) => { console.error(error); process.exit(1); });
+    `], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (code) => {
+      if (code !== 0) reject(new Error(stderr || `port probe exited ${code}`));
+      else resolve(Number(stdout.trim()));
+    });
+  });
+
+  const delayedServer = spawn(process.execPath, ['-e', `
+    const http = require('node:http');
+    setTimeout(() => {
+      const server = http.createServer((req, res) => { res.statusCode = 200; res.end('ok'); });
+      server.listen(${probe}, '127.0.0.1');
+      setTimeout(() => server.close(() => process.exit(0)), 5000);
+    }, 1200);
+  `], { stdio: 'ignore' });
+
+  try {
+    const started = Date.now();
+    const result = run('bash', ['-c', 'source "$1"; health_check_url "$2"', 'bash', commonPath, `http://127.0.0.1:${probe}/`]);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.ok(Date.now() - started >= 1000, 'health check should have observed the delayed startup');
+  } finally {
+    delayedServer.kill('SIGTERM');
+  }
+});
+
 test('internal deployment executables have a fail-closed Bash contract', () => {
   for (const file of [commonPath, deployPath, statusPath, rollbackPath]) {
     assert.equal(fs.existsSync(file), true, `${path.relative(repoRoot, file)} must exist`);
