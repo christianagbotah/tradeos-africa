@@ -240,7 +240,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                   <IconShield style={{ width: 16, height: 16 }} />
                 </span>
                 <span className="tos-callout__body">
-                  Exchanges are immutable once posted. The original sale is never edited — a corrective exchange case is created with the returned goods and the new goods recorded as server-authoritative line items.
+                  Exchanges keep the original receipt unchanged and add the returned and replacement items as a separate correction.
                   <span className="tos-callout__sub"> The net difference is settled server-side: the customer pays if the new item costs more, or receives a refund if it costs less.</span>
                 </span>
               </div>

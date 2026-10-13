@@ -775,6 +775,32 @@
   gap: var(--tos-space-3);
 }
 
+/* Shared responsive form grids for related fields. */
+.tos-form-grid {
+  display: grid;
+  gap: var(--tos-space-3);
+  align-items: end;
+}
+
+.tos-form-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tos-catalog-unit-grid {
+  align-items: end;
+}
+
+.tos-catalog-conversion-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 36px;
+  gap: var(--tos-space-3);
+  align-items: end;
+}
+
+.tos-catalog-empty-hint {
+  margin: var(--tos-space-2) 0 var(--tos-space-1);
+}
+
 .tos-public__form-actions {
   display: flex;
   flex-direction: column;
@@ -1435,6 +1461,15 @@
 
   .tos-public__form-row {
     grid-template-columns: 1fr;
+  }
+
+  .tos-form-grid--3,
+  .tos-catalog-conversion-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tos-catalog-conversion-grid .tos-receipt-builder-line__remove {
+    justify-self: end;
   }
 }
 

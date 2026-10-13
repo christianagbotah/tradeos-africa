@@ -318,7 +318,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
             </span>
             <span className="tos-callout__body">
               The stock balance is derived from movements — it is never overwritten directly.
-              <span className="tos-callout__sub"> This adjustment creates an evidence-grade movement that reconciles to the cashbook (for damage, theft, giveaway). The new balances are computed server-side from the running movement ledger.</span>
+              <span className="tos-callout__sub"> This adjustment is added to the stock history and, where relevant, reflected in the cashbook for damage, theft or giveaways.</span>
             </span>
           </div>
 

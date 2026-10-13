@@ -89,7 +89,7 @@ export function AppShell({ children }: AppShellProps) {
               </span>
               <span className="tos-sidebar__queue-text">
                 {queue.online
-                  ? "Queued mutations will sync automatically."
+                  ? "Queued offline changes will sync automatically."
                   : "Sales will queue locally and sync when you reconnect."}
               </span>
             </div>

@@ -126,8 +126,8 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
             </div>
             <p className="tos-supplier-hero__hint">
               {owesAmount
-                ? "This supplier is owed the amount above. Record a payment to settle it — the new balance is computed server-side from the supplier ledger."
-                : "Payable balance is settled. Purchase receipts will create new payables; payments reduce them — both are server-authoritative."}
+                ? "This supplier is owed the amount above. Record a payment to reduce the outstanding balance."
+                : "Payable balance is settled. New purchase receipts increase the balance and supplier payments reduce it automatically."}
             </p>
           </div>
 
@@ -194,7 +194,7 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
             </div>
           </div>
 
-          {/* Supplier ledger section — server-authoritative framing */}
+          {/* Supplier account history */}
           <div className="tos-section tos-animate-fade-in-up">
             <div className="tos-section__head">
               <h3 className="tos-section__title">Supplier ledger</h3>
@@ -241,7 +241,7 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
             <div className="tos-section__foot">
               <span className="tos-callout tos-callout--info" style={{ flex: "1 1 auto" }}>
                 <span style={{ display: "flex", flexDirection: "column", gap: "var(--tos-space-1)" }}>
-                  <span>Ledger entries (purchase receipts, supplier payments, purchase returns) are recorded as server-authoritative transactions.</span>
+                  <span>Purchase receipts, supplier payments and purchase returns are recorded in this supplier’s account history.</span>
                   <span style={{ fontWeight: 400 }}>View the Purchases screen to see this supplier&apos;s recent receipts and post returns to them.</span>
                 </span>
               </span>
@@ -447,7 +447,7 @@ function SupplierPaymentForm({ supplier, currencyCode, businessId, branchId, onC
   return (
     <form className="tos-stack" onSubmit={handleSubmit} style={{ marginTop: "var(--tos-space-3)" }}>
       <div className="tos-callout tos-callout--info">
-        The server validates the payment does not exceed the supplier's outstanding payable. The new balance is computed server-side.
+        TradeOS checks the payment against the supplier's outstanding balance and updates the balance automatically.
       </div>
       <MoneyInput currencyCode={currencyCode} valueMinor={amountMinor} onChange={setAmountMinor} label="Amount paid" size="lg" required />
       <div className="tos-field">
@@ -542,7 +542,7 @@ export function SupplierFormSheet({ open, onClose, onCreated }: SupplierFormShee
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Master data</span>
             <h2 className="tos-sheet__title">Add supplier</h2>
-            <p className="tos-sheet__sub">Suppliers carry payment terms and a payable balance derived server-side.</p>
+            <p className="tos-sheet__sub">Suppliers carry payment terms and an automatically updated payable balance.</p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close"><IconClose style={{ width: 18, height: 18 }} /></button>
         </div>
@@ -551,7 +551,7 @@ export function SupplierFormSheet({ open, onClose, onCreated }: SupplierFormShee
             <label className="tos-field__label" htmlFor="sup-name">Name<span className="tos-field__label-required">*</span></label>
             <input id="sup-name" className="tos-input" value={name} onChange={(e) => setName(e.target.value)} required maxLength={160} disabled={!canWrite} />
           </div>
-          <div className="tos-public__form-row">
+          <div className="tos-form-grid tos-form-grid--3">
             <div className="tos-field">
               <label className="tos-field__label" htmlFor="sup-phone">Phone</label>
               <input id="sup-phone" className="tos-input" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={!canWrite} />
@@ -560,14 +560,14 @@ export function SupplierFormSheet({ open, onClose, onCreated }: SupplierFormShee
               <label className="tos-field__label" htmlFor="sup-email">Email</label>
               <input id="sup-email" type="email" className="tos-input" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!canWrite} />
             </div>
+            <div className="tos-field">
+              <label className="tos-field__label" htmlFor="sup-terms">Payment terms (days)</label>
+              <input id="sup-terms" type="number" min={0} className="tos-input" value={terms} onChange={(e) => setTerms(e.target.value)} disabled={!canWrite} />
+            </div>
           </div>
           <div className="tos-field">
             <label className="tos-field__label" htmlFor="sup-addr">Address</label>
             <textarea id="sup-addr" className="tos-textarea" value={address} onChange={(e) => setAddress(e.target.value)} disabled={!canWrite} />
-          </div>
-          <div className="tos-field">
-            <label className="tos-field__label" htmlFor="sup-terms">Payment terms (days)</label>
-            <input id="sup-terms" type="number" min={0} className="tos-input" value={terms} onChange={(e) => setTerms(e.target.value)} disabled={!canWrite} />
           </div>
           {error ? <div ref={errorRef} className="tos-banner tos-banner--danger" role="alert"><span className="tos-banner__title">{error}</span></div> : null}
         </form>

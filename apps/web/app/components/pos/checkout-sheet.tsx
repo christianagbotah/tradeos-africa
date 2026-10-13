@@ -197,7 +197,7 @@ export function CheckoutSheet({
             <span className="tos-sheet__eyebrow">Checkout</span>
             <h2 className="tos-sheet__title">{result ? "Sale complete" : "Take payment"}</h2>
             <p className="tos-sheet__sub">
-              {online ? "Online — server-authoritative" : "Offline — sale will queue locally"}
+              {online ? "Online — ready to process" : "Offline — sale will queue locally"}
             </p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close checkout">

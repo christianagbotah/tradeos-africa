@@ -85,7 +85,7 @@ export function CustomerWorkspace() {
         <div className="tos-page__heading">
           <span className="tos-page__eyebrow">TradeOS · Master data</span>
           <h1 className="tos-page__title">Customers</h1>
-          <p className="tos-page__subtitle">Track walk-in and credit customers. Outstanding balances are server-authoritative — the client never writes a balance directly.</p>
+          <p className="tos-page__subtitle">Track walk-in and credit customers. Outstanding balances update automatically from credit sales and payments.</p>
         </div>
         <div className="tos-page__actions">
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => void refreshCustomers()}>Refresh</Button>

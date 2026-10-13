@@ -344,7 +344,7 @@ function PurchaseDetailBody({
       <div className="tos-section tos-animate-fade-in-up">
         <div className="tos-section__head">
           <h3 className="tos-section__title">Return history</h3>
-          <span className="tos-section__sub">{returns.length} case(s) · server-authoritative</span>
+          <span className="tos-section__sub">{returns.length} case(s) · recorded history</span>
         </div>
         <div className="tos-section__body">
           {returns.length === 0 ? (
@@ -397,7 +397,7 @@ function PurchaseDetailBody({
         </span>
         <span className="tos-callout__body">
           Posted purchases are immutable business evidence. Corrections are made via returns to supplier — never by editing the original receipt.
-          <span className="tos-callout__sub"> The supplier recovery, inventory value removed, and purchase-price variance are computed server-side from the purchase line costs and the inventory valuation layer.</span>
+          <span className="tos-callout__sub"> Supplier recovery, stock value and any purchase-price difference are calculated automatically from the original receipt.</span>
         </span>
       </div>
 

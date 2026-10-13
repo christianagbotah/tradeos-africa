@@ -113,7 +113,7 @@ export function MoneyAccountSheet({ account, onClose }: MoneyAccountSheetProps) 
             <p className="tos-account-sheet-hero__hint">
               {account.isDefault
                 ? "This is the default account for its payment method on this branch — sales and expenses that select the method without a specific account will post here."
-                : "Balances are server-authoritative — derived from the immutable cashbook ledger of sales, purchases, expenses, transfers, reconciliations and adjustments."}
+                : "This balance updates automatically as money moves through sales, purchases, expenses, transfers and adjustments."}
             </p>
           </div>
 
@@ -178,8 +178,8 @@ export function MoneyAccountSheet({ account, onClose }: MoneyAccountSheetProps) 
               <span className="tos-callout tos-callout--info" style={{ flex: "1 1 auto" }}>
                 <span className="tos-callout__icon-wrap" aria-hidden="true"><IconShield style={{ width: 16, height: 16 }} /></span>
                 <span className="tos-callout__body">
-                  Balances are computed server-side from the cashbook ledger.
-                  <span className="tos-callout__sub"> Use Treasury actions (transfer, adjust, reconcile) on the Cashbook screen to move money in or out of this account. Each movement posts as immutable business evidence.</span>
+                  The balance updates automatically from the account’s recorded cashbook movements.
+                  <span className="tos-callout__sub"> Use Transfer, Adjust or Reconcile on the Cashbook screen to manage this account. Every movement remains available in the audit history.</span>
                 </span>
               </span>
             </div>
@@ -249,14 +249,14 @@ export function MoneyAccountFormSheet({ open, onClose, onCreated }: MoneyAccount
             <span className="tos-callout__icon-wrap" aria-hidden="true"><IconWallet style={{ width: 16, height: 16 }} /></span>
             <span className="tos-callout__body">
               New accounts open with a zero balance.
-              <span className="tos-callout__sub"> Use the Adjust action with reason OPENING_BALANCE to set the starting balance after creating the account. The opening balance is recorded as immutable server-authoritative evidence.</span>
+              <span className="tos-callout__sub"> After creating the account, use Adjust → Opening balance to record its starting amount. The entry will remain in the account history for audit.</span>
             </span>
           </div>
           <div className="tos-field">
             <label className="tos-field__label" htmlFor="ma-name">Account name<span className="tos-field__label-required">*</span></label>
             <input id="ma-name" className="tos-input" value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} disabled={!canWrite} placeholder="e.g. Main till, MTN MoMo, Stanbic operating" />
           </div>
-          <div className="tos-public__form-row">
+          <div className="tos-form-grid tos-form-grid--3">
             <div className="tos-field">
               <label className="tos-field__label" htmlFor="ma-method">Method</label>
               <select id="ma-method" className="tos-select" value={method} onChange={(e) => setMethod(e.target.value as MoneyAccount["method"])} disabled={!canWrite}>
@@ -277,10 +277,10 @@ export function MoneyAccountFormSheet({ open, onClose, onCreated }: MoneyAccount
                 <option value="OTHER">Other</option>
               </select>
             </div>
-          </div>
-          <div className="tos-field">
-            <label className="tos-field__label" htmlFor="ma-provider">Provider (e.g. MTN, Stanbic)</label>
-            <input id="ma-provider" className="tos-input" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={!canWrite} placeholder="Provider name" />
+            <div className="tos-field">
+              <label className="tos-field__label" htmlFor="ma-provider">Provider (e.g. MTN, Stanbic)</label>
+              <input id="ma-provider" className="tos-input" value={provider} onChange={(e) => setProvider(e.target.value)} disabled={!canWrite} placeholder="Provider name" />
+            </div>
           </div>
           <div className="tos-field">
             <label className="tos-field__label" htmlFor="ma-ref">Reference label (e.g. account number)</label>

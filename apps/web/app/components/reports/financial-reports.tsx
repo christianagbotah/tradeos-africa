@@ -190,7 +190,7 @@ export function FinancialReports() {
         <div className="tos-page__heading">
           <span className="tos-page__eyebrow">TradeOS · Insights</span>
           <h1 className="tos-page__title">Financial reports</h1>
-          <p className="tos-page__subtitle">Profit &amp; loss, cash flow, and balance position — server-authoritative from the immutable ledger. Decision-support oriented, not a spreadsheet.</p>
+          <p className="tos-page__subtitle">Profit &amp; loss, cash flow and balance position from your posted business activity, organized for quick decisions.</p>
         </div>
         <div className="tos-page__actions">
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => refetch()}>Refresh</Button>
@@ -286,7 +286,7 @@ export function FinancialReports() {
                   <span className={HEALTH_STATUS_CLASS[health.status]}>{health.label}</span>
                   <p className="tos-report-health__hint">{health.hint}</p>
                   <p className="tos-report-health__hint" style={{ fontStyle: "italic" }}>
-                    Decision-support heuristic — combines profitability, cash-flow direction, and revenue signal. Underlying figures remain server-authoritative.
+                    This health indicator combines profitability, cash-flow direction and revenue trend to give you a quick operational signal.
                   </p>
                 </div>
               ) : null}
@@ -463,7 +463,7 @@ export function FinancialReports() {
               <section className="tos-section tos-animate-fade-in-up" style={{ marginTop: "var(--tos-space-5)" }}>
                 <div className="tos-section__head">
                   <h2 className="tos-section__title">Balance position</h2>
-                  <span className="tos-section__sub">Snapshot · server-authoritative</span>
+                  <span className="tos-section__sub">Snapshot · recorded position</span>
                 </div>
                 <div className="tos-section__body--padded">
                   <div className="tos-report-kpi-grid">
@@ -508,7 +508,7 @@ export function FinancialReports() {
               </span>
               <span className="tos-callout__body">
                 Reports are read-only and derive from the same immutable ledger as your receipts.
-                <span className="tos-callout__sub"> Revenue, COGS, tax, cash movement and balance position are all computed server-side from posted transactions. The financial health score is a decision-support heuristic — it combines the server-authoritative figures for at-a-glance visibility, but is not itself an authoritative balance. Use Print to share a snapshot.</span>
+                <span className="tos-callout__sub"> Revenue, cost of goods, tax, cash movement and balance position come from posted transactions. The financial health score is a quick decision-support indicator, not an accounting balance. Use Print to share a snapshot.</span>
               </span>
             </div>
           </>

@@ -90,8 +90,8 @@ export function PosWorkspace() {
           <span className="tos-page__eyebrow">TradeOS · Point of sale</span>
           <h1 className="tos-page__title">Sell</h1>
           <p className="tos-page__subtitle">
-            Tap products to build a cart. Pricing is server-authoritative — the client sends only
-            item, sale unit, and quantity.
+            Tap products to build a cart. TradeOS applies the selected unit price and stock rules
+            automatically at checkout.
           </p>
           <div className="tos-pos__hint-row" aria-hidden="true">
             <span>Quick search</span>

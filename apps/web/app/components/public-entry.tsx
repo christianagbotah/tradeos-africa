@@ -410,7 +410,7 @@ function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
             <p className="tos-public__form-sub tos-animate-fade-in-up">
               {tab === "signin"
                 ? "Use the same owner or staff account you use on the mobile and desktop apps."
-                : "One account works across every TradeOS client. Your data stays server-authoritative."}
+                : "One account works across web, mobile and desktop. Your business stays in sync everywhere."}
             </p>
           </div>
 
@@ -505,8 +505,8 @@ function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
           <div className="tos-public__form-note">
             <IconShield className="tos-public__form-note-icon" />
             <span>
-              Credentials stay in your browser&apos;s secure storage. Sales made offline are
-              durably queued and reconciled through the server-authoritative ledger.
+              Your session stays on this device. Sales made offline are saved locally and
+              sync automatically when your connection returns.
             </span>
           </div>
 
@@ -793,29 +793,29 @@ function BrandPanel() {
         <span className="tos-public__brand-eyebrow">The business OS for African trade</span>
         <h2 className="tos-public__brand-title">Run the day from any device.</h2>
         <p className="tos-public__brand-lead">
-          Sell, track inventory, reconcile cash, and report on every branch — through one
-          server-authoritative ledger that survives offline.
+          Sell, track inventory, reconcile cash, and report on every branch from one
+          connected workspace that keeps working when the internet does not.
         </p>
         <div className="tos-public__brand-pillars tos-stagger">
           <div className="tos-public__brand-pillar tos-animate-fade-in-up">
             <IconCheck className="tos-public__brand-pillar-icon" />
             <span className="tos-public__brand-pillar-text">
-              <span className="tos-public__brand-pillar-title">Server-authoritative sales</span>
-              The client sends only itemId, saleUnitCode, and quantity. Pricing and stock are enforced by the API.
+              <span className="tos-public__brand-pillar-title">Accurate selling</span>
+              Use the right unit, price and stock rules consistently at every checkout.
             </span>
           </div>
           <div className="tos-public__brand-pillar tos-animate-fade-in-up">
             <IconCheck className="tos-public__brand-pillar-icon" />
             <span className="tos-public__brand-pillar-text">
-              <span className="tos-public__brand-pillar-title">Offline-first by default</span>
-              Mutations queue in your browser and reconcile through the same durable ledger as mobile and desktop.
+              <span className="tos-public__brand-pillar-title">Ready when internet drops</span>
+              Keep working during interruptions and sync changes automatically when the connection returns.
             </span>
           </div>
           <div className="tos-public__brand-pillar tos-animate-fade-in-up">
             <IconCheck className="tos-public__brand-pillar-icon" />
             <span className="tos-public__brand-pillar-text">
-              <span className="tos-public__brand-pillar-title">Exponent-aware money</span>
-              Every currency&apos;s minor-unit exponent is honored — no hardcoded /100.
+              <span className="tos-public__brand-pillar-title">Currency-aware</span>
+              Money is displayed and recorded using your business currency and its correct precision.
             </span>
           </div>
         </div>
