@@ -25,7 +25,7 @@ bash -n \
   "$SOURCE_ROOT/shims/tradeos-staging/lightworld-rollback-tradeos-staging"
 visudo -cf "$SOURCE_ROOT/sudoers/lwrun_tradeos" >/dev/null
 
-install -d -o root -g root -m 0755 "$LIBEXEC_ROOT" /etc/lightworld-deploy/apps.d
+install -d -o root -g root -m 0755 "$LIBEXEC_ROOT" "$LIBEXEC_ROOT/adapters" /etc/lightworld-deploy/apps.d
 install -o root -g root -m 0755 "$SOURCE_ROOT/lib/common.sh" "$LIBEXEC_ROOT/common.sh"
 install -o root -g root -m 0755 "$SOURCE_ROOT/libexec/lightworld-deploy" "$LIBEXEC_ROOT/lightworld-deploy"
 install -o root -g root -m 0755 "$SOURCE_ROOT/libexec/lightworld-status" "$LIBEXEC_ROOT/lightworld-status"
@@ -42,7 +42,7 @@ chown root:root \
   /usr/local/sbin/lightworld-status-tradeos-staging \
   /usr/local/sbin/lightworld-rollback-tradeos-staging \
   "$SUDOERS_TARGET"
-chmod 0755 "$LIBEXEC_ROOT" "$LIBEXEC_ROOT"/*
+chmod 0755 "$LIBEXEC_ROOT" "$LIBEXEC_ROOT"/* "$LIBEXEC_ROOT/adapters"
 chmod 0755 /etc/lightworld-deploy/apps.d
 chmod 0440 "$SUDOERS_TARGET"
 visudo -cf "$SUDOERS_TARGET" >/dev/null

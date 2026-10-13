@@ -106,21 +106,48 @@ require_release_config() {
   : "${RUNNER_USER:?configuration missing RUNNER_USER}"
   : "${RELEASE_ROOT:?configuration missing RELEASE_ROOT}"
   : "${CURRENT_LINK:?configuration missing CURRENT_LINK}"
-  : "${ENV_FILE:?configuration missing ENV_FILE}"
   : "${PROCESS_MANAGER:?configuration missing PROCESS_MANAGER}"
   : "${PROCESS_NAMES:?configuration missing PROCESS_NAMES}"
   : "${LOCAL_HEALTH_URLS:?configuration missing LOCAL_HEALTH_URLS}"
   : "${PUBLIC_HEALTH_URLS:=}"
   : "${RUNTIME_FAMILY:?configuration missing RUNTIME_FAMILY}"
   : "${MIGRATION_MODE:?configuration missing MIGRATION_MODE}"
+  ENV_FILE="${ENV_FILE:-}"
+  SOURCE_MODE="${SOURCE_MODE:-workspace-archive}"
+  SOURCE_REPO="${SOURCE_REPO:-}"
+  BUILD_ADAPTER="${BUILD_ADAPTER:-}"
+  HEALTH_ADAPTER="${HEALTH_ADAPTER:-}"
 
   require_absolute_path "$RELEASE_ROOT" 'RELEASE_ROOT'
   require_absolute_path "$CURRENT_LINK" 'CURRENT_LINK'
-  require_absolute_path "$ENV_FILE" 'ENV_FILE'
+  if [[ -n "$ENV_FILE" ]]; then
+    require_absolute_path "$ENV_FILE" 'ENV_FILE'
+  fi
   if [[ "$RELEASE_ROOT" == '/' || "$CURRENT_LINK" == '/' ]]; then
     lightworld_die 'release paths may not be filesystem root'
     return 1
   fi
+
+  case "$SOURCE_MODE" in
+    workspace-archive) ;;
+    canonical-worktree)
+      [[ -n "$SOURCE_REPO" ]] || { lightworld_die 'SOURCE_REPO is required for canonical-worktree mode'; return 1; }
+      require_absolute_path "$SOURCE_REPO" 'SOURCE_REPO' || return 1
+      [[ "$SOURCE_REPO" != '/' ]] || { lightworld_die 'SOURCE_REPO may not be filesystem root'; return 1; }
+      ;;
+    *) lightworld_die "unsupported SOURCE_MODE: $SOURCE_MODE"; return 1 ;;
+  esac
+
+  case "$RUNTIME_FAMILY" in
+    adapter)
+      validate_identifier "$BUILD_ADAPTER" 'build adapter' || return 1
+      ;;
+    *) ;;
+  esac
+  if [[ -n "$HEALTH_ADAPTER" ]]; then
+    validate_identifier "$HEALTH_ADAPTER" 'health adapter' || return 1
+  fi
+
   if ! id "$APP_USER" >/dev/null 2>&1; then
     lightworld_die "APP_USER does not exist"
     return 1
@@ -311,6 +338,8 @@ write_metadata_sha() {
 assert_env_outside_workspace() {
   local workspace="$1"
   local env_real workspace_real
+  LIGHTWORLD_ENV_REAL=''
+  [[ -n "${ENV_FILE:-}" ]] || return 0
   if [[ ! -f "$ENV_FILE" ]]; then
     lightworld_die 'configured environment file does not exist'
     return 1
@@ -326,6 +355,45 @@ assert_env_outside_workspace() {
   LIGHTWORLD_ENV_REAL="$env_real"
 }
 
+_lightworld_adapter_root() {
+  if is_test_mode; then
+    if (( EUID == 0 )); then
+      lightworld_die 'test adapter override is forbidden for root'
+      return 1
+    fi
+    [[ -n "${LIGHTWORLD_ADAPTER_ROOT:-}" ]] || { lightworld_die 'test adapter root is required'; return 1; }
+    require_absolute_path "$LIGHTWORLD_ADAPTER_ROOT" 'test adapter root' || return 1
+    printf '%s\n' "$LIGHTWORLD_ADAPTER_ROOT"
+    return 0
+  fi
+  printf '%s\n' '/usr/local/libexec/lightworld-deploy/adapters'
+}
+
+resolve_deployment_adapter() {
+  local name="$1"
+  local root file owner mode perm
+  validate_identifier "$name" 'adapter' || return 1
+  root="$(_lightworld_adapter_root)" || return 1
+  file="${root}/${name}"
+  if [[ ! -f "$file" || -L "$file" || ! -x "$file" ]]; then
+    lightworld_die "deployment adapter is missing or not executable: $name"
+    return 1
+  fi
+  owner="$(stat -c '%u' -- "$file")" || return 1
+  mode="$(stat -c '%a' -- "$file")" || return 1
+  perm=$((8#$mode))
+  if is_test_mode; then
+    [[ "$owner" == "$EUID" ]] || { lightworld_die 'test adapter must be owned by the test user'; return 1; }
+  else
+    [[ "$owner" == '0' ]] || { lightworld_die 'production adapter must be owned by root'; return 1; }
+  fi
+  if (( perm & 022 )); then
+    lightworld_die 'deployment adapter must not be group/other writable'
+    return 1
+  fi
+  printf '%s\n' "$file"
+}
+
 run_as_app_user() {
   local cwd="$1"
   shift
@@ -336,10 +404,77 @@ run_as_app_user() {
   runuser -u "$APP_USER" -- bash -c 'cd "$1"; shift; exec "$@"' bash "$cwd" "$@"
 }
 
+_assert_canonical_source_repo() {
+  local source_repo="$1"
+  local owner mode perm bare origin normalized
+  if [[ ! -d "$source_repo" || -L "$source_repo" ]]; then
+    lightworld_die 'canonical source repository is missing or unsafe'
+    return 1
+  fi
+  owner="$(stat -c '%u' -- "$source_repo")" || return 1
+  mode="$(stat -c '%a' -- "$source_repo")" || return 1
+  perm=$((8#$mode))
+  if is_test_mode; then
+    [[ "$owner" == "$EUID" ]] || { lightworld_die 'test source repository must be owned by test user'; return 1; }
+  else
+    [[ "$owner" == '0' ]] || { lightworld_die 'canonical source repository must be owned by root'; return 1; }
+  fi
+  if (( perm & 022 )); then
+    lightworld_die 'canonical source repository must not be group/other writable'
+    return 1
+  fi
+  bare="$(git --git-dir="$source_repo" rev-parse --is-bare-repository 2>/dev/null || true)"
+  [[ "$bare" == 'true' ]] || { lightworld_die 'canonical source repository must be bare'; return 1; }
+  origin="$(git --git-dir="$source_repo" remote get-url origin 2>/dev/null || true)"
+  if is_test_mode; then
+    [[ -n "$origin" && "$(realpath -- "$origin" 2>/dev/null || printf '%s' "$origin")" == "$(realpath -- "$CANONICAL_MAIN_URL" 2>/dev/null || printf '%s' "$CANONICAL_MAIN_URL")" ]] || {
+      lightworld_die 'test canonical source origin mismatch'; return 1;
+    }
+  else
+    normalized="$(_normalize_github_repo "$origin")"
+    [[ "$normalized" == "$GITHUB_REPO" ]] || { lightworld_die 'canonical source origin repository mismatch'; return 1; }
+  fi
+}
+
+prepare_canonical_source_repo() {
+  local sha="$1"
+  local source_repo="$SOURCE_REPO"
+  local main_sha
+  if [[ ! -e "$source_repo" ]]; then
+    mkdir -p -- "$(dirname "$source_repo")"
+    git clone --quiet --mirror -- "$CANONICAL_MAIN_URL" "$source_repo"
+    if ! is_test_mode; then
+      chown -R root:root "$source_repo"
+      chmod 0755 "$source_repo"
+    fi
+  fi
+  _assert_canonical_source_repo "$source_repo" || return 1
+  git --git-dir="$source_repo" fetch --quiet --prune origin '+refs/heads/main:refs/heads/main'
+  main_sha="$(git --git-dir="$source_repo" rev-parse refs/heads/main 2>/dev/null || true)"
+  if [[ "${main_sha,,}" != "${sha,,}" ]]; then
+    lightworld_die 'canonical source mirror main does not match requested SHA'
+    return 1
+  fi
+  git --git-dir="$source_repo" cat-file -e "${sha}^{commit}" 2>/dev/null || {
+    lightworld_die 'requested commit is unavailable in canonical source mirror'; return 1;
+  }
+  printf '%s\n' "$source_repo"
+}
+
+_remove_release_source() {
+  local release_dir="$1"
+  if [[ "$SOURCE_MODE" == 'canonical-worktree' && -n "${SOURCE_REPO:-}" && -d "$SOURCE_REPO" ]]; then
+    git --git-dir="$SOURCE_REPO" worktree remove --force "$release_dir" >/dev/null 2>&1 || rm -rf -- "$release_dir"
+    git --git-dir="$SOURCE_REPO" worktree prune >/dev/null 2>&1 || true
+  else
+    rm -rf -- "$release_dir"
+  fi
+}
+
 prepare_release_source() {
   local workspace="$1"
   local sha="$2"
-  local release_dir group
+  local release_dir group source_repo
   release_dir="${RELEASE_ROOT}/${sha,,}"
   mkdir -p -- "$RELEASE_ROOT" "$(metadata_dir)"
 
@@ -348,27 +483,48 @@ prepare_release_source() {
       lightworld_die 'refusing to replace the currently active release directory'
       return 1
     fi
-    rm -rf -- "$release_dir"
-  fi
-  mkdir -p -- "$release_dir"
-  if is_test_mode; then
-    git -C "$workspace" archive --format=tar "$sha" | tar --exclude='.env' --exclude='.env.*' -C "$release_dir" -xf -
-  else
-    runuser -u "$RUNNER_USER" -- git -C "$workspace" archive --format=tar "$sha" | tar --exclude='.env' --exclude='.env.*' -C "$release_dir" -xf -
+    _remove_release_source "$release_dir"
   fi
 
+  case "$SOURCE_MODE" in
+    workspace-archive)
+      mkdir -p -- "$release_dir"
+      if is_test_mode; then
+        git -C "$workspace" archive --format=tar "$sha" | tar --exclude='.env' --exclude='.env.*' -C "$release_dir" -xf -
+      else
+        runuser -u "$RUNNER_USER" -- git -C "$workspace" archive --format=tar "$sha" | tar --exclude='.env' --exclude='.env.*' -C "$release_dir" -xf -
+      fi
+      ;;
+    canonical-worktree)
+      source_repo="$(prepare_canonical_source_repo "$sha")" || return 1
+      git --git-dir="$source_repo" worktree add --quiet --detach "$release_dir" "$sha"
+      ;;
+    *) lightworld_die "unsupported SOURCE_MODE: $SOURCE_MODE"; return 1 ;;
+  esac
+
   assert_env_outside_workspace "$workspace" || return 1
-  ln -s -- "$LIGHTWORLD_ENV_REAL" "$release_dir/.env.staging"
+  if [[ -n "$LIGHTWORLD_ENV_REAL" ]]; then
+    ln -s -- "$LIGHTWORLD_ENV_REAL" "$release_dir/.env.staging"
+  fi
 
   if ! is_test_mode; then
     group="$(id -gn "$APP_USER")"
     chown -hR "$APP_USER:$group" "$release_dir"
+    if [[ "$SOURCE_MODE" == 'canonical-worktree' ]]; then
+      chown root:"$group" "$release_dir"
+      chmod 0775 "$release_dir"
+      if [[ -f "$release_dir/.git" ]]; then
+        chown root:root "$release_dir/.git"
+        chmod 0644 "$release_dir/.git"
+      fi
+    fi
   fi
   printf '%s\n' "$release_dir"
 }
 
 run_release_build() {
   local release_dir="$1"
+  local adapter
   case "$RUNTIME_FAMILY" in
     test)
       if ! is_test_mode; then
@@ -385,6 +541,10 @@ run_release_build() {
       run_as_app_user "$release_dir" /usr/bin/env pnpm install --frozen-lockfile
       run_as_app_user "$release_dir" /usr/bin/env pnpm build
       ;;
+    adapter)
+      adapter="$(resolve_deployment_adapter "$BUILD_ADAPTER")" || return 1
+      run_as_app_user "$release_dir" "$adapter" "$release_dir"
+      ;;
     *)
       lightworld_die "unsupported RUNTIME_FAMILY: $RUNTIME_FAMILY"
       return 1
@@ -398,6 +558,22 @@ run_release_build() {
       return 1
       ;;
   esac
+}
+
+verify_release_source_identity() {
+  local release_dir="$1"
+  local sha="$2"
+  local head
+  [[ "$SOURCE_MODE" == 'canonical-worktree' ]] || return 0
+  head="$(git -C "$release_dir" rev-parse HEAD 2>/dev/null || true)"
+  if [[ "${head,,}" != "${sha,,}" ]]; then
+    lightworld_die 'canonical release HEAD drifted during build'
+    return 1
+  fi
+  if ! git -C "$release_dir" diff --quiet --no-ext-diff "$sha" --; then
+    lightworld_die 'canonical release tracked source drifted during build'
+    return 1
+  fi
 }
 
 activate_release_target() {
@@ -461,7 +637,7 @@ health_check_url() {
 }
 
 verify_configured_health() {
-  local scope url
+  local scope url adapter
   local -a urls
   for scope in LOCAL_HEALTH_URLS PUBLIC_HEALTH_URLS; do
     read -r -a urls <<<"${!scope:-}"
@@ -473,6 +649,10 @@ verify_configured_health() {
       fi
     done
   done
+  if [[ -n "${HEALTH_ADAPTER:-}" ]]; then
+    adapter="$(resolve_deployment_adapter "$HEALTH_ADAPTER")" || return 1
+    "$adapter" "$CURRENT_LINK" || { lightworld_die "health adapter failed: $HEALTH_ADAPTER"; return 1; }
+  fi
 }
 
 print_health_summary() {
@@ -491,4 +671,12 @@ print_health_summary() {
       fi
     done
   done
+  if [[ -n "${HEALTH_ADAPTER:-}" ]]; then
+    local adapter
+    if adapter="$(resolve_deployment_adapter "$HEALTH_ADAPTER")" && "$adapter" "$CURRENT_LINK"; then
+      printf 'health[adapter]=ok %s\n' "$HEALTH_ADAPTER"
+    else
+      printf 'health[adapter]=fail %s\n' "$HEALTH_ADAPTER"
+    fi
+  fi
 }

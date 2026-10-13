@@ -44,6 +44,7 @@ function writeRegistry(fixture, overrides = {}) {
     PUBLIC_HEALTH_URLS: 'test://public',
     RUNTIME_FAMILY: 'test',
     MIGRATION_MODE: 'manual',
+    SOURCE_MODE: 'workspace-archive',
     ...overrides,
   };
   const quote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
@@ -65,10 +66,13 @@ function makeFixture() {
   const marker = path.join(root, 'action.marker');
   const restartLog = path.join(root, 'restart.log');
   const lockRoot = path.join(root, 'locks');
+  const sourceRepo = path.join(root, 'source.git');
+  const adapterRoot = path.join(root, 'adapters');
   fs.mkdirSync(workspace);
   fs.mkdirSync(registry);
   fs.mkdirSync(releases);
   fs.mkdirSync(lockRoot);
+  fs.mkdirSync(adapterRoot);
   fs.writeFileSync(envFile, 'SUPER_SECRET=do-not-print\n', { mode: 0o600 });
   git(workspace, 'init', '-b', 'main');
   git(workspace, 'config', 'user.email', 'ops-test@example.invalid');
@@ -82,7 +86,7 @@ function makeFixture() {
   git(workspace, 'remote', 'add', 'canonical', bare);
   git(workspace, 'push', 'canonical', 'HEAD:refs/heads/main');
 
-  const fixture = { root, workspace, bare, registry, releases, currentLink, envFile, marker, restartLog, lockRoot, firstSha };
+  const fixture = { root, workspace, bare, registry, releases, currentLink, envFile, marker, restartLog, lockRoot, sourceRepo, adapterRoot, firstSha };
   writeRegistry(fixture);
   fixture.env = {
     LIGHTWORLD_TEST_MODE: '1',
@@ -90,6 +94,7 @@ function makeFixture() {
     LIGHTWORLD_TEST_ACTION_MARKER: marker,
     LIGHTWORLD_TEST_RESTART_LOG: restartLog,
     LIGHTWORLD_LOCK_ROOT: lockRoot,
+    LIGHTWORLD_ADAPTER_ROOT: adapterRoot,
   };
   return fixture;
 }
@@ -244,6 +249,93 @@ test('deploy release content comes from the canonical commit object, not mutable
     const releasedReadme = fs.readFileSync(path.join(fixture.releases, fixture.firstSha, 'README.md'), 'utf8');
     assert.equal(releasedReadme, 'fixture\n');
   } finally { cleanup(fixture); }
+});
+
+test('canonical-worktree source mode creates a Git-aware release from the canonical source mirror', () => {
+  const fixture = makeFixture();
+  try {
+    const readme = path.join(fixture.workspace, 'README.md');
+    fs.writeFileSync(readme, 'tampered-runner-worktree\n');
+    git(fixture.workspace, 'update-index', '--skip-worktree', 'README.md');
+    writeRegistry(fixture, {
+      SOURCE_MODE: 'canonical-worktree',
+      SOURCE_REPO: fixture.sourceRepo,
+    });
+
+    const result = deploy(fixture, fixture.firstSha);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const release = path.join(fixture.releases, fixture.firstSha);
+    assert.equal(fs.readFileSync(path.join(release, 'README.md'), 'utf8'), 'fixture\n');
+    assert.equal(fs.existsSync(path.join(release, '.git')), true, 'canonical worktree release must retain Git metadata');
+    assert.equal(git(release, 'rev-parse', 'HEAD'), fixture.firstSha);
+  } finally { cleanup(fixture); }
+});
+
+test('adapter runtime executes only an identifier-resolved deployment adapter', () => {
+  const fixture = makeFixture();
+  try {
+    const adapterMarker = path.join(fixture.root, 'adapter.marker');
+    const adapter = path.join(fixture.adapterRoot, 'demo-build');
+    fs.writeFileSync(adapter, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' \"$PWD\" > ${JSON.stringify(adapterMarker)}\n`, { mode: 0o700 });
+    writeRegistry(fixture, {
+      RUNTIME_FAMILY: 'adapter',
+      BUILD_ADAPTER: 'demo-build',
+    });
+    const result = deploy(fixture, fixture.firstSha);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(fs.existsSync(adapterMarker), true);
+    assert.equal(fs.readFileSync(adapterMarker, 'utf8').trim(), path.join(fixture.releases, fixture.firstSha));
+
+    writeRegistry(fixture, {
+      RUNTIME_FAMILY: 'adapter',
+      BUILD_ADAPTER: '../escape',
+    });
+    const rejected = deploy(fixture, fixture.firstSha);
+    assert.notEqual(rejected.status, 0);
+    assert.match(`${rejected.stderr}\n${rejected.stdout}`, /adapter|invalid/i);
+  } finally { cleanup(fixture); }
+});
+
+test('canonical-worktree deployment rejects tracked source drift introduced by the build adapter', () => {
+  const fixture = makeFixture();
+  try {
+    const adapter = path.join(fixture.adapterRoot, 'mutating-build');
+    fs.writeFileSync(adapter, '#!/usr/bin/env bash\nset -euo pipefail\nprintf "mutated\\n" > README.md\n', { mode: 0o700 });
+    writeRegistry(fixture, {
+      SOURCE_MODE: 'canonical-worktree',
+      SOURCE_REPO: fixture.sourceRepo,
+      RUNTIME_FAMILY: 'adapter',
+      BUILD_ADAPTER: 'mutating-build',
+    });
+    const result = deploy(fixture, fixture.firstSha);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /tracked|source|drift|canonical/i);
+    assert.equal(fs.existsSync(fixture.currentLink), false, 'drifted release must never activate');
+  } finally { cleanup(fixture); }
+});
+
+test('optional health adapter participates in deployment verification', () => {
+  const fixture = makeFixture();
+  try {
+    const marker = path.join(fixture.root, 'health-adapter.marker');
+    const adapter = path.join(fixture.adapterRoot, 'demo-health');
+    fs.writeFileSync(adapter, `#!/usr/bin/env bash\nset -euo pipefail\nprintf 'checked\\n' > ${JSON.stringify(marker)}\n`, { mode: 0o700 });
+    writeRegistry(fixture, { HEALTH_ADAPTER: 'demo-health' });
+    const result = deploy(fixture, fixture.firstSha);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(fs.readFileSync(marker, 'utf8'), 'checked\n');
+  } finally { cleanup(fixture); }
+});
+
+test('production adapter and canonical-worktree contracts are fail-closed and root-owned by design', () => {
+  const source = fs.readFileSync(commonPath, 'utf8');
+  assert.match(source, /SOURCE_MODE/);
+  assert.match(source, /canonical-worktree/);
+  assert.match(source, /SOURCE_REPO/);
+  assert.match(source, /BUILD_ADAPTER/);
+  assert.match(source, /HEALTH_ADAPTER/);
+  assert.match(source, /\/usr\/local\/libexec\/lightworld-deploy\/adapters/);
+  assert.doesNotMatch(source, /\beval\b/);
 });
 
 test('production workspace Git inspection is bound to a configured non-root runner identity', () => {

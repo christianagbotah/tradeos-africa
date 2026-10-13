@@ -34,7 +34,11 @@ Verify that the runner cannot read application env files, write the registry/shi
 - Existing live path: `<path>`
 - Release root: `/home/<app-user>/releases/<app>-<environment>` or approved equivalent
 - Stable current symlink: `<path>`
-- Runtime family: `<pnpm-node|other reviewed adapter>`
+- Runtime family: `<pnpm-node|adapter>`
+- Source mode: `<workspace-archive|canonical-worktree>`
+- Canonical source mirror (canonical-worktree only): `<absolute root-owned bare repo path>`
+- Build adapter (adapter runtime only): `<identifier under /usr/local/libexec/lightworld-deploy/adapters>`
+- Health adapter (optional): `<identifier under /usr/local/libexec/lightworld-deploy/adapters>`
 - Build command(s): `<exact commands>`
 - Process manager: `<pm2|systemd|other>`
 - Process names: `<exact allowlisted names>`
@@ -56,7 +60,8 @@ The deployment layer must independently enforce all of the following even if the
 4. workspace origin equals the canonical repository;
 5. workspace `HEAD` equals the requested SHA;
 6. requested SHA independently equals canonical remote `refs/heads/main`;
-7. release source is generated from the verified commit object (`git archive <sha>` or an equivalent immutable artifact), not mutable worktree files;
+7. release source is generated from the verified commit object, never mutable runner worktree contents; ordinary apps use `workspace-archive`, while Git-aware runtimes may use a root-owned `canonical-worktree` source mirror;
+8. mixed-runtime build/health adapters are identifier-only, root-owned, non-writable by runner accounts, and resolved only below `/usr/local/libexec/lightworld-deploy/adapters`;
 8. Git credentials, `.git`, `.env*`, runner credentials and untracked workspace files are not copied into releases.
 
 For private repositories, canonical-main verification credentials must be root-owned and unreadable by the runner.
