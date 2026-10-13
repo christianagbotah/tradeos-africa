@@ -103,6 +103,7 @@ load_app_config() {
 
 require_release_config() {
   : "${APP_USER:?configuration missing APP_USER}"
+  : "${RUNNER_USER:?configuration missing RUNNER_USER}"
   : "${RELEASE_ROOT:?configuration missing RELEASE_ROOT}"
   : "${CURRENT_LINK:?configuration missing CURRENT_LINK}"
   : "${ENV_FILE:?configuration missing ENV_FILE}"
@@ -124,15 +125,39 @@ require_release_config() {
     lightworld_die "APP_USER does not exist"
     return 1
   fi
+  if ! id "$RUNNER_USER" >/dev/null 2>&1; then
+    lightworld_die "RUNNER_USER does not exist"
+    return 1
+  fi
   if is_test_mode; then
     if [[ "$APP_USER" != "$(id -un)" ]]; then
       lightworld_die 'test APP_USER must be the current non-root user'
       return 1
     fi
-  elif (( EUID != 0 )); then
-    lightworld_die 'production deployment commands must run as root'
-    return 1
+    if [[ "$RUNNER_USER" != "$(id -un)" ]]; then
+      lightworld_die 'test RUNNER_USER must be the current non-root user'
+      return 1
+    fi
+  else
+    if (( EUID != 0 )); then
+      lightworld_die 'production deployment commands must run as root'
+      return 1
+    fi
+    if [[ "$RUNNER_USER" == 'root' ]]; then
+      lightworld_die 'RUNNER_USER must be non-root'
+      return 1
+    fi
   fi
+}
+
+run_git_as_runner() {
+  local workspace="$1"
+  shift
+  if is_test_mode; then
+    git -C "$workspace" "$@"
+    return $?
+  fi
+  runuser -u "$RUNNER_USER" -- git -C "$workspace" "$@"
 }
 
 _normalize_github_repo() {
@@ -150,23 +175,29 @@ assert_workspace_identity() {
   local workspace="$1"
   local expected_repo="$2"
   local expected_sha="$3"
-  local inside head origin normalized
+  local inside head origin normalized workspace_owner expected_owner
   require_absolute_path "$workspace" 'workspace' || return 1
   if [[ ! -d "$workspace" ]]; then
     lightworld_die "workspace does not exist"
     return 1
   fi
-  inside="$(git -C "$workspace" rev-parse --is-inside-work-tree 2>/dev/null || true)"
+  workspace_owner="$(stat -c '%U' -- "$workspace" 2>/dev/null || true)"
+  expected_owner="$RUNNER_USER"
+  if [[ "$workspace_owner" != "$expected_owner" ]]; then
+    lightworld_die "workspace owner does not match configured runner user"
+    return 1
+  fi
+  inside="$(run_git_as_runner "$workspace" rev-parse --is-inside-work-tree 2>/dev/null || true)"
   if [[ "$inside" != 'true' ]]; then
     lightworld_die "workspace is not a Git worktree"
     return 1
   fi
-  head="$(git -C "$workspace" rev-parse HEAD 2>/dev/null || true)"
+  head="$(run_git_as_runner "$workspace" rev-parse HEAD 2>/dev/null || true)"
   if [[ "${head,,}" != "${expected_sha,,}" ]]; then
     lightworld_die "workspace HEAD does not match requested SHA"
     return 1
   fi
-  origin="$(git -C "$workspace" remote get-url origin 2>/dev/null || true)"
+  origin="$(run_git_as_runner "$workspace" remote get-url origin 2>/dev/null || true)"
   normalized="$(_normalize_github_repo "$origin")"
   if [[ "$normalized" != "$expected_repo" ]]; then
     lightworld_die "workspace origin repository does not match configured repository"
@@ -320,7 +351,11 @@ prepare_release_source() {
     rm -rf -- "$release_dir"
   fi
   mkdir -p -- "$release_dir"
-  tar -C "$workspace" --exclude='.git' --exclude='.git/*' --exclude='.env' --exclude='.env.*' -cf - . | tar -C "$release_dir" -xf -
+  if is_test_mode; then
+    git -C "$workspace" archive --format=tar "$sha" | tar --exclude='.env' --exclude='.env.*' -C "$release_dir" -xf -
+  else
+    runuser -u "$RUNNER_USER" -- git -C "$workspace" archive --format=tar "$sha" | tar --exclude='.env' --exclude='.env.*' -C "$release_dir" -xf -
+  fi
 
   assert_env_outside_workspace "$workspace" || return 1
   ln -s -- "$LIGHTWORLD_ENV_REAL" "$release_dir/.env.staging"
