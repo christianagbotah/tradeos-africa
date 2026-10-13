@@ -12,6 +12,7 @@ const shellSource = readFileSync(new URL("../workspace/app-shell.tsx", import.me
 const navSource = readFileSync(new URL("../workspace/workspace-navigation.ts", import.meta.url), "utf8");
 const routeSource = readFileSync(new URL("../../(workspace)/settings/page.tsx", import.meta.url), "utf8");
 const shellCssSource = readFileSync(new URL("../../workspace-shell.css", import.meta.url), "utf8");
+const visualQaSource = readFileSync(new URL("../../../../../.github/workflows/visual-qa.yml", import.meta.url), "utf8");
 
 describe("settings navigation model", () => {
   it("provides all account/business control-center sections", () => {
@@ -92,4 +93,9 @@ describe("settings production contract", () => {
     expect(shellCssSource).toContain("overflow-x: auto");
     expect(shellCssSource).toContain("min-width: 0");
   });
+  it("keeps authenticated Settings in visual QA at mobile, tablet, and desktop widths", () => {
+    expect(visualQaSource).toContain('{ path: "/settings", marker: "Settings", name: "settings" }');
+    expect(visualQaSource).toContain('settings: [390, 768, 1280]');
+  });
+
 });
