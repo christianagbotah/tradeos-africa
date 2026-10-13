@@ -2,6 +2,14 @@ import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 import {
+  changeOwnPassword,
+  listOwnSessions,
+  revokeOtherSessions,
+  revokeOwnSession,
+  updateOwnProfile,
+  type AccountProfileUpdateRequest,
+} from "../account-service.js";
+import {
   assertPlatform,
   authenticateAccessToken,
   AuthError,
@@ -34,6 +42,7 @@ interface LoginBody {
 }
 
 interface RefreshBody { refreshToken: string; }
+interface ChangePasswordBody { currentPassword?: string; newPassword?: string; revokeOtherSessions?: boolean; }
 
 export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): void {
   app.post<{ Body: RegisterBody }>("/v1/auth/register", async (request, reply) => {
@@ -69,7 +78,7 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
       });
 
       return reply.code(201).send({
-        user: { id: created.userId, displayName, email, phoneE164 },
+        user: { id: created.userId, displayName, email, phoneE164, avatarUrl: null },
         session: created.session,
       });
     } catch (error) {
@@ -96,10 +105,11 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
         display_name: string;
         email: string | null;
         phone_e164: string | null;
+        avatar_url: string | null;
         password_hash: string;
         status: string;
       }>(
-        `SELECT id,display_name,email,phone_e164,password_hash,status
+        `SELECT id,display_name,email,phone_e164,avatar_url,password_hash,status
          FROM app_users
          WHERE lower(email)=$1 OR phone_e164=$2
          LIMIT 1`,
@@ -119,7 +129,13 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
       }));
 
       return {
-        user: { id: user.id, displayName: user.display_name, email: user.email, phoneE164: user.phone_e164 },
+        user: {
+          id: user.id,
+          displayName: user.display_name,
+          email: user.email,
+          phoneE164: user.phone_e164,
+          avatarUrl: user.avatar_url,
+        },
         session,
       };
     } catch (error) {
@@ -141,6 +157,54 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       await revokeSession(pool, auth.sessionId);
       return reply.code(204).send();
+    } catch (error) {
+      return sendAuthError(request, reply, error);
+    }
+  });
+
+  app.post<{ Body: ChangePasswordBody }>("/v1/auth/change-password", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      await changeOwnPassword(pool, auth, request.body ?? {});
+      return reply.code(204).send();
+    } catch (error) {
+      return sendAuthError(request, reply, error);
+    }
+  });
+
+  app.get("/v1/auth/sessions", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      return { sessions: await listOwnSessions(pool, auth) };
+    } catch (error) {
+      return sendAuthError(request, reply, error);
+    }
+  });
+
+  app.delete<{ Params: { sessionId: string } }>("/v1/auth/sessions/:sessionId", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      await revokeOwnSession(pool, auth, request.params.sessionId);
+      return reply.code(204).send();
+    } catch (error) {
+      return sendAuthError(request, reply, error);
+    }
+  });
+
+  app.post("/v1/auth/sessions/revoke-others", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      await revokeOtherSessions(pool, auth);
+      return reply.code(204).send();
+    } catch (error) {
+      return sendAuthError(request, reply, error);
+    }
+  });
+
+  app.patch<{ Body: AccountProfileUpdateRequest }>("/v1/me", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      return { user: await updateOwnProfile(pool, auth, request.body ?? {}) };
     } catch (error) {
       return sendAuthError(request, reply, error);
     }
@@ -173,6 +237,7 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
           displayName: auth.displayName,
           email: auth.email,
           phoneE164: auth.phoneE164,
+          avatarUrl: auth.avatarUrl,
         },
         client: {
           platform: auth.platform,
@@ -195,7 +260,11 @@ export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): vo
   });
 }
 
-function sendAuthError(request: { log: { error: (error: unknown) => void } }, reply: { code: (status: number) => { send: (payload: unknown) => unknown } }, error: unknown) {
+function sendAuthError(
+  request: { log: { error: (error: unknown) => void } },
+  reply: { code: (status: number) => { send: (payload: unknown) => unknown } },
+  error: unknown,
+) {
   if (error instanceof AuthError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });
   }
