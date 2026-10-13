@@ -134,7 +134,7 @@ export function InventoryWorkspace() {
           <span className="tos-page__eyebrow">TradeOS · Inventory</span>
           <h1 className="tos-page__title">Inventory</h1>
           <p className="tos-page__subtitle">
-            Last-known stock for tracked items in this branch, counted in each item&apos;s stock unit. Adjustments are evidence-grade movements — the balance is derived from them, never overwritten directly.
+            Current stock for tracked items in this branch, counted in each item&apos;s stock unit. Adjustments are recorded in stock history so past activity remains traceable.
           </p>
         </div>
         <div className="tos-page__actions">
@@ -208,7 +208,7 @@ export function InventoryWorkspace() {
           variant="empty"
           icon={<IconBox className="tos-state__icon" />}
           title="No tracked inventory"
-          text="Mark catalog products as 'track inventory' to manage stock levels here. Each tracked item counts available, quarantined, damaged and waste units in its stock unit — adjustments create evidence-grade movements."
+          text="Mark catalog products as 'track inventory' to manage stock levels here. Each tracked item counts available, quarantined, damaged and waste units in its stock unit, with every adjustment kept in stock history."
           actionLabel="Open catalog"
           onAction={() => { window.location.href = "/catalog"; }}
         />

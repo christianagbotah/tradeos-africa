@@ -396,7 +396,7 @@ function PurchaseDetailBody({
           <IconShield style={{ width: 16, height: 16 }} />
         </span>
         <span className="tos-callout__body">
-          Posted purchases are immutable business evidence. Corrections are made via returns to supplier — never by editing the original receipt.
+          Posted purchases remain in the audit history. Make corrections with a return to supplier instead of changing the original receipt.
           <span className="tos-callout__sub"> Supplier recovery, stock value and any purchase-price difference are calculated automatically from the original receipt.</span>
         </span>
       </div>

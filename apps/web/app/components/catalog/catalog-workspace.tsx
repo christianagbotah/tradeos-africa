@@ -347,7 +347,7 @@ export function CatalogWorkspace() {
           </span>
           <span className="tos-callout__body">
             {stats.lowStock} item(s) are at or below 5 units on hand.
-            <span className="tos-callout__sub"> Visit Inventory to record a stock correction — each adjustment creates an evidence-grade movement.</span>
+            <span className="tos-callout__sub"> Visit Inventory to record a stock correction. Every adjustment is kept in the stock history.</span>
           </span>
         </div>
       ) : null}

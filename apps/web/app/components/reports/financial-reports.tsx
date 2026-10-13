@@ -231,7 +231,7 @@ export function FinancialReports() {
             variant="empty"
             icon={<IconReports className="tos-state__icon" />}
             title="No data for this range"
-            text="Complete a few sales in the selected period and the report will populate automatically. Figures derive server-side from the immutable ledger."
+            text="Complete a few sales in the selected period and the report will populate automatically from your posted transactions."
           />
         ) : (
           <>
@@ -507,7 +507,7 @@ export function FinancialReports() {
                 <IconShield style={{ width: 16, height: 16 }} />
               </span>
               <span className="tos-callout__body">
-                Reports are read-only and derive from the same immutable ledger as your receipts.
+                Reports are read-only and use the same posted transaction history as your receipts.
                 <span className="tos-callout__sub"> Revenue, cost of goods, tax, cash movement and balance position come from posted transactions. The financial health score is a quick decision-support indicator, not an accounting balance. Use Print to share a snapshot.</span>
               </span>
             </div>

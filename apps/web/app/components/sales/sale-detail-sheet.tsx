@@ -237,7 +237,7 @@ function SaleDetailBody({ detail }: { detail: SaleDetail }) {
       />
 
       <div className="tos-callout tos-callout--info">
-        Posted sales are immutable business evidence. Corrections are made via returns or refunds — never by editing the original receipt.
+        Posted sales remain in the audit history. Make corrections with a return or refund instead of changing the original receipt.
       </div>
 
       <div className="tos-callout">

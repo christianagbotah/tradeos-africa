@@ -241,7 +241,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                 </span>
                 <span className="tos-callout__body">
                   Exchanges keep the original receipt unchanged and add the returned and replacement items as a separate correction.
-                  <span className="tos-callout__sub"> The net difference is settled server-side: the customer pays if the new item costs more, or receives a refund if it costs less.</span>
+                  <span className="tos-callout__sub"> TradeOS calculates the difference automatically: the customer pays if the replacement costs more, or receives a refund if it costs less.</span>
                 </span>
               </div>
 

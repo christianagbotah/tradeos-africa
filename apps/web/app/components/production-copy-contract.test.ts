@@ -32,6 +32,10 @@ describe("production-facing copy", () => {
       "through the server",
       "mutation(s) pending",
       "Queued mutations",
+      "evidence-grade",
+      "business evidence",
+      "immutable ledger",
+      "server-side",
     ];
     const offenders: string[] = [];
     for (const file of files(root)) {

@@ -408,7 +408,7 @@ export function OperationsWorkspace() {
               <IconShield style={{ width: 16, height: 16 }} />
             </span>
             <span className="tos-callout__body">
-              Operating days and shifts are evidence-grade.
+              Operating days and shifts keep a traceable history.
               <span className="tos-callout__sub"> TradeOS compares the counted amount with the recorded account balance and shows any variance before the day is finalized.</span>
             </span>
           </div>
