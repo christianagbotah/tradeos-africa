@@ -12,7 +12,7 @@ class FakeLocalStorage {
   }
 
   setItem(key: string, value: string): void {
-    if (this.failQueueWrites && key === QUEUE_KEY) {
+    if (this.failQueueWrites && (key === QUEUE_KEY || key.startsWith("tradeos.web.mutationQueue.v2."))) {
       throw new Error("quota exceeded");
     }
     this.values.set(key, value);
@@ -75,7 +75,7 @@ describe("WebOfflineQueue durable storage boundary", () => {
 });
 
 describe("WebOfflineQueue business isolation", () => {
-  it("clears queued mutations when a session for a different business replaces the current session", async () => {
+  it("preserves independent queues when the active session switches businesses", async () => {
     const storage = new FakeLocalStorage();
     installWindow(storage);
     const queue = makeQueue();
@@ -85,18 +85,28 @@ describe("WebOfflineQueue business isolation", () => {
       businessId: "business-a",
       branchId: "branch-a",
       mutationType: "CUSTOMER_PAYMENT_CREATE",
-      payload: { customerId: "customer-1", amountMinor: 1000, method: "CASH" },
+      payload: { customerId: "customer-a", amountMinor: 1000, method: "CASH" },
     }));
-    expect((await queue.getSnapshot()).pending).toHaveLength(1);
+    expect((await queue.getSnapshot("business-a")).pending).toHaveLength(1);
 
     queue.sessions.save(session("business-b", "token-2"));
+    expect((await queue.getSnapshot("business-b")).pending).toHaveLength(0);
+    expect((await queue.getSnapshot("business-a")).pending).toHaveLength(1);
 
-    const snapshot = await queue.getSnapshot();
-    expect(snapshot.pending).toHaveLength(0);
-    expect(snapshot.failed).toHaveLength(0);
+    await queue.enqueue(queue.build({
+      businessId: "business-b",
+      branchId: "branch-b",
+      mutationType: "CUSTOMER_PAYMENT_CREATE",
+      payload: { customerId: "customer-b", amountMinor: 2000, method: "CASH" },
+    }));
+    expect((await queue.getSnapshot("business-b")).pending).toHaveLength(1);
+
+    queue.sessions.save(session("business-a", "token-3"));
+    expect((await queue.getSnapshot()).pending[0]?.businessId).toBe("business-a");
+    expect((await queue.getSnapshot("business-b")).pending[0]?.businessId).toBe("business-b");
   });
 
-  it("clears queued mutations without requiring a durable write during sign-out cleanup", async () => {
+  it("preserves business-scoped queued work when the user signs out", async () => {
     const storage = new FakeLocalStorage();
     installWindow(storage);
     const queue = makeQueue();
@@ -108,10 +118,62 @@ describe("WebOfflineQueue business isolation", () => {
       mutationType: "CUSTOMER_PAYMENT_CREATE",
       payload: { customerId: "customer-1", amountMinor: 1000, method: "CASH" },
     }));
-    storage.failQueueWrites = true;
 
-    await expect(queue.clear()).resolves.toBeUndefined();
-    expect((await queue.getSnapshot()).pending).toHaveLength(0);
+    queue.sessions.clear();
+
+    expect(queue.sessions.load()).toBeNull();
+    expect(queue.sessions.loadLastContext()).toEqual({ businessId: "business-a", branchId: "branch-1" });
+    expect((await queue.getSnapshot("business-a")).pending).toHaveLength(1);
+  });
+
+  it("migrates a legacy v1 snapshot into the matching business bucket", async () => {
+    const storage = new FakeLocalStorage();
+    installWindow(storage);
+    storage.setItem(QUEUE_KEY, JSON.stringify({
+      pending: [{
+        clientId: "legacy-client",
+        clientMutationId: "legacy-mutation",
+        businessId: "business-legacy",
+        branchId: "branch-legacy",
+        mutationType: "CUSTOMER_CREATE",
+        occurredAt: "2026-10-13T12:00:00.000Z",
+        payload: { name: "Legacy Customer" },
+      }],
+      failed: [],
+    }));
+    const queue = makeQueue();
+
+    expect((await queue.getSnapshot("business-legacy")).pending[0]?.clientMutationId).toBe("legacy-mutation");
+    expect(storage.getItem(QUEUE_KEY)).toBeNull();
+  });
+
+  it("flushes only the active business queue", async () => {
+    const storage = new FakeLocalStorage();
+    installWindow(storage);
+    const queue = makeQueue();
+    const businessA = "11111111-1111-4111-8111-111111111111";
+    const businessB = "22222222-2222-4222-8222-222222222222";
+    queue.sessions.save(session(businessA, "token-a"));
+    await queue.enqueue(queue.build({ businessId: businessA, mutationType: "SUPPLIER_CREATE", payload: { name: "A Supplier" } }));
+
+    queue.sessions.save(session(businessB, "token-b"));
+    await queue.enqueue(queue.build({ businessId: businessB, mutationType: "SUPPLIER_CREATE", payload: { name: "B Supplier" } }));
+
+    const pushedBusinessIds: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { mutations: Array<{ businessId: string; clientMutationId: string }> };
+      pushedBusinessIds.push(...body.mutations.map((mutation) => mutation.businessId));
+      return new Response(JSON.stringify({
+        mutationResults: body.mutations.map((mutation) => ({ clientMutationId: mutation.clientMutationId, status: "APPLIED" })),
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+
+    const result = await queue.flush({ activeBusinessId: businessB, online: true });
+
+    expect(result.applied).toBe(1);
+    expect(pushedBusinessIds).toEqual([businessB]);
+    expect((await queue.getSnapshot(businessA)).pending).toHaveLength(1);
+    expect((await queue.getSnapshot(businessB)).pending).toHaveLength(0);
   });
 
   it("preserves queued mutations when the same business merely refreshes its session", async () => {
