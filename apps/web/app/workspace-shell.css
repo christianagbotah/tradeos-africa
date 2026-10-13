@@ -4707,6 +4707,167 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* --- Receipt builder compact line row --------------------------------- *
+ * One row: Item | Quantity | Unit cost | Line total | Remove. Item takes
+ * the largest share; quantity and unit cost are compact; line total is a
+ * read-only server-shaped figure; remove sits at the far right. The subtle
+ * index badge replaces the old full-width line header.                    */
+.tos-receipt-line {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 80px 140px minmax(100px, 130px) 34px;
+  grid-template-areas: "num item qty cost total remove";
+  align-items: center;
+  gap: var(--tos-space-2);
+  padding: var(--tos-space-2) var(--tos-space-3);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface);
+}
+
+.tos-receipt-line__num {
+  grid-area: num;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--tos-surface-soft);
+  border: 1px solid var(--tos-border);
+  color: var(--tos-text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-receipt-line__item {
+  grid-area: item;
+  min-width: 0;
+}
+
+.tos-receipt-line__item .tos-select {
+  width: 100%;
+}
+
+.tos-receipt-line__qty {
+  grid-area: qty;
+  width: 100%;
+  min-width: 0;
+  padding-left: var(--tos-space-2);
+  padding-right: var(--tos-space-2);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-receipt-line__cost {
+  grid-area: cost;
+  min-width: 0;
+}
+
+/* Compact money field: collapse outer field spacing inside the line row. */
+.tos-receipt-line__cost .tos-field {
+  display: block;
+}
+
+.tos-receipt-line__total {
+  grid-area: total;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+  text-align: right;
+  font-weight: 800;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.tos-receipt-line__total-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tos-text-muted);
+  white-space: nowrap;
+}
+
+.tos-receipt-line__remove {
+  grid-area: remove;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--tos-radius-sm);
+  border: 1px solid var(--tos-border);
+  background: var(--tos-surface);
+  color: var(--tos-text-muted);
+  cursor: pointer;
+  transition: background var(--tos-motion-fast) ease, color var(--tos-motion-fast) ease,
+    border-color var(--tos-motion-fast) ease;
+}
+
+.tos-receipt-line__remove:hover:not(:disabled) {
+  background: var(--tos-danger-soft);
+  color: var(--tos-danger);
+  border-color: #f1c9c6;
+}
+
+.tos-receipt-line__remove:focus-visible {
+  outline: none;
+  box-shadow: var(--tos-focus-ring);
+}
+
+.tos-receipt-line__remove:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Add line: content-width only, left aligned. */
+.tos-receipt-add {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.tos-receipt-add .tos-btn {
+  width: fit-content;
+}
+
+/* Narrow phones: same single-row grid, tightened so nothing overflows. */
+@media (max-width: 640px) {
+  .tos-receipt-line {
+    grid-template-columns: 18px minmax(0, 1fr) 54px 92px minmax(72px, 88px) 28px;
+    gap: 6px;
+    padding: var(--tos-space-2);
+  }
+
+  .tos-receipt-line__num {
+    width: 18px;
+    height: 18px;
+    font-size: 10px;
+  }
+
+  .tos-receipt-line .tos-select,
+  .tos-receipt-line__qty {
+    font-size: 12px;
+    height: 34px;
+  }
+
+  .tos-receipt-line__cost .tos-money__input {
+    font-size: 12px;
+    height: 34px;
+    padding-left: 16px;
+  }
+
+  .tos-receipt-line__total {
+    font-size: 12px;
+  }
+
+  .tos-receipt-line__total-sub {
+    display: none;
+  }
+
+  .tos-receipt-line__remove {
+    width: 28px;
+    height: 28px;
+  }
+}
+
 /* --- Recovery method chip grid (visual selection for purchase returns) - */
 .tos-recovery-grid {
   display: grid;

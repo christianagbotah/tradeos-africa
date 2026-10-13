@@ -25,6 +25,7 @@ export interface MoneyAccount {
   referenceLabel: string | null;
   balanceMinor: number;
   active: boolean;
+  /** Client-computed via the /v1/money-account-defaults join — the API never sends this. */
   isDefault: boolean;
   currencyCode: string;
   updatedAt: string;

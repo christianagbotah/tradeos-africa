@@ -43,6 +43,16 @@ import {
 
 interface MoneyAccountsResponse { accounts: MoneyAccount[]; totalBalanceMinor: number }
 
+interface MoneyAccountDefaultsResponse {
+  defaults: ReadonlyArray<{
+    branchId: string | null;
+    method: string;
+    moneyAccountId: string;
+    accountName: string;
+    updatedAt: string;
+  }>;
+}
+
 interface Reconciliation {
   id: string;
   branchId: string;
@@ -141,17 +151,23 @@ export function CashbookExpenses() {
   const [nonce, setNonce] = useState(0);
   const [tab, setTab] = useState<ActionTab>("expense");
 
-  const accountsPath = session ? `/v1/treasury/accounts?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}` : null;
+  // Canonical treasury read paths. /v1/money-accounts does NOT carry default
+  // flags — defaults are loaded explicitly from /v1/money-account-defaults
+  // and joined client-side below. No silent assumptions.
+  const accountsPath = session ? `/v1/money-accounts?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}` : null;
+  const defaultsPath = session ? `/v1/money-account-defaults?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}` : null;
   const reconciliationsPath = session ? `/v1/money-reconciliations?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=20` : null;
   const { data, loading, error: loadError, refetch } = useApiFetch<MoneyAccountsResponse>(accountsPath);
+  const { data: defaultsData, refetch: refetchDefaults } = useApiFetch<MoneyAccountDefaultsResponse>(defaultsPath);
   const { data: recData, loading: recLoading, error: recError, refetch: refetchRec } = useApiFetch<ReconciliationsResponse>(reconciliationsPath);
 
   useEffect(() => {
     if (nonce > 0) {
       refetch();
+      refetchDefaults();
       refetchRec();
     }
-  }, [nonce, refetch, refetchRec]);
+  }, [nonce, refetch, refetchDefaults, refetchRec]);
 
   const canAdjust = roleCan(role as WorkspaceRole, CASHBOOK_ADJUSTMENT_ROLES);
   const canReconcile = roleCan(role as WorkspaceRole, TREASURY_RECONCILE_ROLES);
@@ -160,7 +176,14 @@ export function CashbookExpenses() {
   const canWrite = canAdjust || canReconcile || canTransfer || canExpense;
 
   const currencyCode = session?.currencyCode ?? "GHS";
-  const accounts = data?.accounts ?? [];
+  const defaultAccountIds = useMemo(
+    () => new Set((defaultsData?.defaults ?? []).map((d) => d.moneyAccountId)),
+    [defaultsData],
+  );
+  const accounts = useMemo(
+    () => (data?.accounts ?? []).map((a) => ({ ...a, isDefault: defaultAccountIds.has(a.id) })),
+    [data, defaultAccountIds],
+  );
   const totalBalanceMinor = data?.totalBalanceMinor ?? accounts.reduce((sum, a) => sum + a.balanceMinor, 0);
   const reconciliations = recData?.reconciliations ?? [];
   const openVariances = reconciliations.filter((r) => r.status === "VARIANCE");

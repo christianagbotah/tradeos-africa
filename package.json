@@ -13,5 +13,8 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.0"
   }
 }

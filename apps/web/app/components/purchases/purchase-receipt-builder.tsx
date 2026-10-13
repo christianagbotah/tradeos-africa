@@ -140,72 +140,67 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                 const lineTotalMinor = line.costMinor * line.quantity;
                 const selected = activeCatalog.find((c) => c.id === line.itemId);
                 return (
-                  <div key={idx} className="tos-receipt-builder-line">
-                    <div className="tos-receipt-builder-line__head">
-                      <span className="tos-receipt-builder-line__index">
-                        <span className="tos-receipt-builder-line__index-num">{idx + 1}</span>
-                        Line {idx + 1}
-                      </span>
-                      {lines.length > 1 ? (
-                        <button
-                          type="button"
-                          className="tos-receipt-builder-line__remove"
-                          onClick={() => removeLine(idx)}
-                          aria-label={`Remove line ${idx + 1}`}
-                        >
-                          <IconTrash style={{ width: 14, height: 14 }} />
-                        </button>
-                      ) : null}
+                  <div key={idx} className="tos-receipt-line">
+                    <span className="tos-receipt-line__num" aria-hidden="true">{idx + 1}</span>
+                    <div className="tos-receipt-line__item">
+                      <select
+                        id={`pr-item-${idx}`}
+                        className="tos-select"
+                        value={line.itemId}
+                        onChange={(e) => setLine(idx, { itemId: e.target.value })}
+                        disabled={!canWrite}
+                        aria-label={`Line ${idx + 1} item`}
+                      >
+                        <option value="">Select item…</option>
+                        {activeCatalog.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
                     </div>
-                    <div className="tos-public__form-row">
-                      <div className="tos-field">
-                        <label className="tos-field__label" htmlFor={`pr-item-${idx}`}>Item</label>
-                        <select
-                          id={`pr-item-${idx}`}
-                          className="tos-select"
-                          value={line.itemId}
-                          onChange={(e) => setLine(idx, { itemId: e.target.value })}
-                          disabled={!canWrite}
-                        >
-                          <option value="">Select…</option>
-                          {activeCatalog.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="tos-field">
-                        <label className="tos-field__label" htmlFor={`pr-qty-${idx}`}>Quantity</label>
-                        <input
-                          id={`pr-qty-${idx}`}
-                          type="number"
-                          min={1}
-                          step="any"
-                          className="tos-input"
-                          value={line.quantity}
-                          onChange={(e) => setLine(idx, { quantity: Math.max(1, Number(e.target.value)) })}
-                          disabled={!canWrite}
-                        />
-                      </div>
-                    </div>
-                    <MoneyInput
-                      currencyCode={currencyCode}
-                      valueMinor={line.costMinor}
-                      onChange={(v) => setLine(idx, { costMinor: v ?? 0 })}
-                      label="Unit cost"
+                    <input
+                      id={`pr-qty-${idx}`}
+                      className="tos-input tos-receipt-line__qty"
+                      type="number"
+                      min={1}
+                      step="any"
+                      inputMode="decimal"
+                      value={line.quantity}
+                      onChange={(e) => setLine(idx, { quantity: Math.max(1, Number(e.target.value)) })}
                       disabled={!canWrite}
+                      aria-label={`Line ${idx + 1} quantity`}
                     />
-                    {selected ? (
-                      <div className="tos-receipt-builder-line__preview">
-                        <span className="tos-receipt-builder-line__preview-label">
-                          Line {idx + 1} · {line.quantity} × {receivingUnit(selected)}
-                        </span>
-                        <span className="tos-receipt-builder-line__preview-val">
-                          <MoneyValue minor={lineTotalMinor} currencyCode={currencyCode} />
-                        </span>
-                      </div>
-                    ) : null}
+                    <div className="tos-receipt-line__cost">
+                      <MoneyInput
+                        currencyCode={currencyCode}
+                        valueMinor={line.costMinor}
+                        onChange={(v) => setLine(idx, { costMinor: v ?? 0 })}
+                        disabled={!canWrite}
+                        id={`pr-cost-${idx}`}
+                        aria-label={`Line ${idx + 1} unit cost`}
+                      />
+                    </div>
+                    <span
+                      className="tos-receipt-line__total"
+                      title={selected ? `${line.quantity} × ${receivingUnit(selected)}` : undefined}
+                    >
+                      <MoneyValue minor={lineTotalMinor} currencyCode={currencyCode} />
+                      {selected ? (
+                        <span className="tos-receipt-line__total-sub">{line.quantity} × {receivingUnit(selected)}</span>
+                      ) : null}
+                    </span>
+                    <button
+                      type="button"
+                      className="tos-receipt-line__remove"
+                      onClick={() => removeLine(idx)}
+                      aria-label={`Remove line ${idx + 1}`}
+                      disabled={lines.length === 1 || !canWrite}
+                    >
+                      <IconTrash style={{ width: 14, height: 14 }} />
+                    </button>
                   </div>
                 );
               })}
-              <Button variant="outline" size="sm" icon={<IconPlus className="tos-btn__icon" />} onClick={addLine} disabled={!canWrite}>Add line</Button>
+              <div className="tos-receipt-add">
+                <Button variant="outline" size="sm" icon={<IconPlus className="tos-btn__icon" />} onClick={addLine} disabled={!canWrite}>Add line</Button>
+              </div>
             </div>
           </div>
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import type { FinancialSummaryReport } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyValue } from "../business/money-value";
@@ -23,38 +24,10 @@ import {
   IconWallet,
 } from "../ui/icons";
 
-interface FinancialFlow {
-  grossRevenueMinor: number;
-  returnsRevenueMinor: number;
-  netRevenueMinor: number;
-  grossTaxMinor: number;
-  grossCogsMinor: number;
-  grossProfitMinor: number;
-  expenseMinor: number;
-  operatingProfitMinor: number;
-  salesCount: number;
-  returnCount: number;
-  averageNetSaleMinor: number;
-  cashInflowMinor: number;
-  cashOutflowMinor: number;
-  netCashMovementMinor: number;
-}
-
-interface FinancialPosition {
-  cashBalanceMinor: number;
-  receivablesMinor: number;
-  payablesMinor: number;
-  inventoryValueMinor: number;
-}
-
-interface FinancialSummary {
-  flow?: FinancialFlow;
-  position?: FinancialPosition;
-}
-
-interface ReportsResponse {
-  summary?: FinancialSummary;
-}
+// Canonical server contract (@tradeos/contracts). No local compatibility
+// model: flow/position/currencyCode/period all come from the server report.
+type FinancialFlow = FinancialSummaryReport["flow"];
+type FinancialPosition = FinancialSummaryReport["position"];
 
 type RangePreset = "today" | "week" | "month" | "quarter";
 
@@ -89,6 +62,16 @@ function rangeLabel(range: RangePreset): string {
   return RANGE_PRESETS.find((r) => r.value === range)?.sub ?? range;
 }
 
+/** Human label for the server-authoritative report period. */
+function periodLabel(period: FinancialSummaryReport["period"]): string {
+  const from = new Date(period.from);
+  const to = new Date(period.to);
+  const fmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return from.toDateString() === to.toDateString()
+    ? `${fmt.format(from)} · ${period.timezone}`
+    : `${fmt.format(from)} – ${fmt.format(to)} · ${period.timezone}`;
+}
+
 /**
  * Decision-support health score (0-100). Derived for display only from
  * server-authoritative figures — NOT an authoritative balance. The score
@@ -96,7 +79,7 @@ function rangeLabel(range: RangePreset): string {
  * balance-sheet strength so the owner can see at a glance whether the
  * period was healthy. Every underlying number remains server-authoritative.
  */
-function computeHealthScore(flow: FinancialFlow, position: FinancialPosition): {
+function computeHealthScore(flow: FinancialSummaryReport["flow"], position: FinancialSummaryReport["position"]): {
   score: number;
   status: "positive" | "warning" | "danger";
   label: string;
@@ -174,11 +157,13 @@ export function FinancialReports() {
   const path = session
     ? `/v1/reports/financial-summary?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&range=${range}`
     : null;
-  const { data, loading, error, refetch } = useApiFetch<ReportsResponse>(path);
+  const { data, loading, error, refetch } = useApiFetch<FinancialSummaryReport>(path);
 
-  const currencyCode = session?.currencyCode ?? "GHS";
-  const flow = data?.summary?.flow;
-  const position = data?.summary?.position;
+  // Server-provided metadata first; session/local fallbacks only pre-data.
+  const currencyCode = data?.currencyCode ?? session?.currencyCode ?? "GHS";
+  const flow = data?.flow;
+  const position = data?.position;
+  const period = data?.period;
 
   const health = useMemo(() => {
     if (!flow || !position) return null;
@@ -255,7 +240,7 @@ export function FinancialReports() {
               <div className="tos-report-exec__head">
                 <div className="tos-report-exec__head-main">
                   <span className="tos-report-exec__eyebrow">Executive summary</span>
-                  <h2 className="tos-report-exec__title">Period performance · {rangeLabel(range)}</h2>
+                  <h2 className="tos-report-exec__title">Period performance · {period ? periodLabel(period) : rangeLabel(range)}</h2>
                   <p className="tos-report-exec__sub">{flow.salesCount} sale(s) · {flow.returnCount} return(s) · {flow.averageNetSaleMinor > 0 ? "Avg sale " : ""}{flow.averageNetSaleMinor > 0 ? <MoneyValue minor={flow.averageNetSaleMinor} currencyCode={currencyCode} /> : null}</p>
                 </div>
                 {grossMargin !== null ? (
@@ -359,7 +344,7 @@ export function FinancialReports() {
               <section className="tos-section tos-animate-fade-in-up">
                 <div className="tos-section__head">
                   <h2 className="tos-section__title">Profit &amp; loss</h2>
-                  <span className="tos-section__sub">{rangeLabel(range)}</span>
+                  <span className="tos-section__sub">{period ? periodLabel(period) : rangeLabel(range)}</span>
                 </div>
                 <div className="tos-section__body">
                   <div className="tos-report-pl-row">
@@ -432,7 +417,7 @@ export function FinancialReports() {
               <section className="tos-report-flow tos-animate-fade-in-up">
                 <div className="tos-report-flow__head">
                   <h2 className="tos-report-flow__title">Cash movement</h2>
-                  <span className="tos-report-flow__sub">{rangeLabel(range)}</span>
+                  <span className="tos-report-flow__sub">{period ? periodLabel(period) : rangeLabel(range)}</span>
                 </div>
                 <div className="tos-report-flow__row">
                   <span className="tos-report-flow__row-icon tos-report-flow__row-icon--in" aria-hidden="true">
