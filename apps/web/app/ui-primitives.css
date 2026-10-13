@@ -931,6 +931,14 @@
   scrollbar-color: var(--tos-border-strong) transparent;
 }
 
+/* Sheet bodies scroll — children must never flex-collapse. A column flex
+   container shrinks overflowing children, and any child with overflow:hidden
+   (e.g. .tos-section) loses its automatic minimum size, silently collapsing
+   to zero height. Pin every direct child so overflowing content scrolls. */
+.tos-sheet__body > * {
+  flex-shrink: 0;
+}
+
 .tos-sheet__foot {
   flex-shrink: 0;
   padding: var(--tos-space-4) var(--tos-space-5);

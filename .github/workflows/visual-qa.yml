@@ -414,6 +414,26 @@ jobs:
               if ((await p.locator('div[role="dialog"][aria-label="Checkout"]').count()) < 1) {
                 failures.push(`${label}: checkout must open when Charge is clicked`);
               }
+
+              // Cart item details MUST be itemized, visible, and rendered BEFORE
+              // the payment section. Regression guard: sheet bodies are column
+              // flex; without flex-shrink:0 the Order summary section (overflow
+              // hidden) silently collapses to ~0px when content overflows.
+              const checkoutLines = p.locator('div[role="dialog"][aria-label="Checkout"] .tos-checkout-lines__row');
+              if ((await checkoutLines.count()) < 2) {
+                failures.push(`${label}: checkout must itemize at least 2 cart lines before payment`);
+              }
+              const linesBox = await p.locator('div[role="dialog"][aria-label="Checkout"] .tos-checkout-lines').first().boundingBox();
+              if (!linesBox || linesBox.height < 48) {
+                failures.push(`${label}: checkout cart item details are collapsed or invisible (height ${linesBox ? Math.round(linesBox.height) : "none"})`);
+              }
+              const firstLineTop = linesBox ? linesBox.y : null;
+              const payField = p.locator('div[role="dialog"][aria-label="Checkout"] .tos-field', { hasText: "Payment method" }).first();
+              const payBox = await payField.boundingBox();
+              if (firstLineTop !== null && payBox && !(firstLineTop < payBox.y)) {
+                failures.push(`${label}: cart item details must render before the payment section`);
+              }
+
               await p.screenshot({ path: `${EVIDENCE}/${checkoutShot}.png`, fullPage: true });
               screenshotCount++;
               console.log(`Captured ${checkoutShot}.png`);
