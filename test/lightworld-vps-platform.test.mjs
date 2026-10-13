@@ -34,6 +34,7 @@ function writeRegistry(fixture, overrides = {}) {
     CANONICAL_MAIN_URL: fixture.bare,
     MAIN_VERIFY_MODE: 'public-ls-remote',
     APP_USER: os.userInfo().username,
+    RUNNER_USER: os.userInfo().username,
     RELEASE_ROOT: fixture.releases,
     CURRENT_LINK: fixture.currentLink,
     ENV_FILE: fixture.envFile,
@@ -187,6 +188,27 @@ test('deploy rejects a workspace whose origin does not match configured reposito
     assert.match(`${result.stderr}\n${result.stdout}`, /origin|repository/i);
     assert.equal(fs.existsSync(fixture.marker), false);
   } finally { cleanup(fixture); }
+});
+
+test('deploy release content comes from the canonical commit object, not mutable worktree files', () => {
+  const fixture = makeFixture();
+  try {
+    const readme = path.join(fixture.workspace, 'README.md');
+    fs.writeFileSync(readme, 'tampered-but-hidden-from-status\n');
+    git(fixture.workspace, 'update-index', '--skip-worktree', 'README.md');
+    assert.equal(git(fixture.workspace, 'status', '--porcelain'), '', 'probe must hide the worktree tamper from normal status');
+
+    const result = deploy(fixture, fixture.firstSha);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const releasedReadme = fs.readFileSync(path.join(fixture.releases, fixture.firstSha, 'README.md'), 'utf8');
+    assert.equal(releasedReadme, 'fixture\n');
+  } finally { cleanup(fixture); }
+});
+
+test('production workspace Git inspection is bound to a configured non-root runner identity', () => {
+  const source = fs.readFileSync(commonPath, 'utf8');
+  assert.match(source, /RUNNER_USER/);
+  assert.match(source, /runuser\s+-u\s+"\$RUNNER_USER"\s+--\s+git/);
 });
 
 test('deploy rejects a SHA that is not the independently resolved canonical main head', () => {
@@ -412,6 +434,7 @@ test('TradeOS staging registry template pins canonical operational metadata with
   assert.match(source, /^CANONICAL_MAIN_URL=['"]https:\/\/github\.com\/christianagbotah\/tradeos-africa\.git['"]$/m);
   assert.match(source, /^MAIN_VERIFY_MODE=['"]public-ls-remote['"]$/m);
   assert.match(source, /^APP_USER=['"]lightworld['"]$/m);
+  assert.match(source, /^RUNNER_USER=['"]lwrun_tradeos['"]$/m);
   assert.match(source, /^RELEASE_ROOT=['"]\/home\/lightworld\/releases\/tradeos-staging['"]$/m);
   assert.match(source, /^PROCESS_MANAGER=['"]pm2['"]$/m);
   assert.match(source, /^PROCESS_NAMES=['"]tradeos-staging-api tradeos-staging-web['"]$/m);
