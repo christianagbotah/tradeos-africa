@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=../lib/common.sh
+source "$SCRIPT_DIR/../lib/common.sh"
+usage() { printf 'usage: lightworld-status <app> <environment>\n' >&2; }
+if [[ "$#" -ne 2 ]]; then usage; exit 64; fi
+validate_identifier "$1" 'app'; validate_identifier "$2" 'environment'
+load_app_config "$1" "$2"; require_release_config
+
+active='none'
+if [[ -L "$CURRENT_LINK" ]]; then
+  target="$(realpath -- "$CURRENT_LINK" 2>/dev/null || true)"
+  candidate="$(basename "$target")"
+  if validate_sha "$candidate" >/dev/null 2>&1; then active="${candidate,,}"; else active='unmanaged'; fi
+fi
+previous="$(read_metadata_sha previous-release 2>/dev/null || printf 'none')"
+printf 'repository=%s\nactive=%s\nprevious=%s\nprocesses=%s\n' "$GITHUB_REPO" "$active" "$previous" "$PROCESS_NAMES"
+print_health_summary
