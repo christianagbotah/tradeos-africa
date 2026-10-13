@@ -4,7 +4,9 @@
 
 **Goal:** Build the reusable Lightworld GitHub-to-VPS runner foundation and prove it safely with a manual TradeOS staging deployment before onboarding other repositories from `christianagbotah` and `Chrix4u`.
 
-**Architecture:** GitHub-hosted CI remains the trust gate. A repo-scoped, non-root self-hosted runner invokes root-owned, fail-closed Lightworld deployment wrappers through a narrow sudo rule. The wrapper validates the application/environment/SHA/workspace, prepares an isolated release, runs project work as the existing application user, activates only after build/health preconditions succeed, and records rollback metadata.
+**Architecture:** GitHub-hosted CI remains the trust gate. Each deployable repository gets its own non-root Unix runner identity; the TradeOS pilot uses `lwrun_tradeos`. That runner can sudo only three root-owned TradeOS-specific shims, which hardcode the application/environment and call generic fail-closed Lightworld deployment logic. The generic layer validates the SHA/workspace/canonical repo, independently verifies that the requested SHA is the canonical `main` head, prepares an isolated release, runs project work as the existing application user, activates only after build preconditions succeed, and records rollback metadata.
+
+**Security refinement from plan self-review:** the approved design's preferred shared `lightworldrunner` identity is strengthened here to one Unix runner identity per deployable repository. A shared Unix identity cannot honestly guarantee that a compromised workflow from repository A cannot invoke repository B's sudoable deployment command. This plan therefore enforces repository isolation at the operating-system and sudoers layers, not only in workflow labels.
 
 **Tech Stack:** GitHub Actions, Bash, Node 22, pnpm 10.17.1, PM2, PostgreSQL, Next.js 16, Fastify, Linux systemd/GitHub Actions runner.
 
@@ -13,10 +15,13 @@
 ## Global Constraints
 
 - Runner processes must not run as `root`.
+- Each deployable repository must use a distinct Unix runner identity; the TradeOS pilot identity is `lwrun_tradeos`.
+- Generic deployment executables are installed under `/usr/local/libexec/lightworld-deploy/` and are not directly sudoable by runner users.
+- A runner user may sudo only repository/environment-specific shims that hardcode its deployment target.
 - No self-hosted runner workflow may execute on `pull_request`.
-- Initial deployment trigger is `workflow_dispatch` only and must fail closed unless `github.ref == 'refs/heads/main'`.
+- Initial deployment trigger is `workflow_dispatch` only; the workflow also checks `github.ref == 'refs/heads/main'`, but the root-owned deploy layer must independently require the SHA to equal the canonical remote `refs/heads/main` head.
 - Existing Webuzo, nginx, PostgreSQL and PM2 configuration must not be replaced during runner bootstrap.
-- Root-owned deployment configuration under `/etc/lightworld-deploy` must not be writable by `lightworldrunner`.
+- Root-owned deployment configuration under `/etc/lightworld-deploy` must not be writable by any runner account.
 - No generic arbitrary-root-shell workflow or unrestricted sudo entry.
 - Each repository/application/environment gets a unique runner label and deployment lock.
 - Secrets, `.env` files, database credentials, SSH keys and runner registration tokens stay off GitHub.
@@ -27,11 +32,11 @@
 
 ## Review Focus
 
-- A workflow dispatched from a non-`main` ref must never reach a privileged deployment command.
+- A workflow dispatched or rewritten on a non-`main` ref must still be unable to deploy because the root-owned layer independently verifies the canonical `main` SHA.
 - A malicious or malformed app/environment/SHA/workspace argument must be rejected before any privileged filesystem or process action.
-- A runner for one repository must not be able to target another application registry entry.
-- Build or health failure must leave the prior PM2 release available and report the failed SHA.
-- A missing/unsafe root-owned registry file, writable config, missing env file, or unknown migration state must fail closed rather than guess.
+- A compromised runner for one repository must have neither Unix permissions nor sudo permissions for another application's deployment shims.
+- Build or health failure must leave or restore the prior PM2 release and report the failed SHA.
+- A missing/unsafe root-owned registry file, writable config, missing env file, unknown migration state, or unverifiable canonical main ref must fail closed rather than guess.
 
 ---
 
@@ -41,23 +46,24 @@
 - Create: `test/lightworld-vps-platform.test.mjs`
 - Create: `ops/lightworld-vps/README.md`
 - Create: `ops/lightworld-vps/lib/common.sh`
-- Create: `ops/lightworld-vps/bin/lightworld-status`
-- Create: `ops/lightworld-vps/bin/lightworld-deploy`
-- Create: `ops/lightworld-vps/bin/lightworld-rollback`
+- Create: `ops/lightworld-vps/libexec/lightworld-status`
+- Create: `ops/lightworld-vps/libexec/lightworld-deploy`
+- Create: `ops/lightworld-vps/libexec/lightworld-rollback`
 - Modify: `package.json`
 
 **Interfaces:**
-- Produces CLI contracts:
+- Generic root-owned internal contracts:
   - `lightworld-status <app> <environment>`
   - `lightworld-deploy <app> <environment> <sha> <workspace>`
   - `lightworld-rollback <app> <environment>`
-- Produces shared Bash functions in `common.sh`: `validate_identifier`, `validate_sha`, `load_app_config`, `acquire_app_lock`, `assert_workspace_identity`.
+- Shared Bash functions: `validate_identifier`, `validate_sha`, `load_app_config`, `acquire_app_lock`, `assert_workspace_identity`, `verify_canonical_main_sha`.
+- The generic commands are installed under `/usr/local/libexec/lightworld-deploy/`; runner users never receive direct sudo permission to them.
 
 - [ ] **Step 1: Write the failing platform contract tests**
 
-Add Node `node:test` cases that assert the three executables exist, begin with Bash + `set -euo pipefail`, source only the shared library, contain no `eval`, accept only the documented arity, reject path traversal identifiers, require a 40-hex SHA for deploy, and never expose an arbitrary command argument.
+Add Node `node:test` cases that assert the three internal executables exist, begin with Bash + `set -euo pipefail`, contain no `eval`, accept only documented arity, reject path traversal identifiers, require a 40-hex SHA for deploy, and never expose an arbitrary command argument.
 
-Include a test that runs `lightworld-deploy` in non-root test mode against a temporary fake registry and asserts `../other-app`, `prod;id`, a bad SHA, and a workspace whose Git origin does not match the configured repository all fail before the fake deploy action marker is written.
+Run `lightworld-deploy` in non-root test mode against a temporary fake registry and assert `../other-app`, `prod;id`, a bad SHA, a workspace whose Git origin does not match the configured repository, and a SHA different from the fake canonical `main` head all fail before the fake deploy action marker is written.
 
 - [ ] **Step 2: Run the test and verify RED**
 
@@ -65,11 +71,13 @@ Run: `node --test test/lightworld-vps-platform.test.mjs`
 
 Expected: FAIL because `ops/lightworld-vps/...` does not exist.
 
-- [ ] **Step 3: Implement the minimal shared validation and command skeletons**
+- [ ] **Step 3: Implement minimal shared validation and canonical-main verification**
 
-`common.sh` must validate app/environment with `^[A-Za-z0-9][A-Za-z0-9._-]*$`, deploy SHA with `^[0-9a-fA-F]{40}$`, load exactly `/etc/lightworld-deploy/apps.d/<app>.<environment>.conf` in production, and refuse configs that are not root-owned or are group/other writable. A test-only root override is permitted only when `LIGHTWORLD_TEST_MODE=1` and EUID is non-zero.
+`common.sh` validates app/environment with `^[A-Za-z0-9][A-Za-z0-9._-]*$`, deploy SHA with `^[0-9a-fA-F]{40}$`, loads exactly `/etc/lightworld-deploy/apps.d/<app>.<environment>.conf` in production, and refuses configs that are not root-owned or are group/other writable. A test-only root override is permitted only when `LIGHTWORLD_TEST_MODE=1` and EUID is non-zero.
 
-`assert_workspace_identity(workspace, expected_repo, expected_sha)` must require a real Git worktree, exact `HEAD == expected_sha`, and a normalized origin matching the configured `owner/repo`.
+`assert_workspace_identity(workspace, expected_repo, expected_sha)` requires a real Git worktree, exact `HEAD == expected_sha`, and normalized origin matching configured `owner/repo`.
+
+`verify_canonical_main_sha` supports `MAIN_VERIFY_MODE=public-ls-remote` for public repos and `MAIN_VERIFY_MODE=deploy-key` for later private-repo onboarding. For the TradeOS pilot it must compare the requested SHA to `git ls-remote <canonical-url> refs/heads/main`. Test mode may substitute a local bare remote only while non-root.
 
 - [ ] **Step 4: Wire the root test command into `pnpm test`**
 
@@ -92,19 +100,18 @@ git commit -m "feat(ops): add Lightworld VPS deployment contract"
 
 **Files:**
 - Modify: `ops/lightworld-vps/lib/common.sh`
-- Modify: `ops/lightworld-vps/bin/lightworld-status`
-- Modify: `ops/lightworld-vps/bin/lightworld-deploy`
-- Modify: `ops/lightworld-vps/bin/lightworld-rollback`
+- Modify: `ops/lightworld-vps/libexec/lightworld-status`
+- Modify: `ops/lightworld-vps/libexec/lightworld-deploy`
+- Modify: `ops/lightworld-vps/libexec/lightworld-rollback`
 - Modify: `test/lightworld-vps-platform.test.mjs`
 
 **Interfaces:**
-- Consumes the Task 1 CLI contracts and registry loader.
-- Registry contract requires: `GITHUB_REPO`, `APP_USER`, `RELEASE_ROOT`, `CURRENT_LINK`, `ENV_FILE`, `PROCESS_MANAGER`, `PROCESS_NAMES`, `LOCAL_HEALTH_URLS`, `PUBLIC_HEALTH_URLS`, `RUNTIME_FAMILY`, `MIGRATION_MODE`.
+- Registry requires: `GITHUB_REPO`, `CANONICAL_MAIN_URL`, `MAIN_VERIFY_MODE`, `APP_USER`, `RELEASE_ROOT`, `CURRENT_LINK`, `ENV_FILE`, `PROCESS_MANAGER`, `PROCESS_NAMES`, `LOCAL_HEALTH_URLS`, `PUBLIC_HEALTH_URLS`, `RUNTIME_FAMILY`, `MIGRATION_MODE`.
 - Produces rollback metadata at `<RELEASE_ROOT>/.lightworld/last-successful-release` and `<RELEASE_ROOT>/.lightworld/previous-release`.
 
-- [ ] **Step 1: Extend tests for cross-project isolation, locks and failed activation**
+- [ ] **Step 1: Extend tests for locks, failed activation and fail-closed main verification**
 
-Use temporary fake registry entries for `tradeos-africa.staging` and `other-app.staging`. Assert a command scoped to TradeOS rejects a workspace whose origin is the other repo; concurrent deploy attempts cannot both acquire the same app lock; and a simulated build/health failure never changes the fake `CURRENT_LINK`.
+Use temporary fake registry entries. Assert concurrent deploy attempts cannot both acquire the same app lock; a simulated build/health failure never permanently changes the fake `CURRENT_LINK`; and canonical-main lookup failure rejects deployment instead of falling back to workspace refs.
 
 - [ ] **Step 2: Run tests and verify RED**
 
@@ -114,28 +121,13 @@ Expected: FAIL on missing release/lock/rollback behavior.
 
 - [ ] **Step 3: Implement release lifecycle without running repository code as root**
 
-`lightworld-deploy` must:
-1. load and validate the registry;
-2. acquire a global heavy-deploy lock plus app/environment lock;
-3. validate workspace origin + SHA;
-4. create `<RELEASE_ROOT>/<sha>`;
-5. copy the checked-out workspace without Git credentials/secrets;
-6. set ownership to `APP_USER`;
-7. link the configured server env file only after verifying it exists and is not inside the Git workspace;
-8. run dependency/build commands through the runtime adapter as `APP_USER`, never root;
-9. refuse automatic migrations while `MIGRATION_MODE=manual`;
-10. activate only after build succeeds;
-11. restart only configured processes;
-12. verify all local then public health URLs;
-13. update successful/previous release metadata only after health passes.
+`lightworld-deploy` must load/validate registry, acquire global heavy-deploy + app locks, validate workspace origin/SHA, independently verify canonical main SHA, create `<RELEASE_ROOT>/<sha>`, copy source without `.git` credentials or secrets, chown to `APP_USER`, link only the configured server env file after verifying it is outside the Git workspace, run dependency/build commands as `APP_USER`, refuse automatic migrations while `MIGRATION_MODE=manual`, activate only after build success, restart only configured processes, verify all local then public health URLs, and update successful/previous release metadata only after health passes.
 
-On activation health failure, immediately reactivate the previous release and return non-zero.
+On activation health failure, reactivate the previous release and return non-zero.
 
 - [ ] **Step 4: Implement read-only status and explicit rollback**
 
-`lightworld-status` prints configured repo, active release SHA, previous release SHA, configured process names and bounded health results without printing environment contents.
-
-`lightworld-rollback` accepts no SHA argument; it may only switch to the recorded previous successful release, restart configured processes and require health success.
+`lightworld-status` prints configured repo, active/previous release SHA, process names and bounded health results without environment contents. `lightworld-rollback` accepts no SHA; it only switches to the recorded previous successful release, restarts configured processes and requires health success.
 
 - [ ] **Step 5: Run tests**
 
@@ -150,45 +142,51 @@ git add ops/lightworld-vps test/lightworld-vps-platform.test.mjs
 git commit -m "feat(ops): add isolated release and rollback controls"
 ```
 
-### Task 3: Add host bootstrap assets and the harmless runner diagnostic workflow
+### Task 3: Add OS-level runner isolation, host bootstrap assets and diagnostic workflow
 
 **Files:**
 - Create: `ops/lightworld-vps/install/bootstrap-host.sh`
 - Create: `ops/lightworld-vps/install/install-platform-files.sh`
-- Create: `ops/lightworld-vps/sudoers/lightworldrunner`
+- Create: `ops/lightworld-vps/shims/tradeos-staging/lightworld-status-tradeos-staging`
+- Create: `ops/lightworld-vps/shims/tradeos-staging/lightworld-deploy-tradeos-staging`
+- Create: `ops/lightworld-vps/shims/tradeos-staging/lightworld-rollback-tradeos-staging`
+- Create: `ops/lightworld-vps/sudoers/lwrun_tradeos`
 - Create: `.github/workflows/vps-runner-diagnostic.yml`
 - Modify: `test/lightworld-vps-platform.test.mjs`
 
 **Interfaces:**
-- Produces VPS layout: `/opt/github-runners`, `/etc/lightworld-deploy/apps.d`, `/var/lib/lightworld-deploy`, `/var/lock/lightworld-deploy`.
-- Service user: `lightworldrunner` with no interactive password and no unrestricted sudo.
-- Diagnostic runner label: `tradeos-staging` plus `self-hosted`, `linux`, `x64`, `lightworld-vps`, `staging`.
+- VPS layout: `/opt/github-runners`, `/etc/lightworld-deploy/apps.d`, `/var/lib/lightworld-deploy`, `/var/lock/lightworld-deploy`.
+- TradeOS runner Unix user: `lwrun_tradeos`.
+- TradeOS-specific root-owned shims hardcode `tradeos-africa staging` and forward only permitted SHA/workspace arguments to generic internal commands.
+- Runner labels: `self-hosted`, `linux`, `x64`, `lightworld-vps`, `staging`, `tradeos-staging`.
 
-- [ ] **Step 1: Add failing static security tests**
+- [ ] **Step 1: Add failing OS-isolation and workflow tests**
 
-Assert the sudoers template permits only `/usr/local/sbin/lightworld-status`, `/usr/local/sbin/lightworld-deploy`, and `/usr/local/sbin/lightworld-rollback`; contains no `ALL=(ALL) ALL`, shell, package manager, editor or wildcard executable grant.
+Assert the TradeOS sudoers template names only `lwrun_tradeos` and permits only the three TradeOS-specific `/usr/local/sbin/*-tradeos-staging` shims. Assert it contains no generic libexec path, `ALL=(ALL) ALL`, shell, package manager, editor, wildcard app name or wildcard executable grant.
 
-Assert the diagnostic workflow has only `workflow_dispatch`, `permissions: contents: read`, the exact runner labels, no `pull_request`, no secrets dump, and only runs identity/status diagnostics.
+Assert each shim hardcodes `tradeos-africa` and `staging` and cannot accept an app/environment argument.
+
+Assert the diagnostic workflow has only `workflow_dispatch`, `permissions: contents: read`, exact runner labels, no `pull_request`, no repository checkout and no secrets dump.
 
 - [ ] **Step 2: Run tests and verify RED**
 
 Run: `node --test test/lightworld-vps-platform.test.mjs`
 
-Expected: FAIL because bootstrap/sudoers/workflow files do not exist.
+Expected: FAIL because bootstrap/shims/sudoers/workflow do not exist.
 
-- [ ] **Step 3: Implement idempotent host bootstrap files**
+- [ ] **Step 3: Implement idempotent host bootstrap and root-owned install files**
 
-`bootstrap-host.sh` creates the service account and directories with explicit owners/modes but does not download/register a GitHub runner and does not touch PM2/Webuzo/nginx/PostgreSQL.
+`bootstrap-host.sh` creates platform directories but no shared runner account. It creates `lwrun_tradeos` only when explicitly invoked for the TradeOS pilot and gives that account ownership only of `/opt/github-runners/christianagbotah/tradeos-africa/staging` plus its runner work directory.
 
-`install-platform-files.sh` copies root-owned wrappers/library/sudoers, validates with `bash -n` and `visudo -cf`, and refuses to install from a dirty or unexpected source path unless `--source` is explicit.
+`install-platform-files.sh` installs generic commands under `/usr/local/libexec/lightworld-deploy/`, TradeOS shims under `/usr/local/sbin/`, validates `bash -n` + `visudo -cf`, and ensures libexec/registry/shims/sudoers remain root-owned and non-writable by `lwrun_tradeos`.
 
-- [ ] **Step 4: Add the diagnostic workflow**
+- [ ] **Step 4: Add diagnostic workflow**
 
-The workflow must not checkout repository code. It runs `id`, bounded disk/memory checks, and `sudo -n /usr/local/sbin/lightworld-status tradeos-africa staging` only after the TradeOS registry is installed.
+The workflow does not checkout repository code. It runs bounded identity/disk/memory checks and `sudo -n /usr/local/sbin/lightworld-status-tradeos-staging` only.
 
-- [ ] **Step 5: Run tests + shell syntax checks**
+- [ ] **Step 5: Run tests + syntax checks**
 
-Run: `node --test test/lightworld-vps-platform.test.mjs && bash -n ops/lightworld-vps/install/*.sh ops/lightworld-vps/bin/* ops/lightworld-vps/lib/*.sh`
+Run: `node --test test/lightworld-vps-platform.test.mjs && bash -n ops/lightworld-vps/install/*.sh ops/lightworld-vps/libexec/* ops/lightworld-vps/lib/*.sh ops/lightworld-vps/shims/tradeos-staging/*`
 
 Expected: PASS.
 
@@ -196,29 +194,28 @@ Expected: PASS.
 
 ```bash
 git add ops/lightworld-vps .github/workflows/vps-runner-diagnostic.yml test/lightworld-vps-platform.test.mjs
-git commit -m "feat(ops): add secure VPS runner bootstrap"
+git commit -m "feat(ops): add repo-isolated VPS runner bootstrap"
 ```
 
-### Task 4: Add the TradeOS staging registry template and deployment workflow
+### Task 4: Add TradeOS staging registry template and deployment workflow
 
 **Files:**
 - Create: `ops/lightworld-vps/apps/tradeos-africa.staging.conf.example`
 - Create: `.github/workflows/deploy-staging.yml`
 - Modify: `test/lightworld-vps-platform.test.mjs`
-- Modify: `docs/superpowers/specs/2026-10-13-lightworld-github-vps-runner-platform-design.md` only to mark the approved spec status if still labelled proposed.
 
 **Interfaces:**
 - Canonical repo: `christianagbotah/tradeos-africa`.
-- Existing PM2 process names: `tradeos-staging-api`, `tradeos-staging-web`.
-- Existing application user: `lightworld`.
-- Existing local ports: API `4036`, Web `3036`.
-- Workflow passes `github.sha` and `${{ github.workspace }}` to `lightworld-deploy` after `actions/checkout@v4` with `persist-credentials: false`.
+- PM2 processes: `tradeos-staging-api`, `tradeos-staging-web`.
+- Application user: `lightworld`.
+- Local ports: API `4036`, Web `3036`.
+- Workflow calls `sudo -n /usr/local/sbin/lightworld-deploy-tradeos-staging "$GITHUB_SHA" "$GITHUB_WORKSPACE"`.
 
-- [ ] **Step 1: Add failing workflow/profile tests**
+- [ ] **Step 1: Add failing profile/workflow tests**
 
-Assert the profile contains the canonical repo/process names/app user/runtime family, keeps `MIGRATION_MODE=manual` for the first pilot, and does not contain a secret value.
+Assert profile has canonical repo/process names/app user/runtime family, `MAIN_VERIFY_MODE=public-ls-remote`, canonical public repo URL, and `MIGRATION_MODE=manual`; no secrets.
 
-Assert `deploy-staging.yml` has only `workflow_dispatch`, job-level `if: github.ref == 'refs/heads/main'`, `concurrency: tradeos-staging`, exact runner labels, `permissions: contents: read`, checkout with `persist-credentials: false`, and a single privileged action: `sudo -n /usr/local/sbin/lightworld-deploy tradeos-africa staging "$GITHUB_SHA" "$GITHUB_WORKSPACE"`.
+Assert workflow has only `workflow_dispatch`, job-level `if: github.ref == 'refs/heads/main'`, `concurrency: tradeos-staging`, exact labels, `permissions: contents: read`, checkout with `persist-credentials: false`, and the single TradeOS-specific sudo deploy shim.
 
 - [ ] **Step 2: Run test and verify RED**
 
@@ -226,11 +223,11 @@ Run: `node --test test/lightworld-vps-platform.test.mjs`
 
 Expected: FAIL on missing profile/workflow.
 
-- [ ] **Step 3: Implement the profile template and workflow**
+- [ ] **Step 3: Implement profile template + workflow**
 
-The template pins `APP_USER=lightworld`, process names above, `RUNTIME_FAMILY=pnpm-node`, release root `/home/lightworld/releases/tradeos-staging`, and known local health checks `http://127.0.0.1:4036/health` plus `http://127.0.0.1:3036/`.
+Template pins `APP_USER=lightworld`, known process names, `RUNTIME_FAMILY=pnpm-node`, release root `/home/lightworld/releases/tradeos-staging`, canonical public GitHub URL, and local health `http://127.0.0.1:4036/health` plus `http://127.0.0.1:3036/`.
 
-Do not guess the live public API route or env-file location in Git. Those are mandatory install-time registry values read from the current VPS configuration before the real root-owned profile is created.
+Do not guess live public API route or env-file location in Git. Those are required install-time registry values obtained from the current VPS configuration.
 
 - [ ] **Step 4: Run repository verification**
 
@@ -241,88 +238,76 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add ops/lightworld-vps/apps .github/workflows/deploy-staging.yml test/lightworld-vps-platform.test.mjs docs/superpowers/specs/2026-10-13-lightworld-github-vps-runner-platform-design.md
+git add ops/lightworld-vps/apps .github/workflows/deploy-staging.yml test/lightworld-vps-platform.test.mjs
 git commit -m "feat(ops): add TradeOS staging runner workflow"
 ```
 
-### Task 5: Bootstrap the VPS and register the TradeOS repo-scoped runner
+### Task 5: Bootstrap VPS and register the TradeOS repo-scoped runner
 
 **Files on VPS:**
 - Create: `/opt/github-runners/christianagbotah/tradeos-africa/staging/`
 - Create: `/etc/lightworld-deploy/apps.d/tradeos-africa.staging.conf`
-- Install: `/usr/local/sbin/lightworld-{status,deploy,rollback}`
-- Install: `/usr/local/lib/lightworld-deploy/common.sh`
-- Install: `/etc/sudoers.d/lightworldrunner`
+- Install generic internals: `/usr/local/libexec/lightworld-deploy/*`
+- Install TradeOS shims: `/usr/local/sbin/lightworld-{status,deploy,rollback}-tradeos-staging`
+- Install: `/etc/sudoers.d/lwrun_tradeos`
 
 **Interfaces:**
-- Consumes the exact GitHub runner download URL/hash/token generated by GitHub Settings → Actions → Runners for `christianagbotah/tradeos-africa`.
-- Produces an online repo-scoped runner named `lightworld-vps-tradeos-staging` with the approved labels.
+- Consumes exact GitHub runner download URL/hash/token generated by GitHub Settings → Actions → Runners for `christianagbotah/tradeos-africa`.
+- Produces an online repo-scoped runner named `lightworld-vps-tradeos-staging`, running as `lwrun_tradeos`.
 
-- [ ] **Step 1: Capture a read-only VPS preflight**
+- [ ] **Step 1: Capture read-only VPS preflight**
 
-Run as root and save only non-secret output: OS/arch, `id lightworld`, `pm2 ls`, `pm2 prettylist` process names/cwd/user fields, `readlink -f /home/lightworld/webapps/tradeos-staging`, directory ownership/modes, Node/pnpm versions, disk/memory, and Webuzo/nginx proxy targets. Do not print `.env.staging` contents.
+Run as root and save only non-secret output: OS/arch, `id lightworld`, PM2 process names/cwd/user fields, staging real path/ownership, Node/pnpm versions, disk/memory, and Webuzo/nginx proxy targets. Do not print env-file contents.
 
-Expected: confirm the PM2 names and ports already represented by repository deployment tests; identify the actual stable env-file path and public health URLs for the root-owned registry.
+Expected: confirm PM2 names/ports; identify stable env-file path and public health URLs for the root-owned registry.
 
-- [ ] **Step 2: Run the host bootstrap only**
+- [ ] **Step 2: Run host bootstrap only**
 
-Execute `bootstrap-host.sh`, then verify:
+Execute `bootstrap-host.sh tradeos`, then verify `id lwrun_tradeos`, account has no interactive sudo, runner directory belongs only to `lwrun_tradeos`, and `/etc/lightworld-deploy` remains root-owned/non-writable.
 
-```bash
-id lightworldrunner
-getent passwd lightworldrunner
-stat -c '%U %G %a %n' /opt/github-runners /etc/lightworld-deploy /etc/lightworld-deploy/apps.d
-```
+- [ ] **Step 3: Install internals, TradeOS shims and real registry**
 
-Expected: non-root service user; registry root-owned and not runner-writable.
+Fill only non-secret metadata learned in Step 1. Run `visudo -cf /etc/sudoers.d/lwrun_tradeos`. Verify `sudo -l -U lwrun_tradeos` lists only the three TradeOS-specific shims and no generic libexec command.
 
-- [ ] **Step 3: Install wrappers + real TradeOS registry**
+- [ ] **Step 4: Register GitHub runner using GitHub's current generated commands**
 
-Copy the approved files, fill only the non-secret deployment metadata learned in Step 1, run `visudo -cf /etc/sudoers.d/lightworldrunner`, then verify `sudo -l -U lightworldrunner` shows only the three approved wrapper commands.
+Download package and verify SHA-256 exactly as GitHub displays. Run `./config.sh` as `lwrun_tradeos`, never root, with short-lived repo token; labels `lightworld-vps,staging,tradeos-staging`; runner name `lightworld-vps-tradeos-staging`. Install/start runner service under `lwrun_tradeos`.
 
-- [ ] **Step 4: Register the GitHub runner using GitHub's current generated commands**
+- [ ] **Step 5: Verify diagnostic workflow before deployment**
 
-Download the runner package and verify the SHA-256 exactly as GitHub displays. Run `./config.sh` as `lightworldrunner`, never root, using the short-lived repo registration token; labels: `lightworld-vps,staging,tradeos-staging`; runner name: `lightworld-vps-tradeos-staging`.
+Dispatch `VPS Runner Diagnostic` from `main` and require green identity/resource/status output. No app restart, migration or build may occur.
 
-Install/start the runner service using GitHub's `svc.sh` under the configured runner identity.
-
-- [ ] **Step 5: Verify diagnostic workflow before any deployment**
-
-Dispatch `VPS Runner Diagnostic` from `main` and require green output for user identity, resource checks and `lightworld-status`.
-
-Expected: no application restart, migration or build occurs.
-
-### Task 6: Execute the TradeOS staging pilot and prove rollback
+### Task 6: Execute TradeOS staging pilot and prove rollback
 
 **Files:**
-- Update: `docs/ops/lightworld-vps-repository-inventory.md`
+- Create: `docs/ops/lightworld-vps-repository-inventory.md`
 - Create: `docs/ops/lightworld-vps-onboarding-template.md`
 
 **Interfaces:**
-- Consumes the online runner and deploy workflow.
-- Produces a proven Lightworld deployment contract reusable for later repository-specific plans.
+- Consumes online runner + deploy workflow.
+- Produces a proven deployment contract for repository-specific onboarding plans.
 
 - [ ] **Step 1: Record pre-deployment state**
 
-Capture current public root response, local API `/health`, local Web root, PM2 status, currently deployed Git SHA and database migration inventory. Back up the current application config/environment metadata without committing secrets.
+Capture public root, local API `/health`, local Web root, PM2 status, deployed Git SHA and migration inventory. Back up current operational config without committing secrets.
 
-- [ ] **Step 2: Keep migrations fail-closed for the first pilot**
+- [ ] **Step 2: Keep migrations fail-closed for first pilot**
 
-Because TradeOS currently stores ordered SQL migrations without a production migration ledger, leave `MIGRATION_MODE=manual`. If the selected `main` SHA contains unapplied migrations relative to staging, stop the deployment and create a separate migration-baseline task before proceeding. Do not automatically replay all SQL files against an existing database.
+TradeOS currently stores ordered SQL migrations without a production migration ledger, so leave `MIGRATION_MODE=manual`. If selected `main` contains unapplied migrations relative to staging, stop and create a separate migration-baseline task. Never replay all SQL files against an existing DB automatically.
 
-- [ ] **Step 3: Dispatch the staging deployment from `main`**
+- [ ] **Step 3: Dispatch staging deployment from `main`**
 
-Require hosted CI green for the exact SHA, then manually dispatch `Deploy Staging`. Verify the runner checks out the exact SHA, prepares the isolated release, builds as `lightworld`, activates only after success, restarts only `tradeos-staging-api` and `tradeos-staging-web`, and passes local + public health checks.
+Require hosted CI green for exact SHA, manually dispatch `Deploy Staging`, and verify root-owned canonical-main verification independently confirms that SHA. Verify isolated release/build as `lightworld`, activation only after build success, restart only two TradeOS PM2 processes, and local/public health success.
 
-- [ ] **Step 4: Prove rollback without introducing a broken release**
+- [ ] **Step 4: Prove rollback without deliberately breaking staging**
 
-Use the explicit rollback command to move to the recorded previous successful release, verify both local/public health, then deploy the approved main SHA again. This tests the rollback mechanism without intentionally corrupting staging.
+Use explicit rollback shim to move to recorded previous successful release, verify health, then deploy approved `main` SHA again.
 
-- [ ] **Step 5: Build the portfolio inventory and onboarding template**
+- [ ] **Step 5: Build portfolio inventory + onboarding template**
 
-The inventory must list every repository discovered under both GitHub identities and classify each as deployed, development-only, archived/reference, duplicate/mirror, or excluded. For `irexpro` and `iassetspro`, explicitly compare `christianagbotah/*` with `Chrix4u/*` and record only one canonical deployment source per application.
+List every discovered repo from both GitHub identities and classify as deployed, development-only, archived/reference, duplicate/mirror or excluded. Compare duplicate `irexpro` and `iassetspro` repos across accounts and record exactly one canonical deployment source per app.
 
-The onboarding template requires: canonical repo, runtime family, VPS path, app user, process manager/process names, env path, local/public health, build command, migration policy, release/rollback model, runner label, resource class and verification commands.
+Template fields: canonical repo, Unix runner user, private/public main verification mode, optional root-owned read-only deploy-key path for private repos, runtime family, VPS path, app user, process manager/names, env path, local/public health, build command, migration policy, release/rollback model, runner label, resource class and verification commands.
 
 - [ ] **Step 6: Run final platform verification**
 
@@ -338,16 +323,16 @@ git diff --check
 VPS:
 
 ```bash
-sudo -u lightworldrunner -H id
-sudo -l -U lightworldrunner
+sudo -u lwrun_tradeos -H id
+sudo -l -U lwrun_tradeos
 systemctl --no-pager --full status 'actions.runner.*tradeos*'
-sudo -n /usr/local/sbin/lightworld-status tradeos-africa staging
+sudo -n -u root /usr/local/sbin/lightworld-status-tradeos-staging
 pm2 ls
 curl -fsS http://127.0.0.1:4036/health
 curl -fsS http://127.0.0.1:3036/ >/dev/null
 ```
 
-Expected: repository green; runner online/non-root; narrow sudo; TradeOS healthy; deployed SHA reported.
+Expected: repo green; runner online/non-root; sudo limited to TradeOS shims; TradeOS healthy; deployed SHA reported.
 
 - [ ] **Step 7: Commit operational docs**
 
@@ -358,4 +343,4 @@ git commit -m "docs: record Lightworld runner pilot and onboarding contract"
 
 ## Follow-up execution sequence after this plan
 
-After the TradeOS pilot is proven, create small repository-specific onboarding plans from the template instead of one giant cross-project implementation. Priority order from the approved spec: `irexpro`, `iassetspro`, `schoolmanager`, `ipresenterplux`, `ifleet-system`, `ibetpro`, `lightworldtech-website`, then other deployed apps discovered during inventory. `Chrix4u/irexpro` and `Chrix4u/iassetspro` receive runners only if the inventory determines they are the canonical deployment repositories.
+After the TradeOS pilot is proven, create small repository-specific onboarding plans from the template instead of one giant cross-project implementation. Priority order: `irexpro`, `iassetspro`, `schoolmanager`, `ipresenterplux`, `ifleet-system`, `ibetpro`, `lightworldtech-website`, then other deployed apps found during inventory. `Chrix4u/irexpro` and `Chrix4u/iassetspro` receive runners only if inventory determines they are canonical deployment repositories. Every onboarded repo gets its own Unix runner user and app-specific sudo shims; private repos use root-owned read-only main-verification credentials rather than trusting the runner workspace alone.
