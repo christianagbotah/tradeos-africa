@@ -247,7 +247,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
         },
       });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       onComplete();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Could not submit.");

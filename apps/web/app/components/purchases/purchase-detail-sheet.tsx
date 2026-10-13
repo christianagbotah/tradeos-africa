@@ -178,7 +178,7 @@ export function PurchaseDetailSheet({ purchaseId, onClose, onMutated }: Purchase
                   payload,
                 });
                 await queue.enqueue(mutation);
-                await queue.flush({
+                await queue.flushOrThrow({
                   activeBusinessId: session.businessId,
                   online: typeof navigator !== "undefined" ? navigator.onLine : true,
                 });

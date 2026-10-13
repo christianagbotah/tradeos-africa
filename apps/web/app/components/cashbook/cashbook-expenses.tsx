@@ -655,7 +655,7 @@ function ExpenseForm({ accounts, currencyCode, canWrite, session, onDone }: Acti
       if (moneyAccountId) payload.moneyAccountId = moneyAccountId;
       const mutation = queue.build({ businessId: session.businessId, branchId: session.branchId, mutationType: "EXPENSE_CREATE", payload });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       setAmount(null); setCategory(""); setNote("");
       onDone();
     } catch (err) {
@@ -737,7 +737,7 @@ function TransferForm({ accounts, currencyCode, canWrite, session, onDone }: Act
       });
       const mutation = queue.build({ businessId: session.businessId, branchId: session.branchId, mutationType: MONEY_TRANSFER_CREATE_TYPE, payload });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       setAmountMinor(null); setNote(""); setSourceAccountId(""); setDestinationAccountId("");
       onDone();
     } catch (err) {
@@ -818,7 +818,7 @@ function ReconcileForm({ accounts, currencyCode, canWrite, session, onDone }: Ac
       });
       const mutation = queue.build({ businessId: session.businessId, branchId: session.branchId, mutationType: MONEY_RECONCILIATION_CREATE_TYPE, payload });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       setMoneyAccountId(""); setPeriodStart(""); setPeriodEnd(""); setObservedBalanceMinor(null); setNote("");
       onDone();
     } catch (err) {
@@ -914,7 +914,7 @@ function AdjustForm({ accounts, currencyCode, canWrite, session, onDone }: Actio
       });
       const mutation = queue.build({ businessId: session.businessId, branchId: session.branchId, mutationType: CASHBOOK_ADJUSTMENT_CREATE_TYPE, payload });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       setMoneyAccountId(""); setAmountDeltaMinor(null); setNote("");
       onDone();
     } catch (err) {
@@ -994,7 +994,7 @@ function ResolveVarianceForm({ reconciliationId, differenceMinor, currencyCode, 
       });
       const mutation = queue.build({ businessId: session.businessId, branchId: session.branchId, mutationType: MONEY_RECONCILIATION_RESOLVE_TYPE, payload });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       setNote(""); setOpen(false);
       onResolved();
     } catch (err) {

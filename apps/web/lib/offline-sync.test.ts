@@ -132,3 +132,100 @@ describe("WebOfflineQueue business isolation", () => {
     expect((await queue.getSnapshot()).pending).toHaveLength(1);
   });
 });
+
+describe("WebOfflineQueue access-token recovery", () => {
+  it("refreshes an expired access token and retries an authenticated request once", async () => {
+    const storage = new FakeLocalStorage();
+    installWindow(storage);
+    const queue = makeQueue();
+    queue.sessions.save(session("business-a", "expired-access"));
+    const calls: Array<{ url: string; auth: string | null }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers);
+      calls.push({ url, auth: headers.get("authorization") });
+      if (url === "/v1/auth/refresh") {
+        return new Response(JSON.stringify({ session: { accessToken: "fresh-access", refreshToken: "fresh-refresh", clientId: "web-client-1" } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (headers.get("authorization") === "Bearer expired-access") {
+        return new Response(JSON.stringify({ error: "ACCESS_REJECTED", message: "Access token is expired or revoked" }), { status: 401, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+
+    const response = await queue.authenticatedFetch("/v1/suppliers?businessId=business-a");
+
+    expect(response.status).toBe(200);
+    expect(queue.sessions.load()?.accessToken).toBe("fresh-access");
+    expect(queue.sessions.load()?.refreshToken).toBe("fresh-refresh");
+    expect(calls.filter((call) => call.url === "/v1/auth/refresh")).toHaveLength(1);
+    expect(calls.at(-1)?.auth).toBe("Bearer fresh-access");
+  });
+
+  it("refreshes and retries the offline sync transport instead of rejecting queued work", async () => {
+    const storage = new FakeLocalStorage();
+    installWindow(storage);
+    const queue = makeQueue();
+    const businessId = "11111111-1111-4111-8111-111111111111";
+    queue.sessions.save(session(businessId, "expired-access"));
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers);
+      if (url === "/v1/auth/refresh") {
+        return new Response(JSON.stringify({ session: { accessToken: "fresh-access", refreshToken: "fresh-refresh", clientId: "web-client-1" } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (headers.get("authorization") === "Bearer expired-access") {
+        return new Response(JSON.stringify({ error: "ACCESS_REJECTED", message: "Access token is expired or revoked" }), { status: 401, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ mutationResults: [{ clientMutationId: "mutation-1", status: "APPLIED", result: { supplierId: "supplier-1" } }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    await queue.enqueue(queue.build({ businessId, mutationType: "SUPPLIER_CREATE", payload: { name: "UAT Supplier" } }));
+
+    const result = await queue.flush({ activeBusinessId: businessId, online: true });
+
+    expect(result.applied).toBe(1);
+    expect((await queue.getSnapshot()).pending).toHaveLength(0);
+    expect(queue.sessions.load()?.accessToken).toBe("fresh-access");
+  });
+
+  it("shows a friendly session-expired error when the refresh token is also rejected", async () => {
+    const storage = new FakeLocalStorage();
+    installWindow(storage);
+    const queue = makeQueue();
+    queue.sessions.save(session("business-a", "expired-access"));
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === "/v1/auth/refresh") {
+        return new Response(JSON.stringify({ error: "REFRESH_REJECTED", message: "Refresh token is expired or revoked" }), { status: 401, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ error: "ACCESS_REJECTED", message: "Access token is expired or revoked" }), { status: 401, headers: { "content-type": "application/json" } });
+    }));
+
+    await expect(queue.authenticatedFetch("/v1/suppliers?businessId=business-a")).rejects.toThrow("Your session has expired. Please sign in again.");
+  });
+});
+
+describe("WebOfflineQueue UI mutation rejection visibility", () => {
+  it("throws the server rejection message while preserving the failed mutation for retry", async () => {
+    const storage = new FakeLocalStorage();
+    installWindow(storage);
+    const queue = makeQueue();
+    const businessId = "22222222-2222-4222-8222-222222222222";
+    queue.sessions.save(session(businessId, "fresh-access"));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      mutationResults: [{
+        clientMutationId: "mutation-1",
+        status: "REJECTED",
+        errorCode: "SUPPLIER_INVALID",
+        errorMessage: "Supplier phone number is invalid.",
+      }],
+    }), { status: 200, headers: { "content-type": "application/json" } })));
+    await queue.enqueue(queue.build({ businessId, mutationType: "SUPPLIER_CREATE", payload: { name: "Bad Supplier" } }));
+
+    await expect(queue.flushOrThrow({ activeBusinessId: businessId, online: true }))
+      .rejects.toThrow("Supplier phone number is invalid.");
+
+    const snapshot = await queue.getSnapshot();
+    expect(snapshot.pending).toHaveLength(0);
+    expect(snapshot.failed).toHaveLength(1);
+  });
+});

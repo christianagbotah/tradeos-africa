@@ -147,7 +147,7 @@ export function OperationsWorkspace() {
       }
       const mutation = queue.build({ businessId: session.businessId, branchId: session.branchId, mutationType, payload });
       await queue.enqueue(mutation);
-      await queue.flush({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
       bump(); setCashCounted(null); setConfirmClose(false); setNonce((n) => n + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not complete operation.");

@@ -246,11 +246,9 @@ export function PublicEntry() {
 
 // --- Session validation ---------------------------------------------------
 
-async function validateSession(session: WebSession): Promise<boolean> {
+async function validateSession(_session: WebSession): Promise<boolean> {
   try {
-    const res = await fetch("/v1/me", {
-      headers: { Authorization: `Bearer ${session.accessToken}` },
-    });
+    const res = await getOfflineQueue().authenticatedFetch("/v1/me");
     return res.ok;
   } catch {
     return false;

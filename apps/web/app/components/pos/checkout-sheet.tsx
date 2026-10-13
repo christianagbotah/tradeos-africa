@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { formatMoney, majorToMinor, minorToMajor, getCurrencyMeta } from "@tradeos/contracts";
 import type { SyncResponse } from "@tradeos/contracts";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { buildSaleCreatePayload, type PaymentMethod } from "../../../lib/mutation-builders";
 import type { CartLine } from "./cart-panel";
 import { CustomerPicker } from "./customer-picker";
@@ -119,17 +120,13 @@ export function CheckoutSheet({
 
       if (online) {
         // Direct sync push for immediate feedback.
-        const res = await fetch("/v1/sync", {
+        const res = await queue.authenticatedFetch("/v1/sync", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${queue.sessions.load()?.accessToken ?? ""}`,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mutations: [mutation] }),
         });
         if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(text || `Sale failed (${res.status})`);
+          throw new Error(await readApiErrorMessage(res, "Sale failed"));
         }
         const json = (await res.json()) as SyncResponse;
         const mr = json.mutationResults[0];
