@@ -237,7 +237,10 @@ jobs:
           node --input-type=module << 'CAPTURE'
           import { chromium } from "playwright";
 
-          const WEB = "http://127.0.0.1:3000";
+          // Browser navigates on localhost: Next dev blocks non-localhost origins
+          // from loading /_next dev resources (hydration never completes otherwise).
+          // The API_BASE_URL rewrite target (127.0.0.1:4000) is server-side and unaffected.
+          const WEB = "http://localhost:3000";
           const EVIDENCE = "docs/qa/evidence/zai-ui-ux-premium";
           // Visible content that indicates a broken application state.
           const FORBIDDEN = [
