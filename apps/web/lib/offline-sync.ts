@@ -26,6 +26,16 @@ import type { SyncPushRequest, SyncResponse } from "@tradeos/contracts";
 const STORAGE_KEY = "tradeos.web.mutationQueue.v1";
 const SESSION_KEY = "tradeos.web.session.v1";
 
+export class OfflinePersistenceError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("Offline mutation persistence failed");
+    this.name = "OfflinePersistenceError";
+    this.cause = cause;
+  }
+}
+
 export interface WebSession {
   accessToken: string;
   refreshToken: string;
@@ -68,10 +78,17 @@ class LocalStorageQueueStore implements QueueSnapshotStorage {
     if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-    } catch {
-      // Quota exceeded or serialization failure — fail soft. The next flush
-      // will retry from the in-memory copy held by the queue runtime.
+    } catch (error) {
+      // A mutation is only safely queued once the durable snapshot is written.
+      // Surface persistence failures so callers never report a mutation as
+      // queued when a reload could silently lose it.
+      throw new OfflinePersistenceError(error);
     }
+  }
+
+  clear(): void {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(STORAGE_KEY);
   }
 }
 
@@ -95,9 +112,16 @@ class LocalStorageSessionStore implements SessionStorage {
     if (typeof window === "undefined") return;
     try {
       if (session) {
+        const previous = this.load();
+        if (!previous || previous.businessId !== session.businessId) {
+          // Queue snapshots are business-scoped. Never carry offline work into
+          // a different authenticated business (or an orphaned new session).
+          window.localStorage.removeItem(STORAGE_KEY);
+        }
         window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       } else {
         window.localStorage.removeItem(SESSION_KEY);
+        window.localStorage.removeItem(STORAGE_KEY);
       }
     } catch {
       // ignore
@@ -222,7 +246,7 @@ export class WebOfflineQueue {
 
   /** Clear all queued mutations (used on sign-out / business switch). */
   async clear(): Promise<void> {
-    await this.store.save({ pending: [], failed: [] });
+    this.store.clear();
   }
 
   /** Build a queued mutation with a fresh id and timestamp. */
