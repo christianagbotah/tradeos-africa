@@ -113,7 +113,7 @@ export function CatalogWorkspace() {
           <span className="tos-page__eyebrow">TradeOS · Master data</span>
           <h1 className="tos-page__title">Catalog</h1>
           <p className="tos-page__subtitle">
-            Your products, services, and prepared items. Prices and stock are server-authoritative — the client never writes them directly.
+            Manage products, services and prepared items with consistent unit pricing and stock rules across your business.
           </p>
         </div>
         <div className="tos-page__actions">
@@ -347,7 +347,7 @@ export function CatalogWorkspace() {
           </span>
           <span className="tos-callout__body">
             {stats.lowStock} item(s) are at or below 5 units on hand.
-            <span className="tos-callout__sub"> Visit Inventory to record a stock correction — each adjustment creates an evidence-grade movement.</span>
+            <span className="tos-callout__sub"> Visit Inventory to record a stock correction. Every adjustment is kept in the stock history.</span>
           </span>
         </div>
       ) : null}

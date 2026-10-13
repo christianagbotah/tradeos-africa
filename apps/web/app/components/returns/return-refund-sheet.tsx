@@ -287,8 +287,8 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                   <IconShield style={{ width: 16, height: 16 }} />
                 </span>
                 <span className="tos-callout__body">
-                  {mode === "return" ? "Returns" : "Refunds"} are immutable once posted. The original sale is never edited — a corrective transaction is created and recorded as server-authoritative business evidence.
-                  <span className="tos-callout__sub"> The refund total, tax reversal, COGS impact, and payment allocation are computed server-side on posting.</span>
+                  {mode === "return" ? "Returns" : "Refunds"} keep the original receipt unchanged and add a separate correction to the transaction history.
+                  <span className="tos-callout__sub"> Refund amount, tax reversal, stock/cost impact and payment allocation are calculated automatically when you post.</span>
                 </span>
               </div>
 
@@ -485,7 +485,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                   </span>
                 </div>
                 <span className="tos-impact-summary__note">
-                  Preview uses server-recorded per-unit net, tax, and cost from the sale line snapshots. Final figures (including tax reversal, COGS, and payment allocation) are computed server-side on posting.
+                  This preview uses the prices, tax and cost captured on the original sale. Final refund and stock impact are calculated automatically when you post.
                 </span>
               </div>
 

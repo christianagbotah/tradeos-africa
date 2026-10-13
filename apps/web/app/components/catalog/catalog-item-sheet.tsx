@@ -180,7 +180,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
   const primary = sellableUnits[0] ?? null;
 
   // Client-side validation mirrors the server's validateCatalogInput basics.
-  // Conversion-path reachability stays server-authoritative — its error is
+  // Conversion-path reachability stays system-managed — its error is
   // surfaced verbatim when the server rejects the mutation.
   const validationError = useMemo(() => {
     if (units.length === 0) return "Add at least one purchase/sale/stock unit.";
@@ -342,7 +342,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Master data</span>
             <h2 className="tos-sheet__title">{isEdit ? "Edit item" : "Add catalog item"}</h2>
-            {item ? <p className="tos-sheet__sub">{item.name}</p> : <p className="tos-sheet__sub">Server-authoritative prices and stock</p>}
+            {item ? <p className="tos-sheet__sub">{item.name}</p> : <p className="tos-sheet__sub">Prices and stock stay in sync</p>}
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
             <IconClose style={{ width: 18, height: 18 }} />
@@ -377,7 +377,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
               </div>
             ) : null}
             <p className="tos-catalog-hero__unit">
-              Each sellable unit carries its own server-set price — the server derives line totals, taxes and COGS from it, never the client.
+              Set the selling price for each unit you offer. TradeOS applies the selected unit price automatically at checkout.
             </p>
           </div>
 
@@ -461,7 +461,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
                         </button>
                       ) : null}
                     </div>
-                    <div className="tos-public__form-row">
+                    <div className="tos-form-grid tos-form-grid--3 tos-catalog-unit-grid">
                       <div className="tos-field">
                         <label className="tos-field__label" htmlFor={`cat-unit-code-${idx}`}>Unit code</label>
                         <input
@@ -492,17 +492,17 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
                           disabled={!canWrite || busy}
                         />
                       </div>
+                      {unit.canSell ? (
+                        <MoneyInput
+                          currencyCode={currencyCode}
+                          valueMinor={unit.priceMinor}
+                          onChange={(v) => setUnit(idx, { priceMinor: v })}
+                          label={`Sale price per ${normalizeUnitCode(unit.code) || "unit"}`}
+                          required
+                          disabled={!canWrite || busy}
+                        />
+                      ) : <div aria-hidden="true" />}
                     </div>
-                    {unit.canSell ? (
-                      <MoneyInput
-                        currencyCode={currencyCode}
-                        valueMinor={unit.priceMinor}
-                        onChange={(v) => setUnit(idx, { priceMinor: v })}
-                        label={`Sale price per ${normalizeUnitCode(unit.code) || "unit"}`}
-                        required
-                        disabled={!canWrite || busy}
-                      />
-                    ) : null}
                     <div className="tos-check-grid" role="group" aria-label={`Capabilities of unit ${idx + 1}`}>
                       <label className="tos-check-pill">
                         <input type="checkbox" checked={unit.canPurchase} onChange={(e) => setUnit(idx, { canPurchase: e.target.checked })} disabled={!canWrite || busy} />
@@ -537,10 +537,10 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
             </div>
             <div className="tos-section__body tos-stack">
               {conversions.length === 0 ? (
-                <p className="tos-section__sub">No conversions yet. Add one if this item sells or stocks in more than one unit.</p>
+                <p className="tos-section__sub tos-catalog-empty-hint">No conversions yet. Add one if this item sells or stocks in more than one unit.</p>
               ) : null}
               {conversions.map((conversion, idx) => (
-                <div key={idx} className="tos-public__form-row" style={{ alignItems: "end" }}>
+                <div key={idx} className="tos-catalog-conversion-grid">
                   <div className="tos-field">
                     <label className="tos-field__label" htmlFor={`cat-conv-from-${idx}`}>From</label>
                     <select
@@ -623,14 +623,14 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
             </div>
           ) : null}
 
-          {/* Server-authoritative framing */}
+          {/* Catalog integrity guidance */}
           <div className="tos-callout tos-callout--info">
             <span className="tos-callout__icon-wrap" aria-hidden="true">
               <IconShield style={{ width: 16, height: 16 }} />
             </span>
             <span className="tos-callout__body">
-              Prices, stock levels and valuations are server-authoritative.
-              <span className="tos-callout__sub"> This change is queued locally and reconciled on sync — the client never writes a balance or total directly. Items with sales history keep their unit structure; the server locks structural rewrites.</span>
+              TradeOS keeps prices, stock levels and valuation in sync with the transactions you record.
+              <span className="tos-callout__sub"> Changes made while offline are saved and synced when the connection returns. Items with sales history keep their established unit structure to protect past receipts and stock records.</span>
             </span>
           </div>
 

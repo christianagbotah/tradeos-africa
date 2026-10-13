@@ -414,7 +414,62 @@ jobs:
             }
           }
 
-          // === STEP 4: POS multi-unit flow — every step REQUIRED ===
+          // === STEP 4: Catalog unit editor responsive layout ===
+          async function catalogFormFlow(width, label, shot) {
+            const ctx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
+            const p = await ctx.newPage();
+            try {
+              await p.goto(`${WEB}/catalog`, { waitUntil: "networkidle", timeout: 30000 });
+              await p.waitForTimeout(1500);
+              await p.getByRole("button", { name: "Add item" }).first().click();
+              const sheet = p.locator('div[role="dialog"][aria-label="Add catalog item"]');
+              await sheet.waitFor({ state: "visible", timeout: 10000 });
+
+              const fields = sheet.locator(".tos-catalog-unit-grid > .tos-field");
+              if ((await fields.count()) !== 3) {
+                failures.push(`${label}: expected Unit code, Label and Sale price as 3 related fields`);
+              } else {
+                const boxes = await Promise.all([0, 1, 2].map((i) => fields.nth(i).boundingBox()));
+                if (boxes.some((box) => !box)) {
+                  failures.push(`${label}: catalog unit fields must all be visible`);
+                } else if (width > 768) {
+                  const ys = boxes.map((box) => box.y);
+                  if (Math.max(...ys) - Math.min(...ys) > 6) {
+                    failures.push(`${label}: Unit code, Label and Sale price must share one desktop row`);
+                  }
+                } else {
+                  if (!(boxes[0].y < boxes[1].y && boxes[1].y < boxes[2].y)) {
+                    failures.push(`${label}: catalog unit fields must stack vertically on mobile`);
+                  }
+                }
+              }
+
+              const emptyHint = sheet.locator(".tos-catalog-empty-hint");
+              const addConversion = sheet.getByRole("button", { name: "Add conversion" });
+              const hintBox = await emptyHint.boundingBox();
+              const addBox = await addConversion.boundingBox();
+              if (!hintBox || !addBox || addBox.y - (hintBox.y + hintBox.height) < 8) {
+                failures.push(`${label}: conversion empty-state needs visible spacing before Add conversion`);
+              }
+
+              const scrollWidth = await p.evaluate(() => document.documentElement.scrollWidth);
+              const clientWidth = await p.evaluate(() => document.documentElement.clientWidth);
+              if (scrollWidth > clientWidth) {
+                failures.push(`${label}: horizontal overflow (${scrollWidth} > ${clientWidth})`);
+              }
+              await p.screenshot({ path: `${EVIDENCE}/${shot}.png`, fullPage: true });
+              screenshotCount++;
+              console.log(`Captured ${shot}.png`);
+            } catch (err) {
+              failures.push(`${label}: ${err.message}`);
+            }
+            await ctx.close();
+          }
+
+          await catalogFormFlow(1280, "catalog-form-1280", "catalog-form-open-1280");
+          await catalogFormFlow(390, "catalog-form-390", "catalog-form-open-390");
+
+          // === STEP 5: POS multi-unit flow — every step REQUIRED ===
           async function posFlow(width, label, cartShot, checkoutShot) {
             const posCtx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
             const p = await posCtx.newPage();
@@ -494,7 +549,7 @@ jobs:
           await posFlow(1280, "pos-multiunit-1280", "pos-multiunit-1280", "pos-checkout-1280");
           await posFlow(390, "pos-multiunit-390", "pos-multiunit-390", "pos-checkout-390");
 
-          // === STEP 5: Purchase receipt sheet OPEN (desktop + narrow mobile) ===
+          // === STEP 6: Purchase receipt sheet OPEN (desktop + narrow mobile) ===
           async function receiptFlow(width, label, shot) {
             const ctx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
             const p = await ctx.newPage();

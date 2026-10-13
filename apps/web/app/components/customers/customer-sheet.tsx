@@ -123,10 +123,10 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
             </div>
             <p className="tos-customer-hero__hint">
               {owesAmount
-                ? "This customer owes the amount above. Record a payment to settle it — the new balance is computed server-side from the customer ledger."
+                ? "This customer owes the amount above. Record a payment to reduce the outstanding balance."
                 : hasCredit
                   ? "This customer has credit (paid in advance). It will be applied automatically to their next sale."
-                  : "Balance is settled. The customer ledger is server-authoritative — the client never writes a balance directly."}
+                  : "Balance is settled. New credit sales increase the balance and customer payments reduce it automatically."}
             </p>
           </div>
 
@@ -203,7 +203,7 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
           <div className="tos-section tos-animate-fade-in-up">
             <div className="tos-section__head">
               <h3 className="tos-section__title">Customer ledger</h3>
-              <span className="tos-section__sub">Server-authoritative</span>
+              <span className="tos-section__sub">Account history</span>
             </div>
             <div className="tos-section__body">
               <div className="tos-ledger-row">
@@ -246,7 +246,7 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
             <div className="tos-section__foot">
               <span className="tos-callout tos-callout--info" style={{ flex: "1 1 auto" }}>
                 <span style={{ display: "flex", flexDirection: "column", gap: "var(--tos-space-1)" }}>
-                  <span>Ledger entries (credit sales, payments, adjustments) are recorded as server-authoritative transactions.</span>
+                  <span>Credit sales, payments and adjustments are kept in this customer’s account history.</span>
                   <span style={{ fontWeight: 400 }}>View the customer&apos;s sales in the Sales screen to see their full purchase history.</span>
                 </span>
               </span>
@@ -477,7 +477,7 @@ function CustomerPaymentForm({ customer, currencyCode, businessId, branchId, onC
   return (
     <form className="tos-stack" onSubmit={handleSubmit} style={{ marginTop: "var(--tos-space-3)" }}>
       <div className="tos-callout tos-callout--info">
-        The new balance is computed server-side from the customer account ledger. The client never sends a balance.
+        TradeOS updates the customer balance automatically after the payment is recorded.
       </div>
       <MoneyInput currencyCode={currencyCode} valueMinor={amountMinor} onChange={setAmountMinor} label="Amount received" size="lg" required />
       <div className="tos-field">

@@ -142,7 +142,7 @@ export function PurchaseDetailSheet({ purchaseId, onClose, onMutated }: Purchase
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Purchase</span>
             <h2 className="tos-sheet__title">#{purchaseId.slice(0, 8)}</h2>
-            <p className="tos-sheet__sub">Server-authoritative purchase record</p>
+            <p className="tos-sheet__sub">Posted purchase record</p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close purchase detail">
             <IconClose style={{ width: 18, height: 18 }} />
@@ -344,7 +344,7 @@ function PurchaseDetailBody({
       <div className="tos-section tos-animate-fade-in-up">
         <div className="tos-section__head">
           <h3 className="tos-section__title">Return history</h3>
-          <span className="tos-section__sub">{returns.length} case(s) · server-authoritative</span>
+          <span className="tos-section__sub">{returns.length} case(s) · recorded history</span>
         </div>
         <div className="tos-section__body">
           {returns.length === 0 ? (
@@ -396,8 +396,8 @@ function PurchaseDetailBody({
           <IconShield style={{ width: 16, height: 16 }} />
         </span>
         <span className="tos-callout__body">
-          Posted purchases are immutable business evidence. Corrections are made via returns to supplier — never by editing the original receipt.
-          <span className="tos-callout__sub"> The supplier recovery, inventory value removed, and purchase-price variance are computed server-side from the purchase line costs and the inventory valuation layer.</span>
+          Posted purchases remain in the audit history. Make corrections with a return to supplier instead of changing the original receipt.
+          <span className="tos-callout__sub"> Supplier recovery, stock value and any purchase-price difference are calculated automatically from the original receipt.</span>
         </span>
       </div>
 
@@ -498,7 +498,7 @@ function PurchaseReturnForm({ purchase, lines, currencyCode, onCancel, onSubmit 
     <section className="tos-section">
       <div className="tos-section__head">
         <h3 className="tos-section__title">Return to supplier</h3>
-        <span className="tos-section__sub">Server-authoritative</span>
+        <span className="tos-section__sub">Recorded history</span>
       </div>
       <div className="tos-section__body--padded tos-stack">
         {/* Recovery method — visual chip grid */}

@@ -241,7 +241,7 @@ function OfflineBanner({ pending }: { pending: number }) {
         <span className="tos-banner__title">You are offline</span>
         <span className="tos-banner__text">
           Sales will queue locally and reconcile automatically when you reconnect.
-          {pending > 0 ? ` ${pending} mutation(s) pending.` : ""}
+          {pending > 0 ? ` ${pending} offline change(s) pending.` : ""}
         </span>
       </div>
     </div>

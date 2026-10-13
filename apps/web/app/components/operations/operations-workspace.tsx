@@ -211,7 +211,7 @@ export function OperationsWorkspace() {
               </div>
             ) : null}
             <p className="tos-ops-hero__sub" style={{ position: "relative", zIndex: 1 }}>
-              Operating days and shifts are evidence-grade. They reconcile against money-account balances and feed the cashbook automatically — every expected balance is computed server-side from the ledger of sales, purchases, expenses, transfers and adjustments during the period.
+              Operating days and shifts connect your counted cash with recorded sales, purchases, expenses, transfers and adjustments so differences are easy to spot.
             </p>
           </div>
 
@@ -408,8 +408,8 @@ export function OperationsWorkspace() {
               <IconShield style={{ width: 16, height: 16 }} />
             </span>
             <span className="tos-callout__body">
-              Operating days and shifts are evidence-grade.
-              <span className="tos-callout__sub"> They reconcile against money-account balances and feed the cashbook automatically. The expected closing balance per method is computed server-side from the cashbook ledger — the client only submits the counted cash total. Variances are surfaced here for visibility, but the authoritative variance figure is the one the server records on close.</span>
+              Operating days and shifts keep a traceable history.
+              <span className="tos-callout__sub"> TradeOS compares the counted amount with the recorded account balance and shows any variance before the day is finalized.</span>
             </span>
           </div>
         </>

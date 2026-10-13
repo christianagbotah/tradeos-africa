@@ -138,7 +138,7 @@ export function SupplierWorkspace() {
           <span className="tos-page__eyebrow">TradeOS · Inventory</span>
           <h1 className="tos-page__title">Purchases &amp; suppliers</h1>
           <p className="tos-page__subtitle">
-            Receive stock from suppliers, track payables, and return faulty goods. Costs flow into the cashbook and inventory valuation — every receipt is server-authoritative.
+            Receive stock from suppliers, track payables and return faulty goods. Receipts update inventory value and cashbook records automatically.
           </p>
         </div>
         <div className="tos-page__actions">
@@ -352,7 +352,7 @@ export function SupplierWorkspace() {
               variant="empty"
               icon={<IconReceipt className="tos-state__icon" />}
               title="No purchases yet"
-              text="Record a purchase receipt to receive stock. The cashbook and inventory valuation will update automatically — every receipt is server-authoritative."
+              text="Record a purchase receipt to receive stock. Inventory value and cashbook records will update automatically."
               actionLabel={canWrite ? "Record receipt" : undefined}
               onAction={canWrite ? () => setReceiptOpen(true) : undefined}
             />
@@ -449,7 +449,7 @@ export function SupplierWorkspace() {
           </span>
           <span className="tos-callout__body">
             {stats.owesCount} supplier(s) are owed a total payable balance.
-            <span className="tos-callout__sub"> Open a supplier to record a payment — the new balance is computed server-side from the supplier ledger.</span>
+            <span className="tos-callout__sub"> Open a supplier to record a payment and the outstanding balance will update automatically.</span>
           </span>
         </div>
       ) : null}

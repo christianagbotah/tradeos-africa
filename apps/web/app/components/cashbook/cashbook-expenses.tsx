@@ -223,7 +223,7 @@ export function CashbookExpenses() {
         <div className="tos-page__heading">
           <span className="tos-page__eyebrow">TradeOS · Money</span>
           <h1 className="tos-page__title">Cashbook &amp; treasury</h1>
-          <p className="tos-page__subtitle">Record expenses, transfer between accounts, reconcile cash counts and adjust balances. Every movement is server-authoritative evidence.</p>
+          <p className="tos-page__subtitle">Record expenses, move money between accounts, reconcile cash counts and make controlled balance adjustments.</p>
         </div>
         <div className="tos-page__actions">
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => setNonce((n) => n + 1)}>Refresh</Button>
@@ -251,7 +251,7 @@ export function CashbookExpenses() {
           <span className="tos-treasury-hero__currency">{currencyCode}</span>
         </div>
         <p className="tos-treasury-hero__hint">
-          Balances are server-authoritative — derived from the immutable cashbook ledger of sales, purchases, expenses, transfers, reconciliations and adjustments. The client never computes an authoritative balance.
+          Balances update automatically from completed sales, purchases, expenses, transfers, reconciliations and adjustments.
         </p>
       </div>
 
@@ -396,11 +396,11 @@ export function CashbookExpenses() {
           </div>
         </section>
 
-        {/* Treasury actions — server-authoritative tabbed forms */}
+        {/* Treasury actions */}
         <section className="tos-section tos-animate-fade-in-up">
           <div className="tos-section__head">
             <h2 className="tos-section__title">Treasury actions</h2>
-            <span className="tos-section__sub">Server-authoritative</span>
+            <span className="tos-section__sub">Recorded account activity</span>
           </div>
           <div className="tos-section__body--padded tos-stack">
             <div className="tos-action-tabs" role="tablist" aria-label="Treasury action">
@@ -440,7 +440,7 @@ export function CashbookExpenses() {
           ) : recError ? (
             <StatePanel inline variant="error" text={recError} actionLabel="Retry" onAction={() => refetchRec()} />
           ) : reconciliations.length === 0 ? (
-            <StatePanel inline variant="empty" title="No reconciliations" text="Run a cash count or statement reconciliation to see it here. The expected balance is computed server-side from the cashbook ledger." />
+            <StatePanel inline variant="empty" title="No reconciliations" text="Run a cash count or statement reconciliation to see it here. TradeOS compares the recorded account balance with the amount you count or enter." />
           ) : (
             <>
               {/* Mobile: premium reconciliation cards with variance state */}
@@ -564,8 +564,8 @@ export function CashbookExpenses() {
           <IconShield style={{ width: 16, height: 16 }} />
         </span>
         <span className="tos-callout__body">
-          Cashbook entries are immutable business evidence.
-          <span className="tos-callout__sub"> Expenses, transfers, reconciliations and adjustments all post through the server — the new balances, variance deltas and ledger movements are computed server-side. The client only ever submits the observed count, the signed delta, or the transfer instruction.</span>
+          Every cashbook movement is kept in the audit history.
+          <span className="tos-callout__sub"> Expenses, transfers, reconciliations and adjustments update account balances automatically and remain traceable in the cashbook.</span>
         </span>
       </div>
 
@@ -833,8 +833,8 @@ function ReconcileForm({ accounts, currencyCode, canWrite, session, onDone }: Ac
       <div className="tos-callout tos-callout--info">
         <span className="tos-callout__icon-wrap" aria-hidden="true"><IconShield style={{ width: 16, height: 16 }} /></span>
         <span className="tos-callout__body">
-          The expected balance is computed server-side from the cashbook ledger.
-          <span className="tos-callout__sub"> The client only sends the observed count. The server derives the variance and posts a MATCHED or VARIANCE record — never trust a client-side variance figure.</span>
+          TradeOS compares the recorded account balance with the amount you count or enter.
+          <span className="tos-callout__sub"> Any difference is calculated automatically and recorded as matched or as a variance for review.</span>
         </span>
       </div>
       <div className="tos-field">
@@ -931,7 +931,7 @@ function AdjustForm({ accounts, currencyCode, canWrite, session, onDone }: Actio
           <span className="tos-callout__sub"> Use these for opening balances, owner injections/withdrawals, and authorized corrections. The server validates the sign against the reason and computes the new balance.</span>
         </span>
       </div>
-      <div className="tos-public__form-row">
+      <div className="tos-form-grid tos-form-grid--3">
         <div className="tos-field">
           <label className="tos-field__label" htmlFor="ad-reason">Reason<span className="tos-field__label-required">*</span></label>
           <select id="ad-reason" className="tos-select" value={reason} onChange={(e) => setReason(e.target.value as CashbookAdjustmentReason)} disabled={!canWrite}>
@@ -944,13 +944,13 @@ function AdjustForm({ accounts, currencyCode, canWrite, session, onDone }: Actio
             {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </div>
-      </div>
-      <div className="tos-field">
-        <label className="tos-field__label" htmlFor="ad-account">Account (optional)</label>
-        <select id="ad-account" className="tos-select" value={moneyAccountId} onChange={(e) => setMoneyAccountId(e.target.value)} disabled={!canWrite}>
-          <option value="">{defaultAccount ? `Default (${defaultAccount.name})` : "Default for method"}</option>
-          {filteredAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.isDefault ? " · default" : ""}</option>)}
-        </select>
+        <div className="tos-field">
+          <label className="tos-field__label" htmlFor="ad-account">Account (optional)</label>
+          <select id="ad-account" className="tos-select" value={moneyAccountId} onChange={(e) => setMoneyAccountId(e.target.value)} disabled={!canWrite}>
+            <option value="">{defaultAccount ? `Default (${defaultAccount.name})` : "Default for method"}</option>
+            {filteredAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.isDefault ? " · default" : ""}</option>)}
+          </select>
+        </div>
       </div>
       <MoneyInput currencyCode={currencyCode} valueMinor={amountDeltaMinor} onChange={setAmountDeltaMinor} label="Amount (signed)" size="lg" required disabled={!canWrite} hint={signHint} />
       <div className="tos-field">
@@ -1019,7 +1019,7 @@ function ResolveVarianceForm({ reconciliationId, differenceMinor, currencyCode, 
         <div className="tos-variance-banner__body">
           <span className="tos-variance-banner__label">{differenceMinor < 0 ? "Shortage" : "Surplus"}</span>
           <MoneyValue minor={differenceMinor} currencyCode={currencyCode} className={diffCls} />
-          <span className="tos-variance-banner__hint">Resolve posts a server-authoritative adjustment for the difference. A clear explanation is required.</span>
+          <span className="tos-variance-banner__hint">Resolving the variance records an adjustment for the difference. A clear explanation is required.</span>
         </div>
       </div>
       <div className="tos-field">

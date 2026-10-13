@@ -349,7 +349,7 @@ export function ReturnRefundWorkspace() {
       {/* Immutable-evidence callout */}
       <div className="tos-callout tos-callout--info">
         <span className="tos-callout__body">
-          Returns, refunds, and exchanges are immutable once posted. The original sale is never edited — a corrective transaction is created and recorded as server-authoritative business evidence.
+          Returns, refunds and exchanges keep the original receipt unchanged and add a separate correction to the transaction history.
         </span>
       </div>
 

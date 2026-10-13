@@ -97,7 +97,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Purchases</span>
             <h2 className="tos-sheet__title">Record purchase receipt</h2>
-            <p className="tos-sheet__sub">Receives stock and updates the cashbook. Costs are server-authoritative.</p>
+            <p className="tos-sheet__sub">Receive stock and update supplier balances and cashbook records in one step.</p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close"><IconClose style={{ width: 18, height: 18 }} /></button>
         </div>
@@ -108,7 +108,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
               <IconShield style={{ width: 16, height: 16 }} />
             </span>
             <span className="tos-callout__body">
-              Each line receives stock at the unit cost you enter. The receipt total, inventory valuation layer, and cashbook movement are all computed server-side on posting.
+              Enter the received quantity and unit cost for each line. TradeOS updates the receipt total, inventory value and cashbook automatically when you post it.
               <span className="tos-callout__sub"> The settlement method (cash / credit) is derived from the supplier&apos;s terms — the server chooses, not the client.</span>
             </span>
           </div>
