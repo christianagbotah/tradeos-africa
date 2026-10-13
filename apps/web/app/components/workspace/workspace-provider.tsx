@@ -3,26 +3,21 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { getOfflineQueue, type WebSession } from "../../../lib/offline-sync";
+import {
+  mapCatalogItem,
+  mapInventoryItem,
+  indexInventory,
+  type CatalogItem,
+  type InventoryItem,
+} from "../../../lib/catalog-read-model";
 import type { WorkspaceRole } from "./workspace-navigation";
 
-// --- Domain types (mirror of the API read models) -------------------------
+// --- Domain types ---------------------------------------------------------
+// CatalogItem and InventoryItem are the canonical API read models mapped in
+// lib/catalog-read-model.ts. units[]/conversions[] are part of the multi-unit
+// contract and must never be flattened into a single sale unit.
 
-export interface CatalogItem {
-  id: string;
-  name: string;
-  sku: string | null;
-  kind: "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
-  status: "ACTIVE" | "ARCHIVED";
-  saleUnitCode: string;
-  saleUnitName: string;
-  priceMinor: number;
-  taxRatePercent: number | null;
-  costMinor: number | null;
-  trackInventory: boolean;
-  inventoryOnHand: number | null;
-  inventoryAvailable: number | null;
-  updatedAt: string;
-}
+export type { CatalogItem, InventoryItem } from "../../../lib/catalog-read-model";
 
 export interface Customer {
   id: string;
@@ -61,6 +56,8 @@ export interface WorkspaceContextValue {
   session: WebSession | null;
   role: WorkspaceRole;
   catalog: readonly CatalogItem[];
+  /** Per-branch stock levels (last-known) for tracked products. */
+  inventory: readonly InventoryItem[];
   customers: readonly Customer[];
   queue: QueueStatus;
   /** True until the initial session + catalog load completes. */
@@ -70,6 +67,7 @@ export interface WorkspaceContextValue {
   signIn: (session: WebSession) => void;
   signOut: () => void;
   refreshCatalog: () => Promise<void>;
+  refreshInventory: () => Promise<void>;
   refreshCustomers: () => Promise<void>;
   flushQueue: () => Promise<void>;
   /** Forces a re-render of consumers (e.g. after enqueueing a mutation). */
@@ -86,6 +84,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const offlineQueue = useMemo(() => getOfflineQueue(), []);
   const [session, setSession] = useState<WebSession | null>(null);
   const [catalog, setCatalog] = useState<readonly CatalogItem[]>([]);
+  const [inventory, setInventory] = useState<readonly InventoryItem[]>([]);
   const [customers, setCustomers] = useState<readonly Customer[]>([]);
   const [booting, setBooting] = useState(true);
   const [fatal, setFatal] = useState<string | null>(null);
@@ -163,7 +162,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     }
   }, [online, session, flushQueue]);
 
-  // --- Catalog + customers load (when session is set) --------------------
+  // --- Catalog + inventory + customers load (when session is set) --------
   const refreshCatalog = useCallback(async () => {
     if (!session) return;
     try {
@@ -174,10 +173,30 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         setFatal(`Could not load catalog (${res.status}).`);
         return;
       }
-      const json = (await res.json()) as { items: CatalogItem[] };
-      setCatalog(json.items ?? []);
+      const json = (await res.json()) as { items?: unknown[] };
+      // Explicit mapping layer — never a blind cast. See lib/catalog-read-model.ts.
+      setCatalog((json.items ?? []).map((item) => mapCatalogItem(item)));
     } catch (error) {
       setFatal(error instanceof Error ? error.message : "Could not load catalog.");
+    }
+  }, [session]);
+
+  const refreshInventory = useCallback(async () => {
+    if (!session) return;
+    try {
+      const res = await fetch(
+        `/v1/inventory?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}`,
+        { headers: { Authorization: `Bearer ${session.accessToken}` } },
+      );
+      if (!res.ok) {
+        // Stock levels are non-blocking — POS/Catalog still work without them.
+        setInventory([]);
+        return;
+      }
+      const json = (await res.json()) as { items?: unknown[] };
+      setInventory((json.items ?? []).map((item) => mapInventoryItem(item)));
+    } catch {
+      setInventory([]);
     }
   }, [session]);
 
@@ -200,12 +219,14 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   useEffect(() => {
     if (!session) {
       setCatalog([]);
+      setInventory([]);
       setCustomers([]);
       return;
     }
     void refreshCatalog();
+    void refreshInventory();
     void refreshCustomers();
-  }, [session, refreshCatalog, refreshCustomers]);
+  }, [session, refreshCatalog, refreshInventory, refreshCustomers]);
 
   // --- Sign-in / sign-out -------------------------------------------------
   const signIn = useCallback((next: WebSession) => {
@@ -219,6 +240,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     void offlineQueue.clear();
     setSession(null);
     setCatalog([]);
+    setInventory([]);
     setCustomers([]);
     setPending(0);
     setFailed(0);
@@ -235,6 +257,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     session,
     role,
     catalog,
+    inventory: useMemo(() => Array.from(indexInventory(inventory).values()), [inventory]),
     customers,
     queue: { pending, failed, online, lastFlushAt, lastError },
     booting,
@@ -242,6 +265,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     signIn,
     signOut,
     refreshCatalog,
+    refreshInventory,
     refreshCustomers,
     flushQueue,
     bump,

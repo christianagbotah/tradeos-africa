@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { formatMoney, majorToMinor, minorToMajor, getCurrencyMeta } from "@tradeos/contracts";
 import type { SyncResponse } from "@tradeos/contracts";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { buildSaleCreatePayload, type PaymentMethod } from "../../../lib/mutation-builders";
 import type { CartLine } from "./cart-panel";
 import { CustomerPicker } from "./customer-picker";
 import { MoneyValue } from "../business/money-value";
@@ -22,8 +23,6 @@ import {
   IconCloudOff,
 } from "../ui/icons";
 import type { Customer } from "../workspace/workspace-provider";
-
-type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER";
 
 type PayMethodDef = { value: PaymentMethod; label: string; sub: string; Icon: typeof IconBanknote };
 
@@ -73,7 +72,8 @@ export function CheckoutSheet({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SaleResult | null>(null);
 
-  const totalMinor = lines.reduce((sum, l) => sum + l.item.priceMinor * l.quantity, 0);
+  // Display-only total — the server prices every sale from its own catalog.
+  const totalMinor = lines.reduce((sum, l) => sum + l.sellable.priceMinor * l.quantity, 0);
   const changeMinor = cashReceivedMinor !== null ? cashReceivedMinor - totalMinor : null;
   const canCharge = lines.length > 0 && (paymentMethod !== "CASH" || (cashReceivedMinor !== null && cashReceivedMinor >= totalMinor));
 
@@ -97,17 +97,18 @@ export function CheckoutSheet({
     setError(null);
     try {
       const queue = getOfflineQueue();
-      const saleLines = lines.map((l) => ({
-        itemId: l.item.id,
-        saleUnitCode: l.item.saleUnitCode,
-        quantity: l.quantity,
-      }));
-      const payload: Record<string, unknown> = {
+      // Canonical SALE_CREATE contract: identifiers + unit choice + quantity
+      // only. The server resolves the current price, tax, stock and posting.
+      const payload = buildSaleCreatePayload({
         currencyCode,
         paymentMethod,
-        lines: saleLines,
-      };
-      if (customer) payload.customerId = customer.id;
+        lines: lines.map((l) => ({
+          itemId: l.sellable.itemId,
+          saleUnitCode: l.sellable.unitCode,
+          quantity: l.quantity,
+        })),
+        ...(customer ? { customerId: customer.id } : {}),
+      });
 
       const mutation = queue.build({
         businessId,
@@ -229,15 +230,15 @@ export function CheckoutSheet({
                 <div className="tos-section__body">
                   <ul className="tos-checkout-lines">
                     {lines.map((l) => (
-                      <li key={l.item.id} className="tos-checkout-lines__row">
+                      <li key={l.sellable.key} className="tos-checkout-lines__row">
                         <div className="tos-checkout-lines__main">
-                          <span className="tos-checkout-lines__title">{l.item.name}</span>
+                          <span className="tos-checkout-lines__title">{l.sellable.name}</span>
                           <span className="tos-checkout-lines__sub">
-                            {l.quantity} × {l.item.saleUnitName} · {formatMoney(l.item.priceMinor, currencyCode)}
+                            {l.quantity} × {l.sellable.unitLabel} · {formatMoney(l.sellable.priceMinor, currencyCode)}
                           </span>
                         </div>
                         <span className="tos-checkout-lines__amount">
-                          <MoneyValue minor={l.item.priceMinor * l.quantity} currencyCode={currencyCode} />
+                          <MoneyValue minor={l.sellable.priceMinor * l.quantity} currencyCode={currencyCode} />
                         </span>
                       </li>
                     ))}

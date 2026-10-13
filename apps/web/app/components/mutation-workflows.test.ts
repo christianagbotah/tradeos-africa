@@ -29,6 +29,9 @@ import {
 import type { MutationResult, SyncPushRequest, SyncResponse } from "@tradeos/contracts";
 import {
   buildCatalogLifecyclePayload,
+  buildCatalogItemCreatePayload,
+  buildCatalogItemUpdatePayload,
+  buildInventoryAdjustmentPayload,
   buildCashbookAdjustmentPayload,
   buildCustomerPaymentPayload,
   buildCustomerUpdatePayload,
@@ -44,7 +47,9 @@ import {
   CASHBOOK_ADJUSTMENT_CREATE_TYPE,
   CASHBOOK_ADJUSTMENT_ROLES,
   CATALOG_ITEM_ARCHIVE_TYPE,
+  CATALOG_ITEM_CREATE_TYPE,
   CATALOG_ITEM_REACTIVATE_TYPE,
+  CATALOG_ITEM_UPDATE_TYPE,
   CATALOG_WRITE_ROLES,
   CUSTOMER_PAYMENT_CREATE_TYPE,
   CUSTOMER_PAYMENT_ROLES,
@@ -52,6 +57,7 @@ import {
   CUSTOMER_WRITE_ROLES,
   EXPENSE_ROLES,
   FORBIDDEN_PAYLOAD_FIELDS,
+  INVENTORY_ADJUSTMENT_CREATE_TYPE,
   MONEY_RECONCILIATION_CREATE_TYPE,
   MONEY_RECONCILIATION_RESOLVE_TYPE,
   MONEY_TRANSFER_CREATE_TYPE,
@@ -91,11 +97,13 @@ const ALL_ROLES: readonly WorkspaceRole[] = [
 // --- Mutation type strings ----------------------------------------------
 
 describe("mutation type constants", () => {
-  it("exposes exactly the 11 supported mutation types", () => {
-    expect(MUTATION_TYPES).toHaveLength(11);
+  it("exposes exactly the 14 supported mutation types", () => {
+    expect(MUTATION_TYPES).toHaveLength(14);
   });
 
   it.each([
+    ["CATALOG_ITEM_CREATE", CATALOG_ITEM_CREATE_TYPE],
+    ["CATALOG_ITEM_UPDATE", CATALOG_ITEM_UPDATE_TYPE],
     ["CATALOG_ITEM_ARCHIVE", CATALOG_ITEM_ARCHIVE_TYPE],
     ["CATALOG_ITEM_REACTIVATE", CATALOG_ITEM_REACTIVATE_TYPE],
     ["CUSTOMER_UPDATE", CUSTOMER_UPDATE_TYPE],
@@ -106,13 +114,14 @@ describe("mutation type constants", () => {
     ["MONEY_RECONCILIATION_CREATE", MONEY_RECONCILIATION_CREATE_TYPE],
     ["MONEY_RECONCILIATION_RESOLVE", MONEY_RECONCILIATION_RESOLVE_TYPE],
     ["PURCHASE_RETURN_CREATE", PURCHASE_RETURN_CREATE_TYPE],
+    ["INVENTORY_ADJUSTMENT_CREATE", INVENTORY_ADJUSTMENT_CREATE_TYPE],
     ["CASHBOOK_ADJUSTMENT_CREATE", CASHBOOK_ADJUSTMENT_CREATE_TYPE],
   ] as const)("exposes the canonical %s mutation type", (label, actual) => {
     expect(actual).toBe(label);
     expect(typeof actual).toBe("string");
   });
 
-  it("the 11 mutation type constants are pairwise distinct", () => {
+  it("the 14 mutation type constants are pairwise distinct", () => {
     const set = new Set(MUTATION_TYPES);
     expect(set.size).toBe(MUTATION_TYPES.length);
   });
@@ -167,6 +176,150 @@ describe("CATALOG_ITEM_ARCHIVE / REACTIVATE payload", () => {
       expectedUpdatedAt: EXPECTED_UPDATED_AT,
     });
     expect(payload).not.toHaveProperty("active");
+  });
+});
+
+describe("CATALOG_ITEM_CREATE payload", () => {
+  const createInput = {
+    name: "Club Beer",
+    sku: "DRK-100",
+    kind: "PRODUCT" as const,
+    trackStock: true,
+    stockUnitCode: "bottle",
+    units: [
+      { code: "crate", label: "Crate of 24", canPurchase: true, canSell: true, canStock: false, defaultSalePriceMinor: 9600 },
+      { code: "bottle", label: "Bottle", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 400 },
+    ],
+    conversions: [{ fromUnitCode: "crate", toUnitCode: "bottle", factor: 24 }],
+  };
+
+  it("builds the canonical units[]/conversions[] payload", () => {
+    const payload = buildCatalogItemCreatePayload(createInput);
+    expect(payload).toEqual({
+      name: "Club Beer",
+      sku: "DRK-100",
+      kind: "PRODUCT",
+      trackStock: true,
+      stockUnitCode: "bottle",
+      units: [
+        { code: "crate", label: "Crate of 24", canPurchase: true, canSell: true, canStock: false, defaultSalePriceMinor: 9600 },
+        { code: "bottle", label: "Bottle", canPurchase: true, canSell: true, canStock: true, defaultSalePriceMinor: 400 },
+      ],
+      conversions: [{ fromUnitCode: "crate", toUnitCode: "bottle", factor: 24 }],
+    });
+    assertNoForbiddenFieldsDeep(payload);
+  });
+
+  it("never sends businessId, actor fields or active", () => {
+    const payload = buildCatalogItemCreatePayload(createInput) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("businessId");
+    expect(payload).not.toHaveProperty("actorStaffId");
+    expect(payload).not.toHaveProperty("actorRole");
+    expect(payload).not.toHaveProperty("active");
+  });
+
+  it("omits stockUnitCode for untracked items and prices for non-sellable units", () => {
+    const payload = buildCatalogItemCreatePayload({
+      name: "Haircut",
+      sku: null,
+      kind: "SERVICE",
+      trackStock: false,
+      stockUnitCode: null,
+      units: [{ code: "service", label: "Standard haircut", canSell: true, defaultSalePriceMinor: 1500 }],
+      conversions: [],
+    }) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("stockUnitCode");
+    expect(payload.units).toEqual([
+      { code: "service", label: "Standard haircut", canPurchase: false, canSell: true, canStock: false, defaultSalePriceMinor: 1500 },
+    ]);
+    expect(payload.conversions).toEqual([]);
+  });
+});
+
+describe("CATALOG_ITEM_UPDATE payload", () => {
+  it("carries itemId and expectedUpdatedAt alongside the full canonical body", () => {
+    const payload = buildCatalogItemUpdatePayload({
+      itemId: ITEM_ID,
+      expectedUpdatedAt: EXPECTED_UPDATED_AT,
+      name: "Club Beer",
+      sku: null,
+      kind: "PRODUCT",
+      trackStock: true,
+      stockUnitCode: "bottle",
+      units: [{ code: "bottle", label: "Bottle", canSell: true, canStock: true, defaultSalePriceMinor: 450 }],
+      conversions: [],
+    });
+    expect(payload.itemId).toBe(ITEM_ID);
+    expect(payload.expectedUpdatedAt).toBe(EXPECTED_UPDATED_AT);
+    expect(payload.name).toBe("Club Beer");
+    expect(payload.units).toEqual([
+      { code: "bottle", label: "Bottle", canPurchase: false, canSell: true, canStock: true, defaultSalePriceMinor: 450 },
+    ]);
+    assertNoForbiddenFieldsDeep(payload);
+  });
+
+  it("never includes `active` — archive/reactivate own that flag", () => {
+    const payload = buildCatalogItemUpdatePayload({
+      itemId: ITEM_ID,
+      expectedUpdatedAt: EXPECTED_UPDATED_AT,
+      name: "X",
+      sku: null,
+      kind: "PRODUCT",
+      trackStock: false,
+      stockUnitCode: null,
+      units: [{ code: "each", label: "Each", canSell: true, defaultSalePriceMinor: 100 }],
+      conversions: [],
+    });
+    expect(payload).not.toHaveProperty("active");
+  });
+});
+
+describe("INVENTORY_ADJUSTMENT_CREATE payload", () => {
+  it("builds a count correction that removes stock (source only)", () => {
+    const payload = buildInventoryAdjustmentPayload({
+      itemId: ITEM_ID,
+      quantity: 3,
+      reasonCode: "COUNT_CORRECTION",
+      sourceLocation: "AVAILABLE",
+      note: "Cycle count",
+    });
+    expect(payload).toEqual({
+      itemId: ITEM_ID,
+      quantity: 3,
+      reasonCode: "COUNT_CORRECTION",
+      sourceLocation: "AVAILABLE",
+      note: "Cycle count",
+    });
+    assertNoForbiddenFields(payload);
+  });
+
+  it("builds a damage reclassification to the DAMAGED location", () => {
+    const payload = buildInventoryAdjustmentPayload({
+      itemId: ITEM_ID,
+      quantity: 2,
+      reasonCode: "DAMAGE",
+      sourceLocation: "AVAILABLE",
+      destinationLocation: "DAMAGED",
+    });
+    expect(payload).toEqual({
+      itemId: ITEM_ID,
+      quantity: 2,
+      reasonCode: "DAMAGE",
+      sourceLocation: "AVAILABLE",
+      destinationLocation: "DAMAGED",
+    });
+  });
+
+  it("omits absent locations and notes rather than sending nulls", () => {
+    const payload = buildInventoryAdjustmentPayload({
+      itemId: ITEM_ID,
+      quantity: 1,
+      reasonCode: "QUARANTINE",
+      sourceLocation: "AVAILABLE",
+      destinationLocation: "QUARANTINE",
+      note: null,
+    });
+    expect(payload).not.toHaveProperty("note");
   });
 });
 

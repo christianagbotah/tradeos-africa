@@ -18,7 +18,8 @@ import {
   IconSearch,
   IconTrending,
 } from "../ui/icons";
-import type { CatalogItem } from "../workspace/workspace-provider";
+import type { CatalogItem } from "../../../lib/catalog-read-model";
+import { primarySellableUnit } from "../../../lib/catalog-read-model";
 
 type KindFilter = "ALL" | CatalogItem["kind"];
 type StatusFilter = "ALL" | "ACTIVE" | "ARCHIVED";
@@ -71,7 +72,7 @@ const KIND_DESC: Record<CatalogItem["kind"], string> = {
 };
 
 export function CatalogWorkspace() {
-  const { catalog, role, refreshCatalog, session } = useWorkspace();
+  const { catalog, inventory, role, refreshCatalog, session } = useWorkspace();
   const [query, setQuery] = useState("");
   const [kindFilter, setKindFilter] = useState<KindFilter>("ALL");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
@@ -85,7 +86,7 @@ export function CatalogWorkspace() {
     const q = query.trim().toLowerCase();
     return catalog.filter((c) => {
       if (kindFilter !== "ALL" && c.kind !== kindFilter) return false;
-      if (statusFilter !== "ALL" && c.status !== statusFilter) return false;
+      if (statusFilter !== "ALL" && !(statusFilter === "ACTIVE" ? c.active : !c.active)) return false;
       if (!q) return true;
       return c.name.toLowerCase().includes(q) || (c.sku ?? "").toLowerCase().includes(q);
     });
@@ -93,16 +94,11 @@ export function CatalogWorkspace() {
 
   const stats = useMemo(() => {
     const total = catalog.length;
-    const active = catalog.filter((c) => c.status === "ACTIVE").length;
+    const active = catalog.filter((c) => c.active).length;
     const services = catalog.filter((c) => c.kind === "SERVICE").length;
-    const lowStock = catalog.filter(
-      (c) =>
-        c.trackInventory &&
-        c.status === "ACTIVE" &&
-        (c.inventoryAvailable ?? 0) <= 5,
-    ).length;
+    const lowStock = inventory.filter((i) => i.available <= 5).length;
     return { total, active, services, lowStock };
-  }, [catalog]);
+  }, [catalog, inventory]);
 
   const clearFilters = () => {
     setQuery("");
@@ -217,13 +213,14 @@ export function CatalogWorkspace() {
           {/* Mobile: premium tappable cards with kind tile + price + unit */}
           <ul className="tos-list-cards tos-stagger" aria-label="Catalog items">
             {filtered.map((c) => {
-              const avail = c.inventoryAvailable;
-              const stockLabel = c.trackInventory
-                ? avail === null
+              const sellable = primarySellableUnit(c);
+              const stock = inventory.find((i) => i.id === c.id) ?? null;
+              const stockLabel = c.trackStock
+                ? !stock
                   ? "Stock unknown"
-                  : avail <= 0
+                  : stock.available <= 0
                     ? "Out of stock"
-                    : `${avail} ${c.saleUnitName} on hand`
+                    : `${stock.available} ${c.stockUnitCode ?? ""} on hand`.trim()
                 : "No stock tracked";
               return (
                 <li key={c.id}>
@@ -242,18 +239,25 @@ export function CatalogWorkspace() {
                         {c.sku ? `SKU ${c.sku}` : "No SKU"} · {KIND_LABEL[c.kind]}
                       </span>
                       <span className="tos-catalog-card__row">
-                        <span className="tos-unit-pill">
-                          <span className="tos-unit-pill__code">{c.saleUnitCode}</span>
-                          <span className="tos-unit-pill__name">{c.saleUnitName}</span>
-                        </span>
+                        {sellable ? (
+                          <span className="tos-unit-pill">
+                            <span className="tos-unit-pill__code">{sellable.code}</span>
+                            <span className="tos-unit-pill__name">{sellable.label}</span>
+                          </span>
+                        ) : (
+                          <span className="tos-unit-pill">
+                            <span className="tos-unit-pill__code">—</span>
+                            <span className="tos-unit-pill__name">No sellable unit</span>
+                          </span>
+                        )}
                         <span className="tos-catalog-card__stock">{stockLabel}</span>
                       </span>
                     </span>
                     <span className="tos-catalog-card__meta">
-                      <MoneyValue minor={c.priceMinor} currencyCode={currencyCode} className="tos-catalog-card__price" />
-                      <span className="tos-catalog-card__unit">per {c.saleUnitName}</span>
-                      <span className={`tos-badge ${c.status === "ACTIVE" ? "tos-badge--positive" : "tos-badge--neutral"}`}>
-                        <span className="tos-badge__dot" />{c.status === "ACTIVE" ? "Active" : "Archived"}
+                      <MoneyValue minor={sellable?.defaultSalePriceMinor ?? 0} currencyCode={currencyCode} className="tos-catalog-card__price" />
+                      <span className="tos-catalog-card__unit">{sellable ? `per ${sellable.label}` : ""}</span>
+                      <span className={`tos-badge ${c.active ? "tos-badge--positive" : "tos-badge--neutral"}`}>
+                        <span className="tos-badge__dot" />{c.active ? "Active" : "Archived"}
                       </span>
                     </span>
                   </button>
@@ -279,7 +283,8 @@ export function CatalogWorkspace() {
                 </thead>
                 <tbody>
                   {filtered.map((c) => {
-                    const avail = c.inventoryAvailable;
+                    const sellable = primarySellableUnit(c);
+                    const stock = inventory.find((i) => i.id === c.id) ?? null;
                     return (
                       <tr key={c.id} data-clickable="true" onClick={() => setEditing(c)}>
                         <td>
@@ -295,24 +300,28 @@ export function CatalogWorkspace() {
                           </div>
                         </td>
                         <td>
-                          <span className="tos-unit-pill">
-                            <span className="tos-unit-pill__code">{c.saleUnitCode}</span>
-                            <span className="tos-unit-pill__name">{c.saleUnitName}</span>
-                          </span>
+                          {sellable ? (
+                            <span className="tos-unit-pill">
+                              <span className="tos-unit-pill__code">{sellable.code}</span>
+                              <span className="tos-unit-pill__name">{sellable.label}</span>
+                            </span>
+                          ) : (
+                            <span className="tos-table__muted">—</span>
+                          )}
                         </td>
                         <td data-align="right">
                           <span className="tos-table__num">
-                            <MoneyValue minor={c.priceMinor} currencyCode={currencyCode} tone="muted" />
+                            <MoneyValue minor={sellable?.defaultSalePriceMinor ?? 0} currencyCode={currencyCode} tone="muted" />
                           </span>
                         </td>
                         <td data-align="right" className="tos-table__num">
-                          {c.trackInventory
-                            ? (avail === null ? "—" : `${avail} ${c.saleUnitCode}`)
+                          {c.trackStock
+                            ? (stock ? `${stock.available} ${c.stockUnitCode ?? ""}`.trim() : "—")
                             : <span className="tos-table__muted">—</span>}
                         </td>
                         <td data-align="center">
-                          <span className={`tos-badge ${c.status === "ACTIVE" ? "tos-badge--positive" : "tos-badge--neutral"}`}>
-                            <span className="tos-badge__dot" />{c.status === "ACTIVE" ? "Active" : "Archived"}
+                          <span className={`tos-badge ${c.active ? "tos-badge--positive" : "tos-badge--neutral"}`}>
+                            <span className="tos-badge__dot" />{c.active ? "Active" : "Archived"}
                           </span>
                         </td>
                       </tr>

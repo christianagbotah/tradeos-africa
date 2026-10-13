@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { useWorkspace } from "../workspace/use-workspace";
+import { primarySellableUnit } from "../../../lib/catalog-read-model";
 import { MoneyValue } from "../business/money-value";
 import { Button } from "../ui/button";
 import { IconBanknote, IconClose, IconCreditCard, IconRefresh, IconShield, IconSmartphone, IconWallet } from "../ui/icons";
@@ -146,13 +147,14 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
   if (!saleId || !session) return null;
 
   const currency = data?.sale.currencyCode ?? session.currencyCode;
-  const activeCatalog = catalog.filter((c) => c.status === "ACTIVE");
+  const activeCatalog = catalog.filter((c) => c.active);
   const returnLine = data?.sale.lines.find((l) => l.id === returnLineId);
   const returnUnit = returnLine && returnLine.quantity > 0
     ? Math.round(returnLine.lineTotalMinor / returnLine.quantity)
     : 0;
   const newItem = activeCatalog.find((c) => c.id === newItemId);
-  const newTotalMinor = newItem ? newItem.priceMinor * newQty : 0;
+  const newUnit = newItem ? primarySellableUnit(newItem) : null;
+  const newTotalMinor = newUnit ? (newUnit.defaultSalePriceMinor ?? 0) * newQty : 0;
   const effectiveReturnQty = returnLine ? Math.min(returnQty, returnLine.quantityReturnable) : 0;
   const returnTotalMinor = returnLine ? returnUnit * effectiveReturnQty : 0;
   const netMinor = newTotalMinor - returnTotalMinor;
@@ -169,7 +171,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
     : [];
 
   const handleSubmit = async () => {
-    if (!data || busy || !canWrite || !returnLine || !newItem) return;
+    if (!data || busy || !canWrite || !returnLine || !newItem || !newUnit) return;
     const finalReason = reason === "Other" ? customReason.trim() : reason;
     if (!finalReason) {
       setSubmitError("A reason is required.");
@@ -192,7 +194,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
             quantity: effectiveReturnQty,
             disposition: exchangeDispositionForLine(returnLine, restockChoice),
           }],
-          replacementLines: [{ itemId: newItem.id, saleUnitCode: newItem.saleUnitCode, quantity: newQty }],
+          replacementLines: [{ itemId: newItem.id, saleUnitCode: newUnit.code, quantity: newQty }],
         },
       });
       await queue.enqueue(mutation);
@@ -309,8 +311,8 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </select>
-                    {newItem ? (
-                      <span className="tos-field__hint">{newItem.saleUnitName} · current price</span>
+                    {newItem && newUnit ? (
+                      <span className="tos-field__hint">{newUnit.label} · current price</span>
                     ) : null}
                   </div>
                   <div className="tos-field">

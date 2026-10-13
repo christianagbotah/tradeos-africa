@@ -55,8 +55,11 @@ export function roleCan(role: WorkspaceRole, allowed: readonly WorkspaceRole[]):
 
 // --- Mutation type constants ----------------------------------------------
 
+export const CATALOG_ITEM_CREATE_TYPE = "CATALOG_ITEM_CREATE";
+export const CATALOG_ITEM_UPDATE_TYPE = "CATALOG_ITEM_UPDATE";
 export const CATALOG_ITEM_ARCHIVE_TYPE = "CATALOG_ITEM_ARCHIVE";
 export const CATALOG_ITEM_REACTIVATE_TYPE = "CATALOG_ITEM_REACTIVATE";
+export const INVENTORY_ADJUSTMENT_CREATE_TYPE = "INVENTORY_ADJUSTMENT_CREATE";
 export const CUSTOMER_UPDATE_TYPE = "CUSTOMER_UPDATE";
 export const CUSTOMER_PAYMENT_CREATE_TYPE = "CUSTOMER_PAYMENT_CREATE";
 export const SUPPLIER_UPDATE_TYPE = "SUPPLIER_UPDATE";
@@ -67,10 +70,13 @@ export const MONEY_RECONCILIATION_RESOLVE_TYPE = "MONEY_RECONCILIATION_RESOLVE";
 export const PURCHASE_RETURN_CREATE_TYPE = "PURCHASE_RETURN_CREATE";
 export const CASHBOOK_ADJUSTMENT_CREATE_TYPE = "CASHBOOK_ADJUSTMENT_CREATE";
 
-/** All 11 mutation types implemented by this module. */
+/** All 14 mutation types implemented by this module. */
 export const MUTATION_TYPES: readonly string[] = [
+  CATALOG_ITEM_CREATE_TYPE,
+  CATALOG_ITEM_UPDATE_TYPE,
   CATALOG_ITEM_ARCHIVE_TYPE,
   CATALOG_ITEM_REACTIVATE_TYPE,
+  INVENTORY_ADJUSTMENT_CREATE_TYPE,
   CUSTOMER_UPDATE_TYPE,
   CUSTOMER_PAYMENT_CREATE_TYPE,
   SUPPLIER_UPDATE_TYPE,
@@ -91,6 +97,130 @@ export type CatalogRecoveryMethod = "CREDIT_NOTE" | "CASH" | "MOMO" | "CARD" | "
 export type ReconciliationType = "CASH_COUNT" | "STATEMENT";
 
 export type CashbookAdjustmentReason = "OPENING_BALANCE" | "CORRECTION" | "OWNER_INJECTION" | "OWNER_WITHDRAWAL";
+
+// --- CATALOG_ITEM_CREATE / CATALOG_ITEM_UPDATE ---------------------------
+
+/** Mirrors CatalogUnitInput in apps/api/src/catalog-service.ts. */
+export interface CatalogUnitInput {
+  code: string;
+  label: string;
+  canPurchase?: boolean;
+  canSell?: boolean;
+  canStock?: boolean;
+  defaultSalePriceMinor?: number | null;
+}
+
+/** Mirrors ConversionInput in apps/api/src/catalog-service.ts. */
+export interface CatalogConversionInput {
+  fromUnitCode: string;
+  toUnitCode: string;
+  factor: number;
+}
+
+export interface CatalogItemCreateInput {
+  name: string;
+  sku: string | null;
+  kind: "PRODUCT" | "SERVICE" | "PREPARED_PRODUCT";
+  trackStock: boolean;
+  stockUnitCode: string | null;
+  units: ReadonlyArray<CatalogUnitInput>;
+  conversions: ReadonlyArray<CatalogConversionInput>;
+}
+
+/**
+ * Builds the payload for CATALOG_ITEM_CREATE. `businessId` travels on the
+ * mutation envelope and `actorStaffId` / `actorRole` are injected by the
+ * sync layer from the access token — the client never sends them.
+ *
+ * The units/conversions arrays are the canonical multi-unit contract
+ * (crate → bottle → glass). Flattening them into a single sale unit is what
+ * broke POS previously; the server rejects payloads without `units`.
+ */
+export function buildCatalogItemCreatePayload(input: CatalogItemCreateInput): Record<string, unknown> {
+  return {
+    name: input.name,
+    sku: input.sku,
+    kind: input.kind,
+    trackStock: input.trackStock,
+    ...(input.stockUnitCode ? { stockUnitCode: input.stockUnitCode } : {}),
+    units: input.units.map((unit) => ({
+      code: unit.code,
+      label: unit.label,
+      canPurchase: unit.canPurchase ?? false,
+      canSell: unit.canSell ?? false,
+      canStock: unit.canStock ?? false,
+      ...(unit.defaultSalePriceMinor === null || unit.defaultSalePriceMinor === undefined
+        ? {}
+        : { defaultSalePriceMinor: unit.defaultSalePriceMinor }),
+    })),
+    conversions: input.conversions.map((conversion) => ({
+      fromUnitCode: conversion.fromUnitCode,
+      toUnitCode: conversion.toUnitCode,
+      factor: conversion.factor,
+    })),
+  };
+}
+
+export interface CatalogItemUpdateInput extends CatalogItemCreateInput {
+  itemId: string;
+  /** Required by the server's `revision()` check on updateCatalogItem. */
+  expectedUpdatedAt: string;
+}
+
+/**
+ * Builds the payload for CATALOG_ITEM_UPDATE. Same rules as create, plus
+ * `itemId` and the optimistic-concurrency revision. `active` is owned by
+ * the ARCHIVE / REACTIVATE mutation types and must never be sent here.
+ */
+export function buildCatalogItemUpdatePayload(input: CatalogItemUpdateInput): Record<string, unknown> {
+  return {
+    itemId: input.itemId,
+    expectedUpdatedAt: input.expectedUpdatedAt,
+    ...buildCatalogItemCreatePayload(input),
+  };
+}
+
+// --- INVENTORY_ADJUSTMENT_CREATE -----------------------------------------
+
+export type InventoryAdjustmentLocation = "AVAILABLE" | "QUARANTINE" | "DAMAGED" | "WASTE";
+
+export type InventoryAdjustmentReasonCode =
+  | "COUNT_CORRECTION"
+  | "QUARANTINE"
+  | "DAMAGE"
+  | "WASTE"
+  | "OTHER";
+
+export interface InventoryAdjustmentInput {
+  itemId: string;
+  /** Quantity moved in the item's stock unit — always positive. */
+  quantity: number;
+  reasonCode: InventoryAdjustmentReasonCode;
+  /** Stock to move out of. Required unless only adding stock. */
+  sourceLocation?: InventoryAdjustmentLocation | null;
+  /** Stock to move into. Required unless only removing stock. */
+  destinationLocation?: InventoryAdjustmentLocation | null;
+  note?: string | null;
+}
+
+/**
+ * Builds the payload for INVENTORY_ADJUSTMENT_CREATE using the canonical
+ * server contract (see apps/api/src/commerce/inventory-adjustments.ts):
+ * locations are AVAILABLE / QUARANTINE / DAMAGED / WASTE and the movement
+ * quantity is always positive — the direction comes from source vs
+ * destination. The server derives balances from the movement ledger.
+ */
+export function buildInventoryAdjustmentPayload(input: InventoryAdjustmentInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    itemId: input.itemId,
+    quantity: input.quantity,
+    reasonCode: input.reasonCode,
+  };
+  if (input.sourceLocation) payload.sourceLocation = input.sourceLocation;
+  if (input.destinationLocation) payload.destinationLocation = input.destinationLocation;
+  if (input.note) payload.note = input.note;
+  return payload;
+}
 
 // --- CATALOG_ITEM_ARCHIVE / REACTIVATE -----------------------------------
 

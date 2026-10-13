@@ -7,6 +7,7 @@ import { MoneyInput } from "../ui/money-input";
 import { Button } from "../ui/button";
 import { IconClose, IconPlus, IconReceipt, IconShield, IconTrash } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { purchasableUnits, type CatalogItem } from "../../../lib/catalog-read-model";
 import type { Supplier } from "./supplier-sheet";
 
 interface PurchaseReceiptBuilderProps {
@@ -39,7 +40,12 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
     }
   }, [open, suppliers]);
 
-  const activeCatalog = useMemo(() => catalog.filter((c) => c.status === "ACTIVE"), [catalog]);
+  // Receiving happens in a purchasable unit; stock-tracked products receive
+  // into their stock unit so the valuation layer stays consistent.
+  const activeCatalog = useMemo(
+    () => catalog.filter((c) => c.active && (c.kind === "PRODUCT" || c.kind === "PREPARED_PRODUCT")),
+    [catalog],
+  );
   const currencyCode = session?.currencyCode ?? "GHS";
 
   if (!open || !session) return null;
@@ -189,7 +195,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                     {selected ? (
                       <div className="tos-receipt-builder-line__preview">
                         <span className="tos-receipt-builder-line__preview-label">
-                          Line {idx + 1} · {line.quantity} × {selected.saleUnitCode}
+                          Line {idx + 1} · {line.quantity} × {receivingUnit(selected)}
                         </span>
                         <span className="tos-receipt-builder-line__preview-val">
                           <MoneyValue minor={lineTotalMinor} currencyCode={currencyCode} />
@@ -219,4 +225,14 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
       </div>
     </>
   );
+}
+
+/**
+ * The unit a purchase receipt line receives into: the item's stock unit when
+ * tracked (keeps the valuation layer consistent), otherwise its first
+ * purchasable unit.
+ */
+function receivingUnit(item: CatalogItem): string {
+  if (item.trackStock && item.stockUnitCode) return item.stockUnitCode;
+  return purchasableUnits(item)[0]?.code ?? item.units[0]?.code ?? "units";
 }

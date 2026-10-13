@@ -2,22 +2,26 @@
 
 import { useState } from "react";
 import { formatMoney } from "@tradeos/contracts";
-import type { CatalogItem } from "../workspace/workspace-provider";
+import type { SellableItem } from "../../../lib/catalog-read-model";
 import { MoneyValue } from "../business/money-value";
 import { Button } from "../ui/button";
 import { IconMinus, IconPlus, IconTrash, IconSell } from "../ui/icons";
 
+/**
+ * A cart line is one (item, sale unit) pair — a crate line and a bottle line
+ * of the same item are distinct lines. `sellable.key` is `${itemId}:${unitCode}`.
+ */
 export interface CartLine {
-  item: CatalogItem;
+  sellable: SellableItem;
   quantity: number;
 }
 
 interface CartPanelProps {
   lines: readonly CartLine[];
   currencyCode: string;
-  onInc: (itemId: string) => void;
-  onDec: (itemId: string) => void;
-  onRemove: (itemId: string) => void;
+  onInc: (key: string) => void;
+  onDec: (key: string) => void;
+  onRemove: (key: string) => void;
   onCheckout: () => void;
   onClear: () => void;
   busy?: boolean;
@@ -37,7 +41,8 @@ export function CartPanel({
 }: CartPanelProps) {
   const [confirmingClear, setConfirmingClear] = useState(false);
 
-  const totalMinor = lines.reduce((sum, l) => sum + l.item.priceMinor * l.quantity, 0);
+  // Display-only total — the server prices every sale from its own catalog.
+  const totalMinor = lines.reduce((sum, l) => sum + l.sellable.priceMinor * l.quantity, 0);
   const itemCount = lines.reduce((sum, l) => sum + l.quantity, 0);
 
   const handleClearClick = () => {
@@ -98,32 +103,32 @@ export function CartPanel({
           </div>
         ) : (
           lines.map((line) => (
-            <div key={line.item.id} className="tos-cart-line tos-animate-slide-in-right">
+            <div key={line.sellable.key} className="tos-cart-line tos-animate-slide-in-right">
               <div className="tos-cart-line__top">
                 <div className="tos-cart-line__main">
-                  <span className="tos-cart-line__name" title={line.item.name}>{line.item.name}</span>
-                  <span className="tos-cart-line__sub">{line.item.saleUnitName}</span>
+                  <span className="tos-cart-line__name" title={line.sellable.name}>{line.sellable.name}</span>
+                  <span className="tos-cart-line__sub">{line.sellable.unitLabel}</span>
                   <span className="tos-cart-line__unit">
-                    {formatMoney(line.item.priceMinor, currencyCode)} each
+                    {formatMoney(line.sellable.priceMinor, currencyCode)} each
                   </span>
                 </div>
                 <button
                   type="button"
                   className="tos-cart-line__remove"
-                  onClick={() => onRemove(line.item.id)}
-                  aria-label={`Remove ${line.item.name} from cart`}
+                  onClick={() => onRemove(line.sellable.key)}
+                  aria-label={`Remove ${line.sellable.name} (${line.sellable.unitLabel}) from cart`}
                   disabled={busy}
                 >
                   <IconTrash style={{ width: 16, height: 16 }} />
                 </button>
               </div>
               <div className="tos-cart-line__bottom">
-                <div className="tos-cart-line__qty" role="group" aria-label={`Quantity for ${line.item.name}`}>
+                <div className="tos-cart-line__qty" role="group" aria-label={`Quantity for ${line.sellable.name} (${line.sellable.unitLabel})`}>
                   <button
                     type="button"
                     className="tos-cart-line__qty-btn"
-                    onClick={() => onDec(line.item.id)}
-                    aria-label={`Decrease ${line.item.name} quantity`}
+                    onClick={() => onDec(line.sellable.key)}
+                    aria-label={`Decrease ${line.sellable.name} (${line.sellable.unitLabel}) quantity`}
                     disabled={busy}
                   >
                     <IconMinus style={{ width: 18, height: 18 }} />
@@ -132,15 +137,15 @@ export function CartPanel({
                   <button
                     type="button"
                     className="tos-cart-line__qty-btn"
-                    onClick={() => onInc(line.item.id)}
-                    aria-label={`Increase ${line.item.name} quantity`}
+                    onClick={() => onInc(line.sellable.key)}
+                    aria-label={`Increase ${line.sellable.name} (${line.sellable.unitLabel}) quantity`}
                     disabled={busy}
                   >
                     <IconPlus style={{ width: 18, height: 18 }} />
                   </button>
                 </div>
                 <div className="tos-cart-line__total">
-                  <MoneyValue minor={line.item.priceMinor * line.quantity} currencyCode={currencyCode} />
+                  <MoneyValue minor={line.sellable.priceMinor * line.quantity} currencyCode={currencyCode} />
                 </div>
               </div>
             </div>

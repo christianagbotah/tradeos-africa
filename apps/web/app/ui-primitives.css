@@ -1804,6 +1804,28 @@
   }
 }
 
+/* Phone-width guard: long single-word KPI labels (e.g. "RECONCILIATIONS")
+   cannot wrap by default and would expand the document scroll width beyond
+   the 360-390px viewport. Tighten the card padding and label typography,
+   and let words break as a last-resort safety net. */
+@media (max-width: 480px) {
+  .tos-stat {
+    padding: var(--tos-space-4);
+  }
+
+  .tos-stat__head {
+    min-width: 0;
+    gap: var(--tos-space-2);
+  }
+
+  .tos-stat__label {
+    min-width: 0;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    overflow-wrap: anywhere;
+  }
+}
+
 /* Recent sales — tighter, mobile-optimized rows (larger touch targets) */
 .tos-dashboard-sales {
   display: flex;

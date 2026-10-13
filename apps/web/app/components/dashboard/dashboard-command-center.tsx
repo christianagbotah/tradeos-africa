@@ -36,7 +36,7 @@ const STAT_TILE_CLASS: Record<StatIconTone, string> = {
 };
 
 export function DashboardCommandCenter() {
-  const { session, catalog, queue, role } = useWorkspace();
+  const { session, catalog, inventory, queue, role } = useWorkspace();
   const salesPath = session
     ? `/v1/sales?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=8`
     : null;
@@ -50,15 +50,15 @@ export function DashboardCommandCenter() {
       return d.toDateString() === today.toDateString();
     });
     const todayRevenue = todaySales.reduce((sum, s) => sum + (s.totalMinor - s.refundTotalMinor), 0);
-    const activeCatalog = catalog.filter((c) => c.status === "ACTIVE");
-    const lowStock = activeCatalog.filter((c) => c.trackInventory && c.inventoryAvailable !== null && c.inventoryAvailable <= 5);
+    const activeCount = catalog.filter((c) => c.active).length;
+    const lowStockCount = inventory.filter((i) => i.available <= 5).length;
     return {
       todayCount: todaySales.length,
       todayRevenue,
-      activeCount: activeCatalog.length,
-      lowStockCount: lowStock.length,
+      activeCount,
+      lowStockCount,
     };
-  }, [data, catalog]);
+  }, [data, catalog, inventory]);
 
   if (loading) {
     return (

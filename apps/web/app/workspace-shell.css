@@ -3940,6 +3940,41 @@
   opacity: 0.85;
 }
 
+/* --- Capability checkboxes (catalog unit editor) ----------------------- */
+.tos-check-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tos-space-2);
+}
+
+.tos-check-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-space-2);
+  min-height: 36px;
+  padding: var(--tos-space-1) var(--tos-space-3);
+  border-radius: 999px;
+  border: 1px solid var(--tos-border);
+  background: var(--tos-surface);
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-meta);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tos-check-pill:has(input:checked) {
+  border-color: var(--tos-midnight);
+  background: var(--tos-surface-soft);
+  color: var(--tos-text-strong);
+}
+
+.tos-check-pill input[type="checkbox"] {
+  accent-color: var(--tos-midnight);
+  width: 16px;
+  height: 16px;
+}
+
 /* =======================================================================
    Purchases + Returns premium UX (Task: purchases-returns-ux)
    Every class below is consumed by supplier-workspace, supplier-sheet,

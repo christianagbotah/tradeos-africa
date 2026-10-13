@@ -988,7 +988,7 @@ function ResolveVarianceForm({ reconciliationId, differenceMinor, currencyCode, 
     ? "tos-variance-banner__amount tos-variance-banner__amount--negative"
     : "tos-variance-banner__amount tos-variance-banner__amount--positive";
   return (
-    <div className="tos-stack" style={{ minWidth: 240, flex: "1 1 240px" }}>
+    <div className="tos-stack" style={{ minWidth: 0, flex: "1 1 240px" }}>
       <div className="tos-variance-banner">
         <span className="tos-variance-banner__icon" aria-hidden="true">
           <IconShield style={{ width: 16, height: 16 }} />

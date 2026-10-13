@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import type { CatalogItem } from "../workspace/workspace-provider";
+import { filterSellableItems, type CatalogKind, type SellableItem } from "../../../lib/catalog-read-model";
 import { StatePanel } from "../ui/state-panel";
 import { MoneyValue } from "../business/money-value";
 import {
@@ -13,8 +13,6 @@ import {
   IconPackageOpen,
 } from "../ui/icons";
 
-type CatalogKind = CatalogItem["kind"];
-
 const KIND_META: Record<CatalogKind, { label: string; chip: string; tile: string; Icon: typeof IconPackage }> = {
   PRODUCT: { label: "Products", chip: "Products", tile: "Product", Icon: IconPackage },
   SERVICE: { label: "Services", chip: "Services", tile: "Service", Icon: IconReceipt },
@@ -22,10 +20,11 @@ const KIND_META: Record<CatalogKind, { label: string; chip: string; tile: string
 };
 
 interface ProductBrowserProps {
-  catalog: readonly CatalogItem[];
+  /** Sellable projection — one entry per (item, sellable unit with price). */
+  items: readonly SellableItem[];
   currencyCode: string;
-  onPick: (item: CatalogItem) => void;
-  /** Map of itemId → quantity already in cart, to surface "in cart" pills. */
+  onPick: (item: SellableItem) => void;
+  /** Map of sellable key → quantity already in cart, to surface "in cart" pills. */
   cartQuantities?: Readonly<Record<string, number>>;
   /** Exposes the search input element so the shell can focus it (F2). */
   searchRef?: RefObject<HTMLInputElement | null>;
@@ -33,40 +32,30 @@ interface ProductBrowserProps {
 
 type FilterKind = "ALL" | CatalogKind;
 
-export function ProductBrowser({ catalog, currencyCode, onPick, cartQuantities, searchRef }: ProductBrowserProps) {
+export function ProductBrowser({ items, currencyCode, onPick, cartQuantities, searchRef }: ProductBrowserProps) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<FilterKind>("ALL");
   const internalRef = useRef<HTMLInputElement | null>(null);
   const inputRef = searchRef ?? internalRef;
 
-  const activeItems = useMemo(
-    () => catalog.filter((c) => c.status === "ACTIVE"),
-    [catalog],
-  );
+  const searched = useMemo(() => filterSellableItems(items, query), [items, query]);
 
   const availableKinds = useMemo<readonly CatalogKind[]>(() => {
     const seen = new Set<CatalogKind>();
-    for (const c of activeItems) seen.add(c.kind);
+    for (const c of searched) seen.add(c.kind);
     return Array.from(seen);
-  }, [activeItems]);
+  }, [searched]);
 
   const kindCounts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const c of activeItems) m[c.kind] = (m[c.kind] ?? 0) + 1;
+    for (const c of searched) m[c.kind] = (m[c.kind] ?? 0) + 1;
     return m;
-  }, [activeItems]);
+  }, [searched]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return activeItems.filter((c) => {
-      if (kind !== "ALL" && c.kind !== kind) return false;
-      if (!q) return true;
-      return (
-        c.name.toLowerCase().includes(q) ||
-        (c.sku ?? "").toLowerCase().includes(q)
-      );
-    });
-  }, [activeItems, query, kind]);
+  const filtered = useMemo(
+    () => searched.filter((c) => kind === "ALL" || c.kind === kind),
+    [searched, kind],
+  );
 
   // Auto-focus the search on desktop (fine pointer + wide viewport) on mount.
   useEffect(() => {
@@ -94,7 +83,7 @@ export function ProductBrowser({ catalog, currencyCode, onPick, cartQuantities, 
   }, [inputRef]);
 
   const showChips = availableKinds.length > 1;
-  const hasCatalog = activeItems.length > 0;
+  const hasCatalog = items.length > 0;
   const hasMatches = filtered.length > 0;
 
   return (
@@ -136,7 +125,7 @@ export function ProductBrowser({ catalog, currencyCode, onPick, cartQuantities, 
             onClick={() => setKind("ALL")}
           >
             All
-            <span className="tos-pos-chip__count">{activeItems.length}</span>
+            <span className="tos-pos-chip__count">{searched.length}</span>
           </button>
           {availableKinds.map((k) => (
             <button
@@ -161,7 +150,7 @@ export function ProductBrowser({ catalog, currencyCode, onPick, cartQuantities, 
           variant="empty"
           icon={<IconPackageOpen className="tos-state__icon" />}
           title="No products in your catalog yet"
-          text="Add products in Catalog to start selling. Each product can track stock, units, and tax."
+          text="Add products in Catalog to start selling. Each product can sell in multiple units — crate, bottle, glass — each with its own server-set price."
           actionLabel="Open catalog"
           onAction={() => { window.location.href = "/catalog"; }}
         />
@@ -177,25 +166,25 @@ export function ProductBrowser({ catalog, currencyCode, onPick, cartQuantities, 
         <div className="tos-product-grid">
           {filtered.map((item) => {
             const outOfStock =
-              item.trackInventory &&
-              item.inventoryAvailable !== null &&
-              item.inventoryAvailable <= 0;
+              item.trackStock &&
+              item.availableStock !== null &&
+              item.availableStock <= 0;
             const lowStock =
-              item.trackInventory &&
-              item.inventoryAvailable !== null &&
-              item.inventoryAvailable > 0 &&
-              item.inventoryAvailable <= 5;
-            const inCartQty = cartQuantities?.[item.id] ?? 0;
+              item.trackStock &&
+              item.availableStock !== null &&
+              item.availableStock > 0 &&
+              item.availableStock <= 5;
+            const inCartQty = cartQuantities?.[item.key] ?? 0;
             const meta = KIND_META[item.kind];
             const Icon = meta.Icon;
             return (
               <button
-                key={item.id}
+                key={item.key}
                 type="button"
                 className={`tos-product-tile tos-animate-fade-in${outOfStock ? " tos-product-tile--out" : ""}`}
                 onClick={() => onPick(item)}
                 disabled={outOfStock}
-                aria-label={`Add ${item.name} to cart`}
+                aria-label={`Add ${item.name} (${item.unitLabel}) to cart`}
               >
                 <span className="tos-product-tile__media" aria-hidden="true">
                   <Icon className="tos-product-tile__media-icon" />
@@ -208,13 +197,13 @@ export function ProductBrowser({ catalog, currencyCode, onPick, cartQuantities, 
                 ) : null}
                 <span className="tos-product-tile__name">{item.name}</span>
                 <span className="tos-product-tile__sub">
-                  {item.saleUnitName}{item.sku ? ` · ${item.sku}` : ""}
+                  {item.unitLabel}{item.sku ? ` · ${item.sku}` : ""}
                 </span>
                 <span className="tos-product-tile__row">
                   <span className="tos-product-tile__price">
                     <MoneyValue minor={item.priceMinor} currencyCode={currencyCode} />
                   </span>
-                  {item.trackInventory ? (
+                  {item.trackStock ? (
                     <span
                       className={
                         outOfStock
@@ -226,8 +215,8 @@ export function ProductBrowser({ catalog, currencyCode, onPick, cartQuantities, 
                     >
                       {outOfStock
                         ? "Out of stock"
-                        : item.inventoryAvailable !== null
-                          ? `${item.inventoryAvailable} left`
+                        : item.availableStock !== null
+                          ? `${item.availableStock} left`
                           : "Stock tracked"}
                     </span>
                   ) : null}

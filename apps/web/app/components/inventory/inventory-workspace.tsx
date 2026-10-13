@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { formatMoney } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
 import { InventoryAdjustmentSheet } from "./inventory-adjustment-sheet";
 import { StatePanel } from "../ui/state-panel";
@@ -15,7 +16,7 @@ import {
   IconTrending,
   IconTrendingDown,
 } from "../ui/icons";
-import type { CatalogItem } from "../workspace/workspace-provider";
+import type { CatalogItem, InventoryItem } from "../../../lib/catalog-read-model";
 
 type StockFilter = "ALL" | "OK" | "LOW" | "OUT";
 
@@ -38,62 +39,68 @@ const STAT_TILE_CLASS: Record<StatIconTone, string> = {
 
 const LOW_THRESHOLD = 5;
 
-interface StockLevel {
-  avail: number;
-  onHand: number | null;
-  reserved: number | null;
+/** A tracked catalog item joined with its last-known branch stock row. */
+interface TrackedRow {
+  item: CatalogItem;
+  stock: InventoryItem | null;
+  available: number;
+  stockKnown: boolean;
   out: boolean;
   low: boolean;
   tone: "ok" | "low" | "out";
   cardClass: string;
   badgeClass: string;
-  label: string;
+  levelLabel: string;
   qtyValClass: string;
 }
 
-function deriveLevel(c: CatalogItem): StockLevel {
-  const avail = c.inventoryAvailable ?? 0;
-  const onHand = c.inventoryOnHand;
-  const reserved = onHand !== null ? Math.max(0, onHand - avail) : null;
-  const out = avail <= 0;
-  const low = avail > 0 && avail <= LOW_THRESHOLD;
-  const tone: StockLevel["tone"] = out ? "out" : low ? "low" : "ok";
+function buildRow(item: CatalogItem, stock: InventoryItem | null): TrackedRow {
+  const stockKnown = stock !== null;
+  const available = stock?.available ?? 0;
+  const out = available <= 0;
+  const low = available > 0 && available <= LOW_THRESHOLD;
+  const tone: TrackedRow["tone"] = out ? "out" : low ? "low" : "ok";
   return {
-    avail,
-    onHand,
-    reserved,
+    item,
+    stock,
+    available,
+    stockKnown,
     out,
     low,
     tone,
     cardClass: out ? "tos-stock-card tos-stock-card--out" : low ? "tos-stock-card tos-stock-card--low" : "tos-stock-card tos-stock-card--ok",
     badgeClass: out ? "tos-badge tos-badge--danger" : low ? "tos-badge tos-badge--warning" : "tos-badge tos-badge--positive",
-    label: out ? "Out" : low ? "Low" : "OK",
+    levelLabel: out ? "Out" : low ? "Low" : "OK",
     qtyValClass: out ? "tos-stock-card__qty-val tos-stock-card__qty-val--danger" : low ? "tos-stock-card__qty-val tos-stock-card__qty-val--warning" : "tos-stock-card__qty-val",
   };
 }
 
 export function InventoryWorkspace() {
-  const { catalog, role, refreshCatalog } = useWorkspace();
+  const { catalog, inventory, role, refreshInventory, refreshCatalog, session } = useWorkspace();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StockFilter>("ALL");
-  const [adjusting, setAdjusting] = useState<CatalogItem | null>(null);
+  const [adjusting, setAdjusting] = useState<TrackedRow | null>(null);
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
+  const currencyCode = session?.currencyCode ?? "GHS";
 
-  const tracked = useMemo(
-    () => catalog.filter((c) => c.trackInventory && c.status === "ACTIVE"),
-    [catalog],
-  );
+  // Tracked = active, stock-tracked products joined with /v1/inventory rows
+  // (per-branch AVAILABLE / QUARANTINE / DAMAGED / WASTE balances).
+  const tracked = useMemo(() => {
+    const byId = new Map(inventory.map((row) => [row.id, row]));
+    return catalog
+      .filter((c) => c.trackStock && c.active && c.kind !== "SERVICE")
+      .map((item) => buildRow(item, byId.get(item.id) ?? null));
+  }, [catalog, inventory]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return tracked.filter((c) => {
-      const level = deriveLevel(c);
-      if (filter === "OUT" && !level.out) return false;
-      if (filter === "LOW" && !level.low) return false;
-      if (filter === "OK" && (level.out || level.low)) return false;
+    return tracked.filter((row) => {
+      if (filter === "OUT" && !row.out) return false;
+      if (filter === "LOW" && !row.low) return false;
+      if (filter === "OK" && (row.out || row.low)) return false;
       if (!q) return true;
-      return c.name.toLowerCase().includes(q) || (c.sku ?? "").toLowerCase().includes(q);
+      return row.item.name.toLowerCase().includes(q) || (row.item.sku ?? "").toLowerCase().includes(q);
     });
   }, [tracked, query, filter]);
 
@@ -101,18 +108,23 @@ export function InventoryWorkspace() {
     const totalTracked = tracked.length;
     let outCount = 0;
     let lowCount = 0;
-    for (const c of tracked) {
-      const level = deriveLevel(c);
-      if (level.out) outCount += 1;
-      else if (level.low) lowCount += 1;
+    for (const row of tracked) {
+      if (row.out) outCount += 1;
+      else if (row.low) lowCount += 1;
     }
     const okCount = totalTracked - outCount - lowCount;
-    return { totalTracked, okCount, lowCount, outCount };
-  }, [tracked]);
+    const totalValueMinor = inventory.reduce((sum, row) => sum + row.inventoryValueMinor, 0);
+    return { totalTracked, okCount, lowCount, outCount, totalValueMinor };
+  }, [tracked, inventory]);
 
   const clearFilters = () => {
     setQuery("");
     setFilter("ALL");
+  };
+
+  const handleRefresh = () => {
+    void refreshInventory();
+    void refreshCatalog();
   };
 
   return (
@@ -122,11 +134,11 @@ export function InventoryWorkspace() {
           <span className="tos-page__eyebrow">TradeOS · Inventory</span>
           <h1 className="tos-page__title">Inventory</h1>
           <p className="tos-page__subtitle">
-            Stock on hand for tracked items. Adjustments are evidence-grade movements — the balance is derived from them, never overwritten directly.
+            Last-known stock for tracked items in this branch, counted in each item&apos;s stock unit. Adjustments are evidence-grade movements — the balance is derived from them, never overwritten directly.
           </p>
         </div>
         <div className="tos-page__actions">
-          <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => void refreshCatalog()}>Refresh</Button>
+          <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={handleRefresh}>Refresh</Button>
         </div>
       </header>
 
@@ -196,7 +208,7 @@ export function InventoryWorkspace() {
           variant="empty"
           icon={<IconBox className="tos-state__icon" />}
           title="No tracked inventory"
-          text="Mark catalog items as 'track inventory' to manage stock levels here. Each tracked item counts on-hand and available units in its sale unit — adjustments create evidence-grade movements."
+          text="Mark catalog products as 'track inventory' to manage stock levels here. Each tracked item counts available, quarantined, damaged and waste units in its stock unit — adjustments create evidence-grade movements."
           actionLabel="Open catalog"
           onAction={() => { window.location.href = "/catalog"; }}
         />
@@ -214,61 +226,70 @@ export function InventoryWorkspace() {
         <>
           {/* Mobile: premium stock cards with status color stripe */}
           <ul className="tos-list-cards tos-stagger" aria-label="Inventory items">
-            {filtered.map((c) => {
-              const level = deriveLevel(c);
-              return (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    className={`${level.cardClass} tos-card-hover tos-animate-fade-in-up`}
-                    onClick={() => setAdjusting(c)}
-                    aria-label={`Adjust stock for ${c.name}`}
-                  >
-                    <div className="tos-stock-card__head">
-                      <div className="tos-stock-card__body">
-                        <span className="tos-stock-card__title">{c.name}</span>
-                        <span className="tos-stock-card__sub">
-                          {c.sku ? `SKU ${c.sku}` : "No SKU"} · per {c.saleUnitName}
-                        </span>
-                      </div>
-                      <span className={level.badgeClass}>
-                        <span className="tos-badge__dot" />{level.label}
+            {filtered.map((row) => (
+              <li key={row.item.id}>
+                <button
+                  type="button"
+                  className={`${row.cardClass} tos-card-hover tos-animate-fade-in-up`}
+                  onClick={() => setAdjusting(row)}
+                  aria-label={`Adjust stock for ${row.item.name}`}
+                >
+                  <div className="tos-stock-card__head">
+                    <div className="tos-stock-card__body">
+                      <span className="tos-stock-card__title">{row.item.name}</span>
+                      <span className="tos-stock-card__sub">
+                        {row.item.sku ? `SKU ${row.item.sku}` : "No SKU"} · counted in {row.item.stockUnitCode ?? "stock units"}
                       </span>
                     </div>
-                    <div className="tos-stock-card__qty-row">
-                      <div className="tos-stock-card__qty">
-                        <span className="tos-stock-card__qty-label">Available</span>
-                        <span className={level.qtyValClass}>
-                          {level.avail}
-                          <span className="tos-stock-card__qty-unit"> {c.saleUnitCode}</span>
-                        </span>
-                      </div>
-                      <div className="tos-stock-card__qty">
-                        <span className="tos-stock-card__qty-label">On-hand</span>
-                        <span className="tos-stock-card__qty-val">
-                          {level.onHand === null ? "—" : level.onHand}
-                          {level.onHand !== null ? <span className="tos-stock-card__qty-unit"> {c.saleUnitCode}</span> : null}
-                        </span>
-                      </div>
-                      {level.reserved !== null && level.reserved > 0 ? (
-                        <div className="tos-stock-card__qty">
-                          <span className="tos-stock-card__qty-label">Reserved</span>
-                          <span className="tos-stock-card__qty-val">{level.reserved}</span>
-                        </div>
-                      ) : null}
+                    <span className={row.badgeClass}>
+                      <span className="tos-badge__dot" />{row.levelLabel}
+                    </span>
+                  </div>
+                  <div className="tos-stock-card__qty-row">
+                    <div className="tos-stock-card__qty">
+                      <span className="tos-stock-card__qty-label">Available</span>
+                      <span className={row.qtyValClass}>
+                        {row.stockKnown ? row.available : "—"}
+                        <span className="tos-stock-card__qty-unit"> {row.item.stockUnitCode ?? ""}</span>
+                      </span>
                     </div>
-                    {canWrite ? (
-                      <div className="tos-stock-card__row" style={{ marginTop: "var(--tos-space-1)" }}>
-                        <span className="tos-stock-card__sub" style={{ color: "var(--tos-text-soft)" }}>Tap to adjust stock</span>
+                    {(row.stock?.quarantine ?? 0) > 0 ? (
+                      <div className="tos-stock-card__qty">
+                        <span className="tos-stock-card__qty-label">Quarantine</span>
+                        <span className="tos-stock-card__qty-val">{row.stock?.quarantine}</span>
                       </div>
                     ) : null}
-                  </button>
-                </li>
-              );
-            })}
+                    {(row.stock?.damaged ?? 0) > 0 ? (
+                      <div className="tos-stock-card__qty">
+                        <span className="tos-stock-card__qty-label">Damaged</span>
+                        <span className="tos-stock-card__qty-val">{row.stock?.damaged}</span>
+                      </div>
+                    ) : null}
+                    {(row.stock?.waste ?? 0) > 0 ? (
+                      <div className="tos-stock-card__qty">
+                        <span className="tos-stock-card__qty-label">Waste</span>
+                        <span className="tos-stock-card__qty-val">{row.stock?.waste}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                  {!row.stockKnown ? (
+                    <div className="tos-stock-card__row" style={{ marginTop: "var(--tos-space-1)" }}>
+                      <span className="tos-stock-card__sub" style={{ color: "var(--tos-text-soft)" }}>
+                        No stock movements recorded yet for this branch.
+                      </span>
+                    </div>
+                  ) : null}
+                  {canWrite ? (
+                    <div className="tos-stock-card__row" style={{ marginTop: "var(--tos-space-1)" }}>
+                      <span className="tos-stock-card__sub" style={{ color: "var(--tos-text-soft)" }}>Tap to adjust stock</span>
+                    </div>
+                  ) : null}
+                </button>
+              </li>
+            ))}
           </ul>
 
-          {/* Desktop: clean table with status + on-hand + available + reserved */}
+          {/* Desktop: clean table with location balances */}
           <div className="tos-table-wrap tos-table-wrap--desktop">
             <div className="tos-table-scroll">
               <table className="tos-table">
@@ -276,48 +297,55 @@ export function InventoryWorkspace() {
                   <tr>
                     <th>Item</th>
                     <th>SKU</th>
-                    <th>Unit</th>
-                    <th data-align="right">On-hand</th>
+                    <th>Stock unit</th>
                     <th data-align="right">Available</th>
-                    <th data-align="right">Reserved</th>
+                    <th data-align="right">Quarantine</th>
+                    <th data-align="right">Damaged</th>
+                    <th data-align="right">Waste</th>
+                    <th data-align="right">Value</th>
                     <th data-align="center">Level</th>
                     {canWrite ? <th data-align="center">Action</th> : null}
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((c) => {
-                    const level = deriveLevel(c);
-                    return (
-                      <tr key={c.id}>
-                        <td>
-                          <div className="tos-table__cell-main">
-                            <span className="tos-table__cell-title">{c.name}</span>
-                          </div>
-                        </td>
-                        <td className="tos-table__mono">{c.sku ?? "—"}</td>
-                        <td className="tos-table__muted">{c.saleUnitCode}</td>
-                        <td data-align="right" className="tos-table__num">
-                          {level.onHand === null ? "—" : `${level.onHand} ${c.saleUnitCode}`}
-                        </td>
-                        <td data-align="right" className="tos-table__num">
-                          {level.avail} {c.saleUnitCode}
-                        </td>
-                        <td data-align="right" className="tos-table__num tos-table__muted">
-                          {level.reserved === null ? "—" : level.reserved}
-                        </td>
+                  {filtered.map((row) => (
+                    <tr key={row.item.id}>
+                      <td>
+                        <div className="tos-table__cell-main">
+                          <span className="tos-table__cell-title">{row.item.name}</span>
+                        </div>
+                      </td>
+                      <td className="tos-table__mono">{row.item.sku ?? "—"}</td>
+                      <td className="tos-table__muted">{row.item.stockUnitCode ?? "—"}</td>
+                      <td data-align="right" className="tos-table__num">
+                        {row.stockKnown ? `${row.available} ${row.item.stockUnitCode ?? ""}`.trim() : "—"}
+                      </td>
+                      <td data-align="right" className="tos-table__num tos-table__muted">
+                        {row.stock?.quarantine ?? 0}
+                      </td>
+                      <td data-align="right" className="tos-table__num tos-table__muted">
+                        {row.stock?.damaged ?? 0}
+                      </td>
+                      <td data-align="right" className="tos-table__num tos-table__muted">
+                        {row.stock?.waste ?? 0}
+                      </td>
+                      <td data-align="right" className="tos-table__num">
+                        {(row.stock?.inventoryValueMinor ?? 0) > 0
+                          ? formatMoney(row.stock?.inventoryValueMinor ?? 0, currencyCode)
+                          : "—"}
+                      </td>
+                      <td data-align="center">
+                        <span className={row.badgeClass}>
+                          <span className="tos-badge__dot" />{row.levelLabel}
+                        </span>
+                      </td>
+                      {canWrite ? (
                         <td data-align="center">
-                          <span className={level.badgeClass}>
-                            <span className="tos-badge__dot" />{level.label}
-                          </span>
+                          <Button size="sm" variant="outline" onClick={() => setAdjusting(row)}>Adjust</Button>
                         </td>
-                        {canWrite ? (
-                          <td data-align="center">
-                            <Button size="sm" variant="outline" onClick={() => setAdjusting(c)}>Adjust</Button>
-                          </td>
-                        ) : null}
-                      </tr>
-                    );
-                  })}
+                      ) : null}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -325,7 +353,7 @@ export function InventoryWorkspace() {
         </>
       )}
 
-      <InventoryAdjustmentSheet item={adjusting} onClose={() => setAdjusting(null)} onSaved={() => setAdjusting(null)} />
+      <InventoryAdjustmentSheet row={adjusting} onClose={() => setAdjusting(null)} onSaved={() => setAdjusting(null)} />
     </div>
   );
 }
