@@ -142,7 +142,7 @@ export function PurchaseDetailSheet({ purchaseId, onClose, onMutated }: Purchase
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Purchase</span>
             <h2 className="tos-sheet__title">#{purchaseId.slice(0, 8)}</h2>
-            <p className="tos-sheet__sub">Server-authoritative purchase record</p>
+            <p className="tos-sheet__sub">Posted purchase record</p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close purchase detail">
             <IconClose style={{ width: 18, height: 18 }} />
@@ -498,7 +498,7 @@ function PurchaseReturnForm({ purchase, lines, currencyCode, onCancel, onSubmit 
     <section className="tos-section">
       <div className="tos-section__head">
         <h3 className="tos-section__title">Return to supplier</h3>
-        <span className="tos-section__sub">Server-authoritative</span>
+        <span className="tos-section__sub">Recorded history</span>
       </div>
       <div className="tos-section__body--padded tos-stack">
         {/* Recovery method — visual chip grid */}

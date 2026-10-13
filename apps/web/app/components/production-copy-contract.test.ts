@@ -35,9 +35,9 @@ describe("production-facing copy", () => {
     ];
     const offenders: string[] = [];
     for (const file of files(root)) {
-      const source = withoutComments(readFileSync(file, "utf8"));
+      const source = withoutComments(readFileSync(file, "utf8")).toLowerCase();
       for (const phrase of banned) {
-        if (source.includes(phrase)) offenders.push(`${file.replace(root, "components")}: ${phrase}`);
+        if (source.includes(phrase.toLowerCase())) offenders.push(`${file.replace(root, "components")}: ${phrase}`);
       }
     }
     expect(offenders).toEqual([]);

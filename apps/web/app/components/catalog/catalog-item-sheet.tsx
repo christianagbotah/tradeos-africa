@@ -342,7 +342,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Master data</span>
             <h2 className="tos-sheet__title">{isEdit ? "Edit item" : "Add catalog item"}</h2>
-            {item ? <p className="tos-sheet__sub">{item.name}</p> : <p className="tos-sheet__sub">Server-authoritative prices and stock</p>}
+            {item ? <p className="tos-sheet__sub">{item.name}</p> : <p className="tos-sheet__sub">Prices and stock stay in sync</p>}
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
             <IconClose style={{ width: 18, height: 18 }} />

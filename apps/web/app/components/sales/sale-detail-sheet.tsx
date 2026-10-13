@@ -89,7 +89,7 @@ export function SaleDetailSheet({ saleId, onClose }: SaleDetailSheetProps) {
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Receipt</span>
             <h2 className="tos-sheet__title">#{saleId.slice(0, 8)}</h2>
-            <p className="tos-sheet__sub">Server-authoritative sale record</p>
+            <p className="tos-sheet__sub">Posted sale record</p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close sale detail">
             <IconClose style={{ width: 18, height: 18 }} />

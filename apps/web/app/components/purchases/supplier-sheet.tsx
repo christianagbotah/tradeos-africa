@@ -198,7 +198,7 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
           <div className="tos-section tos-animate-fade-in-up">
             <div className="tos-section__head">
               <h3 className="tos-section__title">Supplier ledger</h3>
-              <span className="tos-section__sub">Server-authoritative</span>
+              <span className="tos-section__sub">Account history</span>
             </div>
             <div className="tos-section__body">
               <div className="tos-ledger-row">

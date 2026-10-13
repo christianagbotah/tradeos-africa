@@ -121,7 +121,7 @@ export function MoneyAccountSheet({ account, onClose }: MoneyAccountSheetProps) 
           <div className="tos-section tos-animate-fade-in-up" style={{ marginTop: "var(--tos-space-4)" }}>
             <div className="tos-section__head">
               <h3 className="tos-section__title">Account details</h3>
-              <span className="tos-section__sub">Server-authoritative</span>
+              <span className="tos-section__sub">Account activity</span>
             </div>
             <div className="tos-section__body">
               <div className="tos-account-meta-row">

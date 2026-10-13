@@ -400,7 +400,7 @@ export function CashbookExpenses() {
         <section className="tos-section tos-animate-fade-in-up">
           <div className="tos-section__head">
             <h2 className="tos-section__title">Treasury actions</h2>
-            <span className="tos-section__sub">Server-authoritative</span>
+            <span className="tos-section__sub">Recorded account activity</span>
           </div>
           <div className="tos-section__body--padded tos-stack">
             <div className="tos-action-tabs" role="tablist" aria-label="Treasury action">
