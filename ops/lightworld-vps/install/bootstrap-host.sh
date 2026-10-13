@@ -19,6 +19,7 @@ install -d -o root -g root -m 0755 /etc/lightworld-deploy
 install -d -o root -g root -m 0755 /etc/lightworld-deploy/apps.d
 install -d -o root -g root -m 0755 /var/lib/lightworld-deploy
 install -d -o root -g root -m 0755 /var/lib/lightworld-deploy/runners
+install -d -o root -g root -m 0755 /var/lib/lightworld-deploy/sources
 install -d -o root -g root -m 0755 /var/lock/lightworld-deploy
 
 if [[ "$mode" == '--tradeos' ]]; then

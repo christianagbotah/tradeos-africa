@@ -37,6 +37,7 @@ assert_env_outside_workspace "$workspace"
 
 release_dir="$(prepare_release_source "$workspace" "$sha")"
 run_release_build "$release_dir"
+verify_release_source_identity "$release_dir" "$sha"
 
 previous_target=''
 if [[ -L "$CURRENT_LINK" ]]; then
