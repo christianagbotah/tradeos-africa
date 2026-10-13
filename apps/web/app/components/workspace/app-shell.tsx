@@ -1,32 +1,66 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import type { ReactNode } from "react";
 import { useWorkspace } from "./use-workspace";
-import { findNavItem, groupedNavItems, primaryNavItems, secondaryNavItems, type WorkspaceNavItem } from "./workspace-navigation";
-import { IconClose, IconLogout, IconMenu, IconMore, IconSearch } from "../ui/icons";
+import {
+  findNavItem,
+  groupedNavItems,
+  primaryNavItems,
+  secondaryNavItems,
+  type WorkspaceNavItem,
+} from "./workspace-navigation";
+import {
+  IconBuilding,
+  IconCheck,
+  IconChevronDown,
+  IconClose,
+  IconLogout,
+  IconMenu,
+  IconMore,
+  IconPlus,
+  IconSearch,
+  IconShield,
+  IconUser,
+} from "../ui/icons";
 import { Button } from "../ui/button";
 
 interface AppShellProps {
   children: ReactNode;
 }
 
+type ShellFeedback = { tone: "error" | "info"; text: string } | null;
+
 export function AppShell({ children }: AppShellProps) {
-  const { session, role, signOut, queue } = useWorkspace();
+  const {
+    session,
+    role,
+    account,
+    memberships,
+    businessContext,
+    contextBusy,
+    signOut,
+    queue,
+    switchBusiness,
+    switchBranch,
+  } = useWorkspace();
   const pathname = usePathname();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [shellFeedback, setShellFeedback] = useState<ShellFeedback>(null);
 
-  // Close the drawer on route change.
   useEffect(() => {
     setDrawerOpen(false);
     setMoreOpen(false);
+    setContextOpen(false);
+    setAccountOpen(false);
+    setShellFeedback(null);
   }, [pathname]);
 
-  // Lock body scroll when the drawer is open.
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.body.style.overflow = drawerOpen ? "hidden" : "";
@@ -41,16 +75,56 @@ export function AppShell({ children }: AppShellProps) {
   const primary = primaryNavItems(role);
   const secondary = secondaryNavItems(role);
 
+  const availableMemberships = useMemo(
+    () => memberships.filter((membership) => membership.businessStatus === "ACTIVE" && Boolean(membership.staffId)),
+    [memberships],
+  );
+  const activeBranches = useMemo(
+    () => (businessContext?.branches ?? []).filter((branch) => branch.active),
+    [businessContext?.branches],
+  );
+  const currentBranch = activeBranches.find((branch) => branch.id === session?.branchId) ?? null;
+  const canManageBusiness = role === "OWNER" || role === "ADMIN";
+
   const handleSignOut = () => {
     signOut();
     router.replace("/");
   };
 
+  const chooseBusiness = async (businessId: string) => {
+    if (!session || businessId === session.businessId || contextBusy) return;
+    setShellFeedback(null);
+    try {
+      await switchBusiness(businessId);
+      setContextOpen(false);
+    } catch (error) {
+      setShellFeedback({
+        tone: "error",
+        text: error instanceof Error ? error.message : "Business could not be opened.",
+      });
+    }
+  };
+
+  const chooseBranch = async (branchId: string) => {
+    if (!session || branchId === session.branchId || contextBusy) return;
+    setShellFeedback(null);
+    try {
+      await switchBranch(branchId);
+      setContextOpen(false);
+    } catch (error) {
+      setShellFeedback({
+        tone: "error",
+        text: error instanceof Error ? error.message : "Branch could not be opened.",
+      });
+    }
+  };
+
   if (!session) return null;
 
-  const initials = (session.displayName || "T")
+  const displayName = account?.displayName ?? session.displayName;
+  const initials = (displayName || "T")
     .split(/\s+/)
-    .map((p) => p[0])
+    .map((part) => part[0])
     .filter(Boolean)
     .slice(0, 2)
     .join("")
@@ -69,7 +143,7 @@ export function AppShell({ children }: AppShellProps) {
         <div className="tos-sidebar__ctx">
           <span className="tos-sidebar__ctx-label">Business</span>
           <span className="tos-sidebar__ctx-name" title={session.businessName}>{session.businessName}</span>
-          <span className="tos-sidebar__ctx-sub">{session.currencyCode} · {session.timezone}</span>
+          <span className="tos-sidebar__ctx-sub">{currentBranch?.name ?? "Branch"} · {session.currencyCode}</span>
         </div>
         <nav className="tos-sidebar__nav">
           {groups.map((group) => (
@@ -84,13 +158,9 @@ export function AppShell({ children }: AppShellProps) {
         <div className="tos-sidebar__foot">
           {queue.pending > 0 || !queue.online ? (
             <div className="tos-sidebar__queue">
-              <span className="tos-sidebar__queue-title">
-                {queue.online ? `${queue.pending} pending` : "Offline"}
-              </span>
+              <span className="tos-sidebar__queue-title">{queue.online ? `${queue.pending} pending` : "Offline"}</span>
               <span className="tos-sidebar__queue-text">
-                {queue.online
-                  ? "Queued offline changes will sync automatically."
-                  : "Sales will queue locally and sync when you reconnect."}
+                {queue.online ? "Queued offline changes will sync automatically." : "Sales will queue locally and sync when you reconnect."}
               </span>
             </div>
           ) : null}
@@ -105,12 +175,7 @@ export function AppShell({ children }: AppShellProps) {
 
       <div className="tos-main" data-view={activeSegment}>
         <header className="tos-topbar">
-          <button
-            type="button"
-            className="tos-topbar__menu-btn"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="Open navigation menu"
-          >
+          <button type="button" className="tos-topbar__menu-btn" onClick={() => setDrawerOpen(true)} aria-label="Open navigation menu">
             <IconMenu style={{ width: 20, height: 20 }} />
           </button>
           <div className="tos-topbar__title-block">
@@ -124,16 +189,104 @@ export function AppShell({ children }: AppShellProps) {
               className="tos-topbar__search-input"
               placeholder="Search products, customers, receipts…"
               aria-label="Global search"
-              onChange={(e) => {
-                const value = e.target.value.trim();
-                if (value) {
-                  // Simple search: route to catalog with query.
-                  router.push(`/catalog?q=${encodeURIComponent(value)}`);
-                }
+              onChange={(event) => {
+                const value = event.target.value.trim();
+                if (value) router.push(`/catalog?q=${encodeURIComponent(value)}`);
               }}
             />
           </div>
           <div className="tos-topbar__spacer" />
+
+          <div className="tos-shell-context">
+            <button
+              type="button"
+              className="tos-shell-context__trigger"
+              aria-label="Business & branch switcher"
+              aria-expanded={contextOpen}
+              onClick={() => {
+                setContextOpen((value) => !value);
+                setAccountOpen(false);
+                setShellFeedback(null);
+              }}
+            >
+              <IconBuilding className="tos-shell-context__icon" />
+              <span className="tos-shell-context__copy">
+                <strong>{session.businessName}</strong>
+                <small>{currentBranch?.name ?? "Current branch"}</small>
+              </span>
+              <IconChevronDown className="tos-shell-context__chevron" />
+            </button>
+
+            {contextOpen ? (
+              <div className="tos-shell-popover tos-shell-popover--context" role="dialog" aria-label="Business & branch switcher">
+                <div className="tos-shell-popover__head">
+                  <span className="tos-shell-popover__eyebrow">Workspace</span>
+                  <strong>Business & branch switcher</strong>
+                </div>
+                {shellFeedback ? (
+                  <div className={shellFeedback.tone === "error" ? "tos-shell-feedback tos-shell-feedback--error" : "tos-shell-feedback tos-shell-feedback--info"}>
+                    {shellFeedback.text}
+                  </div>
+                ) : null}
+
+                <div className="tos-shell-popover__section">
+                  <span className="tos-shell-popover__section-title">Businesses</span>
+                  <div className="tos-shell-popover__list">
+                    {availableMemberships.map((membership) => {
+                      const current = membership.businessId === session.businessId;
+                      return (
+                        <button
+                          key={membership.businessId}
+                          type="button"
+                          className="tos-shell-choice"
+                          data-current={current}
+                          disabled={contextBusy || current}
+                          onClick={() => void chooseBusiness(membership.businessId)}
+                        >
+                          <span className="tos-shell-choice__main">
+                            <strong>{membership.businessName}</strong>
+                            <small>{membership.role}</small>
+                          </span>
+                          {current ? <IconCheck className="tos-shell-choice__check" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="tos-shell-popover__section">
+                  <span className="tos-shell-popover__section-title">Branches</span>
+                  <div className="tos-shell-popover__list">
+                    {activeBranches.map((branch) => {
+                      const current = branch.id === session.branchId;
+                      return (
+                        <button
+                          key={branch.id}
+                          type="button"
+                          className="tos-shell-choice"
+                          data-current={current}
+                          disabled={contextBusy || current}
+                          onClick={() => void chooseBranch(branch.id)}
+                        >
+                          <span className="tos-shell-choice__main">
+                            <strong>{branch.name}</strong>
+                            <small>{branch.code} · {branch.timezone}</small>
+                          </span>
+                          {current ? <IconCheck className="tos-shell-choice__check" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="tos-shell-popover__actions">
+                  <Link href="/settings#business" className="tos-shell-action-link"><IconPlus />Add business</Link>
+                  {canManageBusiness ? <Link href="/settings#branches" className="tos-shell-action-link"><IconPlus />Add branch</Link> : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           {queue.online ? (
             queue.pending > 0 ? (
               <span className="tos-topbar__pill tos-topbar__pill--warning" title={queue.lastError ?? undefined}>
@@ -147,12 +300,43 @@ export function AppShell({ children }: AppShellProps) {
               Offline
             </span>
           )}
-          <div className="tos-topbar__profile" title={session.displayName}>
-            <div className="tos-topbar__avatar" aria-hidden="true">{initials}</div>
-            <div className="tos-topbar__profile-text">
-              <span className="tos-topbar__profile-name">{session.displayName}</span>
-              <span className="tos-topbar__profile-role">{role}</span>
-            </div>
+
+          <div className="tos-account-menu">
+            <button
+              type="button"
+              className="tos-topbar__profile tos-topbar__profile--button"
+              aria-label="Account menu"
+              aria-expanded={accountOpen}
+              onClick={() => {
+                setAccountOpen((value) => !value);
+                setContextOpen(false);
+              }}
+            >
+              <div className="tos-topbar__avatar" aria-hidden="true">{initials}</div>
+              <div className="tos-topbar__profile-text">
+                <span className="tos-topbar__profile-name">{displayName}</span>
+                <span className="tos-topbar__profile-role">{role}</span>
+              </div>
+              <IconChevronDown className="tos-account-menu__chevron" />
+            </button>
+
+            {accountOpen ? (
+              <div className="tos-shell-popover tos-shell-popover--account" role="menu" aria-label="Account menu">
+                <div className="tos-account-card">
+                  <div className="tos-account-card__avatar" aria-hidden="true">{initials}</div>
+                  <div className="tos-account-card__copy">
+                    <strong>{displayName}</strong>
+                    <span>{account?.email ?? account?.phoneE164 ?? "TradeOS account"}</span>
+                  </div>
+                </div>
+                <Link href="/settings#profile" className="tos-account-link" role="menuitem"><IconUser />My profile</Link>
+                <Link href="/settings#security" className="tos-account-link" role="menuitem"><IconShield />Security</Link>
+                <Link href="/settings" className="tos-account-link" role="menuitem"><IconBuilding />Settings</Link>
+                <button type="button" className="tos-account-link tos-account-link--danger" role="menuitem" onClick={handleSignOut}>
+                  <IconLogout />Sign out
+                </button>
+              </div>
+            ) : null}
           </div>
         </header>
 
@@ -160,9 +344,7 @@ export function AppShell({ children }: AppShellProps) {
 
         <nav className="tos-bottomnav" aria-label="Primary">
           <div className="tos-bottomnav__inner">
-            {primary.map((item) => (
-              <BottomNavLink key={item.id} item={item} active={item.segment === activeSegment} />
-            ))}
+            {primary.map((item) => <BottomNavLink key={item.id} item={item} active={item.segment === activeSegment} />)}
           </div>
         </nav>
 
@@ -173,7 +355,7 @@ export function AppShell({ children }: AppShellProps) {
               size="icon"
               aria-label="More navigation"
               aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((v) => !v)}
+              onClick={() => setMoreOpen((value) => !value)}
               icon={<IconMore style={{ width: 20, height: 20 }} />}
             />
           </div>
@@ -193,11 +375,7 @@ export function AppShell({ children }: AppShellProps) {
                 </button>
               </div>
               <div className="tos-sheet__body">
-                <div className="tos-more-sheet">
-                  {secondary.map((item) => (
-                    <MoreTile key={item.id} item={item} />
-                  ))}
-                </div>
+                <div className="tos-more-sheet">{secondary.map((item) => <MoreTile key={item.id} item={item} />)}</div>
               </div>
             </div>
           </>
@@ -215,12 +393,7 @@ function deriveActiveSegment(pathname: string): string {
 function SidebarLink({ item, active }: { item: WorkspaceNavItem; active: boolean }) {
   const Icon = item.icon;
   return (
-    <Link
-      href={`/${item.segment}`}
-      className="tos-sidebar__link"
-      data-active={active}
-      aria-current={active ? "page" : undefined}
-    >
+    <Link href={`/${item.segment}`} className="tos-sidebar__link" data-active={active} aria-current={active ? "page" : undefined}>
       <Icon className="tos-sidebar__link-icon" />
       <span>{item.label}</span>
     </Link>
@@ -230,12 +403,7 @@ function SidebarLink({ item, active }: { item: WorkspaceNavItem; active: boolean
 function BottomNavLink({ item, active }: { item: WorkspaceNavItem; active: boolean }) {
   const Icon = item.icon;
   return (
-    <Link
-      href={`/${item.segment}`}
-      className="tos-bottomnav__link"
-      data-active={active}
-      aria-current={active ? "page" : undefined}
-    >
+    <Link href={`/${item.segment}`} className="tos-bottomnav__link" data-active={active} aria-current={active ? "page" : undefined}>
       <Icon className="tos-bottomnav__link-icon" />
       <span>{item.shortLabel}</span>
     </Link>

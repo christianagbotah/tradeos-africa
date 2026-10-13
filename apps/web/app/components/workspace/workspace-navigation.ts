@@ -20,6 +20,7 @@ import {
   IconReturns,
   IconSales,
   IconSell,
+  IconUser,
 } from "../ui/icons";
 
 export type WorkspaceRole =
@@ -45,7 +46,7 @@ export interface WorkspaceNavItem {
   /** Short label for mobile bottom nav. */
   shortLabel: string;
   /** Sidebar group label (e.g. "Trade", "Master data"). */
-  group: "Trade" | "Inventory" | "Master data" | "Money" | "Insights";
+  group: "Trade" | "Inventory" | "Master data" | "Money" | "Insights" | "System";
   /** Icon component. */
   icon: IconComponent;
   /** Roles that may see this item. Empty = visible to all roles. */
@@ -96,6 +97,7 @@ export const WORKSPACE_NAV_ITEMS: readonly WorkspaceNavItem[] = [
   { id: "cashbook", segment: "cashbook", label: "Cashbook", shortLabel: "Cashbook", group: "Money", icon: IconCashbook, visibleTo: MANAGER_ROLES },
   { id: "operations", segment: "operations", label: "Operations", shortLabel: "Ops", group: "Money", icon: IconOperations, visibleTo: MANAGER_ROLES },
   { id: "reports", segment: "reports", label: "Reports", shortLabel: "Reports", group: "Insights", icon: IconReports, visibleTo: MANAGER_ROLES },
+  { id: "settings", segment: "settings", label: "Settings", shortLabel: "Settings", group: "System", icon: IconUser },
 ];
 
 /** Returns the nav items visible to the given role. */
@@ -128,7 +130,7 @@ export function groupedNavItems(
   role: WorkspaceRole | null | undefined,
 ): readonly { readonly group: WorkspaceNavItem["group"]; readonly items: readonly WorkspaceNavItem[] }[] {
   const visible = visibleNavItems(role);
-  const order: readonly WorkspaceNavItem["group"][] = ["Trade", "Inventory", "Master data", "Money", "Insights"];
+  const order: readonly WorkspaceNavItem["group"][] = ["Trade", "Inventory", "Master data", "Money", "Insights", "System"];
   return order.map((group) => ({
     group,
     items: visible.filter((item) => item.group === group),
