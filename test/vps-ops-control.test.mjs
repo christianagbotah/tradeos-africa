@@ -22,7 +22,8 @@ test('VPS ops issue-comment workflow is owner-only, read-only, and allow-listed'
   assert.match(source, /runs-on:\s*\[self-hosted,\s*linux,\s*x64,\s*lightworld-vps,\s*staging,\s*tradeos-staging\]/);
 
   for (const command of ['status', 'health', 'disk', 'runner-status']) {
-    assert.match(source, new RegExp(`/${command.replace('-', '\\-')}\\b|${command.replace('-', '\\-')}\\)`));
+    const escaped = command.replace('-', '\\-');
+    assert.match(source, new RegExp(`"/vps ${escaped}"\\)`));
   }
 
   assert.match(source, /lightworld-status-tradeos-staging/);
