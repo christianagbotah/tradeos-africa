@@ -78,6 +78,26 @@ export interface MeResponse {
   memberships: Membership[];
 }
 
+export interface BusinessContextResponse {
+  business: {
+    id: string;
+    name: string;
+    businessType: string;
+    countryCode: string;
+    currencyCode: string;
+    timezone: string;
+    status: string;
+  };
+  membership: { role: string; staffId: string | null };
+  branches: Array<{
+    id: string;
+    name: string;
+    code: string;
+    timezone: string;
+    active: boolean;
+  }>;
+}
+
 interface OnboardingResponse {
   business: { id: string; name: string; businessType: string; countryCode: string; currencyCode: string; timezone: string };
   branch: { id: string; name: string; code: string };
@@ -200,7 +220,7 @@ export function PublicEntry() {
     <AuthForm
       tab={authTab}
       onTabChange={setAuthTab}
-      onAuthenticated={(auth, me) => {
+      onAuthenticated={async (auth, me) => {
         const first = me.memberships[0];
         if (!first || !first.staffId) {
           // No business yet → onboarding.
@@ -213,8 +233,10 @@ export function PublicEntry() {
           setPhase("onboarding");
           return;
         }
-        // Has a business → build the session and redirect.
-        const session = buildSessionFromMembership(auth, me, first);
+        // Existing business memberships must be hydrated from the authoritative
+        // business context before the workspace is allowed to use branch-scoped APIs.
+        const context = await loadBusinessContext(auth.accessToken, first.businessId);
+        const session = buildSessionFromBusinessContext(auth, me, first, context);
         offlineQueue.sessions.save(session);
         router.replace("/dashboard");
       }}
@@ -236,14 +258,15 @@ async function validateSession(session: WebSession): Promise<boolean> {
 }
 
 export function buildSessionFromMembership(auth: AuthSession, me: MeResponse, m: Membership): WebSession {
-  // Currency/timezone are not on the membership; default to GHS/Africa/Accra if unknown.
-  // The onboarding flow always sets them; for pre-existing accounts we fall back.
+  // Legacy pure constructor retained for compatibility with callers/tests that do
+  // not yet have authoritative business context. Existing-user login no longer
+  // persists this placeholder session; it uses buildSessionFromBusinessContext.
   return {
     accessToken: auth.accessToken,
     refreshToken: auth.refreshToken,
     clientId: auth.clientId,
     businessId: m.businessId,
-    branchId: "00000000-0000-0000-0000-000000000000", // placeholder; will be refreshed by the workspace boot
+    branchId: "00000000-0000-0000-0000-000000000000",
     staffId: m.staffId ?? "00000000-0000-0000-0000-000000000000",
     currencyCode: "GHS",
     timezone: "Africa/Accra",
@@ -253,12 +276,60 @@ export function buildSessionFromMembership(auth: AuthSession, me: MeResponse, m:
   };
 }
 
+export function buildSessionFromBusinessContext(
+  auth: AuthSession,
+  me: MeResponse,
+  membership: Membership,
+  context: BusinessContextResponse,
+): WebSession {
+  if (context.business.id !== membership.businessId) {
+    throw new Error("BUSINESS_CONTEXT_MISMATCH");
+  }
+
+  const activeBranches = context.branches.filter((branch) => branch.active);
+  const branch = activeBranches.find((candidate) => candidate.code === "MAIN") ?? activeBranches[0];
+  if (!branch) {
+    throw new Error("NO_ACTIVE_BRANCH");
+  }
+  if (!context.membership.staffId) {
+    throw new Error("NO_ACTIVE_STAFF");
+  }
+
+  return {
+    accessToken: auth.accessToken,
+    refreshToken: auth.refreshToken,
+    clientId: auth.clientId,
+    businessId: context.business.id,
+    branchId: branch.id,
+    staffId: context.membership.staffId,
+    currencyCode: context.business.currencyCode,
+    timezone: branch.timezone || context.business.timezone,
+    businessName: context.business.name,
+    role: context.membership.role,
+    displayName: me.user.displayName,
+  };
+}
+
+async function loadBusinessContext(accessToken: string, businessId: string): Promise<BusinessContextResponse> {
+  const res = await fetch(`/v1/businesses/${encodeURIComponent(businessId)}/context`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const json = (await res.json()) as Partial<BusinessContextResponse> & { error?: string; message?: string };
+  if (!res.ok) {
+    throw new Error(json.message ?? json.error ?? "Business context could not be loaded.");
+  }
+  if (!json.business || !json.membership || !Array.isArray(json.branches)) {
+    throw new Error("Server returned incomplete business context.");
+  }
+  return json as BusinessContextResponse;
+}
+
 // --- Auth form (sign in / register) --------------------------------------
 
 interface AuthFormProps {
   tab: AuthTab;
   onTabChange: (tab: AuthTab) => void;
-  onAuthenticated: (auth: AuthSession, me: MeResponse) => void;
+  onAuthenticated: (auth: AuthSession, me: MeResponse) => void | Promise<void>;
 }
 
 function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
@@ -321,7 +392,7 @@ function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
         return;
       }
       const me = (await meRes.json()) as MeResponse;
-      onAuthenticated(auth, me);
+      await onAuthenticated(auth, me);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error. Check your connection.");
       setBusy(false);
