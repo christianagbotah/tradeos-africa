@@ -59,6 +59,24 @@ jobs:
             psql -h localhost -U tradeos -d tradeos_qa -v ON_ERROR_STOP=1 -f "$migration"
           done
 
+      - name: Start API server
+        env:
+          DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_qa
+          PORT: 4000
+        run: |
+          pnpm --filter @tradeos/api dev &
+          API_PID=$!
+          echo "API_PID=$API_PID" >> $GITHUB_ENV
+          # Wait for health
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4000/health >/dev/null 2>&1; then
+              echo "API is healthy"
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:4000/health || { echo "API failed to start"; exit 1; }
+
       # Fixtures are created through the PUBLIC application contracts:
       # register -> onboarding -> money accounts -> catalog (+ opening stock)
       # -> customer -> supplier. Branch creation seeds default money accounts
@@ -189,24 +207,6 @@ jobs:
           console.log("Login: qa@tradeos.test / TradeOS-QA-1234");
           console.log("Business:", businessId, "Branch:", branchId);
           SEED
-
-      - name: Start API server
-        env:
-          DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_qa
-          PORT: 4000
-        run: |
-          pnpm --filter @tradeos/api dev &
-          API_PID=$!
-          echo "API_PID=$API_PID" >> $GITHUB_ENV
-          # Wait for health
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:4000/health >/dev/null 2>&1; then
-              echo "API is healthy"
-              break
-            fi
-            sleep 2
-          done
-          curl -fsS http://127.0.0.1:4000/health || { echo "API failed to start"; exit 1; }
 
       # API_BASE_URL is EXPLICIT: web installs /v1 + /api rewrites against the
       # running API. Without it, next.config.ts installs no rewrites at all —
