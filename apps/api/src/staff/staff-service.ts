@@ -79,6 +79,8 @@ export async function createStaff(
   assertActorCanManageRole(access, null, role);
 
   const staffId = await withTransaction(pool, async (client) => {
+    const freshAccess = await lockAndRequireStaffMutationAccess(client, auth, businessId);
+    assertActorCanManageRole(freshAccess, null, role);
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO staff(business_id,display_name,email,phone,role)
        VALUES($1,$2,$3,$4,$5)
@@ -86,7 +88,7 @@ export async function createStaff(
       [businessId, displayName, email, phone, role],
     );
     const id = inserted.rows[0]!.id;
-    await writeAudit(client, businessId, access.staffId, "STAFF_CREATED", "STAFF", id, {
+    await writeAudit(client, businessId, freshAccess.staffId, "STAFF_CREATED", "STAFF", id, {
       role,
       hasEmail: Boolean(email),
       hasPhone: Boolean(phone),
@@ -107,6 +109,7 @@ export async function updateStaff(
   const access = await requireBusinessRole(pool, auth, businessId, STAFF_MUTATION_ROLES);
 
   await withTransaction(pool, async (client) => {
+    const freshAccess = await lockAndRequireStaffMutationAccess(client, auth, businessId);
     const found = await client.query<StaffRow>(
       `SELECT id,business_id,display_name,email,phone,role,is_active,created_at,updated_at
        FROM staff
@@ -118,7 +121,7 @@ export async function updateStaff(
     if (!current) throw new AuthError("Staff member was not found", 404, "STAFF_NOT_FOUND");
 
     const nextRole = input.role === undefined ? current.role : normalizeRole(input.role);
-    assertActorCanManageRole(access, current.role, nextRole);
+    assertActorCanManageRole(freshAccess, current.role, nextRole);
 
     const nextDisplayName = input.displayName === undefined ? current.display_name : normalizeDisplayName(input.displayName);
     const nextEmail = input.email === undefined ? current.email : normalizeNullableEmail(input.email);
@@ -166,7 +169,7 @@ export async function updateStaff(
         await writeAudit(
           client,
           businessId,
-          access.staffId,
+          freshAccess.staffId,
           "STAFF_INVITATION_REVOKED",
           "STAFF_INVITATION",
           invitation.id,
@@ -179,7 +182,7 @@ export async function updateStaff(
       await writeAudit(
         client,
         businessId,
-        access.staffId,
+        freshAccess.staffId,
         nextRole !== current.role ? "STAFF_ROLE_CHANGED" : "STAFF_UPDATED",
         "STAFF",
         staffId,
@@ -307,6 +310,37 @@ function assertActorCanManageRole(
   }
 }
 
+async function lockAndRequireStaffMutationAccess(
+  client: DatabaseClient,
+  auth: AuthContext,
+  businessId: string,
+): Promise<BusinessAccess> {
+  // One deterministic lock per business prevents owner-changing operations from
+  // taking staff/membership row locks in conflicting orders.
+  await client.query(`SELECT id FROM businesses WHERE id=$1 FOR UPDATE`, [businessId]);
+  const result = await client.query<{
+    membership_id: string;
+    role: BusinessRole;
+    staff_id: string;
+    business_status: string;
+  }>(
+    `SELECT m.id AS membership_id,m.role,s.id AS staff_id,b.status AS business_status
+     FROM business_memberships m
+     JOIN businesses b ON b.id=m.business_id
+     JOIN staff s ON s.id=m.staff_id AND s.business_id=m.business_id AND s.is_active=true
+     WHERE m.business_id=$1 AND m.user_id=$2 AND m.status='ACTIVE'`,
+    [businessId, auth.userId],
+  );
+  const row = result.rows[0];
+  if (!row || row.business_status !== "ACTIVE") {
+    throw new AuthError("Business access is unavailable", 403, "BUSINESS_ACCESS_DENIED");
+  }
+  if (!STAFF_MUTATION_ROLES.includes(row.role)) {
+    throw new AuthError("Your role cannot manage staff", 403, "STAFF_ROLE_FORBIDDEN");
+  }
+  return { membershipId: row.membership_id, businessId, role: row.role, staffId: row.staff_id };
+}
+
 async function ensureOwnerCanLoseAccess(client: DatabaseClient, businessId: string, staffId: string): Promise<void> {
   const owners = await client.query<{ staff_id: string | null }>(
     `SELECT staff_id
@@ -370,6 +404,7 @@ export async function setStaffActive(
   const access = await requireBusinessRole(pool, auth, businessId, STAFF_MUTATION_ROLES);
 
   await withTransaction(pool, async (client) => {
+    const freshAccess = await lockAndRequireStaffMutationAccess(client, auth, businessId);
     const found = await client.query<StaffRow>(
       `SELECT id,business_id,display_name,email,phone,role,is_active,created_at,updated_at
        FROM staff
@@ -379,7 +414,7 @@ export async function setStaffActive(
     );
     const staff = found.rows[0];
     if (!staff) throw new AuthError("Staff member was not found", 404, "STAFF_NOT_FOUND");
-    assertActorCanManageRole(access, staff.role, staff.role);
+    assertActorCanManageRole(freshAccess, staff.role, staff.role);
 
     if (!active && staff.is_active && staff.role === "OWNER") {
       await ensureOwnerCanLoseAccess(client, businessId, staffId);
@@ -398,7 +433,7 @@ export async function setStaffActive(
          WHERE business_id=$1 AND staff_id=$2 AND status='SUSPENDED'`,
         [businessId, staffId],
       );
-      await writeAudit(client, businessId, access.staffId, "STAFF_REACTIVATED", "STAFF", staffId, {
+      await writeAudit(client, businessId, freshAccess.staffId, "STAFF_REACTIVATED", "STAFF", staffId, {
         role: staff.role,
       });
       return;
@@ -421,14 +456,14 @@ export async function setStaffActive(
       await writeAudit(
         client,
         businessId,
-        access.staffId,
+        freshAccess.staffId,
         "STAFF_INVITATION_REVOKED",
         "STAFF_INVITATION",
         invitation.id,
         { targetStaffId: staffId, reason: "STAFF_SUSPENDED" },
       );
     }
-    await writeAudit(client, businessId, access.staffId, "STAFF_SUSPENDED", "STAFF", staffId, {
+    await writeAudit(client, businessId, freshAccess.staffId, "STAFF_SUSPENDED", "STAFF", staffId, {
       role: staff.role,
     });
   });
@@ -448,6 +483,7 @@ export async function createStaffInvitation(
   const hash = tokenHash(acceptanceToken);
 
   const invitation = await withTransaction(pool, async (client) => {
+    const freshAccess = await lockAndRequireStaffMutationAccess(client, auth, businessId);
     const found = await client.query<StaffRow>(
       `SELECT id,business_id,display_name,email,phone,role,is_active,created_at,updated_at
        FROM staff WHERE id=$1 AND business_id=$2 FOR UPDATE`,
@@ -455,7 +491,7 @@ export async function createStaffInvitation(
     );
     const staff = found.rows[0];
     if (!staff) throw new AuthError("Staff member was not found", 404, "STAFF_NOT_FOUND");
-    assertActorCanManageRole(access, staff.role, staff.role);
+    assertActorCanManageRole(freshAccess, staff.role, staff.role);
     if (!staff.is_active) throw new AuthError("Staff member must be active before inviting access", 400, "STAFF_INVALID");
 
     const email = normalizeNullableEmail(staff.email);
@@ -489,7 +525,7 @@ export async function createStaffInvitation(
       await writeAudit(
         client,
         businessId,
-        access.staffId,
+        freshAccess.staffId,
         "STAFF_INVITATION_REVOKED",
         "STAFF_INVITATION",
         prior.id,
@@ -505,10 +541,10 @@ export async function createStaffInvitation(
        RETURNING id,business_id,staff_id,invited_email,invited_phone_e164,role,status,
          expires_at,created_by_user_id,created_by_staff_id,accepted_by_user_id,accepted_at,created_at,
          NULL::text AS staff_email,NULL::text AS staff_phone,role AS staff_role,true AS staff_active`,
-      [businessId, staffId, email, phone, staff.role, hash, auth.userId, access.staffId],
+      [businessId, staffId, email, phone, staff.role, hash, auth.userId, freshAccess.staffId],
     );
     const row = inserted.rows[0]!;
-    await writeAudit(client, businessId, access.staffId, "STAFF_INVITED", "STAFF_INVITATION", row.id, {
+    await writeAudit(client, businessId, freshAccess.staffId, "STAFF_INVITED", "STAFF_INVITATION", row.id, {
       targetStaffId: staffId,
       role: staff.role,
       expiresAt: row.expires_at.toISOString(),
