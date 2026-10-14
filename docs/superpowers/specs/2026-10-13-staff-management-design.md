@@ -1,8 +1,8 @@
 # TradeOS Africa Staff Management Backend Design
 
 **Date:** 2026-10-13
-**Status:** Approved design, pre-implementation
-**Scope owner:** Backend/API/contracts/database only. Z.ai retains exclusive ownership of `apps/web`, `apps/system-admin`, `apps/desktop`, and `apps/mobile`.
+**Status:** Approved backend sub-design, incorporated into Settings Control Center V2
+**Scope:** Backend/API/contracts/database rules for staff management. The earlier frontend-ownership/out-of-scope boundary applied only to this backend sub-design; `2026-10-14-settings-control-center-v2-design.md` now owns the combined Settings + Team frontend delivery while preserving the backend invariants below.
 
 ## 1. Goal
 
