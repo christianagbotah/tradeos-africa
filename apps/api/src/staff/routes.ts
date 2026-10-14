@@ -2,6 +2,7 @@ import type {
   AcceptStaffInvitationRequest,
   CreateStaffInvitationRequest,
   CreateStaffRequest,
+  RegisterStaffInvitationRequest,
   UpdateStaffRequest,
 } from "@tradeos/contracts";
 import type { FastifyInstance } from "fastify";
@@ -12,6 +13,7 @@ import {
   createStaff,
   createStaffInvitation,
   listStaff,
+  registerStaffInvitationAccount,
   updateStaff,
 } from "./staff-service.js";
 
@@ -33,6 +35,15 @@ export function registerStaffRoutes(app: FastifyInstance, pool: DatabasePool): v
       return reply.code(201).send({ staff });
     } catch (error) {
       return sendStaffError(request, reply, error, "STAFF_CREATE_FAILED", "Staff member could not be created.");
+    }
+  });
+
+  app.post<{ Body: RegisterStaffInvitationRequest }>("/v1/staff/invitations/accept/register", async (request, reply) => {
+    try {
+      const result = await registerStaffInvitationAccount(pool, request.body);
+      return reply.code(201).send(result);
+    } catch (error) {
+      return sendStaffError(request, reply, error, "INVITATION_REGISTER_FAILED", "Invitation registration could not be completed.");
     }
   });
 

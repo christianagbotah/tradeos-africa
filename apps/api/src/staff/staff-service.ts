@@ -5,6 +5,8 @@ import {
   type BusinessRole,
   type CreateStaffInvitationRequest,
   type CreateStaffRequest,
+  type RegisterStaffInvitationRequest,
+  type RegisterStaffInvitationResponse,
   type StaffDirectoryItem,
   type StaffInvitationAcceptance,
   type StaffInvitationResponse,
@@ -13,7 +15,10 @@ import {
 } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessAccess } from "../auth/authorization.js";
 import {
+  assertPlatform,
   AuthError,
+  hashPassword,
+  issueSession,
   normalizeEmail,
   normalizePhone,
   tokenHash,
@@ -546,6 +551,115 @@ export async function acceptStaffInvitation(
     );
     return acceptanceFromInvitation(invitation);
   });
+}
+
+export async function registerStaffInvitationAccount(
+  pool: DatabasePool,
+  input: RegisterStaffInvitationRequest,
+): Promise<RegisterStaffInvitationResponse> {
+  const acceptanceToken = requireAcceptanceToken(input?.acceptanceToken);
+  const displayName = normalizeDisplayName(input?.displayName);
+  assertPlatform(input?.platform);
+  if (!input?.deviceKey?.trim()) throw new AuthError("deviceKey is required", 400, "DEVICE_REQUIRED");
+  if (!input?.appVersion?.trim()) throw new AuthError("appVersion is required", 400, "APP_VERSION_REQUIRED");
+  const passwordHash = await hashPassword(input?.password ?? "");
+  const hash = tokenHash(acceptanceToken);
+
+  return withTransaction(pool, async (client) => {
+    const found = await client.query<InvitationRow>(
+      `SELECT
+         i.id,i.business_id,i.staff_id,i.invited_email,i.invited_phone_e164,i.role,i.status,
+         i.expires_at,i.created_by_user_id,i.created_by_staff_id,i.accepted_by_user_id,i.accepted_at,i.created_at,
+         s.email AS staff_email,s.phone AS staff_phone,s.role AS staff_role,s.is_active AS staff_active
+       FROM staff_invitations i
+       JOIN staff s ON s.id=i.staff_id AND s.business_id=i.business_id
+       WHERE i.token_hash=$1
+       FOR UPDATE OF i,s`,
+      [hash],
+    );
+    const invitation = found.rows[0];
+    if (!invitation) throw new AuthError("Invitation link is invalid", 404, "INVITATION_INVALID");
+    if (invitation.status !== "PENDING") {
+      throw new AuthError("Invitation has already been used", 409, "INVITATION_ALREADY_USED");
+    }
+    if (invitation.expires_at.getTime() <= Date.now()) {
+      throw new AuthError("Invitation has expired", 410, "INVITATION_EXPIRED");
+    }
+    if (!invitation.staff_active || !invitationSnapshotMatches(invitation)) {
+      throw new AuthError("Invitation no longer matches the current staff record", 409, "INVITATION_INVALID");
+    }
+
+    const duplicate = await client.query<{ id: string }>(
+      `SELECT id FROM app_users
+       WHERE ($1::text IS NOT NULL AND lower(email)=lower($1))
+          OR ($2::text IS NOT NULL AND phone_e164=$2)
+       LIMIT 1`,
+      [invitation.invited_email, invitation.invited_phone_e164],
+    );
+    if (duplicate.rowCount) {
+      throw new AuthError("An account already uses the invited email or phone number", 409, "ACCOUNT_EXISTS");
+    }
+
+    let userId: string;
+    try {
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO app_users(display_name,email,phone_e164,password_hash)
+         VALUES($1,$2,$3,$4)
+         RETURNING id`,
+        [displayName, invitation.invited_email, invitation.invited_phone_e164, passwordHash],
+      );
+      userId = inserted.rows[0]!.id;
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new AuthError("An account already uses the invited email or phone number", 409, "ACCOUNT_EXISTS");
+      }
+      throw error;
+    }
+
+    await client.query(
+      `INSERT INTO business_memberships(
+         business_id,user_id,staff_id,role,status,created_by_user_id
+       ) VALUES($1,$2,$3,$4,'ACTIVE',$5)`,
+      [invitation.business_id, userId, invitation.staff_id, invitation.role, invitation.created_by_user_id],
+    );
+    await client.query(
+      `UPDATE staff_invitations
+       SET status='ACCEPTED',accepted_by_user_id=$2,accepted_at=now()
+       WHERE id=$1`,
+      [invitation.id, userId],
+    );
+    const session = await issueSession(client, {
+      userId,
+      platform: input.platform,
+      deviceKey: input.deviceKey.trim(),
+      appVersion: input.appVersion.trim(),
+    });
+    await writeAudit(
+      client,
+      invitation.business_id,
+      invitation.staff_id,
+      "STAFF_INVITATION_ACCEPTED",
+      "STAFF_INVITATION",
+      invitation.id,
+      { targetStaffId: invitation.staff_id, role: invitation.role, accountCreated: true },
+    );
+
+    return {
+      user: {
+        id: userId,
+        displayName,
+        email: invitation.invited_email,
+        phoneE164: invitation.invited_phone_e164,
+        avatarUrl: null,
+      },
+      session,
+      acceptance: acceptanceFromInvitation(invitation),
+    };
+  });
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "23505";
 }
 
 function mapInvitationSummary(row: InvitationRow): StaffInvitationSummary {

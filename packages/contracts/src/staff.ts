@@ -92,3 +92,21 @@ export interface StaffInvitationAcceptance {
   staffId: string;
   role: BusinessRole;
 }
+
+export interface RegisterStaffInvitationResponse {
+  user: {
+    id: string;
+    displayName: string;
+    email: string | null;
+    phoneE164: string | null;
+    avatarUrl: string | null;
+  };
+  session: {
+    accessToken: string;
+    refreshToken: string;
+    clientId: string;
+    accessExpiresAt: string;
+    refreshExpiresAt: string;
+  };
+  acceptance: StaffInvitationAcceptance;
+}
