@@ -211,6 +211,14 @@ describe("settings production contract", () => {
     expect(visualQaSource).toContain('{ path: "/settings", marker: "Settings", name: "settings" }');
     expect(visualQaSource).toContain('{ path: "/settings?section=team", marker: "Team & access", name: "settings-team" }');
     expect(visualQaSource).toContain('settings: [390, 768, 1280]');
+    for (const shot of [
+      "settings-business-create",
+      "settings-business-edit",
+      "settings-branch-create",
+      "settings-branch-edit",
+    ]) {
+      expect(visualQaSource).toContain(shot);
+    }
     expect(visualQaSource).toContain('"team-invite-missing-390"');
     expect(visualQaSource).toContain('"team-invite-missing-1280"');
     expect(visualQaSource).toContain('This invitation link is no longer available in this tab');
