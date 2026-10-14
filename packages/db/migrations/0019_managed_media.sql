@@ -18,12 +18,12 @@ CREATE TABLE managed_media (
   )
 );
 
-CREATE INDEX idx_managed_media_owner_active
-  ON managed_media(owner_user_id, created_at DESC)
-  WHERE retired_at IS NULL AND owner_user_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_managed_media_owner_active
+  ON managed_media(owner_user_id)
+  WHERE retired_at IS NULL AND purpose='AVATAR' AND owner_user_id IS NOT NULL;
 
-CREATE INDEX idx_managed_media_business_active
-  ON managed_media(business_id, created_at DESC)
-  WHERE retired_at IS NULL AND business_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_managed_media_business_active
+  ON managed_media(business_id)
+  WHERE retired_at IS NULL AND purpose='BUSINESS_LOGO' AND business_id IS NOT NULL;
 
 COMMIT;

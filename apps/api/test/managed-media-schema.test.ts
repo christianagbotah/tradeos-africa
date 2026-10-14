@@ -15,6 +15,8 @@ describe("managed media schema", () => {
     expect(sql).toContain("storage_name text NOT NULL UNIQUE");
     expect(sql).toContain("size_bytes bigint NOT NULL");
     expect(sql).toContain("retired_at timestamptz");
+    expect(sql).toContain("CREATE UNIQUE INDEX uq_managed_media_owner_active");
+    expect(sql).toContain("CREATE UNIQUE INDEX uq_managed_media_business_active");
     expect(sql).not.toMatch(/original_(?:name|filename)|client_(?:name|path)/i);
   });
 });
