@@ -17,6 +17,8 @@ const businessSectionSource = workspaceSource.slice(workspaceSource.indexOf("fun
 const branchesSectionSource = workspaceSource.slice(workspaceSource.indexOf("function BranchesSection"), workspaceSource.indexOf("function TeamSection"));
 const imagePickerSource = readFileSync(new URL("./image-picker.tsx", import.meta.url), "utf8");
 const businessFieldsSource = readFileSync(new URL("./business-fields.tsx", import.meta.url), "utf8");
+const teamAccessSource = readFileSync(new URL("./team-access.tsx", import.meta.url), "utf8");
+const staffEditorSource = readFileSync(new URL("./staff-editor.tsx", import.meta.url), "utf8");
 
 describe("settings navigation model", () => {
   it("provides all account/business control-center sections", () => {
@@ -91,6 +93,46 @@ describe("settings navigation model", () => {
     expect(shellSource).toContain("account?.avatarUrl");
     expect(shellSource).toContain('className="tos-topbar__avatar-image"');
     expect(shellSource).toContain('className="tos-account-card__avatar-image"');
+  });
+
+  it("implements Team & access with role-aware directory and mutually exclusive editors", () => {
+    expect(workspaceSource).toContain("<TeamAccess");
+    expect(teamAccessSource).toContain('type TeamEditorMode = { kind: "view" } | { kind: "create" } | { kind: "edit"; staffId: string }');
+    expect(teamAccessSource).toContain('useState<TeamEditorMode>({ kind: "view" })');
+    expect(teamAccessSource).toContain('canReadTeam');
+    expect(teamAccessSource).toContain('canMutateTeam');
+    expect(teamAccessSource).toContain('canManageStaffRole');
+    expect(teamAccessSource).toContain('role === "MANAGER"');
+    expect(teamAccessSource).toContain('/v1/staff?businessId=');
+    expect(teamAccessSource).toContain('/invitations`');
+    expect(teamAccessSource).toContain('/v1/staff/${encodeURIComponent(member.id)}/${active ? \"reactivate\" : \"suspend\"}');
+    expect(teamAccessSource).toContain('\"suspend\"');
+    expect(teamAccessSource).toContain('\"reactivate\"');
+    expect(staffEditorSource).toContain("StaffEditor");
+  });
+
+  it("keeps invitation secrets ephemeral and provides desktop/mobile team layouts", () => {
+    expect(teamAccessSource).toContain("oneTimeInvite");
+    expect(teamAccessSource).toContain("window.location.origin");
+    expect(teamAccessSource).toContain("/invite/team#token=");
+    expect(teamAccessSource).toContain("navigator.clipboard.writeText");
+    expect(teamAccessSource).not.toMatch(/localStorage|sessionStorage/);
+    expect(teamAccessSource).toContain("tos-team__table-wrap");
+    expect(teamAccessSource).toContain("tos-team__cards");
+    expect(shellCssSource).toContain(".tos-team__table-wrap");
+    expect(shellCssSource).toContain(".tos-team__cards");
+    expect(shellCssSource).toContain("@media (max-width: 768px)");
+  });
+
+  it("renders explicit Team loading, error and empty states without fake forbidden controls", () => {
+    expect(teamAccessSource).toContain("Loading team members");
+    expect(teamAccessSource).toContain("Team directory could not be loaded");
+    expect(teamAccessSource).toContain("No staff members yet");
+    expect(teamAccessSource).toContain("You do not have team-directory access");
+    expect(teamAccessSource).toContain("Read-only team access");
+    expect(teamAccessSource).toContain("Add staff");
+    expect(teamAccessSource).toContain("Suspend");
+    expect(teamAccessSource).toContain("Reactivate");
   });
 
   it("renders business summaries as spaced label colon value content", () => {

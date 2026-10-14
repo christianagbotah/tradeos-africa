@@ -13,6 +13,7 @@ import { Button } from "../ui/button";
 import { BusinessFields, type BusinessFormState, type BusinessType } from "./business-fields";
 import { BranchFields, type BranchDraft } from "./branch-fields";
 import { ImagePicker } from "./image-picker";
+import { TeamAccess } from "./team-access";
 import {
   IconAlert,
   IconBuilding,
@@ -198,7 +199,7 @@ export function SettingsWorkspace() {
             />
           ) : null}
           {section === "team" ? (
-            <TeamSection />
+            <TeamAccess online={queue.online} />
           ) : null}
           {section === "devices" ? (
             <DevicesSection online={queue.online} />
@@ -807,30 +808,6 @@ function BranchesSection({
           <div className="tos-settings__actions"><Button type="submit" variant="gold" loading={busyId === "create"} disabled={!online || !draft.name.trim()}>Create branch</Button></div>
         </form>
       ) : null}
-    </SettingsPanel>
-  );
-}
-
-function TeamSection() {
-  const { role, memberships, session } = useWorkspace();
-  const current = memberships.find((membership) => membership.businessId === session?.businessId);
-  return (
-    <SettingsPanel
-      icon={<IconUsers />}
-      eyebrow="Business access"
-      title="Team & access"
-      description="See your access in this business. Team invitations and role management will appear here when the Team workspace is enabled."
-    >
-      <div className="tos-settings__summary-grid">
-        <Summary label="Your role" value={role} />
-        <Summary label="Membership status" value={current?.businessStatus ?? "ACTIVE"} />
-        <Summary label="Staff link" value={current?.staffId ? "Linked" : "Not linked"} />
-        <Summary label="Business" value={current?.businessName ?? session?.businessName ?? "—"} />
-      </div>
-      <InfoCallout
-        title="Team management is coming here"
-        text="Your business team will be managed from one place without creating duplicate accounts. Your current role and staff link are shown above."
-      />
     </SettingsPanel>
   );
 }
