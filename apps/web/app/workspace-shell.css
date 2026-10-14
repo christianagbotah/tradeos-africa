@@ -8121,10 +8121,19 @@
 
 .tos-settings__summary {
   min-width: 0;
+  display: grid;
+  grid-template-columns: max-content auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--tos-space-2);
   padding: var(--tos-space-3);
   border: 1px solid var(--tos-border);
   border-radius: var(--tos-radius-sm);
   background: var(--tos-surface-soft);
+}
+
+.tos-settings__summary-separator {
+  color: var(--tos-text-muted);
+  font-weight: 700;
 }
 
 .tos-settings__summary-label,
@@ -8137,7 +8146,7 @@
 
 .tos-settings__summary-value {
   display: block;
-  margin-top: 3px;
+  margin-top: 0;
   overflow-wrap: anywhere;
   color: var(--tos-text-strong);
   font-weight: 800;

@@ -13,6 +13,7 @@ const navSource = readFileSync(new URL("../workspace/workspace-navigation.ts", i
 const routeSource = readFileSync(new URL("../../(workspace)/settings/page.tsx", import.meta.url), "utf8");
 const shellCssSource = readFileSync(new URL("../../workspace-shell.css", import.meta.url), "utf8");
 const visualQaSource = readFileSync(new URL("../../../../../.github/workflows/visual-qa.yml", import.meta.url), "utf8");
+const businessSectionSource = workspaceSource.slice(workspaceSource.indexOf("function BusinessSection"), workspaceSource.indexOf("function BranchesSection"));
 
 describe("settings navigation model", () => {
   it("provides all account/business control-center sections", () => {
@@ -37,6 +38,25 @@ describe("settings navigation model", () => {
     expect(workspaceSource).toContain("URLSearchParams");
     expect(workspaceSource).toContain('addEventListener("hashchange"');
     expect(workspaceSource).toContain("history.replaceState");
+  });
+
+  it("keeps Business create/edit mutually exclusive and gives Create the complete profile contract", () => {
+    expect(workspaceSource).toContain('type BusinessEditorMode = "view" | "edit" | "create"');
+    expect(businessSectionSource).toContain('useState<BusinessEditorMode>("view")');
+    expect(businessSectionSource).not.toContain('const [creating, setCreating]');
+    expect(workspaceSource).not.toContain('const [editing, setEditing]');
+    expect(workspaceSource).toContain('<BusinessFields');
+    expect(workspaceSource).toContain('requestedAction === "create"');
+    expect(workspaceSource).toContain('setBusinessMode("create")');
+    expect(workspaceSource).toContain('interface NewBusinessFormState extends BusinessFormState');
+    expect(workspaceSource).toContain('firstBranchName: string');
+  });
+
+  it("renders business summaries as spaced label colon value content", () => {
+    expect(workspaceSource).toContain('tos-settings__summary-label');
+    expect(workspaceSource).toContain('tos-settings__summary-separator');
+    expect(workspaceSource).toContain('tos-settings__summary-value');
+    expect(shellCssSource).toContain('.tos-settings__summary-separator');
   });
 
   it("restricts business and branch management to OWNER and ADMIN", () => {

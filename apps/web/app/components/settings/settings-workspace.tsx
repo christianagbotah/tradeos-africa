@@ -3,8 +3,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  SUPPORTED_COUNTRIES,
-  SUPPORTED_CURRENCIES,
   SUPPORTED_TIMEZONES,
   getCountry,
   getDefaultCurrencyCode,
@@ -13,6 +11,7 @@ import {
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { Button } from "../ui/button";
+import { BusinessFields, type BusinessFormState, type BusinessType } from "./business-fields";
 import {
   IconAlert,
   IconBuilding,
@@ -43,20 +42,6 @@ export const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string;
   { id: "devices", label: "Devices & sessions", description: "Signed-in devices and session control" },
 ] as const;
 
-const BUSINESS_TYPES = [
-  ["RETAIL_HARDWARE", "Retail / Hardware"],
-  ["FOOD", "Food & Beverage"],
-  ["SALON_BARBER", "Salon / Barber"],
-  ["DRINKING_SPOT", "Drinking spot / Bar"],
-  ["WASHING_BAY", "Washing bay"],
-  ["CAR_PARK", "Car park"],
-  ["DISTRIBUTION", "Distribution"],
-  ["SERVICES", "Services"],
-  ["OTHER", "Other"],
-] as const;
-
-type BusinessType = typeof BUSINESS_TYPES[number][0];
-
 type Feedback = { tone: "success" | "error" | "info"; text: string } | null;
 
 type SessionView = {
@@ -70,33 +55,11 @@ type SessionView = {
   refreshExpiresAt: string;
 };
 
-interface BusinessFormState {
-  name: string;
-  legalName: string;
-  businessType: BusinessType;
-  email: string;
-  phone: string;
-  registrationNumber: string;
-  taxId: string;
-  addressLine1: string;
-  addressLine2: string;
-  city: string;
-  region: string;
-  postalCode: string;
-  countryCode: string;
-  currencyCode: string;
-  timezone: string;
-  logoUrl: string;
+interface NewBusinessFormState extends BusinessFormState {
+  firstBranchName: string;
 }
 
-interface NewBusinessFormState {
-  name: string;
-  businessType: BusinessType;
-  branchName: string;
-  countryCode: string;
-  currencyCode: string;
-  timezone: string;
-}
+type BusinessEditorMode = "view" | "edit" | "create";
 
 interface BranchDraft {
   name: string;
@@ -137,6 +100,7 @@ export function SettingsWorkspace() {
   } = useWorkspace();
   const searchParams = useSearchParams();
   const querySection = searchParams.get("section");
+  const requestedAction = searchParams.get("action");
   const [section, setSection] = useState<SettingsSectionId>(() => normalizeSettingsSection(querySection));
 
   useEffect(() => {
@@ -150,6 +114,14 @@ export function SettingsWorkspace() {
     window.addEventListener("hashchange", syncHash);
     return () => window.removeEventListener("hashchange", syncHash);
   }, [querySection]);
+
+  const consumeRequestedAction = () => {
+    if (typeof window === "undefined" || !requestedAction) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("action");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  };
 
   const chooseSection = (next: SettingsSectionId) => {
     setSection(next);
@@ -221,6 +193,8 @@ export function SettingsWorkspace() {
               canCreate={canCreateBusiness(role)}
               onRefresh={refreshWorkspaceContext}
               onSwitchBusiness={switchBusiness}
+              requestedAction={section === "business" ? requestedAction : null}
+              onActionConsumed={consumeRequestedAction}
             />
           ) : null}
           {section === "branches" ? (
@@ -414,19 +388,24 @@ function BusinessSection({
   canCreate,
   onRefresh,
   onSwitchBusiness,
+  requestedAction,
+  onActionConsumed,
 }: {
   online: boolean;
   canManage: boolean;
   canCreate: boolean;
   onRefresh: () => Promise<void>;
   onSwitchBusiness: (businessId: string) => Promise<void>;
+  requestedAction: string | null;
+  onActionConsumed: () => void;
 }) {
   const { businessContext, session } = useWorkspace();
   const business = businessContext?.business;
   const [form, setForm] = useState<BusinessFormState>(() => businessToForm(business));
   const [newBusiness, setNewBusiness] = useState<NewBusinessFormState>(() => defaultNewBusiness());
-  const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [businessMode, setBusinessMode] = useState<BusinessEditorMode>("view");
+  const editing = businessMode === "edit";
+  const creating = businessMode === "create";
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
@@ -434,8 +413,18 @@ function BusinessSection({
     setForm(businessToForm(business));
   }, [business]);
 
+  useEffect(() => {
+    if (requestedAction === "create" && canCreate) {
+      setBusinessMode("create");
+      onActionConsumed();
+    }
+  }, [requestedAction, canCreate]);
+
   const updateField = <K extends keyof BusinessFormState>(key: K, value: BusinessFormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+  const updateNewBusinessField = <K extends keyof BusinessFormState>(key: K, value: BusinessFormState[K]) => {
+    setNewBusiness((current) => ({ ...current, [key]: value }));
   };
 
   const submit = async (event: FormEvent) => {
@@ -468,7 +457,7 @@ function BusinessSection({
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business could not be updated"));
       await onRefresh();
-      setEditing(false);
+      setBusinessMode("view");
       setFeedback({ tone: "success", text: "Business details have been updated." });
     } catch (error) {
       setFeedback({ tone: "error", text: errorMessage(error) });
@@ -488,18 +477,29 @@ function BusinessSection({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: newBusiness.name.trim(),
+          legalName: nullable(newBusiness.legalName),
           businessType: newBusiness.businessType,
-          branchName: newBusiness.branchName.trim() || "Main",
+          email: nullable(newBusiness.email),
+          phone: nullable(newBusiness.phone),
+          registrationNumber: nullable(newBusiness.registrationNumber),
+          taxId: nullable(newBusiness.taxId),
+          addressLine1: nullable(newBusiness.addressLine1),
+          addressLine2: nullable(newBusiness.addressLine2),
+          city: nullable(newBusiness.city),
+          region: nullable(newBusiness.region),
+          postalCode: nullable(newBusiness.postalCode),
           countryCode: newBusiness.countryCode,
           currencyCode: newBusiness.currencyCode,
           timezone: newBusiness.timezone,
+          logoUrl: nullable(newBusiness.logoUrl),
+          branchName: newBusiness.firstBranchName.trim() || "Main",
         }),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business could not be created"));
       const json = await response.json() as { business?: { id?: string } };
       if (!json.business?.id) throw new Error("Server returned an incomplete business record.");
       await onSwitchBusiness(json.business.id);
-      setCreating(false);
+      setBusinessMode("view");
       setNewBusiness(defaultNewBusiness());
       setFeedback({ tone: "success", text: "New business created and opened." });
     } catch (error) {
@@ -522,8 +522,8 @@ function BusinessSection({
       feedback={feedback}
       actions={(canManage || canCreate) ? (
         <div className="tos-settings__header-actions">
-          {canManage ? <Button variant="outline" icon={<IconEdit />} onClick={() => setEditing((value) => !value)}>{editing ? "Close editor" : "Edit business"}</Button> : null}
-          {canCreate ? <Button variant="primary" icon={<IconPlus />} onClick={() => setCreating((value) => !value)}>{creating ? "Cancel new business" : "Add business"}</Button> : null}
+          {canManage ? <Button variant="outline" icon={<IconEdit />} onClick={() => setBusinessMode(editing ? "view" : "edit")}>{editing ? "Close editor" : "Edit business"}</Button> : null}
+          {canCreate ? <Button variant="primary" icon={<IconPlus />} onClick={() => setBusinessMode(creating ? "view" : "create")}>{creating ? "Cancel new business" : "Add business"}</Button> : null}
         </div>
       ) : undefined}
     >
@@ -543,46 +543,7 @@ function BusinessSection({
       {editing && canManage ? (
         <form className="tos-settings__form tos-settings__subpanel" onSubmit={submit}>
           <h3 className="tos-settings__subheading">Edit current business</h3>
-          <div className="tos-settings__grid tos-settings__grid--2">
-            <Field label="Business name" htmlFor="settings-business-name" required>
-              <input id="settings-business-name" className="tos-input" value={form.name} onChange={(event) => updateField("name", event.target.value)} required maxLength={120} />
-            </Field>
-            <Field label="Legal name" htmlFor="settings-business-legal">
-              <input id="settings-business-legal" className="tos-input" value={form.legalName} onChange={(event) => updateField("legalName", event.target.value)} maxLength={160} />
-            </Field>
-            <Field label="Business type" htmlFor="settings-business-type" required>
-              <select id="settings-business-type" className="tos-select" value={form.businessType} onChange={(event) => updateField("businessType", event.target.value as BusinessType)}>
-                {BUSINESS_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </Field>
-            <Field label="Logo URL" htmlFor="settings-business-logo">
-              <input id="settings-business-logo" className="tos-input" type="url" value={form.logoUrl} onChange={(event) => updateField("logoUrl", event.target.value)} placeholder="https://…" />
-            </Field>
-            <Field label="Email" htmlFor="settings-business-email"><input id="settings-business-email" className="tos-input" type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} /></Field>
-            <Field label="Phone" htmlFor="settings-business-phone"><input id="settings-business-phone" className="tos-input" value={form.phone} onChange={(event) => updateField("phone", event.target.value)} /></Field>
-            <Field label="Registration number" htmlFor="settings-business-registration"><input id="settings-business-registration" className="tos-input" value={form.registrationNumber} onChange={(event) => updateField("registrationNumber", event.target.value)} /></Field>
-            <Field label="Tax ID" htmlFor="settings-business-tax"><input id="settings-business-tax" className="tos-input" value={form.taxId} onChange={(event) => updateField("taxId", event.target.value)} /></Field>
-            <Field label="Address line 1" htmlFor="settings-business-address1"><input id="settings-business-address1" className="tos-input" value={form.addressLine1} onChange={(event) => updateField("addressLine1", event.target.value)} /></Field>
-            <Field label="Address line 2" htmlFor="settings-business-address2"><input id="settings-business-address2" className="tos-input" value={form.addressLine2} onChange={(event) => updateField("addressLine2", event.target.value)} /></Field>
-            <Field label="City" htmlFor="settings-business-city"><input id="settings-business-city" className="tos-input" value={form.city} onChange={(event) => updateField("city", event.target.value)} /></Field>
-            <Field label="Region" htmlFor="settings-business-region"><input id="settings-business-region" className="tos-input" value={form.region} onChange={(event) => updateField("region", event.target.value)} /></Field>
-            <Field label="Postal code" htmlFor="settings-business-postal"><input id="settings-business-postal" className="tos-input" value={form.postalCode} onChange={(event) => updateField("postalCode", event.target.value)} /></Field>
-            <Field label="Country" htmlFor="settings-business-country">
-              <select id="settings-business-country" className="tos-select" value={form.countryCode} onChange={(event) => updateField("countryCode", event.target.value)}>
-                {SUPPORTED_COUNTRIES.map((country) => <option key={country.countryCode} value={country.countryCode}>{country.flag} {country.country}</option>)}
-              </select>
-            </Field>
-            <Field label="Base currency" htmlFor="settings-business-currency" hint="Locks after financial or inventory activity">
-              <select id="settings-business-currency" className="tos-select" value={form.currencyCode} onChange={(event) => updateField("currencyCode", event.target.value)}>
-                {SUPPORTED_CURRENCIES.map((currency) => <option key={currency.currencyCode} value={currency.currencyCode}>{currency.symbol} {currency.currencyCode} — {currency.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Timezone" htmlFor="settings-business-timezone">
-              <select id="settings-business-timezone" className="tos-select" value={form.timezone} onChange={(event) => updateField("timezone", event.target.value)}>
-                {SUPPORTED_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
-              </select>
-            </Field>
-          </div>
+          <BusinessFields prefix="settings-business" value={form} onChange={updateField} />
           <div className="tos-settings__actions"><Button type="submit" variant="primary" loading={busy} disabled={!online || !form.name.trim()}>Save business</Button></div>
         </form>
       ) : null}
@@ -594,31 +555,14 @@ function BusinessSection({
             <h3 className="tos-settings__subheading">Create another business</h3>
             <p className="tos-settings__subtext">A new independent business, MAIN branch and OWNER membership will be created under your current account.</p>
           </div>
+          <BusinessFields
+            prefix="settings-new-business"
+            value={newBusiness}
+            onChange={updateNewBusinessField}
+            onCountryChange={(countryCode) => setNewBusiness((current) => applyCountryDefaults(current, countryCode))}
+          />
           <div className="tos-settings__grid tos-settings__grid--2">
-            <Field label="Business name" htmlFor="settings-new-business-name" required>
-              <input id="settings-new-business-name" className="tos-input" value={newBusiness.name} onChange={(event) => setNewBusiness((current) => ({ ...current, name: event.target.value }))} required minLength={2} maxLength={120} />
-            </Field>
-            <Field label="Business type" htmlFor="settings-new-business-type" required>
-              <select id="settings-new-business-type" className="tos-select" value={newBusiness.businessType} onChange={(event) => setNewBusiness((current) => ({ ...current, businessType: event.target.value as BusinessType }))}>
-                {BUSINESS_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </Field>
-            <Field label="First branch name" htmlFor="settings-new-business-branch"><input id="settings-new-business-branch" className="tos-input" value={newBusiness.branchName} onChange={(event) => setNewBusiness((current) => ({ ...current, branchName: event.target.value }))} /></Field>
-            <Field label="Country" htmlFor="settings-new-business-country">
-              <select id="settings-new-business-country" className="tos-select" value={newBusiness.countryCode} onChange={(event) => setNewBusiness((current) => applyCountryDefaults(current, event.target.value))}>
-                {SUPPORTED_COUNTRIES.map((country) => <option key={country.countryCode} value={country.countryCode}>{country.flag} {country.country}</option>)}
-              </select>
-            </Field>
-            <Field label="Base currency" htmlFor="settings-new-business-currency">
-              <select id="settings-new-business-currency" className="tos-select" value={newBusiness.currencyCode} onChange={(event) => setNewBusiness((current) => ({ ...current, currencyCode: event.target.value }))}>
-                {SUPPORTED_CURRENCIES.map((currency) => <option key={currency.currencyCode} value={currency.currencyCode}>{currency.symbol} {currency.currencyCode} — {currency.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Timezone" htmlFor="settings-new-business-timezone">
-              <select id="settings-new-business-timezone" className="tos-select" value={newBusiness.timezone} onChange={(event) => setNewBusiness((current) => ({ ...current, timezone: event.target.value }))}>
-                {SUPPORTED_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
-              </select>
-            </Field>
+            <Field label="First branch name" htmlFor="settings-new-business-branch"><input id="settings-new-business-branch" className="tos-input" value={newBusiness.firstBranchName} onChange={(event) => setNewBusiness((current) => ({ ...current, firstBranchName: event.target.value }))} /></Field>
           </div>
           <div className="tos-settings__actions"><Button type="submit" variant="gold" loading={busy} disabled={!online || !newBusiness.name.trim()}>Create business & open it</Button></div>
         </form>
@@ -957,7 +901,13 @@ function Field({ label, htmlFor, hint, required, children }: { label: string; ht
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
-  return <div className="tos-settings__summary"><span>{label}</span><strong>{value}</strong></div>;
+  return (
+    <div className="tos-settings__summary">
+      <span className="tos-settings__summary-label">{label}</span>
+      <span className="tos-settings__summary-separator" aria-hidden="true">:</span>
+      <strong className="tos-settings__summary-value">{value}</strong>
+    </div>
+  );
 }
 
 function BranchFields({ prefix, draft, setDraft, includeCode }: { prefix: string; draft: BranchDraft; setDraft: React.Dispatch<React.SetStateAction<BranchDraft>>; includeCode: boolean }) {
@@ -1000,7 +950,12 @@ function businessToForm(business: WorkspaceBusinessProfile | null | undefined): 
 }
 
 function defaultNewBusiness(): NewBusinessFormState {
-  return { name: "", businessType: "OTHER", branchName: "Main", countryCode: "GH", currencyCode: "GHS", timezone: "Africa/Accra" };
+  return {
+    name: "", legalName: "", businessType: "OTHER", email: "", phone: "",
+    registrationNumber: "", taxId: "", addressLine1: "", addressLine2: "",
+    city: "", region: "", postalCode: "", countryCode: "GH", currencyCode: "GHS",
+    timezone: "Africa/Accra", logoUrl: "", firstBranchName: "Main",
+  };
 }
 
 function applyCountryDefaults(current: NewBusinessFormState, countryCode: string): NewBusinessFormState {
