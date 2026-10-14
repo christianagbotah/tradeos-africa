@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import {
-  SUPPORTED_COUNTRIES,
-  SUPPORTED_CURRENCIES,
-  SUPPORTED_TIMEZONES,
   getCountry,
   getDefaultCurrencyCode,
   getSuggestedTimezones,
@@ -12,6 +10,10 @@ import {
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { Button } from "../ui/button";
+import { BusinessFields, type BusinessFormState, type BusinessType } from "./business-fields";
+import { BranchFields, type BranchDraft } from "./branch-fields";
+import { ImagePicker } from "./image-picker";
+import { TeamAccess } from "./team-access";
 import {
   IconAlert,
   IconBuilding,
@@ -42,20 +44,6 @@ export const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string;
   { id: "devices", label: "Devices & sessions", description: "Signed-in devices and session control" },
 ] as const;
 
-const BUSINESS_TYPES = [
-  ["RETAIL_HARDWARE", "Retail / Hardware"],
-  ["FOOD", "Food & Beverage"],
-  ["SALON_BARBER", "Salon / Barber"],
-  ["DRINKING_SPOT", "Drinking spot / Bar"],
-  ["WASHING_BAY", "Washing bay"],
-  ["CAR_PARK", "Car park"],
-  ["DISTRIBUTION", "Distribution"],
-  ["SERVICES", "Services"],
-  ["OTHER", "Other"],
-] as const;
-
-type BusinessType = typeof BUSINESS_TYPES[number][0];
-
 type Feedback = { tone: "success" | "error" | "info"; text: string } | null;
 
 type SessionView = {
@@ -69,46 +57,13 @@ type SessionView = {
   refreshExpiresAt: string;
 };
 
-interface BusinessFormState {
-  name: string;
-  legalName: string;
-  businessType: BusinessType;
-  email: string;
-  phone: string;
-  registrationNumber: string;
-  taxId: string;
-  addressLine1: string;
-  addressLine2: string;
-  city: string;
-  region: string;
-  postalCode: string;
-  countryCode: string;
-  currencyCode: string;
-  timezone: string;
-  logoUrl: string;
+interface NewBusinessFormState extends BusinessFormState {
+  firstBranchName: string;
 }
 
-interface NewBusinessFormState {
-  name: string;
-  businessType: BusinessType;
-  branchName: string;
-  countryCode: string;
-  currencyCode: string;
-  timezone: string;
-}
+type BusinessEditorMode = "view" | "edit" | "create";
 
-interface BranchDraft {
-  name: string;
-  code: string;
-  timezone: string;
-  email: string;
-  phone: string;
-  addressLine1: string;
-  addressLine2: string;
-  city: string;
-  region: string;
-  postalCode: string;
-}
+type BranchEditorMode = { kind: "view" } | { kind: "create" } | { kind: "edit"; branchId: string };
 
 export function canManageBusinessSettings(role: WorkspaceRole | string | null | undefined): boolean {
   return role === "OWNER" || role === "ADMIN";
@@ -134,19 +89,39 @@ export function SettingsWorkspace() {
     switchBusiness,
     switchBranch,
   } = useWorkspace();
-  const [section, setSection] = useState<SettingsSectionId>("profile");
+  const searchParams = useSearchParams();
+  const querySection = searchParams.get("section");
+  const requestedAction = searchParams.get("action");
+  const [section, setSection] = useState<SettingsSectionId>(() => normalizeSettingsSection(querySection));
 
   useEffect(() => {
+    if (querySection) {
+      setSection(normalizeSettingsSection(querySection));
+      return;
+    }
     if (typeof window === "undefined") return;
-    const sync = () => setSection(normalizeSettingsSection(window.location.hash.replace(/^#/, "")));
-    sync();
-    window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
-  }, []);
+    const syncHash = () => setSection(normalizeSettingsSection(window.location.hash.replace(/^#/, "")));
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, [querySection]);
+
+  const consumeRequestedAction = () => {
+    if (typeof window === "undefined" || !requestedAction) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("action");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  };
 
   const chooseSection = (next: SettingsSectionId) => {
     setSection(next);
-    if (typeof window !== "undefined") window.history.replaceState(null, "", `${window.location.pathname}#${next}`);
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("section", next);
+    params.delete("action");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   };
 
   if (!session) return null;
@@ -209,6 +184,8 @@ export function SettingsWorkspace() {
               canCreate={canCreateBusiness(role)}
               onRefresh={refreshWorkspaceContext}
               onSwitchBusiness={switchBusiness}
+              requestedAction={section === "business" ? requestedAction : null}
+              onActionConsumed={consumeRequestedAction}
             />
           ) : null}
           {section === "branches" ? (
@@ -217,10 +194,12 @@ export function SettingsWorkspace() {
               canManage={canManageBusinessSettings(role)}
               onRefresh={refreshWorkspaceContext}
               onSwitchBranch={switchBranch}
+              requestedAction={section === "branches" ? requestedAction : null}
+              onActionConsumed={consumeRequestedAction}
             />
           ) : null}
           {section === "team" ? (
-            <TeamSection />
+            <TeamAccess online={queue.online} />
           ) : null}
           {section === "devices" ? (
             <DevicesSection online={queue.online} />
@@ -240,19 +219,49 @@ function ProfileSection({ online, onRefresh }: { online: boolean; onRefresh: () 
   const [displayName, setDisplayName] = useState(account?.displayName ?? session?.displayName ?? "");
   const [email, setEmail] = useState(account?.email ?? "");
   const [phone, setPhone] = useState(account?.phoneE164 ?? "");
-  const [avatarUrl, setAvatarUrl] = useState(account?.avatarUrl ?? "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
   useEffect(() => {
     setDisplayName(account?.displayName ?? session?.displayName ?? "");
     setEmail(account?.email ?? "");
     setPhone(account?.phoneE164 ?? "");
-    setAvatarUrl(account?.avatarUrl ?? "");
   }, [account, session?.displayName]);
 
   const identityChanged = email.trim() !== (account?.email ?? "") || phone.trim() !== (account?.phoneE164 ?? "");
+
+  const uploadAvatar = async (file: File) => {
+    if (!online || mediaBusy) return;
+    setMediaBusy(true);
+    setFeedback(null);
+    try {
+      await uploadManagedImage("/v1/me/avatar", file, "Profile photo could not be uploaded");
+      await onRefresh();
+      setFeedback({ tone: "success", text: "Profile photo updated." });
+    } catch (error) {
+      setFeedback({ tone: "error", text: errorMessage(error) });
+    } finally {
+      setMediaBusy(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    if (!online || mediaBusy) return;
+    setMediaBusy(true);
+    setFeedback(null);
+    try {
+      const response = await getOfflineQueue().authenticatedFetch("/v1/me/avatar", { method: "DELETE" });
+      if (!response.ok) throw new Error(await readApiErrorMessage(response, "Profile photo could not be removed"));
+      await onRefresh();
+      setFeedback({ tone: "success", text: "Profile photo removed." });
+    } catch (error) {
+      setFeedback({ tone: "error", text: errorMessage(error) });
+    } finally {
+      setMediaBusy(false);
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -271,7 +280,6 @@ function ProfileSection({ online, onRefresh }: { online: boolean; onRefresh: () 
           displayName: displayName.trim(),
           email: email.trim() || null,
           phone: phone.trim() || null,
-          avatarUrl: avatarUrl.trim() || null,
           ...(identityChanged ? { currentPassword } : {}),
         }),
       });
@@ -306,9 +314,14 @@ function ProfileSection({ online, onRefresh }: { online: boolean; onRefresh: () 
             <input id="settings-profile-phone" className="tos-input" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" placeholder="+233…" />
           </Field>
         </div>
-        <Field label="Avatar URL" htmlFor="settings-profile-avatar" hint="Optional HTTPS image URL">
-          <input id="settings-profile-avatar" className="tos-input" type="url" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://…" />
-        </Field>
+        <ImagePicker
+          kind="photo"
+          currentUrl={account?.avatarUrl}
+          busy={mediaBusy}
+          disabled={!online}
+          onChoose={uploadAvatar}
+          onRemove={removeAvatar}
+        />
         {identityChanged ? (
           <Field label="Current password" htmlFor="settings-profile-password" hint="Required because your sign-in identity changed">
             <input id="settings-profile-password" className="tos-input" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" />
@@ -402,19 +415,26 @@ function BusinessSection({
   canCreate,
   onRefresh,
   onSwitchBusiness,
+  requestedAction,
+  onActionConsumed,
 }: {
   online: boolean;
   canManage: boolean;
   canCreate: boolean;
   onRefresh: () => Promise<void>;
   onSwitchBusiness: (businessId: string) => Promise<void>;
+  requestedAction: string | null;
+  onActionConsumed: () => void;
 }) {
   const { businessContext, session } = useWorkspace();
   const business = businessContext?.business;
   const [form, setForm] = useState<BusinessFormState>(() => businessToForm(business));
   const [newBusiness, setNewBusiness] = useState<NewBusinessFormState>(() => defaultNewBusiness());
-  const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [newBusinessLogo, setNewBusinessLogo] = useState<File | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [businessMode, setBusinessMode] = useState<BusinessEditorMode>("view");
+  const editing = businessMode === "edit";
+  const creating = businessMode === "create";
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
@@ -422,8 +442,49 @@ function BusinessSection({
     setForm(businessToForm(business));
   }, [business]);
 
+  useEffect(() => {
+    if (requestedAction === "create" && canCreate) {
+      setBusinessMode("create");
+      onActionConsumed();
+    }
+  }, [requestedAction, canCreate]);
+
   const updateField = <K extends keyof BusinessFormState>(key: K, value: BusinessFormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+  const updateNewBusinessField = <K extends keyof BusinessFormState>(key: K, value: BusinessFormState[K]) => {
+    setNewBusiness((current) => ({ ...current, [key]: value }));
+  };
+
+  const uploadCurrentLogo = async (file: File) => {
+    if (!session || !online || !canManage || logoBusy) return;
+    setLogoBusy(true);
+    setFeedback(null);
+    try {
+      await uploadManagedImage(`/v1/businesses/${encodeURIComponent(session.businessId)}/logo`, file, "Business logo could not be uploaded");
+      await onRefresh();
+      setFeedback({ tone: "success", text: "Business logo updated." });
+    } catch (error) {
+      setFeedback({ tone: "error", text: errorMessage(error) });
+    } finally {
+      setLogoBusy(false);
+    }
+  };
+
+  const removeCurrentLogo = async () => {
+    if (!session || !online || !canManage || logoBusy) return;
+    setLogoBusy(true);
+    setFeedback(null);
+    try {
+      const response = await getOfflineQueue().authenticatedFetch(`/v1/businesses/${encodeURIComponent(session.businessId)}/logo`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business logo could not be removed"));
+      await onRefresh();
+      setFeedback({ tone: "success", text: "Business logo removed." });
+    } catch (error) {
+      setFeedback({ tone: "error", text: errorMessage(error) });
+    } finally {
+      setLogoBusy(false);
+    }
   };
 
   const submit = async (event: FormEvent) => {
@@ -451,12 +512,11 @@ function BusinessSection({
           countryCode: form.countryCode,
           currencyCode: form.currencyCode,
           timezone: form.timezone,
-          logoUrl: nullable(form.logoUrl),
         }),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business could not be updated"));
       await onRefresh();
-      setEditing(false);
+      setBusinessMode("view");
       setFeedback({ tone: "success", text: "Business details have been updated." });
     } catch (error) {
       setFeedback({ tone: "error", text: errorMessage(error) });
@@ -476,20 +536,41 @@ function BusinessSection({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: newBusiness.name.trim(),
+          legalName: nullable(newBusiness.legalName),
           businessType: newBusiness.businessType,
-          branchName: newBusiness.branchName.trim() || "Main",
+          email: nullable(newBusiness.email),
+          phone: nullable(newBusiness.phone),
+          registrationNumber: nullable(newBusiness.registrationNumber),
+          taxId: nullable(newBusiness.taxId),
+          addressLine1: nullable(newBusiness.addressLine1),
+          addressLine2: nullable(newBusiness.addressLine2),
+          city: nullable(newBusiness.city),
+          region: nullable(newBusiness.region),
+          postalCode: nullable(newBusiness.postalCode),
           countryCode: newBusiness.countryCode,
           currencyCode: newBusiness.currencyCode,
           timezone: newBusiness.timezone,
+          branchName: newBusiness.firstBranchName.trim() || "Main",
         }),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business could not be created"));
       const json = await response.json() as { business?: { id?: string } };
       if (!json.business?.id) throw new Error("Server returned an incomplete business record.");
+      let logoWarning: string | null = null;
+      if (newBusinessLogo) {
+        try {
+          await uploadManagedImage(`/v1/businesses/${encodeURIComponent(json.business.id)}/logo`, newBusinessLogo, "Business logo could not be uploaded");
+        } catch (error) {
+          logoWarning = errorMessage(error);
+        }
+      }
       await onSwitchBusiness(json.business.id);
-      setCreating(false);
+      setBusinessMode("view");
       setNewBusiness(defaultNewBusiness());
-      setFeedback({ tone: "success", text: "New business created and opened." });
+      setNewBusinessLogo(null);
+      setFeedback(logoWarning
+        ? { tone: "info", text: `Business created and opened. ${logoWarning} You can choose the logo again from Edit business.` }
+        : { tone: "success", text: "New business created and opened." });
     } catch (error) {
       setFeedback({ tone: "error", text: errorMessage(error) });
     } finally {
@@ -510,8 +591,8 @@ function BusinessSection({
       feedback={feedback}
       actions={(canManage || canCreate) ? (
         <div className="tos-settings__header-actions">
-          {canManage ? <Button variant="outline" icon={<IconEdit />} onClick={() => setEditing((value) => !value)}>{editing ? "Close editor" : "Edit business"}</Button> : null}
-          {canCreate ? <Button variant="primary" icon={<IconPlus />} onClick={() => setCreating((value) => !value)}>{creating ? "Cancel new business" : "Add business"}</Button> : null}
+          {canManage ? <Button variant="outline" icon={<IconEdit />} onClick={() => setBusinessMode(editing ? "view" : "edit")}>{editing ? "Close editor" : "Edit business"}</Button> : null}
+          {canCreate ? <Button variant="primary" icon={<IconPlus />} onClick={() => setBusinessMode(creating ? "view" : "create")}>{creating ? "Cancel new business" : "Add business"}</Button> : null}
         </div>
       ) : undefined}
     >
@@ -531,46 +612,12 @@ function BusinessSection({
       {editing && canManage ? (
         <form className="tos-settings__form tos-settings__subpanel" onSubmit={submit}>
           <h3 className="tos-settings__subheading">Edit current business</h3>
-          <div className="tos-settings__grid tos-settings__grid--2">
-            <Field label="Business name" htmlFor="settings-business-name" required>
-              <input id="settings-business-name" className="tos-input" value={form.name} onChange={(event) => updateField("name", event.target.value)} required maxLength={120} />
-            </Field>
-            <Field label="Legal name" htmlFor="settings-business-legal">
-              <input id="settings-business-legal" className="tos-input" value={form.legalName} onChange={(event) => updateField("legalName", event.target.value)} maxLength={160} />
-            </Field>
-            <Field label="Business type" htmlFor="settings-business-type" required>
-              <select id="settings-business-type" className="tos-select" value={form.businessType} onChange={(event) => updateField("businessType", event.target.value as BusinessType)}>
-                {BUSINESS_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </Field>
-            <Field label="Logo URL" htmlFor="settings-business-logo">
-              <input id="settings-business-logo" className="tos-input" type="url" value={form.logoUrl} onChange={(event) => updateField("logoUrl", event.target.value)} placeholder="https://…" />
-            </Field>
-            <Field label="Email" htmlFor="settings-business-email"><input id="settings-business-email" className="tos-input" type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} /></Field>
-            <Field label="Phone" htmlFor="settings-business-phone"><input id="settings-business-phone" className="tos-input" value={form.phone} onChange={(event) => updateField("phone", event.target.value)} /></Field>
-            <Field label="Registration number" htmlFor="settings-business-registration"><input id="settings-business-registration" className="tos-input" value={form.registrationNumber} onChange={(event) => updateField("registrationNumber", event.target.value)} /></Field>
-            <Field label="Tax ID" htmlFor="settings-business-tax"><input id="settings-business-tax" className="tos-input" value={form.taxId} onChange={(event) => updateField("taxId", event.target.value)} /></Field>
-            <Field label="Address line 1" htmlFor="settings-business-address1"><input id="settings-business-address1" className="tos-input" value={form.addressLine1} onChange={(event) => updateField("addressLine1", event.target.value)} /></Field>
-            <Field label="Address line 2" htmlFor="settings-business-address2"><input id="settings-business-address2" className="tos-input" value={form.addressLine2} onChange={(event) => updateField("addressLine2", event.target.value)} /></Field>
-            <Field label="City" htmlFor="settings-business-city"><input id="settings-business-city" className="tos-input" value={form.city} onChange={(event) => updateField("city", event.target.value)} /></Field>
-            <Field label="Region" htmlFor="settings-business-region"><input id="settings-business-region" className="tos-input" value={form.region} onChange={(event) => updateField("region", event.target.value)} /></Field>
-            <Field label="Postal code" htmlFor="settings-business-postal"><input id="settings-business-postal" className="tos-input" value={form.postalCode} onChange={(event) => updateField("postalCode", event.target.value)} /></Field>
-            <Field label="Country" htmlFor="settings-business-country">
-              <select id="settings-business-country" className="tos-select" value={form.countryCode} onChange={(event) => updateField("countryCode", event.target.value)}>
-                {SUPPORTED_COUNTRIES.map((country) => <option key={country.countryCode} value={country.countryCode}>{country.flag} {country.country}</option>)}
-              </select>
-            </Field>
-            <Field label="Base currency" htmlFor="settings-business-currency" hint="Locks after financial or inventory activity">
-              <select id="settings-business-currency" className="tos-select" value={form.currencyCode} onChange={(event) => updateField("currencyCode", event.target.value)}>
-                {SUPPORTED_CURRENCIES.map((currency) => <option key={currency.currencyCode} value={currency.currencyCode}>{currency.symbol} {currency.currencyCode} — {currency.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Timezone" htmlFor="settings-business-timezone">
-              <select id="settings-business-timezone" className="tos-select" value={form.timezone} onChange={(event) => updateField("timezone", event.target.value)}>
-                {SUPPORTED_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
-              </select>
-            </Field>
-          </div>
+          <BusinessFields
+            prefix="settings-business"
+            value={form}
+            onChange={updateField}
+            logoField={<ImagePicker kind="logo" currentUrl={business.logoUrl} busy={logoBusy} disabled={!online} onChoose={uploadCurrentLogo} onRemove={removeCurrentLogo} />}
+          />
           <div className="tos-settings__actions"><Button type="submit" variant="primary" loading={busy} disabled={!online || !form.name.trim()}>Save business</Button></div>
         </form>
       ) : null}
@@ -582,31 +629,15 @@ function BusinessSection({
             <h3 className="tos-settings__subheading">Create another business</h3>
             <p className="tos-settings__subtext">A new independent business, MAIN branch and OWNER membership will be created under your current account.</p>
           </div>
+          <BusinessFields
+            prefix="settings-new-business"
+            value={newBusiness}
+            onChange={updateNewBusinessField}
+            onCountryChange={(countryCode) => setNewBusiness((current) => applyCountryDefaults(current, countryCode))}
+            logoField={<ImagePicker kind="logo" currentUrl={null} selectedFile={newBusinessLogo} disabled={!online || busy} onChoose={(file) => setNewBusinessLogo(file)} onRemove={() => setNewBusinessLogo(null)} />}
+          />
           <div className="tos-settings__grid tos-settings__grid--2">
-            <Field label="Business name" htmlFor="settings-new-business-name" required>
-              <input id="settings-new-business-name" className="tos-input" value={newBusiness.name} onChange={(event) => setNewBusiness((current) => ({ ...current, name: event.target.value }))} required minLength={2} maxLength={120} />
-            </Field>
-            <Field label="Business type" htmlFor="settings-new-business-type" required>
-              <select id="settings-new-business-type" className="tos-select" value={newBusiness.businessType} onChange={(event) => setNewBusiness((current) => ({ ...current, businessType: event.target.value as BusinessType }))}>
-                {BUSINESS_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </Field>
-            <Field label="First branch name" htmlFor="settings-new-business-branch"><input id="settings-new-business-branch" className="tos-input" value={newBusiness.branchName} onChange={(event) => setNewBusiness((current) => ({ ...current, branchName: event.target.value }))} /></Field>
-            <Field label="Country" htmlFor="settings-new-business-country">
-              <select id="settings-new-business-country" className="tos-select" value={newBusiness.countryCode} onChange={(event) => setNewBusiness((current) => applyCountryDefaults(current, event.target.value))}>
-                {SUPPORTED_COUNTRIES.map((country) => <option key={country.countryCode} value={country.countryCode}>{country.flag} {country.country}</option>)}
-              </select>
-            </Field>
-            <Field label="Base currency" htmlFor="settings-new-business-currency">
-              <select id="settings-new-business-currency" className="tos-select" value={newBusiness.currencyCode} onChange={(event) => setNewBusiness((current) => ({ ...current, currencyCode: event.target.value }))}>
-                {SUPPORTED_CURRENCIES.map((currency) => <option key={currency.currencyCode} value={currency.currencyCode}>{currency.symbol} {currency.currencyCode} — {currency.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Timezone" htmlFor="settings-new-business-timezone">
-              <select id="settings-new-business-timezone" className="tos-select" value={newBusiness.timezone} onChange={(event) => setNewBusiness((current) => ({ ...current, timezone: event.target.value }))}>
-                {SUPPORTED_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
-              </select>
-            </Field>
+            <Field label="First branch name" htmlFor="settings-new-business-branch"><input id="settings-new-business-branch" className="tos-input" value={newBusiness.firstBranchName} onChange={(event) => setNewBusiness((current) => ({ ...current, firstBranchName: event.target.value }))} /></Field>
           </div>
           <div className="tos-settings__actions"><Button type="submit" variant="gold" loading={busy} disabled={!online || !newBusiness.name.trim()}>Create business & open it</Button></div>
         </form>
@@ -620,16 +651,21 @@ function BranchesSection({
   canManage,
   onRefresh,
   onSwitchBranch,
+  requestedAction,
+  onActionConsumed,
 }: {
   online: boolean;
   canManage: boolean;
   onRefresh: () => Promise<void>;
   onSwitchBranch: (branchId: string) => Promise<void>;
+  requestedAction: string | null;
+  onActionConsumed: () => void;
 }) {
   const { businessContext, session } = useWorkspace();
   const branches = businessContext?.branches ?? [];
-  const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [branchMode, setBranchMode] = useState<BranchEditorMode>({ kind: "view" });
+  const creating = branchMode.kind === "create";
+  const editingId = branchMode.kind === "edit" ? branchMode.branchId : null;
   const [draft, setDraft] = useState<BranchDraft>(() => defaultBranchDraft(businessContext?.business.timezone ?? "Africa/Accra"));
   const [editDraft, setEditDraft] = useState<BranchDraft>(() => defaultBranchDraft(businessContext?.business.timezone ?? "Africa/Accra"));
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -641,8 +677,15 @@ function BranchesSection({
     }
   }, [businessContext?.business.timezone]);
 
+  useEffect(() => {
+    if (requestedAction === "create" && canManage) {
+      setBranchMode({ kind: "create" });
+      onActionConsumed();
+    }
+  }, [requestedAction, canManage]);
+
   const beginEdit = (branch: WorkspaceBranch) => {
-    setEditingId(branch.id);
+    setBranchMode({ kind: "edit", branchId: branch.id });
     setEditDraft(branchToDraft(branch));
     setFeedback(null);
   };
@@ -660,7 +703,7 @@ function BranchesSection({
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Branch could not be created"));
       setDraft(defaultBranchDraft(businessContext?.business.timezone ?? session.timezone));
-      setCreating(false);
+      setBranchMode({ kind: "view" });
       await onRefresh();
       setFeedback({ tone: "success", text: "Branch created. It is now available in the workspace switcher." });
     } catch (error) {
@@ -683,7 +726,7 @@ function BranchesSection({
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Branch could not be updated"));
       await onRefresh();
-      setEditingId(null);
+      setBranchMode({ kind: "view" });
       setFeedback({ tone: "success", text: "Branch details updated." });
     } catch (error) {
       setFeedback({ tone: "error", text: errorMessage(error) });
@@ -717,12 +760,13 @@ function BranchesSection({
       title="Branches"
       description="Create locations, update branch details and control which branches are available for daily operations."
       feedback={feedback}
-      actions={canManage ? <Button variant="primary" icon={<IconPlus />} onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "Add branch"}</Button> : undefined}
+      actions={canManage ? <Button variant="primary" icon={<IconPlus />} onClick={() => setBranchMode(creating ? { kind: "view" } : { kind: "create" })}>{creating ? "Cancel" : "Add branch"}</Button> : undefined}
     >
       <div className="tos-settings__branch-list">
         {branches.map((branch) => (
           <article key={branch.id} className="tos-settings__branch-card" data-active-branch={session?.branchId === branch.id}>
-            <div className="tos-settings__branch-main">
+            <div className="tos-settings__branch-card-head">
+              <div className="tos-settings__branch-main">
               <div className="tos-settings__branch-icon"><IconBuilding /></div>
               <div>
                 <div className="tos-settings__branch-title-row">
@@ -733,20 +777,23 @@ function BranchesSection({
                 <span className="tos-settings__branch-meta">{branch.code} · {branch.timezone}{branch.city ? ` · ${branch.city}` : ""}</span>
               </div>
             </div>
-            <div className="tos-settings__branch-actions">
-              {branch.active && session?.branchId !== branch.id ? <Button size="sm" variant="outline" onClick={() => void onSwitchBranch(branch.id)}>Open</Button> : null}
-              {canManage ? <Button size="sm" variant="ghost" icon={<IconEdit />} onClick={() => beginEdit(branch)}>Edit</Button> : null}
-              {canManage && branch.active ? <Button size="sm" variant="danger" loading={busyId === branch.id} disabled={!online} onClick={() => void setActive(branch, false)}>Deactivate</Button> : null}
-              {canManage && !branch.active ? <Button size="sm" variant="positive" loading={busyId === branch.id} disabled={!online} onClick={() => void setActive(branch, true)}>Reactivate</Button> : null}
+              <div className="tos-settings__branch-actions">
+                {branch.active && session?.branchId !== branch.id ? <Button size="sm" variant="outline" onClick={() => void onSwitchBranch(branch.id)}>Open</Button> : null}
+                {canManage ? <Button size="sm" variant="ghost" icon={<IconEdit />} onClick={() => beginEdit(branch)}>Edit</Button> : null}
+                {canManage && branch.active ? <Button size="sm" variant="danger" loading={busyId === branch.id} disabled={!online} onClick={() => void setActive(branch, false)}>Deactivate</Button> : null}
+                {canManage && !branch.active ? <Button size="sm" variant="positive" loading={busyId === branch.id} disabled={!online} onClick={() => void setActive(branch, true)}>Reactivate</Button> : null}
+              </div>
             </div>
             {editingId === branch.id ? (
-              <form className="tos-settings__form tos-settings__branch-editor" onSubmit={saveEdit}>
-                <BranchFields prefix={`edit-${branch.id}`} draft={editDraft} setDraft={setEditDraft} includeCode={false} />
-                <div className="tos-settings__actions">
-                  <Button type="submit" variant="primary" loading={busyId === branch.id} disabled={!online || !editDraft.name.trim()}>Save branch</Button>
-                  <Button variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
-                </div>
-              </form>
+              <div className="tos-settings__branch-editor-shell">
+                <form className="tos-settings__form tos-settings__branch-editor" onSubmit={saveEdit}>
+                  <BranchFields prefix={`edit-${branch.id}`} draft={editDraft} setDraft={setEditDraft} includeCode={false} singleColumn />
+                  <div className="tos-settings__actions">
+                    <Button type="submit" variant="primary" loading={busyId === branch.id} disabled={!online || !editDraft.name.trim()}>Save branch</Button>
+                    <Button variant="outline" onClick={() => setBranchMode({ kind: "view" })}>Cancel</Button>
+                  </div>
+                </form>
+              </div>
             ) : null}
           </article>
         ))}
@@ -757,34 +804,10 @@ function BranchesSection({
       {creating && canManage ? (
         <form className="tos-settings__form tos-settings__subpanel tos-settings__subpanel--gold" onSubmit={create}>
           <div><span className="tos-settings__mini-eyebrow">New location</span><h3 className="tos-settings__subheading">Add branch</h3></div>
-          <BranchFields prefix="new-branch" draft={draft} setDraft={setDraft} includeCode />
+          <BranchFields prefix="new-branch" draft={draft} setDraft={setDraft} includeCode singleColumn />
           <div className="tos-settings__actions"><Button type="submit" variant="gold" loading={busyId === "create"} disabled={!online || !draft.name.trim()}>Create branch</Button></div>
         </form>
       ) : null}
-    </SettingsPanel>
-  );
-}
-
-function TeamSection() {
-  const { role, memberships, session } = useWorkspace();
-  const current = memberships.find((membership) => membership.businessId === session?.businessId);
-  return (
-    <SettingsPanel
-      icon={<IconUsers />}
-      eyebrow="Business access"
-      title="Team & access"
-      description="See your access in this business. Team invitations and role management will appear here when the Team workspace is enabled."
-    >
-      <div className="tos-settings__summary-grid">
-        <Summary label="Your role" value={role} />
-        <Summary label="Membership status" value={current?.businessStatus ?? "ACTIVE"} />
-        <Summary label="Staff link" value={current?.staffId ? "Linked" : "Not linked"} />
-        <Summary label="Business" value={current?.businessName ?? session?.businessName ?? "—"} />
-      </div>
-      <InfoCallout
-        title="Team management is coming here"
-        text="Your business team will be managed from one place without creating duplicate accounts. Your current role and staff link are shown above."
-      />
     </SettingsPanel>
   );
 }
@@ -945,23 +968,11 @@ function Field({ label, htmlFor, hint, required, children }: { label: string; ht
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
-  return <div className="tos-settings__summary"><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function BranchFields({ prefix, draft, setDraft, includeCode }: { prefix: string; draft: BranchDraft; setDraft: React.Dispatch<React.SetStateAction<BranchDraft>>; includeCode: boolean }) {
-  const set = <K extends keyof BranchDraft>(key: K, value: BranchDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   return (
-    <div className="tos-settings__grid tos-settings__grid--2">
-      <Field label="Branch name" htmlFor={`${prefix}-name`} required><input id={`${prefix}-name`} className="tos-input" value={draft.name} onChange={(event) => set("name", event.target.value)} required maxLength={120} /></Field>
-      {includeCode ? <Field label="Branch code" htmlFor={`${prefix}-code`} hint="Optional; TradeOS can generate one"><input id={`${prefix}-code`} className="tos-input" value={draft.code} onChange={(event) => set("code", event.target.value.toUpperCase())} placeholder="e.g. TEMA25" maxLength={24} /></Field> : null}
-      <Field label="Timezone" htmlFor={`${prefix}-timezone`}><select id={`${prefix}-timezone`} className="tos-select" value={draft.timezone} onChange={(event) => set("timezone", event.target.value)}>{SUPPORTED_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}</select></Field>
-      <Field label="Email" htmlFor={`${prefix}-email`}><input id={`${prefix}-email`} className="tos-input" type="email" value={draft.email} onChange={(event) => set("email", event.target.value)} /></Field>
-      <Field label="Phone" htmlFor={`${prefix}-phone`}><input id={`${prefix}-phone`} className="tos-input" value={draft.phone} onChange={(event) => set("phone", event.target.value)} /></Field>
-      <Field label="Address line 1" htmlFor={`${prefix}-address1`}><input id={`${prefix}-address1`} className="tos-input" value={draft.addressLine1} onChange={(event) => set("addressLine1", event.target.value)} /></Field>
-      <Field label="Address line 2" htmlFor={`${prefix}-address2`}><input id={`${prefix}-address2`} className="tos-input" value={draft.addressLine2} onChange={(event) => set("addressLine2", event.target.value)} /></Field>
-      <Field label="City" htmlFor={`${prefix}-city`}><input id={`${prefix}-city`} className="tos-input" value={draft.city} onChange={(event) => set("city", event.target.value)} /></Field>
-      <Field label="Region" htmlFor={`${prefix}-region`}><input id={`${prefix}-region`} className="tos-input" value={draft.region} onChange={(event) => set("region", event.target.value)} /></Field>
-      <Field label="Postal code" htmlFor={`${prefix}-postal`}><input id={`${prefix}-postal`} className="tos-input" value={draft.postalCode} onChange={(event) => set("postalCode", event.target.value)} /></Field>
+    <div className="tos-settings__summary">
+      <span className="tos-settings__summary-label">{label}</span>
+      <span className="tos-settings__summary-separator" aria-hidden="true">:</span>
+      <strong className="tos-settings__summary-value">{value}</strong>
     </div>
   );
 }
@@ -988,7 +999,12 @@ function businessToForm(business: WorkspaceBusinessProfile | null | undefined): 
 }
 
 function defaultNewBusiness(): NewBusinessFormState {
-  return { name: "", businessType: "OTHER", branchName: "Main", countryCode: "GH", currencyCode: "GHS", timezone: "Africa/Accra" };
+  return {
+    name: "", legalName: "", businessType: "OTHER", email: "", phone: "",
+    registrationNumber: "", taxId: "", addressLine1: "", addressLine2: "",
+    city: "", region: "", postalCode: "", countryCode: "GH", currencyCode: "GHS",
+    timezone: "Africa/Accra", logoUrl: "", firstBranchName: "Main",
+  };
 }
 
 function applyCountryDefaults(current: NewBusinessFormState, countryCode: string): NewBusinessFormState {
@@ -1039,6 +1055,13 @@ function branchPayload(draft: BranchDraft, includeCode: boolean) {
 
 function activeBranchName(branches: readonly WorkspaceBranch[], branchId: string): string {
   return branches.find((branch) => branch.id === branchId)?.name ?? "Branch";
+}
+
+async function uploadManagedImage(path: string, file: File, fallback: string): Promise<void> {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await getOfflineQueue().authenticatedFetch(path, { method: "POST", body });
+  if (!response.ok) throw new Error(await readApiErrorMessage(response, fallback));
 }
 
 function nullable(value: string): string | null {

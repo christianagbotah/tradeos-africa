@@ -361,6 +361,7 @@ jobs:
             { path: "/operations", marker: "Operation", name: "operations" },
             { path: "/reports", marker: "Report", name: "reports" },
             { path: "/settings", marker: "Settings", name: "settings" },
+            { path: "/settings?section=team", marker: "Team & access", name: "settings-team" },
           ];
 
           const widthSets = {
@@ -376,6 +377,7 @@ jobs:
             operations: [390, 768, 1280],
             reports: [390, 768, 1280],
             settings: [390, 768, 1280],
+            "settings-team": [390, 768, 1280],
           };
 
           // === STEP 3: Capture every authenticated route at every width ===
@@ -416,7 +418,102 @@ jobs:
             }
           }
 
-          // === STEP 4: Catalog unit editor responsive layout ===
+          // === STEP 4: Settings business/branch editor states ===
+          async function settingsEditorFlow(path, selector, clickName, shot) {
+            for (const width of [390, 768, 1280]) {
+              const ctx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
+              const p = await ctx.newPage();
+              try {
+                await p.goto(`${WEB}${path}`, { waitUntil: "networkidle", timeout: 30000 });
+                await p.waitForTimeout(1200);
+                if (clickName) {
+                  await p.getByRole("button", { name: clickName, exact: true }).first().click();
+                }
+                await p.locator(selector).first().waitFor({ state: "visible", timeout: 10000 });
+                await assertCleanBody(p, `${shot}-${width}`);
+                if (width <= 768) {
+                  const scrollWidth = await p.evaluate(() => document.documentElement.scrollWidth);
+                  const clientWidth = await p.evaluate(() => document.documentElement.clientWidth);
+                  if (scrollWidth > clientWidth) {
+                    failures.push(`${shot}-${width}: horizontal overflow (${scrollWidth} > ${clientWidth})`);
+                  }
+                }
+                await p.screenshot({ path: `${EVIDENCE}/${shot}-${width}.png`, fullPage: true });
+                screenshotCount++;
+                console.log(`Captured ${shot}-${width}.png`);
+              } catch (err) {
+                failures.push(`${shot}-${width}: ${err.message}`);
+              }
+              await ctx.close();
+            }
+          }
+
+          await settingsEditorFlow("/settings?section=business&action=create", "#settings-new-business-name", null, "settings-business-create");
+          await settingsEditorFlow("/settings?section=business", "#settings-business-name", "Edit business", "settings-business-edit");
+          await settingsEditorFlow("/settings?section=branches&action=create", "#new-branch-name", null, "settings-branch-create");
+          await settingsEditorFlow("/settings?section=branches", ".tos-settings__branch-editor-shell", "Edit", "settings-branch-edit");
+
+          // Prove add/edit modes are mutually exclusive at runtime, not only in static contracts.
+          {
+            const ctx = await browser.newContext({ storageState: state, viewport: { width: 390, height: 900 } });
+            const p = await ctx.newPage();
+            try {
+              await p.goto(`${WEB}/settings?section=business`, { waitUntil: "networkidle", timeout: 30000 });
+              await p.getByRole("button", { name: "Edit business", exact: true }).click();
+              await p.locator("#settings-business-name").waitFor({ state: "visible" });
+              await p.getByRole("button", { name: "Add business", exact: true }).click();
+              await p.locator("#settings-new-business-name").waitFor({ state: "visible" });
+              if (await p.locator("#settings-business-name").count()) failures.push("settings-business-modes: edit remained open after Add business");
+              await p.getByRole("button", { name: "Edit business", exact: true }).click();
+              await p.locator("#settings-business-name").waitFor({ state: "visible" });
+              if (await p.locator("#settings-new-business-name").count()) failures.push("settings-business-modes: create remained open after Edit business");
+
+              await p.goto(`${WEB}/settings?section=branches`, { waitUntil: "networkidle", timeout: 30000 });
+              await p.getByRole("button", { name: "Edit", exact: true }).first().click();
+              await p.locator(".tos-settings__branch-editor-shell").waitFor({ state: "visible" });
+              await p.getByRole("button", { name: "Add branch", exact: true }).click();
+              await p.locator("#new-branch-name").waitFor({ state: "visible" });
+              if (await p.locator(".tos-settings__branch-editor-shell").count()) failures.push("settings-branch-modes: edit remained open after Add branch");
+              await p.getByRole("button", { name: "Edit", exact: true }).first().click();
+              await p.locator(".tos-settings__branch-editor-shell").waitFor({ state: "visible" });
+              if (await p.locator("#new-branch-name").count()) failures.push("settings-branch-modes: create remained open after Edit");
+            } catch (err) {
+              failures.push(`settings-mode-exclusivity: ${err.message}`);
+            }
+            await ctx.close();
+          }
+
+          // === STEP 5: Public team-invite safe fallback ===
+          async function inviteMissingFlow(width, shot) {
+            const ctx = await browser.newContext({ viewport: { width, height: 900 } });
+            const p = await ctx.newPage();
+            try {
+              await p.goto(`${WEB}/invite/team`, { waitUntil: "networkidle", timeout: 30000 });
+              await p.waitForTimeout(800);
+              const expected = "This invitation link is no longer available in this tab";
+              const visibleText = await p.evaluate(() => document.body.innerText);
+              if (!visibleText.includes(expected)) {
+                failures.push(`${shot}: secure missing-invitation state was not rendered`);
+              }
+              await assertCleanBody(p, shot);
+              const scrollWidth = await p.evaluate(() => document.documentElement.scrollWidth);
+              const clientWidth = await p.evaluate(() => document.documentElement.clientWidth);
+              if (scrollWidth > clientWidth) {
+                failures.push(`${shot}: horizontal overflow (${scrollWidth} > ${clientWidth})`);
+              }
+              await p.screenshot({ path: `${EVIDENCE}/${shot}.png`, fullPage: true });
+              screenshotCount++;
+              console.log(`Captured ${shot}.png`);
+            } catch (err) {
+              failures.push(`${shot}: ${err.message}`);
+            }
+            await ctx.close();
+          }
+
+          await inviteMissingFlow(390, "team-invite-missing-390");
+          await inviteMissingFlow(1280, "team-invite-missing-1280");
+
+          // === STEP 6: Catalog unit editor responsive layout ===
           async function catalogFormFlow(width, label, shot) {
             const ctx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
             const p = await ctx.newPage();
@@ -471,7 +568,7 @@ jobs:
           await catalogFormFlow(1280, "catalog-form-1280", "catalog-form-open-1280");
           await catalogFormFlow(390, "catalog-form-390", "catalog-form-open-390");
 
-          // === STEP 5: POS multi-unit flow — every step REQUIRED ===
+          // === STEP 6: POS multi-unit flow — every step REQUIRED ===
           async function posFlow(width, label, cartShot, checkoutShot) {
             const posCtx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
             const p = await posCtx.newPage();
@@ -551,7 +648,7 @@ jobs:
           await posFlow(1280, "pos-multiunit-1280", "pos-multiunit-1280", "pos-checkout-1280");
           await posFlow(390, "pos-multiunit-390", "pos-multiunit-390", "pos-checkout-390");
 
-          // === STEP 6: Purchase receipt sheet OPEN (desktop + narrow mobile) ===
+          // === STEP 7: Purchase receipt sheet OPEN (desktop + narrow mobile) ===
           async function receiptFlow(width, label, shot) {
             const ctx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
             const p = await ctx.newPage();

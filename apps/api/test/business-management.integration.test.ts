@@ -66,6 +66,83 @@ describe("business and branch lifecycle management", () => {
     expect(device.rows[0]?.branch_id).toBe(second.branch.id);
   });
 
+  it("creates a business with the complete profile and rolls back invalid profile data", async () => {
+    const owner = await register("complete-business@tradeos.test", "complete-business-device");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/businesses",
+      headers: bearer(owner.accessToken),
+      payload: {
+        name: "Complete Retail",
+        legalName: "Complete Retail Limited",
+        businessType: "RETAIL_HARDWARE",
+        branchName: "Warehouse",
+        email: "hello@complete.test",
+        phone: "+233240009999",
+        registrationNumber: "CS-COMPLETE-1",
+        taxId: "GHA-COMPLETE-TAX",
+        addressLine1: "10 Market Road",
+        addressLine2: "Block B",
+        city: "Accra",
+        region: "Greater Accra",
+        postalCode: "GA-999-0001",
+        countryCode: "GH",
+        currencyCode: "GHS",
+        timezone: "Africa/Accra",
+        logoUrl: "https://cdn.tradeos.test/logo/complete.png",
+      },
+    });
+
+    expect(created.statusCode, created.body).toBe(201);
+    const body = created.json<{ business: Record<string, unknown>; branch: { name: string; code: string } }>();
+    expect(body.business).toMatchObject({
+      name: "Complete Retail",
+      legalName: "Complete Retail Limited",
+      businessType: "RETAIL_HARDWARE",
+      email: "hello@complete.test",
+      phone: "+233240009999",
+      registrationNumber: "CS-COMPLETE-1",
+      taxId: "GHA-COMPLETE-TAX",
+      addressLine1: "10 Market Road",
+      addressLine2: "Block B",
+      city: "Accra",
+      region: "Greater Accra",
+      postalCode: "GA-999-0001",
+      countryCode: "GH",
+      currencyCode: "GHS",
+      timezone: "Africa/Accra",
+      logoUrl: "https://cdn.tradeos.test/logo/complete.png",
+    });
+    expect(body.branch).toMatchObject({ name: "Warehouse", code: "MAIN" });
+
+    const context = await app.inject({
+      method: "GET",
+      url: `/v1/businesses/${String(body.business.id)}/context`,
+      headers: bearer(owner.accessToken),
+    });
+    expect(context.statusCode, context.body).toBe(200);
+    expect(context.json<{ business: Record<string, unknown> }>().business).toMatchObject(body.business);
+
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/v1/businesses",
+      headers: bearer(owner.accessToken),
+      payload: {
+        name: "Should Roll Back",
+        businessType: "SERVICES",
+        email: "not-an-email",
+        countryCode: "GH",
+        currencyCode: "GHS",
+        timezone: "Africa/Accra",
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json<{ error: string }>().error).toBe("INVALID_EMAIL");
+    const leaked = await pool.query("SELECT 1 FROM businesses WHERE name='Should Roll Back'");
+    expect(leaked.rowCount).toBe(0);
+  });
+
   it("lets OWNER and ADMIN update business details while denying outsiders", async () => {
     const owner = await register("business-owner@tradeos.test", "business-owner-device");
     const created = await onboard(owner.accessToken, "Original Business");

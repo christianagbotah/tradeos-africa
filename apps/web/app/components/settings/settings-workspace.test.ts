@@ -13,6 +13,12 @@ const navSource = readFileSync(new URL("../workspace/workspace-navigation.ts", i
 const routeSource = readFileSync(new URL("../../(workspace)/settings/page.tsx", import.meta.url), "utf8");
 const shellCssSource = readFileSync(new URL("../../workspace-shell.css", import.meta.url), "utf8");
 const visualQaSource = readFileSync(new URL("../../../../../.github/workflows/visual-qa.yml", import.meta.url), "utf8");
+const businessSectionSource = workspaceSource.slice(workspaceSource.indexOf("function BusinessSection"), workspaceSource.indexOf("function BranchesSection"));
+const branchesSectionSource = workspaceSource.slice(workspaceSource.indexOf("function BranchesSection"), workspaceSource.indexOf("function TeamSection"));
+const imagePickerSource = readFileSync(new URL("./image-picker.tsx", import.meta.url), "utf8");
+const businessFieldsSource = readFileSync(new URL("./business-fields.tsx", import.meta.url), "utf8");
+const teamAccessSource = readFileSync(new URL("./team-access.tsx", import.meta.url), "utf8");
+const staffEditorSource = readFileSync(new URL("./staff-editor.tsx", import.meta.url), "utf8");
 
 describe("settings navigation model", () => {
   it("provides all account/business control-center sections", () => {
@@ -26,6 +32,116 @@ describe("settings navigation model", () => {
     ]);
     expect(normalizeSettingsSection("security")).toBe("security");
     expect(normalizeSettingsSection("unknown")).toBe("profile");
+  });
+
+  it("uses canonical query-string settings links and preserves legacy hash handling", () => {
+    expect(shellSource).toContain('/settings?section=profile');
+    expect(shellSource).toContain('/settings?section=security');
+    expect(shellSource).toContain('/settings?section=business&action=create');
+    expect(shellSource).toContain('/settings?section=branches&action=create');
+    expect(workspaceSource).toContain("useSearchParams");
+    expect(workspaceSource).toContain("URLSearchParams");
+    expect(workspaceSource).toContain('addEventListener("hashchange"');
+    expect(workspaceSource).toContain("history.replaceState");
+  });
+
+  it("keeps Business create/edit mutually exclusive and gives Create the complete profile contract", () => {
+    expect(workspaceSource).toContain('type BusinessEditorMode = "view" | "edit" | "create"');
+    expect(businessSectionSource).toContain('useState<BusinessEditorMode>("view")');
+    expect(businessSectionSource).not.toContain('const [creating, setCreating]');
+    expect(workspaceSource).not.toContain('const [editing, setEditing]');
+    expect(workspaceSource).toContain('<BusinessFields');
+    expect(workspaceSource).toContain('requestedAction === "create"');
+    expect(workspaceSource).toContain('setBusinessMode("create")');
+    expect(workspaceSource).toContain('interface NewBusinessFormState extends BusinessFormState');
+    expect(workspaceSource).toContain('firstBranchName: string');
+  });
+
+  it("keeps Branch create/edit mutually exclusive and renders a full-width single-column editor", () => {
+    expect(workspaceSource).toContain('type BranchEditorMode = { kind: "view" } | { kind: "create" } | { kind: "edit"; branchId: string }');
+    expect(branchesSectionSource).toContain('useState<BranchEditorMode>({ kind: "view" })');
+    expect(branchesSectionSource).not.toContain('const [creating, setCreating]');
+    expect(branchesSectionSource).not.toContain('const [editingId, setEditingId]');
+    expect(branchesSectionSource).toContain('requestedAction === "create"');
+    expect(branchesSectionSource).toContain('setBranchMode({ kind: "create" })');
+    expect(branchesSectionSource).toContain('tos-settings__branch-card-head');
+    expect(branchesSectionSource).toContain('tos-settings__branch-editor-shell');
+    expect(branchesSectionSource).toContain('<BranchFields');
+    expect(shellCssSource).toContain('.tos-settings__branch-editor-shell');
+    expect(shellCssSource).toContain('.tos-settings__grid--single');
+  });
+
+  it("uses real avatar and business-logo file pickers instead of URL text fields", () => {
+    expect(imagePickerSource).toContain('type="file"');
+    expect(imagePickerSource).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(imagePickerSource).toContain("5 * 1024 * 1024");
+    expect(imagePickerSource).toContain("Choose photo");
+    expect(imagePickerSource).toContain("Replace photo");
+    expect(imagePickerSource).toContain("Remove photo");
+    expect(imagePickerSource).toContain("Choose logo");
+    expect(imagePickerSource).toContain("Replace logo");
+    expect(imagePickerSource).toContain("Remove logo");
+    expect(workspaceSource).toContain('"/v1/me/avatar"');
+    expect(workspaceSource).toContain('/logo`');
+    expect(workspaceSource).toContain("newBusinessLogo");
+    expect(workspaceSource).toContain("FormData");
+    expect(workspaceSource).not.toContain('label="Avatar URL"');
+    expect(businessFieldsSource).not.toContain('label="Logo URL"');
+  });
+
+  it("renders the managed avatar in the workspace shell with initials as fallback", () => {
+    expect(shellSource).toContain("account?.avatarUrl");
+    expect(shellSource).toContain('className="tos-topbar__avatar-image"');
+    expect(shellSource).toContain('className="tos-account-card__avatar-image"');
+  });
+
+  it("implements Team & access with role-aware directory and mutually exclusive editors", () => {
+    expect(workspaceSource).toContain("<TeamAccess");
+    expect(teamAccessSource).toContain('type TeamEditorMode = { kind: "view" } | { kind: "create" } | { kind: "edit"; staffId: string }');
+    expect(teamAccessSource).toContain('useState<TeamEditorMode>({ kind: "view" })');
+    expect(teamAccessSource).toContain('canReadTeam');
+    expect(teamAccessSource).toContain('canMutateTeam');
+    expect(teamAccessSource).toContain('canManageStaffRole');
+    expect(teamAccessSource).toContain('role === "MANAGER"');
+    expect(teamAccessSource).toContain('/v1/staff?businessId=');
+    expect(teamAccessSource).toContain('/invitations`');
+    expect(teamAccessSource).toContain('/v1/staff/${encodeURIComponent(member.id)}/${active ? \"reactivate\" : \"suspend\"}');
+    expect(teamAccessSource).toContain('\"suspend\"');
+    expect(teamAccessSource).toContain('\"reactivate\"');
+    expect(staffEditorSource).toContain("StaffEditor");
+  });
+
+  it("keeps invitation secrets ephemeral and provides desktop/mobile team layouts", () => {
+    expect(teamAccessSource).toContain("oneTimeInvite");
+    expect(teamAccessSource).toContain("window.location.origin");
+    expect(teamAccessSource).toContain("/invite/team#token=");
+    expect(teamAccessSource).toContain("navigator.clipboard.writeText");
+    expect(teamAccessSource).not.toMatch(/localStorage|sessionStorage/);
+    expect(teamAccessSource).toContain("tos-team__table-wrap");
+    expect(teamAccessSource).toContain("tos-team__cards");
+    expect(shellCssSource).toContain(".tos-team__table-wrap");
+    expect(shellCssSource).toContain(".tos-team__cards");
+    expect(shellCssSource).toContain("@media (max-width: 768px)");
+  });
+
+  it("renders explicit Team loading, error and empty states without fake forbidden controls", () => {
+    expect(teamAccessSource).toContain("Loading team members");
+    expect(teamAccessSource).toContain("Team directory could not be loaded");
+    expect(teamAccessSource).toContain("No staff members yet");
+    expect(teamAccessSource).toContain("You do not have team-directory access");
+    expect(teamAccessSource).toContain("Read-only team access");
+    expect(teamAccessSource).toContain("Add staff");
+    expect(teamAccessSource).toContain("Suspend");
+    expect(teamAccessSource).toContain("Reactivate");
+  });
+
+  it("renders business summaries as spaced label colon value content", () => {
+    expect(workspaceSource).toContain('tos-settings__summary-label');
+    expect(workspaceSource).toContain('tos-settings__summary-separator');
+    expect(workspaceSource).toContain('tos-settings__summary-value');
+    expect(shellCssSource).toContain('.tos-settings__summary-separator');
+    expect(shellCssSource).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));');
+    expect(shellCssSource).toContain('overflow-wrap: break-word;');
   });
 
   it("restricts business and branch management to OWNER and ADMIN", () => {
@@ -93,9 +209,21 @@ describe("settings production contract", () => {
     expect(shellCssSource).toContain("overflow-x: auto");
     expect(shellCssSource).toContain("min-width: 0");
   });
-  it("keeps authenticated Settings in visual QA at mobile, tablet, and desktop widths", () => {
+  it("keeps Settings, Team access, and the public invite page in responsive visual QA", () => {
     expect(visualQaSource).toContain('{ path: "/settings", marker: "Settings", name: "settings" }');
+    expect(visualQaSource).toContain('{ path: "/settings?section=team", marker: "Team & access", name: "settings-team" }');
     expect(visualQaSource).toContain('settings: [390, 768, 1280]');
+    for (const shot of [
+      "settings-business-create",
+      "settings-business-edit",
+      "settings-branch-create",
+      "settings-branch-edit",
+    ]) {
+      expect(visualQaSource).toContain(shot);
+    }
+    expect(visualQaSource).toContain('"team-invite-missing-390"');
+    expect(visualQaSource).toContain('"team-invite-missing-1280"');
+    expect(visualQaSource).toContain('This invitation link is no longer available in this tab');
   });
 
 });

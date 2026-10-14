@@ -122,6 +122,7 @@ export function AppShell({ children }: AppShellProps) {
   if (!session) return null;
 
   const displayName = account?.displayName ?? session.displayName;
+  const avatarUrl = account?.avatarUrl ?? null;
   const initials = (displayName || "T")
     .split(/\s+/)
     .map((part) => part[0])
@@ -280,8 +281,8 @@ export function AppShell({ children }: AppShellProps) {
                 </div>
 
                 <div className="tos-shell-popover__actions">
-                  <Link href="/settings#business" className="tos-shell-action-link"><IconPlus />Add business</Link>
-                  {canManageBusiness ? <Link href="/settings#branches" className="tos-shell-action-link"><IconPlus />Add branch</Link> : null}
+                  <Link href="/settings?section=business&action=create" className="tos-shell-action-link"><IconPlus />Add business</Link>
+                  {canManageBusiness ? <Link href="/settings?section=branches&action=create" className="tos-shell-action-link"><IconPlus />Add branch</Link> : null}
                 </div>
               </div>
             ) : null}
@@ -312,7 +313,7 @@ export function AppShell({ children }: AppShellProps) {
                 setContextOpen(false);
               }}
             >
-              <div className="tos-topbar__avatar" aria-hidden="true">{initials}</div>
+              <div className="tos-topbar__avatar">{avatarUrl ? <img src={avatarUrl} alt="" className="tos-topbar__avatar-image" /> : <span aria-hidden="true">{initials}</span>}</div>
               <div className="tos-topbar__profile-text">
                 <span className="tos-topbar__profile-name">{displayName}</span>
                 <span className="tos-topbar__profile-role">{role}</span>
@@ -323,15 +324,15 @@ export function AppShell({ children }: AppShellProps) {
             {accountOpen ? (
               <div className="tos-shell-popover tos-shell-popover--account" role="menu" aria-label="Account menu">
                 <div className="tos-account-card">
-                  <div className="tos-account-card__avatar" aria-hidden="true">{initials}</div>
+                  <div className="tos-account-card__avatar">{avatarUrl ? <img src={avatarUrl} alt="" className="tos-account-card__avatar-image" /> : <span aria-hidden="true">{initials}</span>}</div>
                   <div className="tos-account-card__copy">
                     <strong>{displayName}</strong>
                     <span>{account?.email ?? account?.phoneE164 ?? "TradeOS account"}</span>
                   </div>
                 </div>
-                <Link href="/settings#profile" className="tos-account-link" role="menuitem"><IconUser />My profile</Link>
-                <Link href="/settings#security" className="tos-account-link" role="menuitem"><IconShield />Security</Link>
-                <Link href="/settings" className="tos-account-link" role="menuitem"><IconBuilding />Settings</Link>
+                <Link href="/settings?section=profile" className="tos-account-link" role="menuitem"><IconUser />My profile</Link>
+                <Link href="/settings?section=security" className="tos-account-link" role="menuitem"><IconShield />Security</Link>
+                <Link href="/settings?section=business" className="tos-account-link" role="menuitem"><IconBuilding />Settings</Link>
                 <button type="button" className="tos-account-link tos-account-link--danger" role="menuitem" onClick={handleSignOut}>
                   <IconLogout />Sign out
                 </button>

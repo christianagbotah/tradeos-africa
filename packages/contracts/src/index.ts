@@ -12,3 +12,5 @@ export * from "./inventory-adjustments.js";
 
 export * from "./exchanges.js";
 export * from "./currency-metadata.js";
+
+export * from "./staff.js";
