@@ -4,6 +4,8 @@
 **Status:** Approved design, pre-implementation
 **Scope owner:** Backend/API/contracts/database only. Z.ai retains exclusive ownership of `apps/web`, `apps/system-admin`, `apps/desktop`, and `apps/mobile`.
 
+**Current-main integration note (2026-10-14):** Account & Business Control Center is merged at `main` and owns migration `0018_account_business_control.sql`. This milestone therefore uses the intentionally reserved `0017_staff_management.sql` slot. The Settings → Team surface remains read-only until this backend milestone lands; frontend integration is still outside this backend scope.
+
 ## 1. Goal
 
 Add a secure, auditable business-scoped staff-management backend that lets TradeOS businesses maintain staff records independently from login accounts, optionally invite a staff member to obtain app access, change roles safely, and suspend/reactivate access without destroying historical business records.
