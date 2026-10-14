@@ -1,8 +1,14 @@
+import { randomBytes } from "node:crypto";
 import {
   BUSINESS_ROLES,
+  type AcceptStaffInvitationRequest,
   type BusinessRole,
+  type CreateStaffInvitationRequest,
   type CreateStaffRequest,
   type StaffDirectoryItem,
+  type StaffInvitationAcceptance,
+  type StaffInvitationResponse,
+  type StaffInvitationSummary,
   type UpdateStaffRequest,
 } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessAccess } from "../auth/authorization.js";
@@ -10,6 +16,7 @@ import {
   AuthError,
   normalizeEmail,
   normalizePhone,
+  tokenHash,
   type AuthContext,
 } from "../auth/security.js";
 import type { DatabaseClient, DatabasePool } from "../db.js";
@@ -324,4 +331,264 @@ async function writeAudit(
      ) VALUES($1,$2,$3,$4,$5,$6::jsonb)`,
     [businessId, actorStaffId, eventType, entityType, entityId, JSON.stringify(payload)],
   );
+}
+
+type InvitationRow = {
+  id: string;
+  business_id: string;
+  staff_id: string;
+  invited_email: string | null;
+  invited_phone_e164: string | null;
+  role: BusinessRole;
+  status: "PENDING" | "ACCEPTED" | "REVOKED" | "EXPIRED";
+  expires_at: Date;
+  created_by_user_id: string;
+  created_by_staff_id: string | null;
+  accepted_by_user_id: string | null;
+  accepted_at: Date | null;
+  created_at: Date;
+  staff_email: string | null;
+  staff_phone: string | null;
+  staff_role: BusinessRole;
+  staff_active: boolean;
+};
+
+export async function createStaffInvitation(
+  pool: DatabasePool,
+  auth: AuthContext,
+  staffId: string,
+  input: CreateStaffInvitationRequest,
+): Promise<StaffInvitationResponse> {
+  const businessId = requireBusinessId(input?.businessId);
+  const access = await requireBusinessRole(pool, auth, businessId, STAFF_MUTATION_ROLES);
+  const acceptanceToken = `tos_invite_${randomBytes(32).toString("base64url")}`;
+  const hash = tokenHash(acceptanceToken);
+
+  const invitation = await withTransaction(pool, async (client) => {
+    const found = await client.query<StaffRow>(
+      `SELECT id,business_id,display_name,email,phone,role,is_active,created_at,updated_at
+       FROM staff WHERE id=$1 AND business_id=$2 FOR UPDATE`,
+      [staffId, businessId],
+    );
+    const staff = found.rows[0];
+    if (!staff) throw new AuthError("Staff member was not found", 404, "STAFF_NOT_FOUND");
+    assertActorCanManageRole(access, staff.role, staff.role);
+    if (!staff.is_active) throw new AuthError("Staff member must be active before inviting access", 400, "STAFF_INVALID");
+
+    const email = normalizeNullableEmail(staff.email);
+    const phone = normalizeNullablePhone(staff.phone);
+    if (!email && !phone) {
+      throw new AuthError("Add an email or phone number before inviting access", 400, "INVITATION_IDENTITY_REQUIRED");
+    }
+
+    const linked = await client.query(
+      `SELECT id FROM business_memberships
+       WHERE business_id=$1 AND staff_id=$2 AND status='ACTIVE'
+       FOR UPDATE`,
+      [businessId, staffId],
+    );
+    if (linked.rowCount) throw new AuthError("Staff member already has active app access", 409, "STAFF_ALREADY_LINKED");
+
+    await client.query(
+      `UPDATE staff_invitations
+       SET status='EXPIRED'
+       WHERE business_id=$1 AND staff_id=$2 AND status='PENDING' AND expires_at<=now()`,
+      [businessId, staffId],
+    );
+    const revoked = await client.query<{ id: string }>(
+      `UPDATE staff_invitations
+       SET status='REVOKED',revoked_at=now()
+       WHERE business_id=$1 AND staff_id=$2 AND status='PENDING'
+       RETURNING id`,
+      [businessId, staffId],
+    );
+    for (const prior of revoked.rows) {
+      await writeAudit(
+        client,
+        businessId,
+        access.staffId,
+        "STAFF_INVITATION_REVOKED",
+        "STAFF_INVITATION",
+        prior.id,
+        { targetStaffId: staffId, reason: "REPLACED" },
+      );
+    }
+
+    const inserted = await client.query<InvitationRow>(
+      `INSERT INTO staff_invitations(
+         business_id,staff_id,invited_email,invited_phone_e164,role,token_hash,status,
+         expires_at,created_by_user_id,created_by_staff_id
+       ) VALUES($1,$2,$3,$4,$5,$6,'PENDING',now()+interval '72 hours',$7,$8)
+       RETURNING id,business_id,staff_id,invited_email,invited_phone_e164,role,status,
+         expires_at,created_by_user_id,created_by_staff_id,accepted_by_user_id,accepted_at,created_at,
+         NULL::text AS staff_email,NULL::text AS staff_phone,role AS staff_role,true AS staff_active`,
+      [businessId, staffId, email, phone, staff.role, hash, auth.userId, access.staffId],
+    );
+    const row = inserted.rows[0]!;
+    await writeAudit(client, businessId, access.staffId, "STAFF_INVITED", "STAFF_INVITATION", row.id, {
+      targetStaffId: staffId,
+      role: staff.role,
+      expiresAt: row.expires_at.toISOString(),
+    });
+    return mapInvitationSummary(row);
+  });
+
+  return { invitation, acceptanceToken };
+}
+
+export async function acceptStaffInvitation(
+  pool: DatabasePool,
+  auth: AuthContext,
+  input: AcceptStaffInvitationRequest,
+): Promise<StaffInvitationAcceptance> {
+  const acceptanceToken = requireAcceptanceToken(input?.acceptanceToken);
+  const hash = tokenHash(acceptanceToken);
+
+  return withTransaction(pool, async (client) => {
+    const found = await client.query<InvitationRow>(
+      `SELECT
+         i.id,i.business_id,i.staff_id,i.invited_email,i.invited_phone_e164,i.role,i.status,
+         i.expires_at,i.created_by_user_id,i.created_by_staff_id,i.accepted_by_user_id,i.accepted_at,i.created_at,
+         s.email AS staff_email,s.phone AS staff_phone,s.role AS staff_role,s.is_active AS staff_active
+       FROM staff_invitations i
+       JOIN staff s ON s.id=i.staff_id AND s.business_id=i.business_id
+       WHERE i.token_hash=$1
+       FOR UPDATE OF i,s`,
+      [hash],
+    );
+    const invitation = found.rows[0];
+    if (!invitation) throw new AuthError("Invitation link is invalid", 404, "INVITATION_INVALID");
+
+    if (invitation.status === "ACCEPTED") {
+      if (invitation.accepted_by_user_id !== auth.userId) {
+        throw new AuthError("Invitation has already been used", 409, "INVITATION_ALREADY_USED");
+      }
+      const existing = await client.query<{ staff_id: string | null; role: BusinessRole; status: string }>(
+        `SELECT staff_id,role,status FROM business_memberships
+         WHERE business_id=$1 AND user_id=$2 FOR UPDATE`,
+        [invitation.business_id, auth.userId],
+      );
+      const membership = existing.rows[0];
+      if (!membership || membership.staff_id !== invitation.staff_id || membership.status !== "ACTIVE") {
+        throw new AuthError("Invitation has already been used", 409, "INVITATION_ALREADY_USED");
+      }
+      return acceptanceFromInvitation(invitation);
+    }
+
+    if (invitation.status !== "PENDING") {
+      throw new AuthError("Invitation link is invalid", 404, "INVITATION_INVALID");
+    }
+    if (invitation.expires_at.getTime() <= Date.now()) {
+      throw new AuthError("Invitation has expired", 410, "INVITATION_EXPIRED");
+    }
+    if (!invitation.staff_active || !invitationSnapshotMatches(invitation)) {
+      throw new AuthError("Invitation no longer matches the current staff record", 409, "INVITATION_INVALID");
+    }
+    if (!invitationMatchesAccount(invitation, auth)) {
+      throw new AuthError("Sign in with the email or phone number that was invited", 403, "INVITATION_IDENTITY_MISMATCH");
+    }
+
+    const existingMembership = await client.query<{
+      id: string;
+      staff_id: string | null;
+      role: BusinessRole;
+      status: "INVITED" | "ACTIVE" | "SUSPENDED" | "REMOVED";
+    }>(
+      `SELECT id,staff_id,role,status
+       FROM business_memberships
+       WHERE business_id=$1 AND user_id=$2
+       FOR UPDATE`,
+      [invitation.business_id, auth.userId],
+    );
+    const membership = existingMembership.rows[0];
+    if (membership) {
+      if (membership.staff_id !== invitation.staff_id) {
+        throw new AuthError("This account is already linked to another staff record", 409, "USER_ALREADY_MEMBER");
+      }
+      if (membership.status === "SUSPENDED" || membership.status === "REMOVED") {
+        throw new AuthError("This account already has restricted business access", 409, "USER_ALREADY_MEMBER");
+      }
+      await client.query(
+        `UPDATE business_memberships
+         SET role=$3,status='ACTIVE',updated_at=now()
+         WHERE id=$1 AND business_id=$2`,
+        [membership.id, invitation.business_id, invitation.role],
+      );
+    } else {
+      await client.query(
+        `INSERT INTO business_memberships(
+           business_id,user_id,staff_id,role,status,created_by_user_id
+         ) VALUES($1,$2,$3,$4,'ACTIVE',$5)`,
+        [
+          invitation.business_id,
+          auth.userId,
+          invitation.staff_id,
+          invitation.role,
+          invitation.created_by_user_id,
+        ],
+      );
+    }
+
+    await client.query(
+      `UPDATE staff_invitations
+       SET status='ACCEPTED',accepted_by_user_id=$2,accepted_at=now()
+       WHERE id=$1`,
+      [invitation.id, auth.userId],
+    );
+    await writeAudit(
+      client,
+      invitation.business_id,
+      invitation.staff_id,
+      "STAFF_INVITATION_ACCEPTED",
+      "STAFF_INVITATION",
+      invitation.id,
+      { targetStaffId: invitation.staff_id, role: invitation.role },
+    );
+    return acceptanceFromInvitation(invitation);
+  });
+}
+
+function mapInvitationSummary(row: InvitationRow): StaffInvitationSummary {
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    staffId: row.staff_id,
+    invitedEmail: row.invited_email,
+    invitedPhoneE164: row.invited_phone_e164,
+    role: row.role,
+    status: row.status,
+    expiresAt: row.expires_at.toISOString(),
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+function requireAcceptanceToken(value: string | undefined): string {
+  const token = value?.trim() ?? "";
+  if (token.length < 32) {
+    throw new AuthError("Invitation link is invalid", 404, "INVITATION_INVALID");
+  }
+  return token;
+}
+
+function invitationSnapshotMatches(invitation: InvitationRow): boolean {
+  const email = normalizeNullableEmail(invitation.staff_email);
+  const phone = normalizeNullablePhone(invitation.staff_phone);
+  return invitation.staff_role === invitation.role
+    && email === invitation.invited_email
+    && phone === invitation.invited_phone_e164;
+}
+
+function invitationMatchesAccount(invitation: InvitationRow, auth: AuthContext): boolean {
+  return Boolean(
+    (invitation.invited_email && auth.email === invitation.invited_email)
+    || (invitation.invited_phone_e164 && auth.phoneE164 === invitation.invited_phone_e164),
+  );
+}
+
+function acceptanceFromInvitation(invitation: InvitationRow): StaffInvitationAcceptance {
+  return {
+    businessId: invitation.business_id,
+    staffId: invitation.staff_id,
+    role: invitation.role,
+  };
 }
