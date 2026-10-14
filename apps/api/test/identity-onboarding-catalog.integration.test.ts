@@ -163,7 +163,7 @@ describe("identity, onboarding and flexible-unit catalog", () => {
     expect(sync.json<{ error: string }>().error).toBe("BUSINESS_ACCESS_DENIED");
   });
 
-  it("rejects a sync mutation whose client id does not match the authenticated device", async () => {
+  it("normalizes stale sync client ids to the authenticated device before creating a supplier", async () => {
     const owner = await register("device-owner@tradeos.test", "known-device");
     const created = await createBusiness(owner.accessToken, "Device Test", "SERVICES");
 
@@ -173,18 +173,22 @@ describe("identity, onboarding and flexible-unit catalog", () => {
       headers: bearer(owner.accessToken),
       payload: {
         mutations: [{
-          clientId: "spoofed-device",
-          clientMutationId: "spoofed-sale",
+          clientId: "stale-browser-device",
+          clientMutationId: "stale-device-supplier",
           businessId: created.businessId,
-          branchId: created.branchId,
-          mutationType: "SALE_CREATE",
+          mutationType: "SUPPLIER_CREATE",
           occurredAt: new Date().toISOString(),
-          payload: { lines: [] },
+          payload: { name: "Recovered Supplier" },
         }],
       },
     });
-    expect(response.statusCode).toBe(403);
-    expect(response.json<{ error: string }>().error).toBe("DEVICE_MISMATCH");
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json<{ mutationResults: Array<{ status: string }> }>().mutationResults[0]?.status).toBe("APPLIED");
+    const stored = await pool.query<{ client_id: string }>(
+      "SELECT client_id FROM sync_mutations WHERE business_id=$1 AND client_mutation_id=$2",
+      [created.businessId, "stale-device-supplier"],
+    );
+    expect(stored.rows[0]?.client_id).toBe("known-device");
   });
 
   it("uses the authenticated staff actor for sales and returns and exposes real sale history", async () => {

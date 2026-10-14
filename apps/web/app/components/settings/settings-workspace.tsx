@@ -787,7 +787,7 @@ function BranchesSection({
             {editingId === branch.id ? (
               <div className="tos-settings__branch-editor-shell">
                 <form className="tos-settings__form tos-settings__branch-editor" onSubmit={saveEdit}>
-                  <BranchFields prefix={`edit-${branch.id}`} draft={editDraft} setDraft={setEditDraft} includeCode={false} singleColumn />
+                  <BranchFields prefix={`edit-${branch.id}`} draft={editDraft} setDraft={setEditDraft} includeCode={false} />
                   <div className="tos-settings__actions">
                     <Button type="submit" variant="primary" loading={busyId === branch.id} disabled={!online || !editDraft.name.trim()}>Save branch</Button>
                     <Button variant="outline" onClick={() => setBranchMode({ kind: "view" })}>Cancel</Button>
@@ -804,7 +804,7 @@ function BranchesSection({
       {creating && canManage ? (
         <form className="tos-settings__form tos-settings__subpanel tos-settings__subpanel--gold" onSubmit={create}>
           <div><span className="tos-settings__mini-eyebrow">New location</span><h3 className="tos-settings__subheading">Add branch</h3></div>
-          <BranchFields prefix="new-branch" draft={draft} setDraft={setDraft} includeCode singleColumn />
+          <BranchFields prefix="new-branch" draft={draft} setDraft={setDraft} includeCode />
           <div className="tos-settings__actions"><Button type="submit" variant="gold" loading={busyId === "create"} disabled={!online || !draft.name.trim()}>Create branch</Button></div>
         </form>
       ) : null}

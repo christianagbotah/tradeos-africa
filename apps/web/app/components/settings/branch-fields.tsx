@@ -20,17 +20,15 @@ export function BranchFields({
   draft,
   setDraft,
   includeCode,
-  singleColumn = false,
 }: {
   prefix: string;
   draft: BranchDraft;
   setDraft: React.Dispatch<React.SetStateAction<BranchDraft>>;
   includeCode: boolean;
-  singleColumn?: boolean;
 }) {
   const set = <K extends keyof BranchDraft>(key: K, value: BranchDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   return (
-    <div className={`tos-settings__grid ${singleColumn ? "tos-settings__grid--single" : "tos-settings__grid--2"}`}>
+    <div className="tos-settings__grid tos-settings__grid--2">
       <Field label="Branch name" htmlFor={`${prefix}-name`} required><input id={`${prefix}-name`} className="tos-input" value={draft.name} onChange={(event) => set("name", event.target.value)} required maxLength={120} /></Field>
       {includeCode ? <Field label="Branch code" htmlFor={`${prefix}-code`} hint="Optional; TradeOS can generate one"><input id={`${prefix}-code`} className="tos-input" value={draft.code} onChange={(event) => set("code", event.target.value.toUpperCase())} placeholder="e.g. TEMA25" maxLength={24} /></Field> : null}
       <Field label="Timezone" htmlFor={`${prefix}-timezone`}><select id={`${prefix}-timezone`} className="tos-select" value={draft.timezone} onChange={(event) => set("timezone", event.target.value)}>{SUPPORTED_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}</select></Field>
