@@ -10,7 +10,8 @@ import {
   getDefaultCurrencyCode,
   getSuggestedTimezones,
 } from "@tradeos/contracts";
-import { getOfflineQueue, generateUuid, type WebSession } from "../../lib/offline-sync";
+import { getOfflineQueue, type WebSession } from "../../lib/offline-sync";
+import { getOrCreateWebDeviceKey, WEB_APP_VERSION } from "../../lib/web-device";
 import { Button } from "./ui/button";
 import { IconAlert, IconCheck, IconRefresh, IconShield } from "./ui/icons";
 
@@ -31,22 +32,7 @@ const BUSINESS_TYPES = [
   { value: "OTHER", label: "Other" },
 ] as const;
 
-const APP_VERSION = "0.0.1";
-const WEB_DEVICE_KEY_STORAGE = "tradeos.web.deviceKey.v1";
-
-function getOrCreateDeviceKey(): string {
-  if (typeof window === "undefined") return "web-ssr";
-  try {
-    let key = window.localStorage.getItem(WEB_DEVICE_KEY_STORAGE);
-    if (!key) {
-      key = generateUuid();
-      window.localStorage.setItem(WEB_DEVICE_KEY_STORAGE, key);
-    }
-    return key;
-  } catch {
-    return generateUuid();
-  }
-}
+const APP_VERSION = WEB_APP_VERSION;
 
 // --- API response shapes --------------------------------------------------
 
@@ -374,7 +360,7 @@ function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
     setBusy(true);
     setError(null);
     try {
-      const deviceKey = getOrCreateDeviceKey();
+      const deviceKey = getOrCreateWebDeviceKey();
       const endpoint = tab === "signin" ? "/v1/auth/login" : "/v1/auth/register";
       const body =
         tab === "signin"
