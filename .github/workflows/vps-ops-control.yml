@@ -95,6 +95,55 @@ jobs:
                 sudo -n -l 2>&1 || true
               } > "$output_file" 2>&1
               ;;
+            "/vps variety-topology")
+              {
+                printf 'runner_user='; whoami
+                id
+                printf 'host='; hostname
+                printf '\n== portal service properties ==\n'
+                systemctl show varietygroceries-portal.service \
+                  -p FragmentPath -p User -p Group -p WorkingDirectory -p ExecStart -p MainPID \
+                  --no-pager 2>/dev/null || true
+                printf '\n== portal service unit ==\n'
+                systemctl cat varietygroceries-portal.service --no-pager 2>/dev/null || true
+                printf '\n== portal process ==\n'
+                pid="$(systemctl show varietygroceries-portal.service -p MainPID --value 2>/dev/null || true)"
+                if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+                  ps -o user=,group=,pid=,ppid=,lstart=,args= -p "$pid" 2>/dev/null || true
+                  printf 'cwd='; readlink -f "/proc/$pid/cwd" 2>/dev/null || true
+                fi
+                printf '\n== path ownership and runner write access ==\n'
+                for path in \
+                  /home/lightworld \
+                  /home/lightworld/releases \
+                  /home/lightworld/webapps \
+                  /home/lightworld/webapps/varietygroceries \
+                  /etc/systemd/system \
+                  /usr/local/apps/nginx/etc/conf.d; do
+                  stat -c 'owner=%U group=%G mode=%a path=%n' "$path" 2>/dev/null || true
+                  if [ -w "$path" ]; then printf 'runner_writable=yes path=%s\n' "$path"; else printf 'runner_writable=no path=%s\n' "$path"; fi
+                done
+                printf '\n== variety webapp entries ==\n'
+                find /home/lightworld/webapps -maxdepth 1 -mindepth 1 -iname '*variety*' -printf '%y %u:%g %m %p -> %l\n' 2>/dev/null || true
+                printf '\n== portal nginx routing ==\n'
+                for conf in \
+                  /usr/local/apps/nginx/etc/conf.d/zzz-varietygroceries-portal.conf \
+                  /usr/local/apps/nginx/etc/conf.d/webuzoVH.conf; do
+                  if [ -r "$conf" ]; then
+                    printf '%s\n' "--- $conf ---"
+                    grep -nE 'server_name|listen|proxy_pass|root |alias |location |include |upstream|varietygroceries' "$conf" 2>/dev/null | head -n 160 || true
+                  fi
+                done
+                printf '\n== current portal release metadata ==\n'
+                workdir="$(systemctl show varietygroceries-portal.service -p WorkingDirectory --value 2>/dev/null || true)"
+                if [ -n "$workdir" ] && [ -d "$workdir" ]; then
+                  stat -c 'owner=%U group=%G mode=%a path=%n' "$workdir" 2>/dev/null || true
+                  find "$workdir" -maxdepth 1 -mindepth 1 -printf '%y %u:%g %m %f -> %l\n' 2>/dev/null | sort | head -n 100 || true
+                  printf '\n== environment filenames/names only ==\n'
+                  find "$workdir" -maxdepth 2 -type f -name '.env*' -print 2>/dev/null || true
+                fi
+              } > "$output_file" 2>&1
+              ;;
             *)
               printf 'Rejected: command is not in the read-only allow-list.\n' > "$output_file"
               exit 64
