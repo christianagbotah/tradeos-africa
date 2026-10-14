@@ -28,6 +28,17 @@ describe("settings navigation model", () => {
     expect(normalizeSettingsSection("unknown")).toBe("profile");
   });
 
+  it("uses canonical query-string settings links and preserves legacy hash handling", () => {
+    expect(shellSource).toContain('/settings?section=profile');
+    expect(shellSource).toContain('/settings?section=security');
+    expect(shellSource).toContain('/settings?section=business&action=create');
+    expect(shellSource).toContain('/settings?section=branches&action=create');
+    expect(workspaceSource).toContain("useSearchParams");
+    expect(workspaceSource).toContain("URLSearchParams");
+    expect(workspaceSource).toContain('addEventListener("hashchange"');
+    expect(workspaceSource).toContain("history.replaceState");
+  });
+
   it("restricts business and branch management to OWNER and ADMIN", () => {
     expect(canManageBusinessSettings("OWNER")).toBe(true);
     expect(canManageBusinessSettings("ADMIN")).toBe(true);

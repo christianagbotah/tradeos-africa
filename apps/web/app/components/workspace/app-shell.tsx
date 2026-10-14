@@ -280,8 +280,8 @@ export function AppShell({ children }: AppShellProps) {
                 </div>
 
                 <div className="tos-shell-popover__actions">
-                  <Link href="/settings#business" className="tos-shell-action-link"><IconPlus />Add business</Link>
-                  {canManageBusiness ? <Link href="/settings#branches" className="tos-shell-action-link"><IconPlus />Add branch</Link> : null}
+                  <Link href="/settings?section=business&action=create" className="tos-shell-action-link"><IconPlus />Add business</Link>
+                  {canManageBusiness ? <Link href="/settings?section=branches&action=create" className="tos-shell-action-link"><IconPlus />Add branch</Link> : null}
                 </div>
               </div>
             ) : null}
@@ -329,9 +329,9 @@ export function AppShell({ children }: AppShellProps) {
                     <span>{account?.email ?? account?.phoneE164 ?? "TradeOS account"}</span>
                   </div>
                 </div>
-                <Link href="/settings#profile" className="tos-account-link" role="menuitem"><IconUser />My profile</Link>
-                <Link href="/settings#security" className="tos-account-link" role="menuitem"><IconShield />Security</Link>
-                <Link href="/settings" className="tos-account-link" role="menuitem"><IconBuilding />Settings</Link>
+                <Link href="/settings?section=profile" className="tos-account-link" role="menuitem"><IconUser />My profile</Link>
+                <Link href="/settings?section=security" className="tos-account-link" role="menuitem"><IconShield />Security</Link>
+                <Link href="/settings?section=business" className="tos-account-link" role="menuitem"><IconBuilding />Settings</Link>
                 <button type="button" className="tos-account-link tos-account-link--danger" role="menuitem" onClick={handleSignOut}>
                   <IconLogout />Sign out
                 </button>

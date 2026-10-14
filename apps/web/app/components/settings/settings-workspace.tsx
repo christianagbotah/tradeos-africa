@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   SUPPORTED_COUNTRIES,
   SUPPORTED_CURRENCIES,
@@ -134,19 +135,30 @@ export function SettingsWorkspace() {
     switchBusiness,
     switchBranch,
   } = useWorkspace();
-  const [section, setSection] = useState<SettingsSectionId>("profile");
+  const searchParams = useSearchParams();
+  const querySection = searchParams.get("section");
+  const [section, setSection] = useState<SettingsSectionId>(() => normalizeSettingsSection(querySection));
 
   useEffect(() => {
+    if (querySection) {
+      setSection(normalizeSettingsSection(querySection));
+      return;
+    }
     if (typeof window === "undefined") return;
-    const sync = () => setSection(normalizeSettingsSection(window.location.hash.replace(/^#/, "")));
-    sync();
-    window.addEventListener("hashchange", sync);
-    return () => window.removeEventListener("hashchange", sync);
-  }, []);
+    const syncHash = () => setSection(normalizeSettingsSection(window.location.hash.replace(/^#/, "")));
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, [querySection]);
 
   const chooseSection = (next: SettingsSectionId) => {
     setSection(next);
-    if (typeof window !== "undefined") window.history.replaceState(null, "", `${window.location.pathname}#${next}`);
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("section", next);
+    params.delete("action");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
   };
 
   if (!session) return null;
