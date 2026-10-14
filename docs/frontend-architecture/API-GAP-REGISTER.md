@@ -84,8 +84,18 @@ Backend capabilities required by TradeOS clients, including a clear distinction 
 
 ### 12. Staff Management
 - **Consumer:** `apps/web`, `apps/mobile`
-- **Contract:** dedicated staff/team invitation, role-change, suspension and reactivation API
-- **Status:** PENDING SEPARATE STAFF BACKEND — Account & Business Control Center intentionally does not duplicate staff lifecycle APIs. The Settings → Team surface remains an honest read-only placeholder until that backend lands.
+- **Implemented endpoints:**
+  - `GET /v1/staff?businessId=:businessId`
+  - `POST /v1/staff`
+  - `PATCH /v1/staff/:staffId`
+  - `POST /v1/staff/:staffId/invitations`
+  - `POST /v1/staff/invitations/accept`
+  - `POST /v1/staff/invitations/accept/register`
+  - `POST /v1/staff/:staffId/suspend`
+  - `POST /v1/staff/:staffId/reactivate`
+- **Authorization:** OWNER has full staff management; ADMIN manages only non-privileged roles; MANAGER has read-only directory access; lower roles have no Team access. Last-owner protection is transactional and concurrent owner-changing mutations are serialized per business.
+- **Invitation security:** 72-hour invitations persist only SHA-256 token hashes; the raw acceptance token is returned once, never audited or browser-persisted, and the public invite page consumes it from a URL fragment then immediately scrubs the fragment.
+- **Status:** IMPLEMENTED — Settings → Team & Access now provides staff create/edit, role management, invitation, suspension/reactivation, desktop table/mobile cards, and secure existing/new-account invitation acceptance.
 
 ### 13. Business + Branch Settings
 - **Consumer:** `apps/web`
@@ -111,7 +121,17 @@ Backend capabilities required by TradeOS clients, including a clear distinction 
 - **Status:** IMPLEMENTED — profile identity changes require current-password verification where appropriate; session revocation and identity-scoped security audit events are supported.
 - **Remaining device gap:** trusted-device fingerprint/risk administration is not yet exposed as a user lifecycle API. The current Settings → Devices view manages authentication sessions, not a fabricated device-trust system.
 
-### 15. Notifications Center
+### 15. Managed Avatar + Business Logo Media
+- **Consumer:** `apps/web`
+- **Implemented endpoints:**
+  - `POST /v1/me/avatar`
+  - `DELETE /v1/me/avatar`
+  - `POST /v1/businesses/:businessId/logo`
+  - `DELETE /v1/businesses/:businessId/logo`
+  - `GET /v1/media/:assetId`
+- **Status:** IMPLEMENTED — Settings uses real JPEG/PNG/WebP file pickers with a 5 MiB server-enforced limit, managed immutable reads, OWNER/ADMIN business-logo authorization, safe replacement cleanup and storage outside atomic release directories. Legacy external avatar/logo URLs remain readable until replaced.
+
+### 16. Notifications Center
 - **Consumer:** `apps/web`, `apps/mobile`
 - **Endpoint needed:** `GET /api/tradeos/v1/notifications`
 - **Status:** NOT IMPLEMENTED — no notifications API

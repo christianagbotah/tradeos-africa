@@ -1,9 +1,9 @@
 # TradeOS Settings Control Center V2 Design
 
-**Date:** 2026-10-14  
-**Status:** Proposed for written review  
-**Scope:** Settings UX correction + complete business creation parity + managed image uploads + Team & Access backend/frontend + reliable settings deep links  
-**Base:** `main` after Account & Business Control Center merge `5772b018`  
+**Date:** 2026-10-14
+**Status:** IMPLEMENTED on `feat/settings-control-center-v2`; pending merge/deployment verification
+**Scope:** Settings UX correction + complete business creation parity + managed image uploads + Team & Access backend/frontend + reliable settings deep links
+**Base:** `main` after Account & Business Control Center merge `5772b018`
 **Related design:** `docs/superpowers/specs/2026-10-13-staff-management-design.md`
 
 This V2 spec incorporates that approved staff design and extends it with Settings UI, secure invitation preview/acceptance UX, and managed media. The older standalone staff implementation plan is superseded for execution ordering; the staff backend invariants remain binding.
@@ -283,21 +283,20 @@ Storage keys are server-generated UUID-based names. Paths are never derived dire
 
 ### 9.4 Metadata
 
-Migration `0019_managed_media.sql` adds `media_assets` with at least:
+Migration `0019_managed_media.sql` adds the implemented `managed_media` table:
 
 - `id uuid primary key`
-- `owner_kind` constrained to `ACCOUNT_AVATAR`, `BUSINESS_LOGO`
+- `purpose` constrained to `AVATAR`, `BUSINESS_LOGO`
 - `owner_user_id uuid null references app_users(id)`
-- `owner_business_id uuid null references businesses(id)`
-- `storage_key text unique not null`
-- `mime_type text not null`
-- `size_bytes bigint not null`
-- `sha256 char(64) not null`
+- `business_id uuid null references businesses(id)`
 - `created_by_user_id uuid not null references app_users(id)`
+- `mime_type` constrained to JPEG, PNG and WebP
+- `size_bytes bigint` constrained to 1..5 MiB
+- `storage_name text unique not null` using a server-generated random name
 - `created_at timestamptz not null default now()`
-- `deleted_at timestamptz null`
+- `retired_at timestamptz null`
 
-Exactly one owner column must be present and must match `owner_kind`.
+Exactly one owner column is present and must match `purpose`. Partial unique indexes enforce at most one active avatar per account and one active logo per business. File signatures are verified before metadata is committed; a separate persisted SHA column is unnecessary for this milestone because integrity is enforced at ingest and assets are immutable while active.
 
 `app_users.avatar_url` and `businesses.logo_url` remain the presentation fields and point at the managed media URL for active managed assets. This preserves current read contracts.
 
