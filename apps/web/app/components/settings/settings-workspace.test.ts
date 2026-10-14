@@ -67,8 +67,10 @@ describe("settings navigation model", () => {
     expect(branchesSectionSource).toContain('tos-settings__branch-card-head');
     expect(branchesSectionSource).toContain('tos-settings__branch-editor-shell');
     expect(branchesSectionSource).toContain('<BranchFields');
+    expect(branchesSectionSource).not.toContain('singleColumn');
     expect(shellCssSource).toContain('.tos-settings__branch-editor-shell');
-    expect(shellCssSource).toContain('.tos-settings__grid--single');
+    expect(shellCssSource).toContain('.tos-settings__grid--2');
+    expect(shellCssSource).toMatch(/@media \(max-width: 768px\)[\s\S]*?\.tos-settings__grid--2[\s\S]*?grid-template-columns:\s*1fr/);
   });
 
   it("uses real avatar and business-logo file pickers instead of URL text fields", () => {

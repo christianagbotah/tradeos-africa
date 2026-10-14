@@ -97,11 +97,14 @@ async function authorizeAndEnrichSyncBatch(
   const mutations: ClientMutation[] = [];
 
   for (const mutation of body.mutations) {
-    if (mutation.clientId !== auth.deviceKey) {
-      throw new AuthError("Sync clientId does not match the authenticated device", 403, "DEVICE_MISMATCH");
-    }
+    // The authenticated session is authoritative for device identity. A stale
+    // browser queue may carry an older clientId, so never trust or reject on
+    // that client-supplied value; normalize it before authorization/ingest.
+    const normalizedMutation: ClientMutation = mutation.clientId === auth.deviceKey
+      ? mutation
+      : { ...mutation, clientId: auth.deviceKey };
 
-    const roles = rolesForMutation(mutation);
+    const roles = rolesForMutation(normalizedMutation);
     const authorizationKey = `${mutation.businessId}:${roles.join(",")}`;
     let access = accessCache.get(authorizationKey);
     if (!access) {
@@ -117,8 +120,8 @@ async function authorizeAndEnrichSyncBatch(
     }
 
     mutations.push({
-      ...mutation,
-      payload: authoritativeActorPayload(mutation, access),
+      ...normalizedMutation,
+      payload: authoritativeActorPayload(normalizedMutation, access),
     });
   }
 
