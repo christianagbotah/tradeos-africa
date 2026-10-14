@@ -15,6 +15,8 @@ const shellCssSource = readFileSync(new URL("../../workspace-shell.css", import.
 const visualQaSource = readFileSync(new URL("../../../../../.github/workflows/visual-qa.yml", import.meta.url), "utf8");
 const businessSectionSource = workspaceSource.slice(workspaceSource.indexOf("function BusinessSection"), workspaceSource.indexOf("function BranchesSection"));
 const branchesSectionSource = workspaceSource.slice(workspaceSource.indexOf("function BranchesSection"), workspaceSource.indexOf("function TeamSection"));
+const imagePickerSource = readFileSync(new URL("./image-picker.tsx", import.meta.url), "utf8");
+const businessFieldsSource = readFileSync(new URL("./business-fields.tsx", import.meta.url), "utf8");
 
 describe("settings navigation model", () => {
   it("provides all account/business control-center sections", () => {
@@ -65,6 +67,30 @@ describe("settings navigation model", () => {
     expect(branchesSectionSource).toContain('<BranchFields');
     expect(shellCssSource).toContain('.tos-settings__branch-editor-shell');
     expect(shellCssSource).toContain('.tos-settings__grid--single');
+  });
+
+  it("uses real avatar and business-logo file pickers instead of URL text fields", () => {
+    expect(imagePickerSource).toContain('type="file"');
+    expect(imagePickerSource).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(imagePickerSource).toContain("5 * 1024 * 1024");
+    expect(imagePickerSource).toContain("Choose photo");
+    expect(imagePickerSource).toContain("Replace photo");
+    expect(imagePickerSource).toContain("Remove photo");
+    expect(imagePickerSource).toContain("Choose logo");
+    expect(imagePickerSource).toContain("Replace logo");
+    expect(imagePickerSource).toContain("Remove logo");
+    expect(workspaceSource).toContain('"/v1/me/avatar"');
+    expect(workspaceSource).toContain('/logo`');
+    expect(workspaceSource).toContain("newBusinessLogo");
+    expect(workspaceSource).toContain("FormData");
+    expect(workspaceSource).not.toContain('label="Avatar URL"');
+    expect(businessFieldsSource).not.toContain('label="Logo URL"');
+  });
+
+  it("renders the managed avatar in the workspace shell with initials as fallback", () => {
+    expect(shellSource).toContain("account?.avatarUrl");
+    expect(shellSource).toContain('className="tos-topbar__avatar-image"');
+    expect(shellSource).toContain('className="tos-account-card__avatar-image"');
   });
 
   it("renders business summaries as spaced label colon value content", () => {

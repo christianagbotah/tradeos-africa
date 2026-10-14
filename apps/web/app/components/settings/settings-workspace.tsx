@@ -12,6 +12,7 @@ import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { Button } from "../ui/button";
 import { BusinessFields, type BusinessFormState, type BusinessType } from "./business-fields";
 import { BranchFields, type BranchDraft } from "./branch-fields";
+import { ImagePicker } from "./image-picker";
 import {
   IconAlert,
   IconBuilding,
@@ -217,19 +218,49 @@ function ProfileSection({ online, onRefresh }: { online: boolean; onRefresh: () 
   const [displayName, setDisplayName] = useState(account?.displayName ?? session?.displayName ?? "");
   const [email, setEmail] = useState(account?.email ?? "");
   const [phone, setPhone] = useState(account?.phoneE164 ?? "");
-  const [avatarUrl, setAvatarUrl] = useState(account?.avatarUrl ?? "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
   useEffect(() => {
     setDisplayName(account?.displayName ?? session?.displayName ?? "");
     setEmail(account?.email ?? "");
     setPhone(account?.phoneE164 ?? "");
-    setAvatarUrl(account?.avatarUrl ?? "");
   }, [account, session?.displayName]);
 
   const identityChanged = email.trim() !== (account?.email ?? "") || phone.trim() !== (account?.phoneE164 ?? "");
+
+  const uploadAvatar = async (file: File) => {
+    if (!online || mediaBusy) return;
+    setMediaBusy(true);
+    setFeedback(null);
+    try {
+      await uploadManagedImage("/v1/me/avatar", file, "Profile photo could not be uploaded");
+      await onRefresh();
+      setFeedback({ tone: "success", text: "Profile photo updated." });
+    } catch (error) {
+      setFeedback({ tone: "error", text: errorMessage(error) });
+    } finally {
+      setMediaBusy(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    if (!online || mediaBusy) return;
+    setMediaBusy(true);
+    setFeedback(null);
+    try {
+      const response = await getOfflineQueue().authenticatedFetch("/v1/me/avatar", { method: "DELETE" });
+      if (!response.ok) throw new Error(await readApiErrorMessage(response, "Profile photo could not be removed"));
+      await onRefresh();
+      setFeedback({ tone: "success", text: "Profile photo removed." });
+    } catch (error) {
+      setFeedback({ tone: "error", text: errorMessage(error) });
+    } finally {
+      setMediaBusy(false);
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -248,7 +279,6 @@ function ProfileSection({ online, onRefresh }: { online: boolean; onRefresh: () 
           displayName: displayName.trim(),
           email: email.trim() || null,
           phone: phone.trim() || null,
-          avatarUrl: avatarUrl.trim() || null,
           ...(identityChanged ? { currentPassword } : {}),
         }),
       });
@@ -283,9 +313,14 @@ function ProfileSection({ online, onRefresh }: { online: boolean; onRefresh: () 
             <input id="settings-profile-phone" className="tos-input" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" placeholder="+233…" />
           </Field>
         </div>
-        <Field label="Avatar URL" htmlFor="settings-profile-avatar" hint="Optional HTTPS image URL">
-          <input id="settings-profile-avatar" className="tos-input" type="url" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://…" />
-        </Field>
+        <ImagePicker
+          kind="photo"
+          currentUrl={account?.avatarUrl}
+          busy={mediaBusy}
+          disabled={!online}
+          onChoose={uploadAvatar}
+          onRemove={removeAvatar}
+        />
         {identityChanged ? (
           <Field label="Current password" htmlFor="settings-profile-password" hint="Required because your sign-in identity changed">
             <input id="settings-profile-password" className="tos-input" type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" />
@@ -394,6 +429,8 @@ function BusinessSection({
   const business = businessContext?.business;
   const [form, setForm] = useState<BusinessFormState>(() => businessToForm(business));
   const [newBusiness, setNewBusiness] = useState<NewBusinessFormState>(() => defaultNewBusiness());
+  const [newBusinessLogo, setNewBusinessLogo] = useState<File | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
   const [businessMode, setBusinessMode] = useState<BusinessEditorMode>("view");
   const editing = businessMode === "edit";
   const creating = businessMode === "create";
@@ -416,6 +453,37 @@ function BusinessSection({
   };
   const updateNewBusinessField = <K extends keyof BusinessFormState>(key: K, value: BusinessFormState[K]) => {
     setNewBusiness((current) => ({ ...current, [key]: value }));
+  };
+
+  const uploadCurrentLogo = async (file: File) => {
+    if (!session || !online || !canManage || logoBusy) return;
+    setLogoBusy(true);
+    setFeedback(null);
+    try {
+      await uploadManagedImage(`/v1/businesses/${encodeURIComponent(session.businessId)}/logo`, file, "Business logo could not be uploaded");
+      await onRefresh();
+      setFeedback({ tone: "success", text: "Business logo updated." });
+    } catch (error) {
+      setFeedback({ tone: "error", text: errorMessage(error) });
+    } finally {
+      setLogoBusy(false);
+    }
+  };
+
+  const removeCurrentLogo = async () => {
+    if (!session || !online || !canManage || logoBusy) return;
+    setLogoBusy(true);
+    setFeedback(null);
+    try {
+      const response = await getOfflineQueue().authenticatedFetch(`/v1/businesses/${encodeURIComponent(session.businessId)}/logo`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business logo could not be removed"));
+      await onRefresh();
+      setFeedback({ tone: "success", text: "Business logo removed." });
+    } catch (error) {
+      setFeedback({ tone: "error", text: errorMessage(error) });
+    } finally {
+      setLogoBusy(false);
+    }
   };
 
   const submit = async (event: FormEvent) => {
@@ -443,7 +511,6 @@ function BusinessSection({
           countryCode: form.countryCode,
           currencyCode: form.currencyCode,
           timezone: form.timezone,
-          logoUrl: nullable(form.logoUrl),
         }),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business could not be updated"));
@@ -482,17 +549,27 @@ function BusinessSection({
           countryCode: newBusiness.countryCode,
           currencyCode: newBusiness.currencyCode,
           timezone: newBusiness.timezone,
-          logoUrl: nullable(newBusiness.logoUrl),
           branchName: newBusiness.firstBranchName.trim() || "Main",
         }),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business could not be created"));
       const json = await response.json() as { business?: { id?: string } };
       if (!json.business?.id) throw new Error("Server returned an incomplete business record.");
+      let logoWarning: string | null = null;
+      if (newBusinessLogo) {
+        try {
+          await uploadManagedImage(`/v1/businesses/${encodeURIComponent(json.business.id)}/logo`, newBusinessLogo, "Business logo could not be uploaded");
+        } catch (error) {
+          logoWarning = errorMessage(error);
+        }
+      }
       await onSwitchBusiness(json.business.id);
       setBusinessMode("view");
       setNewBusiness(defaultNewBusiness());
-      setFeedback({ tone: "success", text: "New business created and opened." });
+      setNewBusinessLogo(null);
+      setFeedback(logoWarning
+        ? { tone: "info", text: `Business created and opened. ${logoWarning} You can choose the logo again from Edit business.` }
+        : { tone: "success", text: "New business created and opened." });
     } catch (error) {
       setFeedback({ tone: "error", text: errorMessage(error) });
     } finally {
@@ -534,7 +611,12 @@ function BusinessSection({
       {editing && canManage ? (
         <form className="tos-settings__form tos-settings__subpanel" onSubmit={submit}>
           <h3 className="tos-settings__subheading">Edit current business</h3>
-          <BusinessFields prefix="settings-business" value={form} onChange={updateField} />
+          <BusinessFields
+            prefix="settings-business"
+            value={form}
+            onChange={updateField}
+            logoField={<ImagePicker kind="logo" currentUrl={business.logoUrl} busy={logoBusy} disabled={!online} onChoose={uploadCurrentLogo} onRemove={removeCurrentLogo} />}
+          />
           <div className="tos-settings__actions"><Button type="submit" variant="primary" loading={busy} disabled={!online || !form.name.trim()}>Save business</Button></div>
         </form>
       ) : null}
@@ -551,6 +633,7 @@ function BusinessSection({
             value={newBusiness}
             onChange={updateNewBusinessField}
             onCountryChange={(countryCode) => setNewBusiness((current) => applyCountryDefaults(current, countryCode))}
+            logoField={<ImagePicker kind="logo" currentUrl={null} selectedFile={newBusinessLogo} disabled={!online || busy} onChoose={(file) => setNewBusinessLogo(file)} onRemove={() => setNewBusinessLogo(null)} />}
           />
           <div className="tos-settings__grid tos-settings__grid--2">
             <Field label="First branch name" htmlFor="settings-new-business-branch"><input id="settings-new-business-branch" className="tos-input" value={newBusiness.firstBranchName} onChange={(event) => setNewBusiness((current) => ({ ...current, firstBranchName: event.target.value }))} /></Field>
@@ -995,6 +1078,13 @@ function branchPayload(draft: BranchDraft, includeCode: boolean) {
 
 function activeBranchName(branches: readonly WorkspaceBranch[], branchId: string): string {
   return branches.find((branch) => branch.id === branchId)?.name ?? "Branch";
+}
+
+async function uploadManagedImage(path: string, file: File, fallback: string): Promise<void> {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await getOfflineQueue().authenticatedFetch(path, { method: "POST", body });
+  if (!response.ok) throw new Error(await readApiErrorMessage(response, fallback));
 }
 
 function nullable(value: string): string | null {

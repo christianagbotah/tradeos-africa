@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import {
   SUPPORTED_COUNTRIES,
   SUPPORTED_CURRENCIES,
@@ -44,11 +46,13 @@ export function BusinessFields({
   value,
   onChange,
   onCountryChange,
+  logoField,
 }: {
   prefix: string;
   value: BusinessFormState;
   onChange: <K extends keyof BusinessFormState>(key: K, value: BusinessFormState[K]) => void;
   onCountryChange?: (countryCode: string) => void;
+  logoField?: ReactNode;
 }) {
   const id = (suffix: string) => `${prefix}-${suffix}`;
   return (
@@ -64,9 +68,7 @@ export function BusinessFields({
           {BUSINESS_TYPES.map(([optionValue, label]) => <option key={optionValue} value={optionValue}>{label}</option>)}
         </select>
       </Field>
-      <Field label="Logo URL" htmlFor={id("logo")}>
-        <input id={id("logo")} className="tos-input" type="url" value={value.logoUrl} onChange={(event) => onChange("logoUrl", event.target.value)} placeholder="https://…" />
-      </Field>
+      {logoField ? <div className="tos-field tos-settings__media-field">{logoField}</div> : null}
       <Field label="Email" htmlFor={id("email")}><input id={id("email")} className="tos-input" type="email" value={value.email} onChange={(event) => onChange("email", event.target.value)} /></Field>
       <Field label="Phone" htmlFor={id("phone")}><input id={id("phone")} className="tos-input" value={value.phone} onChange={(event) => onChange("phone", event.target.value)} /></Field>
       <Field label="Registration number" htmlFor={id("registration")}><input id={id("registration")} className="tos-input" value={value.registrationNumber} onChange={(event) => onChange("registrationNumber", event.target.value)} /></Field>
