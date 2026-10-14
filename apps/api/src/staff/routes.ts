@@ -3,6 +3,7 @@ import type {
   CreateStaffInvitationRequest,
   CreateStaffRequest,
   RegisterStaffInvitationRequest,
+  StaffAccessMutationRequest,
   UpdateStaffRequest,
 } from "@tradeos/contracts";
 import type { FastifyInstance } from "fastify";
@@ -14,6 +15,7 @@ import {
   createStaffInvitation,
   listStaff,
   registerStaffInvitationAccount,
+  setStaffActive,
   updateStaff,
 } from "./staff-service.js";
 
@@ -66,6 +68,32 @@ export function registerStaffRoutes(app: FastifyInstance, pool: DatabasePool): v
         return reply.code(201).send(result);
       } catch (error) {
         return sendStaffError(request, reply, error, "INVITATION_CREATE_FAILED", "Invitation could not be created.");
+      }
+    },
+  );
+
+  app.post<{ Params: { staffId: string }; Body: StaffAccessMutationRequest }>(
+    "/v1/staff/:staffId/suspend",
+    async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const staff = await setStaffActive(pool, auth, request.params.staffId, request.body, false);
+        return { staff };
+      } catch (error) {
+        return sendStaffError(request, reply, error, "STAFF_SUSPEND_FAILED", "Staff member could not be suspended.");
+      }
+    },
+  );
+
+  app.post<{ Params: { staffId: string }; Body: StaffAccessMutationRequest }>(
+    "/v1/staff/:staffId/reactivate",
+    async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const staff = await setStaffActive(pool, auth, request.params.staffId, request.body, true);
+        return { staff };
+      } catch (error) {
+        return sendStaffError(request, reply, error, "STAFF_REACTIVATE_FAILED", "Staff member could not be reactivated.");
       }
     },
   );

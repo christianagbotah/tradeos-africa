@@ -75,6 +75,10 @@ export interface CreateStaffInvitationRequest {
   businessId: string;
 }
 
+export interface StaffAccessMutationRequest {
+  businessId: string;
+}
+
 export interface AcceptStaffInvitationRequest {
   acceptanceToken: string;
 }

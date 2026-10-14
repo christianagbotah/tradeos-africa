@@ -11,6 +11,7 @@ import {
   type StaffInvitationAcceptance,
   type StaffInvitationResponse,
   type StaffInvitationSummary,
+  type StaffAccessMutationRequest,
   type UpdateStaffRequest,
 } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessAccess } from "../auth/authorization.js";
@@ -357,6 +358,83 @@ type InvitationRow = {
   staff_role: BusinessRole;
   staff_active: boolean;
 };
+
+export async function setStaffActive(
+  pool: DatabasePool,
+  auth: AuthContext,
+  staffId: string,
+  input: StaffAccessMutationRequest,
+  active: boolean,
+): Promise<StaffDirectoryItem> {
+  const businessId = requireBusinessId(input?.businessId);
+  const access = await requireBusinessRole(pool, auth, businessId, STAFF_MUTATION_ROLES);
+
+  await withTransaction(pool, async (client) => {
+    const found = await client.query<StaffRow>(
+      `SELECT id,business_id,display_name,email,phone,role,is_active,created_at,updated_at
+       FROM staff
+       WHERE id=$1 AND business_id=$2
+       FOR UPDATE`,
+      [staffId, businessId],
+    );
+    const staff = found.rows[0];
+    if (!staff) throw new AuthError("Staff member was not found", 404, "STAFF_NOT_FOUND");
+    assertActorCanManageRole(access, staff.role, staff.role);
+
+    if (!active && staff.is_active && staff.role === "OWNER") {
+      await ensureOwnerCanLoseAccess(client, businessId, staffId);
+    }
+    if (staff.is_active === active) return;
+
+    await client.query(
+      `UPDATE staff SET is_active=$3,updated_at=now() WHERE id=$1 AND business_id=$2`,
+      [staffId, businessId, active],
+    );
+
+    if (active) {
+      await client.query(
+        `UPDATE business_memberships
+         SET status='ACTIVE',updated_at=now()
+         WHERE business_id=$1 AND staff_id=$2 AND status='SUSPENDED'`,
+        [businessId, staffId],
+      );
+      await writeAudit(client, businessId, access.staffId, "STAFF_REACTIVATED", "STAFF", staffId, {
+        role: staff.role,
+      });
+      return;
+    }
+
+    await client.query(
+      `UPDATE business_memberships
+       SET status='SUSPENDED',updated_at=now()
+       WHERE business_id=$1 AND staff_id=$2 AND status='ACTIVE'`,
+      [businessId, staffId],
+    );
+    const revoked = await client.query<{ id: string }>(
+      `UPDATE staff_invitations
+       SET status='REVOKED',revoked_at=now()
+       WHERE business_id=$1 AND staff_id=$2 AND status='PENDING'
+       RETURNING id`,
+      [businessId, staffId],
+    );
+    for (const invitation of revoked.rows) {
+      await writeAudit(
+        client,
+        businessId,
+        access.staffId,
+        "STAFF_INVITATION_REVOKED",
+        "STAFF_INVITATION",
+        invitation.id,
+        { targetStaffId: staffId, reason: "STAFF_SUSPENDED" },
+      );
+    }
+    await writeAudit(client, businessId, access.staffId, "STAFF_SUSPENDED", "STAFF", staffId, {
+      role: staff.role,
+    });
+  });
+
+  return loadStaffItem(pool, businessId, staffId);
+}
 
 export async function createStaffInvitation(
   pool: DatabasePool,
