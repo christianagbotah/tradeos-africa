@@ -27,11 +27,22 @@ const MANAGEMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN"];
 
 export interface CreateOwnedBusinessRequest {
   name: string;
+  legalName?: string | null;
   businessType: BusinessType;
-  branchName?: string;
+  email?: string | null;
+  phone?: string | null;
+  registrationNumber?: string | null;
+  taxId?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postalCode?: string | null;
   countryCode?: string;
   currencyCode?: string;
   timezone?: string;
+  logoUrl?: string | null;
+  branchName?: string;
 }
 
 export interface BusinessProfileUpdateRequest {
@@ -135,9 +146,15 @@ export async function createOwnedBusiness(
     const membershipId = randomUUID();
 
     await client.query(
-      `INSERT INTO businesses (id,name,country_code,currency_code,business_type,timezone)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [businessId, input.name, input.countryCode, input.currencyCode, input.businessType, input.timezone],
+      `INSERT INTO businesses (
+         id,name,legal_name,business_type,email,phone,registration_number,tax_id,
+         address_line1,address_line2,city,region,postal_code,country_code,currency_code,timezone,logo_url
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+      [
+        businessId, input.name, input.legalName, input.businessType, input.email, input.phone,
+        input.registrationNumber, input.taxId, input.addressLine1, input.addressLine2, input.city,
+        input.region, input.postalCode, input.countryCode, input.currencyCode, input.timezone, input.logoUrl,
+      ],
     );
     await client.query(
       `INSERT INTO branches (id,business_id,name,code,timezone)
@@ -408,8 +425,7 @@ export async function loadBusinessContext(pool: DatabasePool, businessId: string
 export function validateCreateBusiness(body: CreateOwnedBusinessRequest) {
   const name = validateBusinessName(body.name);
   const businessType = validateBusinessType(body.businessType);
-  const branchName = body.branchName?.trim() || "Main";
-  if (branchName.length > 120) throw new AuthError("Branch name is too long", 400, "INVALID_BRANCH_NAME");
+  const branchName = validateBranchName(body.branchName?.trim() || "Main");
 
   const countryCodeRaw = body.countryCode?.trim().toUpperCase();
   const country = getCountry(countryCodeRaw || "GH");
@@ -419,7 +435,25 @@ export function validateCreateBusiness(body: CreateOwnedBusinessRequest) {
   const countryCode = country.countryCode;
   const currencyCode = validateCurrencyCode(body.currencyCode?.trim() || country.defaultCurrencyCode);
   const timezone = validateTimezone(body.timezone?.trim() || country.timezones[0]!);
-  return { name, businessType, branchName, countryCode, currencyCode, timezone };
+  return {
+    name,
+    legalName: nullableText(body.legalName, 160, "INVALID_LEGAL_NAME"),
+    businessType,
+    email: normalizeNullableEmail(body.email),
+    phone: normalizeNullablePhone(body.phone),
+    registrationNumber: nullableText(body.registrationNumber, 120, "INVALID_REGISTRATION_NUMBER"),
+    taxId: nullableText(body.taxId, 120, "INVALID_TAX_ID"),
+    addressLine1: nullableText(body.addressLine1, 200, "INVALID_ADDRESS"),
+    addressLine2: nullableText(body.addressLine2, 200, "INVALID_ADDRESS"),
+    city: nullableText(body.city, 120, "INVALID_CITY"),
+    region: nullableText(body.region, 120, "INVALID_REGION"),
+    postalCode: nullableText(body.postalCode, 40, "INVALID_POSTAL_CODE"),
+    countryCode,
+    currencyCode,
+    timezone,
+    logoUrl: validateUrl(body.logoUrl ?? null, "INVALID_LOGO_URL"),
+    branchName,
+  };
 }
 
 type Queryable = Pick<DatabaseClient, "query"> | Pick<DatabasePool, "query">;
