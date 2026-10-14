@@ -140,6 +140,8 @@ describe("settings navigation model", () => {
     expect(workspaceSource).toContain('tos-settings__summary-separator');
     expect(workspaceSource).toContain('tos-settings__summary-value');
     expect(shellCssSource).toContain('.tos-settings__summary-separator');
+    expect(shellCssSource).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));');
+    expect(shellCssSource).toContain('overflow-wrap: break-word;');
   });
 
   it("restricts business and branch management to OWNER and ADMIN", () => {

@@ -8119,7 +8119,7 @@
 .tos-settings__summary-grid {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--tos-space-3);
 }
 
@@ -8151,7 +8151,8 @@
 .tos-settings__summary-value {
   display: block;
   margin-top: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
   color: var(--tos-text-strong);
   font-weight: 800;
 }
