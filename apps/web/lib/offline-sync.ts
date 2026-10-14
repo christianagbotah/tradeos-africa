@@ -1,14 +1,10 @@
 /**
  * TradeOS Web — offline mutation queue.
  *
- * Wraps the shared `OfflineMutationQueue` from `@tradeos/client-core/sync-runtime`
- * with a localStorage-backed snapshot store and a fetch-based transport that
- * posts mutations to the server-authoritative `/v1/sync` endpoint through the
- * Caddy gateway (relative path, no port in the URL).
- *
- * The queue is single-business by design: it stores mutations for the
- * currently-authenticated business. On sign-in we read the queue snapshot,
- * on sign-out we clear it. This matches the mobile/desktop clients.
+ * Each business owns an independent durable queue snapshot. Switching business
+ * changes which queue is visible/flushable; it never deletes another
+ * business's unsynced work. This matters on shared/offline devices where a
+ * merchant may move between branches or businesses before connectivity returns.
  */
 
 import {
@@ -24,8 +20,11 @@ import {
 import type { SyncPushRequest, SyncResponse } from "@tradeos/contracts";
 import { fetchWithSessionRefresh, readApiErrorMessage } from "./auth-fetch";
 
-const STORAGE_KEY = "tradeos.web.mutationQueue.v1";
+const LEGACY_STORAGE_KEY = "tradeos.web.mutationQueue.v1";
+const STORAGE_KEY_PREFIX = "tradeos.web.mutationQueue.v2.";
 const SESSION_KEY = "tradeos.web.session.v1";
+const LAST_CONTEXT_KEY = "tradeos.web.lastContext.v1";
+const EMPTY_SNAPSHOT: QueueSnapshot = { pending: [], failed: [] };
 
 export class OfflinePersistenceError extends Error {
   readonly cause: unknown;
@@ -51,45 +50,103 @@ export interface WebSession {
   displayName: string;
 }
 
+export interface LastWorkspaceContext {
+  businessId: string;
+  branchId: string;
+}
+
 export interface SessionStorage {
   load(): WebSession | null;
+  loadLastContext(): LastWorkspaceContext | null;
   save(session: WebSession | null): void;
   clear(): void;
 }
 
-// --- localStorage-backed queue snapshot storage ----------------------------
+// --- business-scoped localStorage queue snapshots -------------------------
+
+function queueKey(businessId: string): string {
+  return `${STORAGE_KEY_PREFIX}${encodeURIComponent(businessId)}`;
+}
+
+function parseSnapshot(raw: string | null): QueueSnapshot | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as QueueSnapshot;
+    if (!parsed || !Array.isArray(parsed.pending) || !Array.isArray(parsed.failed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Converts the old single-business v1 snapshot into v2 business buckets.
+ * The legacy key is removed only after every grouped snapshot is durably
+ * written, so quota/storage failures never silently destroy queued work.
+ */
+function migrateLegacyQueues(): void {
+  if (typeof window === "undefined") return;
+  const raw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+  const legacy = parseSnapshot(raw);
+  if (!raw) return;
+  if (!legacy) {
+    // Corrupt legacy data was already unreadable by the v1 runtime. Removing
+    // it avoids repeatedly attempting migration on every queue access.
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    return;
+  }
+
+  const businessIds = new Set<string>();
+  for (const mutation of legacy.pending) businessIds.add(mutation.businessId);
+  for (const failed of legacy.failed) businessIds.add(failed.mutation.businessId);
+
+  try {
+    for (const businessId of businessIds) {
+      const key = queueKey(businessId);
+      const existing = parseSnapshot(window.localStorage.getItem(key)) ?? EMPTY_SNAPSHOT;
+      const pendingIds = new Set(existing.pending.map((entry) => entry.clientMutationId));
+      const failedIds = new Set(existing.failed.map((entry) => entry.mutation.clientMutationId));
+      const next: QueueSnapshot = {
+        pending: [
+          ...existing.pending,
+          ...legacy.pending.filter((entry) => entry.businessId === businessId && !pendingIds.has(entry.clientMutationId)),
+        ],
+        failed: [
+          ...existing.failed,
+          ...legacy.failed.filter((entry) => entry.mutation.businessId === businessId && !failedIds.has(entry.mutation.clientMutationId)),
+        ],
+      };
+      window.localStorage.setItem(key, JSON.stringify(next));
+    }
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch (error) {
+    throw new OfflinePersistenceError(error);
+  }
+}
 
 class LocalStorageQueueStore implements QueueSnapshotStorage {
+  constructor(private readonly businessId: string) {}
+
   async load(): Promise<QueueSnapshot | null> {
     if (typeof window === "undefined") return null;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as QueueSnapshot;
-      if (!parsed || !Array.isArray(parsed.pending) || !Array.isArray(parsed.failed)) {
-        return null;
-      }
-      return parsed;
-    } catch {
-      return null;
-    }
+    migrateLegacyQueues();
+    return parseSnapshot(window.localStorage.getItem(queueKey(this.businessId)));
   }
 
   async save(snapshot: QueueSnapshot): Promise<void> {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+      migrateLegacyQueues();
+      window.localStorage.setItem(queueKey(this.businessId), JSON.stringify(snapshot));
     } catch (error) {
-      // A mutation is only safely queued once the durable snapshot is written.
-      // Surface persistence failures so callers never report a mutation as
-      // queued when a reload could silently lose it.
+      if (error instanceof OfflinePersistenceError) throw error;
       throw new OfflinePersistenceError(error);
     }
   }
 
   clear(): void {
     if (typeof window === "undefined") return;
-    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(queueKey(this.businessId));
   }
 }
 
@@ -109,31 +166,43 @@ class LocalStorageSessionStore implements SessionStorage {
     }
   }
 
+  loadLastContext(): LastWorkspaceContext | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem(LAST_CONTEXT_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as LastWorkspaceContext;
+      if (!parsed?.businessId || !parsed.branchId) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
   save(session: WebSession | null): void {
     if (typeof window === "undefined") return;
     try {
       if (session) {
-        const previous = this.load();
-        if (!previous || previous.businessId !== session.businessId) {
-          // Queue snapshots are business-scoped. Never carry offline work into
-          // a different authenticated business (or an orphaned new session).
-          window.localStorage.removeItem(STORAGE_KEY);
-        }
         window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        window.localStorage.setItem(LAST_CONTEXT_KEY, JSON.stringify({
+          businessId: session.businessId,
+          branchId: session.branchId,
+        } satisfies LastWorkspaceContext));
       } else {
         window.localStorage.removeItem(SESSION_KEY);
-        window.localStorage.removeItem(STORAGE_KEY);
       }
     } catch {
-      // ignore
+      // Session persistence remains fail-soft; the active in-memory workspace
+      // can continue, while security-sensitive requests still require a token.
     }
   }
 
   clear(): void {
     if (typeof window === "undefined") return;
     try {
+      // Signing out removes credentials only. Business-owned unsynced work is
+      // deliberately retained for the next authorized session on this device.
       window.localStorage.removeItem(SESSION_KEY);
-      window.localStorage.removeItem(STORAGE_KEY);
     } catch {
       // ignore
     }
@@ -175,22 +244,21 @@ export interface WebOfflineQueueDeps {
   createMutationId(): string;
 }
 
+interface BusinessQueueRuntime {
+  store: LocalStorageQueueStore;
+  queue: OfflineMutationQueue;
+}
+
 export class WebOfflineQueue {
-  private readonly queue: OfflineMutationQueue;
-  private readonly store: LocalStorageQueueStore;
+  private readonly queues = new Map<string, BusinessQueueRuntime>();
   private readonly transport: FetchSyncTransport;
   private readonly sessionStore: LocalStorageSessionStore;
   private readonly deps: WebOfflineQueueDeps;
 
   constructor(deps: WebOfflineQueueDeps) {
     this.deps = deps;
-    this.store = new LocalStorageQueueStore();
     this.sessionStore = new LocalStorageSessionStore();
     this.transport = new FetchSyncTransport(this.sessionStore);
-    this.queue = new OfflineMutationQueue(this.store, {
-      now: deps.now,
-      createMutationId: deps.createMutationId,
-    });
   }
 
   /** Returns the localStorage-backed session store. */
@@ -203,39 +271,54 @@ export class WebOfflineQueue {
     return fetchWithSessionRefresh(this.sessionStore, input, init);
   }
 
-  /** Enqueue a mutation. Returns true if added, false if duplicate. */
+  /** Enqueue into the mutation's own business bucket. */
   enqueue(mutation: QueuedMutation): Promise<boolean> {
-    return this.queue.enqueue(mutation);
+    return this.queueFor(mutation.businessId).queue.enqueue(mutation);
   }
 
-  /** Returns the current queue snapshot (pending + failed). */
-  getSnapshot(): Promise<QueueSnapshot> {
-    return this.queue.getSnapshot();
+  /**
+   * Returns one business's durable snapshot. Without an explicit business id,
+   * the currently authenticated business is used for backward compatibility.
+   */
+  getSnapshot(businessId?: string): Promise<QueueSnapshot> {
+    const resolved = businessId ?? this.sessionStore.load()?.businessId ?? null;
+    if (!resolved) return Promise.resolve({ pending: [], failed: [] });
+    return this.queueFor(resolved).queue.getSnapshot();
   }
 
-  /** Returns counts of pending/blocked/failed mutations for the active business. */
+  /** Returns counts for the active business only. */
   getState(activeBusinessId: string | null): Promise<QueueState> {
-    return this.queue.getState(activeBusinessId);
+    if (!activeBusinessId) return Promise.resolve({ pending: 0, blocked: 0, failed: 0 });
+    return this.queueFor(activeBusinessId).queue.getState(activeBusinessId);
   }
 
-  /** Retry a previously-rejected mutation with a fresh id. */
-  retryFailed(clientMutationId: string): Promise<boolean> {
-    return this.queue.retryFailed(clientMutationId);
+  /** Retry a previously-rejected mutation for the current/explicit business. */
+  retryFailed(clientMutationId: string, businessId?: string): Promise<boolean> {
+    const resolved = businessId ?? this.sessionStore.load()?.businessId ?? null;
+    if (!resolved) return Promise.resolve(false);
+    return this.queueFor(resolved).queue.retryFailed(clientMutationId);
   }
 
-  /** Dismiss a failed mutation (give up). */
-  dismissFailed(clientMutationId: string): Promise<boolean> {
-    return this.queue.dismissFailed(clientMutationId);
+  /** Dismiss a failed mutation for the current/explicit business. */
+  dismissFailed(clientMutationId: string, businessId?: string): Promise<boolean> {
+    const resolved = businessId ?? this.sessionStore.load()?.businessId ?? null;
+    if (!resolved) return Promise.resolve(false);
+    return this.queueFor(resolved).queue.dismissFailed(clientMutationId);
   }
 
-  /** Flush pending mutations to the server. No-op if offline or no business. */
+  /** Flush only the authenticated active business. */
   flush(options: { activeBusinessId: string | null; online: boolean }): Promise<FlushSummary> {
+    if (!options.activeBusinessId) return Promise.resolve(emptyFlushSummary());
+    const session = this.sessionStore.load();
+    if (!session || session.businessId !== options.activeBusinessId) {
+      return Promise.reject(new Error("Active business does not match the authenticated session."));
+    }
     const flushOptions: FlushOptions = {
       activeBusinessId: options.activeBusinessId,
       online: options.online,
       transport: this.transport,
     };
-    return this.queue.flush(flushOptions);
+    return this.queueFor(options.activeBusinessId).queue.flush(flushOptions);
   }
 
   /**
@@ -243,15 +326,13 @@ export class WebOfflineQueue {
    * The failed mutation remains in durable storage so the user can retry it.
    */
   async flushOrThrow(options: { activeBusinessId: string | null; online: boolean }): Promise<FlushSummary> {
-    const before = await this.queue.getSnapshot();
-    const candidateIds = new Set(
-      before.pending
-        .filter((mutation) => !options.activeBusinessId || mutation.businessId === options.activeBusinessId)
-        .map((mutation) => mutation.clientMutationId),
-    );
+    if (!options.activeBusinessId) return emptyFlushSummary();
+    const runtime = this.queueFor(options.activeBusinessId);
+    const before = await runtime.queue.getSnapshot();
+    const candidateIds = new Set(before.pending.map((mutation) => mutation.clientMutationId));
     const summary = await this.flush(options);
     if (summary.rejected > 0) {
-      const after = await this.queue.getSnapshot();
+      const after = await runtime.queue.getSnapshot();
       const failed = after.failed.find((entry) => candidateIds.has(entry.mutation.clientMutationId));
       const message = failed?.result.errorMessage ?? failed?.result.errorCode ?? "The server rejected this change.";
       throw new Error(message);
@@ -259,9 +340,12 @@ export class WebOfflineQueue {
     return summary;
   }
 
-  /** Clear all queued mutations (used on sign-out / business switch). */
-  async clear(): Promise<void> {
-    this.store.clear();
+  /** Explicitly clear one business queue; sign-out does not call this. */
+  async clear(businessId?: string): Promise<void> {
+    const resolved = businessId ?? this.sessionStore.load()?.businessId ?? null;
+    if (!resolved) return;
+    this.queueFor(resolved).store.clear();
+    this.queues.delete(resolved);
   }
 
   /** Build a queued mutation with a fresh id and timestamp. */
@@ -275,7 +359,7 @@ export class WebOfflineQueue {
   ): QueuedMutation<TPayload> {
     const session = this.sessionStore.load();
     const clientId = session?.clientId ?? "web";
-    const mutation: QueuedMutation<TPayload> = {
+    return {
       clientId,
       clientMutationId: this.deps.createMutationId(),
       businessId: input.businessId,
@@ -284,19 +368,30 @@ export class WebOfflineQueue {
       occurredAt: this.deps.now(),
       payload: input.payload,
     };
-    return mutation;
   }
+
+  private queueFor(businessId: string): BusinessQueueRuntime {
+    const existing = this.queues.get(businessId);
+    if (existing) return existing;
+    const store = new LocalStorageQueueStore(businessId);
+    const queue = new OfflineMutationQueue(store, {
+      now: this.deps.now,
+      createMutationId: this.deps.createMutationId,
+    });
+    const runtime = { store, queue };
+    this.queues.set(businessId, runtime);
+    return runtime;
+  }
+}
+
+function emptyFlushSummary(): FlushSummary {
+  return { pending: 0, blocked: 0, failed: 0, applied: 0, received: 0, rejected: 0, attempted: 0 };
 }
 
 // --- Singleton accessor (client-only) ------------------------------------
 
 let singleton: WebOfflineQueue | null = null;
 
-/**
- * Returns the shared web offline queue. Must only be called from client code
- * (it touches `window.localStorage` lazily inside the store, so creating the
- * singleton on the server is safe — but using it is not).
- */
 export function getOfflineQueue(): WebOfflineQueue {
   if (!singleton) {
     singleton = new WebOfflineQueue({
@@ -313,7 +408,6 @@ export function generateUuid(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
-  // Minimal RFC 4122 v4 fallback.
   const bytes = new Uint8Array(16);
   if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
     crypto.getRandomValues(bytes);

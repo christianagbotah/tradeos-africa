@@ -15,6 +15,7 @@ export interface AuthContext {
   displayName: string;
   email: string | null;
   phoneE164: string | null;
+  avatarUrl: string | null;
   platform: ClientPlatform;
   deviceKey: string;
   appVersion: string;
@@ -169,11 +170,12 @@ export async function authenticateAccessToken(
     display_name: string;
     email: string | null;
     phone_e164: string | null;
+    avatar_url: string | null;
     platform: ClientPlatform;
     device_key: string;
     app_version: string;
   }>(
-    `SELECT s.id AS session_id,u.id AS user_id,u.display_name,u.email,u.phone_e164,
+    `SELECT s.id AS session_id,u.id AS user_id,u.display_name,u.email,u.phone_e164,u.avatar_url,
             s.platform,s.device_key,s.app_version
      FROM auth_sessions s
      JOIN app_users u ON u.id=s.user_id
@@ -194,6 +196,7 @@ export async function authenticateAccessToken(
     displayName: row.display_name,
     email: row.email,
     phoneE164: row.phone_e164,
+    avatarUrl: row.avatar_url,
     platform: row.platform,
     deviceKey: row.device_key,
     appVersion: row.app_version,

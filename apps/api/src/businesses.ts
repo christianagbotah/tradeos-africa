@@ -1,6 +1,18 @@
 import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
+import {
+  createBranch,
+  createOwnedBusiness,
+  loadBusinessContext,
+  setBranchActive,
+  updateBranch,
+  updateBusinessProfile,
+  type BranchCreateRequest,
+  type BranchUpdateRequest,
+  type BusinessProfileUpdateRequest,
+  type CreateOwnedBusinessRequest,
+} from "./business-management-service.js";
 import type { DatabasePool } from "./db.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
@@ -8,66 +20,107 @@ const READ_ROLES: readonly BusinessRole[] = [
 ];
 
 export function registerBusinessRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  app.post<{ Body: CreateOwnedBusinessRequest }>("/v1/businesses", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const created = await createOwnedBusiness(pool, auth, request.body, "BUSINESS_CREATED");
+      return reply.code(201).send(created);
+    } catch (error) {
+      return sendBusinessError(request, reply, error, "BUSINESS_CREATE_FAILED", "The business could not be created.");
+    }
+  });
+
+  app.patch<{ Params: { businessId: string }; Body: BusinessProfileUpdateRequest }>(
+    "/v1/businesses/:businessId",
+    async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const business = await updateBusinessProfile(pool, auth, request.params.businessId, request.body ?? {});
+        return { business };
+      } catch (error) {
+        return sendBusinessError(request, reply, error, "BUSINESS_UPDATE_FAILED", "The business could not be updated.");
+      }
+    },
+  );
+
   app.get<{ Params: { businessId: string } }>("/v1/businesses/:businessId/context", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const access = await requireBusinessRole(pool, auth, request.params.businessId, READ_ROLES);
-
-      const business = await pool.query<{
-        id: string;
-        name: string;
-        business_type: string;
-        country_code: string;
-        currency_code: string;
-        timezone: string;
-        status: string;
-      }>(
-        `SELECT id,name,business_type,country_code,currency_code,timezone,status
-         FROM businesses WHERE id=$1`,
-        [access.businessId],
-      );
-      const row = business.rows[0];
-      if (!row) throw new AuthError("Business was not found", 404, "BUSINESS_NOT_FOUND");
-
-      const branches = await pool.query<{
-        id: string;
-        name: string;
-        code: string;
-        timezone: string;
-        is_active: boolean;
-      }>(
-        `SELECT id,name,code,timezone,is_active
-         FROM branches
-         WHERE business_id=$1
-         ORDER BY CASE WHEN code='MAIN' THEN 0 ELSE 1 END, created_at`,
-        [access.businessId],
-      );
-
+      const context = await loadBusinessContext(pool, access.businessId);
       return {
-        business: {
-          id: row.id,
-          name: row.name,
-          businessType: row.business_type,
-          countryCode: row.country_code,
-          currencyCode: row.currency_code,
-          timezone: row.timezone,
-          status: row.status,
-        },
+        business: context.business,
         membership: { role: access.role, staffId: access.staffId },
-        branches: branches.rows.map((branch) => ({
-          id: branch.id,
-          name: branch.name,
-          code: branch.code,
-          timezone: branch.timezone,
-          active: branch.is_active,
-        })),
+        branches: context.branches,
       };
     } catch (error) {
-      if (error instanceof AuthError) {
-        return reply.code(error.statusCode).send({ error: error.code, message: error.message });
-      }
-      request.log.error(error);
-      return reply.code(500).send({ error: "BUSINESS_CONTEXT_FAILED", message: "Business context could not be loaded." });
+      return sendBusinessError(request, reply, error, "BUSINESS_CONTEXT_FAILED", "Business context could not be loaded.");
     }
   });
+
+  app.post<{ Params: { businessId: string }; Body: BranchCreateRequest }>(
+    "/v1/businesses/:businessId/branches",
+    async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const branch = await createBranch(pool, auth, request.params.businessId, request.body);
+        return reply.code(201).send({ branch });
+      } catch (error) {
+        return sendBusinessError(request, reply, error, "BRANCH_CREATE_FAILED", "The branch could not be created.");
+      }
+    },
+  );
+
+  app.patch<{ Params: { businessId: string; branchId: string }; Body: BranchUpdateRequest }>(
+    "/v1/businesses/:businessId/branches/:branchId",
+    async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const branch = await updateBranch(pool, auth, request.params.businessId, request.params.branchId, request.body ?? {});
+        return { branch };
+      } catch (error) {
+        return sendBusinessError(request, reply, error, "BRANCH_UPDATE_FAILED", "The branch could not be updated.");
+      }
+    },
+  );
+
+  app.post<{ Params: { businessId: string; branchId: string } }>(
+    "/v1/businesses/:businessId/branches/:branchId/deactivate",
+    async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const branch = await setBranchActive(pool, auth, request.params.businessId, request.params.branchId, false);
+        return { branch };
+      } catch (error) {
+        return sendBusinessError(request, reply, error, "BRANCH_DEACTIVATE_FAILED", "The branch could not be deactivated.");
+      }
+    },
+  );
+
+  app.post<{ Params: { businessId: string; branchId: string } }>(
+    "/v1/businesses/:businessId/branches/:branchId/reactivate",
+    async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const branch = await setBranchActive(pool, auth, request.params.businessId, request.params.branchId, true);
+        return { branch };
+      } catch (error) {
+        return sendBusinessError(request, reply, error, "BRANCH_REACTIVATE_FAILED", "The branch could not be reactivated.");
+      }
+    },
+  );
+}
+
+function sendBusinessError(
+  request: { log: { error: (error: unknown) => void } },
+  reply: { code: (status: number) => { send: (payload: unknown) => unknown } },
+  error: unknown,
+  fallbackCode: string,
+  fallbackMessage: string,
+) {
+  if (error instanceof AuthError) {
+    return reply.code(error.statusCode).send({ error: error.code, message: error.message });
+  }
+  request.log.error(error);
+  return reply.code(500).send({ error: fallbackCode, message: fallbackMessage });
 }

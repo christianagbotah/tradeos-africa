@@ -1,9 +1,8 @@
 # TradeOS Africa — Frontend API Gap Register
 
-**Branch:** `feat/zai-all-frontends-greenfield`
-**Date:** 2026-01-11
+**Reviewed on:** 2026-10-13
 
-Backend capabilities the frontend needs that do NOT currently exist in `apps/api`.
+Backend capabilities required by TradeOS clients, including a clear distinction between implemented contracts and remaining gaps.
 
 ---
 
@@ -85,15 +84,34 @@ Backend capabilities the frontend needs that do NOT currently exist in `apps/api
 
 ### 12. Staff Management
 - **Consumer:** `apps/web`, `apps/mobile`
-- **Endpoint needed:** `GET /api/tradeos/v1/staff`, `POST /api/tradeos/v1/staff`
-- **Status:** NOT IMPLEMENTED — no staff CRUD API
+- **Contract:** dedicated staff/team invitation, role-change, suspension and reactivation API
+- **Status:** PENDING SEPARATE STAFF BACKEND — Account & Business Control Center intentionally does not duplicate staff lifecycle APIs. The Settings → Team surface remains an honest read-only placeholder until that backend lands.
 
-### 13. Business Settings
+### 13. Business + Branch Settings
 - **Consumer:** `apps/web`
-- **Endpoint needed:** `GET /api/tradeos/v1/businesses/:id/settings`
-- **Status:** NOT IMPLEMENTED — no settings API
+- **Implemented endpoints:**
+  - `POST /v1/businesses`
+  - `PATCH /v1/businesses/:businessId`
+  - `GET /v1/businesses/:businessId/context`
+  - `POST /v1/businesses/:businessId/branches`
+  - `PATCH /v1/businesses/:businessId/branches/:branchId`
+  - `POST /v1/businesses/:businessId/branches/:branchId/deactivate`
+  - `POST /v1/businesses/:businessId/branches/:branchId/reactivate`
+- **Authorization:** any authenticated account may create another business; current-business and branch mutation is OWNER/ADMIN only.
+- **Status:** IMPLEMENTED — authoritative business/branch context and lifecycle contracts now back the Settings control center and global context switcher.
 
-### 14. Notifications Center
+### 14. Account Profile + Security Sessions
+- **Consumer:** `apps/web`
+- **Implemented endpoints:**
+  - `PATCH /v1/me`
+  - `POST /v1/auth/change-password`
+  - `GET /v1/auth/sessions`
+  - `DELETE /v1/auth/sessions/:sessionId`
+  - `POST /v1/auth/sessions/revoke-others`
+- **Status:** IMPLEMENTED — profile identity changes require current-password verification where appropriate; session revocation and identity-scoped security audit events are supported.
+- **Remaining device gap:** trusted-device fingerprint/risk administration is not yet exposed as a user lifecycle API. The current Settings → Devices view manages authentication sessions, not a fabricated device-trust system.
+
+### 15. Notifications Center
 - **Consumer:** `apps/web`, `apps/mobile`
 - **Endpoint needed:** `GET /api/tradeos/v1/notifications`
 - **Status:** NOT IMPLEMENTED — no notifications API

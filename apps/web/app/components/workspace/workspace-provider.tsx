@@ -10,12 +10,8 @@ import {
   type CatalogItem,
   type InventoryItem,
 } from "../../../lib/catalog-read-model";
+import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import type { WorkspaceRole } from "./workspace-navigation";
-
-// --- Domain types ---------------------------------------------------------
-// CatalogItem and InventoryItem are the canonical API read models mapped in
-// lib/catalog-read-model.ts. units[]/conversions[] are part of the multi-unit
-// contract and must never be flattened into a single sale unit.
 
 export type { CatalogItem, InventoryItem } from "../../../lib/catalog-read-model";
 
@@ -52,25 +48,94 @@ export interface QueueStatus {
   lastError: string | null;
 }
 
+export interface WorkspaceAccount {
+  id: string;
+  displayName: string;
+  email: string | null;
+  phoneE164: string | null;
+  avatarUrl: string | null;
+}
+
+export interface WorkspaceMembership {
+  id: string;
+  businessId: string;
+  businessName: string;
+  businessType: string;
+  businessStatus: string;
+  role: string;
+  staffId: string | null;
+}
+
+export interface WorkspaceBusinessProfile {
+  id: string;
+  name: string;
+  legalName: string | null;
+  businessType: string;
+  email: string | null;
+  phone: string | null;
+  registrationNumber: string | null;
+  taxId: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  region: string | null;
+  postalCode: string | null;
+  countryCode: string;
+  currencyCode: string;
+  timezone: string;
+  logoUrl: string | null;
+  status: string;
+}
+
+export interface WorkspaceBranch {
+  id: string;
+  name: string;
+  code: string;
+  timezone: string;
+  email: string | null;
+  phone: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  region: string | null;
+  postalCode: string | null;
+  active: boolean;
+  updatedAt: string;
+}
+
+export interface WorkspaceBusinessContext {
+  business: WorkspaceBusinessProfile;
+  membership: { role: string; staffId: string | null };
+  branches: WorkspaceBranch[];
+}
+
+interface WorkspaceIdentityResponse {
+  user: WorkspaceAccount;
+  memberships: WorkspaceMembership[];
+}
+
 export interface WorkspaceContextValue {
   session: WebSession | null;
   role: WorkspaceRole;
+  account: WorkspaceAccount | null;
+  memberships: readonly WorkspaceMembership[];
+  businessContext: WorkspaceBusinessContext | null;
+  contextBusy: boolean;
   catalog: readonly CatalogItem[];
-  /** Per-branch stock levels (last-known) for tracked products. */
   inventory: readonly InventoryItem[];
   customers: readonly Customer[];
   queue: QueueStatus;
-  /** True until the initial session + catalog load completes. */
   booting: boolean;
-  /** Set when an unrecoverable error prevents the workspace from rendering. */
   fatal: string | null;
   signIn: (session: WebSession) => void;
   signOut: () => void;
+  refreshWorkspaceContext: () => Promise<void>;
+  switchBusiness: (businessId: string) => Promise<void>;
+  switchBranch: (branchId: string) => Promise<void>;
   refreshCatalog: () => Promise<void>;
   refreshInventory: () => Promise<void>;
   refreshCustomers: () => Promise<void>;
   flushQueue: () => Promise<void>;
-  /** Forces a re-render of consumers (e.g. after enqueueing a mutation). */
   bump: () => void;
 }
 
@@ -80,9 +145,65 @@ interface WorkspaceProviderProps {
   children: ReactNode;
 }
 
+/**
+ * Builds a new authenticated workspace session from authoritative business
+ * context. Tokens/client identity are global-account credentials and are
+ * preserved; all tenant/staff/branch fields are replaced from the server.
+ */
+export function buildBusinessSwitchSession(
+  current: WebSession,
+  membership: WorkspaceMembership,
+  context: WorkspaceBusinessContext,
+  preferredBranchId?: string,
+): WebSession {
+  if (membership.businessStatus !== "ACTIVE") throw new Error("BUSINESS_MEMBERSHIP_INACTIVE");
+  if (context.business.id !== membership.businessId) throw new Error("BUSINESS_CONTEXT_MISMATCH");
+  if (context.business.status !== "ACTIVE") throw new Error("BUSINESS_INACTIVE");
+  if (!membership.staffId || !context.membership.staffId) throw new Error("NO_ACTIVE_STAFF");
+
+  const activeBranches = context.branches.filter((branch) => branch.active);
+  const branch = (preferredBranchId
+    ? activeBranches.find((candidate) => candidate.id === preferredBranchId)
+    : undefined)
+    ?? activeBranches.find((candidate) => candidate.code === "MAIN")
+    ?? activeBranches[0];
+  if (!branch) throw new Error("NO_ACTIVE_BRANCH");
+
+  return {
+    ...current,
+    businessId: context.business.id,
+    branchId: branch.id,
+    staffId: context.membership.staffId,
+    currencyCode: context.business.currencyCode,
+    timezone: branch.timezone || context.business.timezone,
+    businessName: context.business.name,
+    role: context.membership.role,
+  };
+}
+
+/** Switches branch only inside the already-authoritative current business. */
+export function buildBranchSwitchSession(
+  current: WebSession,
+  context: WorkspaceBusinessContext,
+  branchId: string,
+): WebSession {
+  if (context.business.id !== current.businessId) throw new Error("BUSINESS_CONTEXT_MISMATCH");
+  const branch = context.branches.find((candidate) => candidate.id === branchId && candidate.active);
+  if (!branch) throw new Error("BRANCH_NOT_ACTIVE");
+  return {
+    ...current,
+    branchId: branch.id,
+    timezone: branch.timezone || context.business.timezone,
+  };
+}
+
 export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const offlineQueue = useMemo(() => getOfflineQueue(), []);
   const [session, setSession] = useState<WebSession | null>(null);
+  const [account, setAccount] = useState<WorkspaceAccount | null>(null);
+  const [memberships, setMemberships] = useState<readonly WorkspaceMembership[]>([]);
+  const [businessContext, setBusinessContext] = useState<WorkspaceBusinessContext | null>(null);
+  const [contextBusy, setContextBusy] = useState(false);
   const [catalog, setCatalog] = useState<readonly CatalogItem[]>([]);
   const [inventory, setInventory] = useState<readonly InventoryItem[]>([]);
   const [customers, setCustomers] = useState<readonly Customer[]>([]);
@@ -95,16 +216,12 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const [lastError, setLastError] = useState<string | null>(null);
   const [, setTick] = useState(0);
 
-  // --- Initial boot: load session from localStorage -----------------------
   useEffect(() => {
     const stored = offlineQueue.sessions.load();
-    if (stored) {
-      setSession(stored);
-    }
+    if (stored) setSession(stored);
     setBooting(false);
   }, [offlineQueue]);
 
-  // --- Online/offline detection -------------------------------------------
   useEffect(() => {
     if (typeof window === "undefined") return;
     const update = () => setOnline(window.navigator.onLine);
@@ -117,7 +234,113 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     };
   }, []);
 
-  // --- Refresh queue counts + flush on session / online change -----------
+  const loadIdentity = useCallback(async (): Promise<WorkspaceIdentityResponse> => {
+    const response = await offlineQueue.authenticatedFetch("/v1/me");
+    if (!response.ok) throw new Error(await readApiErrorMessage(response, "Account context could not be loaded"));
+    const value = await response.json() as WorkspaceIdentityResponse;
+    if (!value.user || !Array.isArray(value.memberships)) throw new Error("Server returned incomplete account context.");
+    return value;
+  }, [offlineQueue]);
+
+  const loadBusiness = useCallback(async (businessId: string): Promise<WorkspaceBusinessContext> => {
+    const response = await offlineQueue.authenticatedFetch(`/v1/businesses/${encodeURIComponent(businessId)}/context`);
+    if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business context could not be loaded"));
+    const value = await response.json() as WorkspaceBusinessContext;
+    if (!value.business || !value.membership || !Array.isArray(value.branches)) {
+      throw new Error("Server returned incomplete business context.");
+    }
+    return value;
+  }, [offlineQueue]);
+
+  const refreshWorkspaceContext = useCallback(async () => {
+    const current = offlineQueue.sessions.load() ?? session;
+    if (!current) return;
+    setContextBusy(true);
+    try {
+      const identity = await loadIdentity();
+      const membership = identity.memberships.find((candidate) => (
+        candidate.businessId === current.businessId
+        && candidate.businessStatus === "ACTIVE"
+        && Boolean(candidate.staffId)
+      ));
+      if (!membership) throw new Error("BUSINESS_ACCESS_DENIED");
+      const context = await loadBusiness(current.businessId);
+      const normalized = buildBusinessSwitchSession(
+        { ...current, displayName: identity.user.displayName },
+        membership,
+        context,
+        current.branchId,
+      );
+      setAccount(identity.user);
+      setMemberships(identity.memberships);
+      setBusinessContext(context);
+      setFatal(null);
+      if (!sessionsEquivalent(current, normalized)) {
+        offlineQueue.sessions.save(normalized);
+        setSession(normalized);
+      }
+    } catch (error) {
+      setFatal(error instanceof Error ? error.message : "Workspace context could not be loaded.");
+    } finally {
+      setContextBusy(false);
+    }
+  }, [loadBusiness, loadIdentity, offlineQueue, session]);
+
+  useEffect(() => {
+    if (session) void refreshWorkspaceContext();
+    else {
+      setAccount(null);
+      setMemberships([]);
+      setBusinessContext(null);
+    }
+  // refreshWorkspaceContext intentionally changes when session changes; the
+  // normalizer avoids re-saving an equivalent session and therefore loops.
+  }, [session, refreshWorkspaceContext]);
+
+  const switchBusiness = useCallback(async (businessId: string) => {
+    const current = offlineQueue.sessions.load() ?? session;
+    if (!current) throw new Error("You are signed out.");
+    if (!online) throw new Error("Connect to the internet before switching businesses so access can be verified.");
+    setContextBusy(true);
+    try {
+      const identity = await loadIdentity();
+      const membership = identity.memberships.find((candidate) => (
+        candidate.businessId === businessId
+        && candidate.businessStatus === "ACTIVE"
+        && Boolean(candidate.staffId)
+      ));
+      if (!membership) throw new Error("BUSINESS_ACCESS_DENIED");
+      const context = await loadBusiness(businessId);
+      const next = buildBusinessSwitchSession(
+        { ...current, displayName: identity.user.displayName },
+        membership,
+        context,
+      );
+      // Clear business-scoped read models before changing identity so no frame
+      // can present another tenant's catalog/customer/stock data under the new header.
+      setCatalog([]);
+      setInventory([]);
+      setCustomers([]);
+      setAccount(identity.user);
+      setMemberships(identity.memberships);
+      setBusinessContext(context);
+      setFatal(null);
+      offlineQueue.sessions.save(next);
+      setSession(next);
+    } finally {
+      setContextBusy(false);
+    }
+  }, [loadBusiness, loadIdentity, offlineQueue, online, session]);
+
+  const switchBranch = useCallback(async (branchId: string) => {
+    const current = offlineQueue.sessions.load() ?? session;
+    if (!current || !businessContext) throw new Error("Business context is not ready.");
+    const next = buildBranchSwitchSession(current, businessContext, branchId);
+    setInventory([]);
+    offlineQueue.sessions.save(next);
+    setSession(next);
+  }, [businessContext, offlineQueue, session]);
+
   const refreshQueueCounts = useCallback(async () => {
     if (!session) {
       setPending(0);
@@ -133,14 +356,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     void refreshQueueCounts();
   }, [refreshQueueCounts]);
 
-  // --- Periodic queue flush + on online event ----------------------------
   const flushQueue = useCallback(async () => {
     if (!session || !online) return;
     try {
-      const summary = await offlineQueue.flush({
-        activeBusinessId: session.businessId,
-        online,
-      });
+      const summary = await offlineQueue.flush({ activeBusinessId: session.businessId, online });
       setLastFlushAt(new Date().toISOString());
       setLastError(summary.failed > 0 ? `${summary.failed} mutation(s) rejected` : null);
       await refreshQueueCounts();
@@ -157,12 +376,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, [flushQueue, session]);
 
   useEffect(() => {
-    if (online && session) {
-      void flushQueue();
-    }
+    if (online && session) void flushQueue();
   }, [online, session, flushQueue]);
 
-  // --- Catalog + inventory + customers load (when session is set) --------
   const refreshCatalog = useCallback(async () => {
     if (!session) return;
     try {
@@ -171,8 +387,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         setFatal(`Could not load catalog (${res.status}).`);
         return;
       }
-      const json = (await res.json()) as { items?: unknown[] };
-      // Explicit mapping layer — never a blind cast. See lib/catalog-read-model.ts.
+      const json = await res.json() as { items?: unknown[] };
       setCatalog((json.items ?? []).map((item) => mapCatalogItem(item)));
     } catch (error) {
       setFatal(error instanceof Error ? error.message : "Could not load catalog.");
@@ -186,11 +401,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         `/v1/inventory?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}`,
       );
       if (!res.ok) {
-        // Stock levels are non-blocking — POS/Catalog still work without them.
         setInventory([]);
         return;
       }
-      const json = (await res.json()) as { items?: unknown[] };
+      const json = await res.json() as { items?: unknown[] };
       setInventory((json.items ?? []).map((item) => mapInventoryItem(item)));
     } catch {
       setInventory([]);
@@ -201,13 +415,11 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     if (!session) return;
     try {
       const res = await offlineQueue.authenticatedFetch(`/v1/customers?businessId=${encodeURIComponent(session.businessId)}`);
-      if (!res.ok) {
-        return;
-      }
-      const json = (await res.json()) as { customers: Customer[] };
+      if (!res.ok) return;
+      const json = await res.json() as { customers: Customer[] };
       setCustomers(json.customers ?? []);
     } catch {
-      // Customers are non-blocking — leave the list empty.
+      // Customers are non-blocking.
     }
   }, [offlineQueue, session]);
 
@@ -223,7 +435,6 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     void refreshCustomers();
   }, [session, refreshCatalog, refreshInventory, refreshCustomers]);
 
-  // --- Sign-in / sign-out -------------------------------------------------
   const signIn = useCallback((next: WebSession) => {
     offlineQueue.sessions.save(next);
     setSession(next);
@@ -232,8 +443,12 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
 
   const signOut = useCallback(() => {
     offlineQueue.sessions.clear();
-    void offlineQueue.clear();
+    // Do NOT erase business queues here. Unsynced work belongs to the business
+    // and must survive logout/business switching on this device.
     setSession(null);
+    setAccount(null);
+    setMemberships([]);
+    setBusinessContext(null);
     setCatalog([]);
     setInventory([]);
     setCustomers([]);
@@ -247,18 +462,26 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, [refreshQueueCounts]);
 
   const role = (session?.role as WorkspaceRole | undefined) ?? "VIEWER";
+  const indexedInventory = useMemo(() => Array.from(indexInventory(inventory).values()), [inventory]);
 
   const value: WorkspaceContextValue = {
     session,
     role,
+    account,
+    memberships,
+    businessContext,
+    contextBusy,
     catalog,
-    inventory: useMemo(() => Array.from(indexInventory(inventory).values()), [inventory]),
+    inventory: indexedInventory,
     customers,
     queue: { pending, failed, online, lastFlushAt, lastError },
     booting,
     fatal,
     signIn,
     signOut,
+    refreshWorkspaceContext,
+    switchBusiness,
+    switchBranch,
     refreshCatalog,
     refreshInventory,
     refreshCustomers,
@@ -267,4 +490,18 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   };
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
+}
+
+function sessionsEquivalent(left: WebSession, right: WebSession): boolean {
+  return left.accessToken === right.accessToken
+    && left.refreshToken === right.refreshToken
+    && left.clientId === right.clientId
+    && left.businessId === right.businessId
+    && left.branchId === right.branchId
+    && left.staffId === right.staffId
+    && left.currencyCode === right.currencyCode
+    && left.timezone === right.timezone
+    && left.businessName === right.businessName
+    && left.role === right.role
+    && left.displayName === right.displayName;
 }

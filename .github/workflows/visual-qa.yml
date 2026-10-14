@@ -360,6 +360,7 @@ jobs:
             { path: "/cashbook", marker: "Cashbook", name: "cashbook" },
             { path: "/operations", marker: "Operation", name: "operations" },
             { path: "/reports", marker: "Report", name: "reports" },
+            { path: "/settings", marker: "Settings", name: "settings" },
           ];
 
           const widthSets = {
@@ -374,6 +375,7 @@ jobs:
             cashbook: [390, 768, 1280],
             operations: [390, 768, 1280],
             reports: [390, 768, 1280],
+            settings: [390, 768, 1280],
           };
 
           // === STEP 3: Capture every authenticated route at every width ===

@@ -18,6 +18,7 @@ import {
   buildSessionFromMembership,
   derivePhase,
   needsOnboarding,
+  selectMembershipForLogin,
   type AuthSession,
   type BusinessContextResponse,
   type MeResponse,
@@ -113,6 +114,30 @@ describe("needsOnboarding", () => {
   });
 });
 
+describe("multi-business login selection", () => {
+  it("does not force onboarding when a later active membership has a staff actor", () => {
+    const me = makeMe([
+      makeMembership({ id: "m-stale", businessId: "b-stale", businessStatus: "SUSPENDED", staffId: null }),
+      makeMembership({ id: "m-live", businessId: "b-live", businessStatus: "ACTIVE", staffId: "s-live" }),
+    ]);
+    expect(needsOnboarding(me)).toBe(false);
+  });
+
+  it("prefers the last active business when it is still authorized", () => {
+    const first = makeMembership({ id: "m-1", businessId: "b-1", staffId: "s-1" });
+    const preferred = makeMembership({ id: "m-2", businessId: "b-2", staffId: "s-2" });
+    const me = makeMe([first, preferred]);
+    expect(selectMembershipForLogin(me, "b-2")?.businessId).toBe("b-2");
+  });
+
+  it("falls back to the first usable active membership when the preference is stale", () => {
+    const suspended = makeMembership({ id: "m-1", businessId: "b-old", businessStatus: "SUSPENDED", staffId: "s-old" });
+    const active = makeMembership({ id: "m-2", businessId: "b-live", businessStatus: "ACTIVE", staffId: "s-live" });
+    const me = makeMe([suspended, active]);
+    expect(selectMembershipForLogin(me, "missing-business")?.businessId).toBe("b-live");
+  });
+});
+
 describe("buildSessionFromMembership", () => {
   it("constructs a WebSession with the membership's business and role", () => {
     const m = makeMembership({ businessId: "biz-123", businessName: "Shop", role: "MANAGER" });
@@ -181,6 +206,30 @@ describe("buildSessionFromBusinessContext", () => {
     });
     const m = makeMembership();
     const session = buildSessionFromBusinessContext(VALID_AUTH, makeMe([m]), m, context);
+    expect(session.branchId).toBe("branch-main");
+  });
+
+  it("prefers the last active branch over MAIN when one is supplied", () => {
+    const context = makeBusinessContext({
+      branches: [
+        { id: "branch-main", name: "Main", code: "MAIN", timezone: "Africa/Accra", active: true },
+        { id: "branch-tema", name: "Tema", code: "TEMA", timezone: "Africa/Accra", active: true },
+      ],
+    });
+    const m = makeMembership();
+    const session = buildSessionFromBusinessContext(VALID_AUTH, makeMe([m]), m, context, "branch-tema");
+    expect(session.branchId).toBe("branch-tema");
+  });
+
+  it("ignores an inactive preferred branch and falls back to active MAIN", () => {
+    const context = makeBusinessContext({
+      branches: [
+        { id: "branch-main", name: "Main", code: "MAIN", timezone: "Africa/Accra", active: true },
+        { id: "branch-old", name: "Old", code: "OLD", timezone: "Africa/Accra", active: false },
+      ],
+    });
+    const m = makeMembership();
+    const session = buildSessionFromBusinessContext(VALID_AUTH, makeMe([m]), m, context, "branch-old");
     expect(session.branchId).toBe("branch-main");
   });
 

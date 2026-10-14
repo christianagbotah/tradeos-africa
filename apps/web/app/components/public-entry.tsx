@@ -118,8 +118,21 @@ export interface PendingAuth {
  * and must complete onboarding before entering the workspace.
  */
 export function needsOnboarding(me: MeResponse): boolean {
-  const first = me.memberships[0];
-  return !first || !first.staffId;
+  return !me.memberships.some((membership) => (
+    membership.businessStatus === "ACTIVE" && Boolean(membership.staffId)
+  ));
+}
+
+/** Selects a usable membership, preferring the last business used on this device. */
+export function selectMembershipForLogin(me: MeResponse, preferredBusinessId?: string | null): Membership | null {
+  const usable = me.memberships.filter((membership) => (
+    membership.businessStatus === "ACTIVE" && Boolean(membership.staffId)
+  ));
+  if (preferredBusinessId) {
+    const preferred = usable.find((membership) => membership.businessId === preferredBusinessId);
+    if (preferred) return preferred;
+  }
+  return usable[0] ?? null;
 }
 
 /**
@@ -221,9 +234,10 @@ export function PublicEntry() {
       tab={authTab}
       onTabChange={setAuthTab}
       onAuthenticated={async (auth, me) => {
-        const first = me.memberships[0];
-        if (!first || !first.staffId) {
-          // No business yet → onboarding.
+        const lastContext = offlineQueue.sessions.loadLastContext();
+        const membership = selectMembershipForLogin(me, lastContext?.businessId);
+        if (!membership) {
+          // No usable active business membership yet → first-business onboarding.
           setPendingAuth({
             accessToken: auth.accessToken,
             refreshToken: auth.refreshToken,
@@ -235,8 +249,14 @@ export function PublicEntry() {
         }
         // Existing business memberships must be hydrated from the authoritative
         // business context before the workspace is allowed to use branch-scoped APIs.
-        const context = await loadBusinessContext(auth.accessToken, first.businessId);
-        const session = buildSessionFromBusinessContext(auth, me, first, context);
+        const context = await loadBusinessContext(auth.accessToken, membership.businessId);
+        const session = buildSessionFromBusinessContext(
+          auth,
+          me,
+          membership,
+          context,
+          lastContext?.businessId === membership.businessId ? lastContext.branchId : undefined,
+        );
         offlineQueue.sessions.save(session);
         router.replace("/dashboard");
       }}
@@ -279,13 +299,18 @@ export function buildSessionFromBusinessContext(
   me: MeResponse,
   membership: Membership,
   context: BusinessContextResponse,
+  preferredBranchId?: string,
 ): WebSession {
   if (context.business.id !== membership.businessId) {
     throw new Error("BUSINESS_CONTEXT_MISMATCH");
   }
 
   const activeBranches = context.branches.filter((branch) => branch.active);
-  const branch = activeBranches.find((candidate) => candidate.code === "MAIN") ?? activeBranches[0];
+  const branch = (preferredBranchId
+    ? activeBranches.find((candidate) => candidate.id === preferredBranchId)
+    : undefined)
+    ?? activeBranches.find((candidate) => candidate.code === "MAIN")
+    ?? activeBranches[0];
   if (!branch) {
     throw new Error("NO_ACTIVE_BRANCH");
   }
