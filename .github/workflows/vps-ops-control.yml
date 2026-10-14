@@ -62,6 +62,39 @@ jobs:
                 systemctl --no-pager --plain --type=service --state=running 'actions.runner.*tradeos*' 2>/dev/null || true
               } > "$output_file" 2>&1
               ;;
+            "/vps variety-preflight")
+              {
+                printf 'runner_user='; whoami
+                printf 'host='; hostname
+                printf '\n== variety services ==\n'
+                systemctl --no-pager --plain --all --type=service 2>/dev/null | grep -Ei 'variety|grocer' || true
+                printf '\n== known paths ==\n'
+                for path in \
+                  /home/lightworld/webapps/varietygroceries \
+                  /home/lightworld/webapps/varietygroceries-api \
+                  /home/lightworld/config/varietygroceries \
+                  /home/lightworld/data/varietygroceries; do
+                  if [ -e "$path" ] || [ -L "$path" ]; then
+                    stat -c 'type=%F owner=%U group=%G mode=%a path=%n' "$path" 2>/dev/null || true
+                    if [ -L "$path" ]; then printf 'target='; readlink -f "$path" 2>/dev/null || true; fi
+                  else
+                    printf 'missing=%s\n' "$path"
+                  fi
+                done
+                printf '\n== variety releases ==\n'
+                find /home/lightworld/releases -maxdepth 1 -mindepth 1 -name 'varietygroceries*' -printf '%u:%g %m %p\n' 2>/dev/null | sort | tail -n 25 || true
+                printf '\n== listeners ==\n'
+                ss -ltn 2>/dev/null | grep -E ':(30[0-9][0-9]|40[0-9][0-9]|50[0-9][0-9])\b' || true
+                printf '\n== variety processes ==\n'
+                ps -eo user=,pid=,ppid=,args= | grep -Ei 'variety|grocer' | grep -v grep || true
+                printf '\n== nginx config filenames ==\n'
+                grep -Ril --include='*.conf' --include='*.vhost' 'portal\.varietygroceries\.com\|varietygroceries\.com' /etc/nginx /usr/local/apps/nginx/etc 2>/dev/null | head -n 30 || true
+                printf '\n== available lightworld helpers ==\n'
+                ls -l /usr/local/sbin/lightworld-* 2>/dev/null || true
+                printf '\n== sudo allow-list ==\n'
+                sudo -n -l 2>&1 || true
+              } > "$output_file" 2>&1
+              ;;
             *)
               printf 'Rejected: command is not in the read-only allow-list.\n' > "$output_file"
               exit 64
