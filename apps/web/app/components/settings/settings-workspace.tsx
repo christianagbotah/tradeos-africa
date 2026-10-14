@@ -3,7 +3,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  SUPPORTED_TIMEZONES,
   getCountry,
   getDefaultCurrencyCode,
   getSuggestedTimezones,
@@ -12,6 +11,7 @@ import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { Button } from "../ui/button";
 import { BusinessFields, type BusinessFormState, type BusinessType } from "./business-fields";
+import { BranchFields, type BranchDraft } from "./branch-fields";
 import {
   IconAlert,
   IconBuilding,
@@ -61,18 +61,7 @@ interface NewBusinessFormState extends BusinessFormState {
 
 type BusinessEditorMode = "view" | "edit" | "create";
 
-interface BranchDraft {
-  name: string;
-  code: string;
-  timezone: string;
-  email: string;
-  phone: string;
-  addressLine1: string;
-  addressLine2: string;
-  city: string;
-  region: string;
-  postalCode: string;
-}
+type BranchEditorMode = { kind: "view" } | { kind: "create" } | { kind: "edit"; branchId: string };
 
 export function canManageBusinessSettings(role: WorkspaceRole | string | null | undefined): boolean {
   return role === "OWNER" || role === "ADMIN";
@@ -203,6 +192,8 @@ export function SettingsWorkspace() {
               canManage={canManageBusinessSettings(role)}
               onRefresh={refreshWorkspaceContext}
               onSwitchBranch={switchBranch}
+              requestedAction={section === "branches" ? requestedAction : null}
+              onActionConsumed={consumeRequestedAction}
             />
           ) : null}
           {section === "team" ? (
@@ -576,16 +567,21 @@ function BranchesSection({
   canManage,
   onRefresh,
   onSwitchBranch,
+  requestedAction,
+  onActionConsumed,
 }: {
   online: boolean;
   canManage: boolean;
   onRefresh: () => Promise<void>;
   onSwitchBranch: (branchId: string) => Promise<void>;
+  requestedAction: string | null;
+  onActionConsumed: () => void;
 }) {
   const { businessContext, session } = useWorkspace();
   const branches = businessContext?.branches ?? [];
-  const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [branchMode, setBranchMode] = useState<BranchEditorMode>({ kind: "view" });
+  const creating = branchMode.kind === "create";
+  const editingId = branchMode.kind === "edit" ? branchMode.branchId : null;
   const [draft, setDraft] = useState<BranchDraft>(() => defaultBranchDraft(businessContext?.business.timezone ?? "Africa/Accra"));
   const [editDraft, setEditDraft] = useState<BranchDraft>(() => defaultBranchDraft(businessContext?.business.timezone ?? "Africa/Accra"));
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -597,8 +593,15 @@ function BranchesSection({
     }
   }, [businessContext?.business.timezone]);
 
+  useEffect(() => {
+    if (requestedAction === "create" && canManage) {
+      setBranchMode({ kind: "create" });
+      onActionConsumed();
+    }
+  }, [requestedAction, canManage]);
+
   const beginEdit = (branch: WorkspaceBranch) => {
-    setEditingId(branch.id);
+    setBranchMode({ kind: "edit", branchId: branch.id });
     setEditDraft(branchToDraft(branch));
     setFeedback(null);
   };
@@ -616,7 +619,7 @@ function BranchesSection({
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Branch could not be created"));
       setDraft(defaultBranchDraft(businessContext?.business.timezone ?? session.timezone));
-      setCreating(false);
+      setBranchMode({ kind: "view" });
       await onRefresh();
       setFeedback({ tone: "success", text: "Branch created. It is now available in the workspace switcher." });
     } catch (error) {
@@ -639,7 +642,7 @@ function BranchesSection({
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Branch could not be updated"));
       await onRefresh();
-      setEditingId(null);
+      setBranchMode({ kind: "view" });
       setFeedback({ tone: "success", text: "Branch details updated." });
     } catch (error) {
       setFeedback({ tone: "error", text: errorMessage(error) });
@@ -673,12 +676,13 @@ function BranchesSection({
       title="Branches"
       description="Create locations, update branch details and control which branches are available for daily operations."
       feedback={feedback}
-      actions={canManage ? <Button variant="primary" icon={<IconPlus />} onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "Add branch"}</Button> : undefined}
+      actions={canManage ? <Button variant="primary" icon={<IconPlus />} onClick={() => setBranchMode(creating ? { kind: "view" } : { kind: "create" })}>{creating ? "Cancel" : "Add branch"}</Button> : undefined}
     >
       <div className="tos-settings__branch-list">
         {branches.map((branch) => (
           <article key={branch.id} className="tos-settings__branch-card" data-active-branch={session?.branchId === branch.id}>
-            <div className="tos-settings__branch-main">
+            <div className="tos-settings__branch-card-head">
+              <div className="tos-settings__branch-main">
               <div className="tos-settings__branch-icon"><IconBuilding /></div>
               <div>
                 <div className="tos-settings__branch-title-row">
@@ -689,20 +693,23 @@ function BranchesSection({
                 <span className="tos-settings__branch-meta">{branch.code} · {branch.timezone}{branch.city ? ` · ${branch.city}` : ""}</span>
               </div>
             </div>
-            <div className="tos-settings__branch-actions">
-              {branch.active && session?.branchId !== branch.id ? <Button size="sm" variant="outline" onClick={() => void onSwitchBranch(branch.id)}>Open</Button> : null}
-              {canManage ? <Button size="sm" variant="ghost" icon={<IconEdit />} onClick={() => beginEdit(branch)}>Edit</Button> : null}
-              {canManage && branch.active ? <Button size="sm" variant="danger" loading={busyId === branch.id} disabled={!online} onClick={() => void setActive(branch, false)}>Deactivate</Button> : null}
-              {canManage && !branch.active ? <Button size="sm" variant="positive" loading={busyId === branch.id} disabled={!online} onClick={() => void setActive(branch, true)}>Reactivate</Button> : null}
+              <div className="tos-settings__branch-actions">
+                {branch.active && session?.branchId !== branch.id ? <Button size="sm" variant="outline" onClick={() => void onSwitchBranch(branch.id)}>Open</Button> : null}
+                {canManage ? <Button size="sm" variant="ghost" icon={<IconEdit />} onClick={() => beginEdit(branch)}>Edit</Button> : null}
+                {canManage && branch.active ? <Button size="sm" variant="danger" loading={busyId === branch.id} disabled={!online} onClick={() => void setActive(branch, false)}>Deactivate</Button> : null}
+                {canManage && !branch.active ? <Button size="sm" variant="positive" loading={busyId === branch.id} disabled={!online} onClick={() => void setActive(branch, true)}>Reactivate</Button> : null}
+              </div>
             </div>
             {editingId === branch.id ? (
-              <form className="tos-settings__form tos-settings__branch-editor" onSubmit={saveEdit}>
-                <BranchFields prefix={`edit-${branch.id}`} draft={editDraft} setDraft={setEditDraft} includeCode={false} />
-                <div className="tos-settings__actions">
-                  <Button type="submit" variant="primary" loading={busyId === branch.id} disabled={!online || !editDraft.name.trim()}>Save branch</Button>
-                  <Button variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
-                </div>
-              </form>
+              <div className="tos-settings__branch-editor-shell">
+                <form className="tos-settings__form tos-settings__branch-editor" onSubmit={saveEdit}>
+                  <BranchFields prefix={`edit-${branch.id}`} draft={editDraft} setDraft={setEditDraft} includeCode={false} singleColumn />
+                  <div className="tos-settings__actions">
+                    <Button type="submit" variant="primary" loading={busyId === branch.id} disabled={!online || !editDraft.name.trim()}>Save branch</Button>
+                    <Button variant="outline" onClick={() => setBranchMode({ kind: "view" })}>Cancel</Button>
+                  </div>
+                </form>
+              </div>
             ) : null}
           </article>
         ))}
@@ -713,7 +720,7 @@ function BranchesSection({
       {creating && canManage ? (
         <form className="tos-settings__form tos-settings__subpanel tos-settings__subpanel--gold" onSubmit={create}>
           <div><span className="tos-settings__mini-eyebrow">New location</span><h3 className="tos-settings__subheading">Add branch</h3></div>
-          <BranchFields prefix="new-branch" draft={draft} setDraft={setDraft} includeCode />
+          <BranchFields prefix="new-branch" draft={draft} setDraft={setDraft} includeCode singleColumn />
           <div className="tos-settings__actions"><Button type="submit" variant="gold" loading={busyId === "create"} disabled={!online || !draft.name.trim()}>Create branch</Button></div>
         </form>
       ) : null}
@@ -906,24 +913,6 @@ function Summary({ label, value }: { label: string; value: string }) {
       <span className="tos-settings__summary-label">{label}</span>
       <span className="tos-settings__summary-separator" aria-hidden="true">:</span>
       <strong className="tos-settings__summary-value">{value}</strong>
-    </div>
-  );
-}
-
-function BranchFields({ prefix, draft, setDraft, includeCode }: { prefix: string; draft: BranchDraft; setDraft: React.Dispatch<React.SetStateAction<BranchDraft>>; includeCode: boolean }) {
-  const set = <K extends keyof BranchDraft>(key: K, value: BranchDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
-  return (
-    <div className="tos-settings__grid tos-settings__grid--2">
-      <Field label="Branch name" htmlFor={`${prefix}-name`} required><input id={`${prefix}-name`} className="tos-input" value={draft.name} onChange={(event) => set("name", event.target.value)} required maxLength={120} /></Field>
-      {includeCode ? <Field label="Branch code" htmlFor={`${prefix}-code`} hint="Optional; TradeOS can generate one"><input id={`${prefix}-code`} className="tos-input" value={draft.code} onChange={(event) => set("code", event.target.value.toUpperCase())} placeholder="e.g. TEMA25" maxLength={24} /></Field> : null}
-      <Field label="Timezone" htmlFor={`${prefix}-timezone`}><select id={`${prefix}-timezone`} className="tos-select" value={draft.timezone} onChange={(event) => set("timezone", event.target.value)}>{SUPPORTED_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}</select></Field>
-      <Field label="Email" htmlFor={`${prefix}-email`}><input id={`${prefix}-email`} className="tos-input" type="email" value={draft.email} onChange={(event) => set("email", event.target.value)} /></Field>
-      <Field label="Phone" htmlFor={`${prefix}-phone`}><input id={`${prefix}-phone`} className="tos-input" value={draft.phone} onChange={(event) => set("phone", event.target.value)} /></Field>
-      <Field label="Address line 1" htmlFor={`${prefix}-address1`}><input id={`${prefix}-address1`} className="tos-input" value={draft.addressLine1} onChange={(event) => set("addressLine1", event.target.value)} /></Field>
-      <Field label="Address line 2" htmlFor={`${prefix}-address2`}><input id={`${prefix}-address2`} className="tos-input" value={draft.addressLine2} onChange={(event) => set("addressLine2", event.target.value)} /></Field>
-      <Field label="City" htmlFor={`${prefix}-city`}><input id={`${prefix}-city`} className="tos-input" value={draft.city} onChange={(event) => set("city", event.target.value)} /></Field>
-      <Field label="Region" htmlFor={`${prefix}-region`}><input id={`${prefix}-region`} className="tos-input" value={draft.region} onChange={(event) => set("region", event.target.value)} /></Field>
-      <Field label="Postal code" htmlFor={`${prefix}-postal`}><input id={`${prefix}-postal`} className="tos-input" value={draft.postalCode} onChange={(event) => set("postalCode", event.target.value)} /></Field>
     </div>
   );
 }

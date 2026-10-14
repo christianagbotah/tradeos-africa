@@ -14,6 +14,7 @@ const routeSource = readFileSync(new URL("../../(workspace)/settings/page.tsx", 
 const shellCssSource = readFileSync(new URL("../../workspace-shell.css", import.meta.url), "utf8");
 const visualQaSource = readFileSync(new URL("../../../../../.github/workflows/visual-qa.yml", import.meta.url), "utf8");
 const businessSectionSource = workspaceSource.slice(workspaceSource.indexOf("function BusinessSection"), workspaceSource.indexOf("function BranchesSection"));
+const branchesSectionSource = workspaceSource.slice(workspaceSource.indexOf("function BranchesSection"), workspaceSource.indexOf("function TeamSection"));
 
 describe("settings navigation model", () => {
   it("provides all account/business control-center sections", () => {
@@ -50,6 +51,20 @@ describe("settings navigation model", () => {
     expect(workspaceSource).toContain('setBusinessMode("create")');
     expect(workspaceSource).toContain('interface NewBusinessFormState extends BusinessFormState');
     expect(workspaceSource).toContain('firstBranchName: string');
+  });
+
+  it("keeps Branch create/edit mutually exclusive and renders a full-width single-column editor", () => {
+    expect(workspaceSource).toContain('type BranchEditorMode = { kind: "view" } | { kind: "create" } | { kind: "edit"; branchId: string }');
+    expect(branchesSectionSource).toContain('useState<BranchEditorMode>({ kind: "view" })');
+    expect(branchesSectionSource).not.toContain('const [creating, setCreating]');
+    expect(branchesSectionSource).not.toContain('const [editingId, setEditingId]');
+    expect(branchesSectionSource).toContain('requestedAction === "create"');
+    expect(branchesSectionSource).toContain('setBranchMode({ kind: "create" })');
+    expect(branchesSectionSource).toContain('tos-settings__branch-card-head');
+    expect(branchesSectionSource).toContain('tos-settings__branch-editor-shell');
+    expect(branchesSectionSource).toContain('<BranchFields');
+    expect(shellCssSource).toContain('.tos-settings__branch-editor-shell');
+    expect(shellCssSource).toContain('.tos-settings__grid--single');
   });
 
   it("renders business summaries as spaced label colon value content", () => {

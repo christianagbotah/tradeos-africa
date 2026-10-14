@@ -8099,6 +8099,10 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.tos-settings__grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .tos-settings__subpanel {
   margin-top: var(--tos-space-5);
   padding: var(--tos-space-4);
@@ -8208,6 +8212,27 @@
 .tos-settings__branch-card[data-active-branch="true"] {
   border-color: var(--tos-gold-border);
   background: var(--tos-gold-soft);
+}
+
+.tos-settings__branch-card {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tos-settings__branch-card-head {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+}
+
+.tos-settings__branch-editor-shell {
+  width: 100%;
+  margin-top: var(--tos-space-3);
+  padding-top: var(--tos-space-4);
+  border-top: 1px solid var(--tos-border);
 }
 
 .tos-settings__branch-main,
@@ -8398,6 +8423,11 @@
   .tos-settings__session-card {
     align-items: stretch;
     flex-wrap: wrap;
+  }
+
+  .tos-settings__branch-card-head {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .tos-settings__branch-actions {
