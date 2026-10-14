@@ -14,10 +14,11 @@ let root = "";
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "tradeos-media-test-"));
-  process.env.TRADEOS_MEDIA_ROOT = root;
+  process.env.MEDIA_STORAGE_ROOT = root;
 });
 
 afterEach(async () => {
+  delete process.env.MEDIA_STORAGE_ROOT;
   delete process.env.TRADEOS_MEDIA_ROOT;
   if (root) await rm(root, { recursive: true, force: true });
 });

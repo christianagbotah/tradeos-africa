@@ -87,9 +87,9 @@ export async function readStoredImage(storageName: string): Promise<Buffer> {
 }
 
 function mediaRoot(): string {
-  const configured = process.env.TRADEOS_MEDIA_ROOT?.trim();
+  const configured = process.env.MEDIA_STORAGE_ROOT?.trim() || process.env.TRADEOS_MEDIA_ROOT?.trim();
   if (!configured || !isAbsolute(configured)) {
-    throw new MediaStorageError("TRADEOS_MEDIA_ROOT must be an absolute path", "MEDIA_STORAGE_UNAVAILABLE", 500);
+    throw new MediaStorageError("MEDIA_STORAGE_ROOT must be an absolute path", "MEDIA_STORAGE_UNAVAILABLE", 500);
   }
   return resolve(configured);
 }

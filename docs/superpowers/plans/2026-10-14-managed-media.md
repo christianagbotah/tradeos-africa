@@ -4,7 +4,7 @@
 
 **Goal:** Replace typed Avatar/Logo URLs with secure image pickers backed by persistent managed media storage that survives atomic application releases.
 
-**Architecture:** Add a small image-only media service to the API with DB metadata in migration `0019_managed_media.sql` and bytes stored under a configured persistent `TRADEOS_MEDIA_ROOT`. Specific avatar/logo endpoints authorize the owner, validate magic bytes + MIME + size, persist a random file, atomically update the owning record, and clean up on failure. Images are served read-only through an unguessable media ID endpoint suitable for `<img src>`.
+**Architecture:** Add a small image-only media service to the API with DB metadata in migration `0019_managed_media.sql` and bytes stored under a configured persistent `MEDIA_STORAGE_ROOT`. Specific avatar/logo endpoints authorize the owner, validate magic bytes + MIME + size, persist a random file, atomically update the owning record, and clean up on failure. Images are served read-only through an unguessable media ID endpoint suitable for `<img src>`.
 
 **Tech Stack:** Fastify 5 multipart plugin, Node fs/promises + crypto, PostgreSQL, Next.js/React file inputs, Vitest.
 
@@ -46,7 +46,7 @@
 
 - [ ] Write RED tests for type sniffing, 5 MiB cap, random storage names, traversal rejection, and cleanup.
 - [ ] Add multipart dependency and migration.
-- [ ] Implement storage primitives using `TRADEOS_MEDIA_ROOT`; no user-provided path components.
+- [ ] Implement storage primitives using `MEDIA_STORAGE_ROOT`; no user-provided path components.
 - [ ] Run storage tests + API typecheck.
 - [ ] Commit `feat(api): add managed image storage`.
 
@@ -102,7 +102,7 @@
 
 **Files:**
 - Modify deployment registry/environment docs only as required; do not commit secrets.
-- Update operator docs for `TRADEOS_MEDIA_ROOT`.
+- Update operator docs for `MEDIA_STORAGE_ROOT`.
 
 - [ ] Configure staging media root under `/home/lightworld/shared/tradeos-staging/media` with app-user write permissions and restrictive directory mode.
 - [ ] Apply migration `0019` to disposable DB then staging after exact-head deployment.
