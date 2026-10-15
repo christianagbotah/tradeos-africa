@@ -774,6 +774,9 @@ const systemAdminNginxPath = path.join(opsRoot, 'nginx', 'tradeos-system-admin.l
 test('TradeOS System Admin nginx snippet proxies the dedicated host root to localhost admin runtime', () => {
   assert.equal(fs.existsSync(systemAdminNginxPath), true, 'System Admin nginx snippet must exist');
   const source = fs.readFileSync(systemAdminNginxPath, 'utf8');
+  assert.match(source, /error_page 418 = @tradeosadmin_root;/);
+  assert.match(source, /if \(\$request_uri = "\/"\) \{/);
+  assert.match(source, /location @tradeosadmin_root \{/);
   assert.match(source, /location \^~ \/\s*\{/);
   assert.match(source, /proxy_pass http:\/\/127\.0\.0\.1:3038;/);
   assert.match(source, /X-Forwarded-Proto \$scheme/);
