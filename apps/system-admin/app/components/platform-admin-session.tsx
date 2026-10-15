@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AdminShell } from "./admin-shell";
-import { withSystemAdminBasePath } from "../lib/system-admin-base-path";
 
 export interface PlatformAdminUserView {
   id: string;
@@ -36,7 +35,7 @@ export function PlatformAdminProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    void fetch(withSystemAdminBasePath("/api/admin/session/me"), { credentials: "include" })
+    void fetch("/api/admin/session/me", { credentials: "include" })
       .then(async (response) => {
         if (!active) return;
         if (!response.ok) {
@@ -57,7 +56,7 @@ export function PlatformAdminProvider({ children }: { children: ReactNode }) {
   }, [markSignedOut]);
 
   const login = useCallback(async (identifier: string, password: string) => {
-    const response = await fetch(withSystemAdminBasePath("/api/admin/session/login"), {
+    const response = await fetch("/api/admin/session/login", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -76,14 +75,14 @@ export function PlatformAdminProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch(withSystemAdminBasePath("/api/admin/session/logout"), { method: "POST", credentials: "include" });
+      await fetch("/api/admin/session/logout", { method: "POST", credentials: "include" });
     } finally {
       markSignedOut();
     }
   }, [markSignedOut]);
 
   const authenticatedFetch = useCallback(async (path: string, init?: RequestInit): Promise<Response> => {
-    const response = await fetch(withSystemAdminBasePath(path), { ...init, credentials: "include" });
+    const response = await fetch(path, { ...init, credentials: "include" });
     if (response.status === 401) markSignedOut();
     return response;
   }, [markSignedOut]);
