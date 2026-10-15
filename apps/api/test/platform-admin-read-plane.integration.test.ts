@@ -144,8 +144,8 @@ describe("platform admin read plane", () => {
     );
     await pool.query(
       `INSERT INTO platform_audit_events(platform_user_id,business_id,event_type,entity_type,entity_id,reason,payload)
-       VALUES($1,$2,'TENANT_VIEWED','BUSINESS',$2::text,'integration test','{"safe":true}'::jsonb)`,
-      [adminId, businessId],
+       VALUES($1,$2,'TENANT_VIEWED','BUSINESS',$3,'integration test','{"safe":true}'::jsonb)`,
+      [adminId, businessId, businessId],
     );
 
     const tenants = await app.inject({ method: "GET", url: "/api/admin/tenants", headers: bearer(token) });
