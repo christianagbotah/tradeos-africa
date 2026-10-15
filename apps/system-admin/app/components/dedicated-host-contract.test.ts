@@ -24,6 +24,8 @@ describe("system-admin dedicated-host contract", () => {
     expect(nginx).toMatch(/location \^~ \/\s*\{/);
     expect(nginx).toContain("proxy_pass http://127.0.0.1:3038;");
     expect(nginx).toContain('X-Robots-Tag "noindex, nofollow, nosnippet" always');
+    expect(nginx).toContain('if ($uri = "/")');
+    expect(nginx).not.toContain('if ($request_uri = "/")');
     expect(nginx).toContain("proxy_hide_header Cache-Control;");
     expect(nginx).toContain('Cache-Control "no-store, no-cache, must-revalidate" always');
     expect(nginx).not.toMatch(/system-admin/);
