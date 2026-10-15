@@ -39,6 +39,8 @@ describe("settings navigation model", () => {
     expect(shellSource).toContain('/settings?section=security');
     expect(shellSource).toContain('/settings?section=business&action=create');
     expect(shellSource).toContain('/settings?section=branches&action=create');
+    expect(shellSource.match(/onClick=\{\(\) => setAccountOpen\(false\)\}/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(shellSource.match(/onClick=\{\(\) => setContextOpen\(false\)\}/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     expect(workspaceSource).toContain("useSearchParams");
     expect(workspaceSource).toContain("URLSearchParams");
     expect(workspaceSource).toContain('addEventListener("hashchange"');
