@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import type { DatabasePool } from "./db.js";
-import { createSupplier, loadSupplier, SUPPLIER_WRITE_ROLES, SupplierServiceError, updateSupplier } from "./supplier-service.js";
+import { createSupplier, deleteUnusedSupplier, loadSupplier, SUPPLIER_DELETE_ROLES, SUPPLIER_WRITE_ROLES, SupplierServiceError, updateSupplier } from "./supplier-service.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
@@ -94,6 +94,19 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       const access = await requireBusinessRole(pool, auth, businessId, SUPPLIER_WRITE_ROLES);
       const { businessId: _businessId, ...input } = request.body;
       return { supplier: await updateSupplier(pool, access, request.params.supplierId, input) };
+    } catch (error) {
+      return sendError(request, reply, error);
+    }
+  });
+
+  app.delete<{ Params: { supplierId: string }; Querystring: { businessId?: string; expectedUpdatedAt?: string } }>("/v1/suppliers/:supplierId", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = required(request.query.businessId, "businessId");
+      const expectedUpdatedAt = required(request.query.expectedUpdatedAt, "expectedUpdatedAt");
+      const access = await requireBusinessRole(pool, auth, businessId, SUPPLIER_DELETE_ROLES);
+      await deleteUnusedSupplier(pool, access, request.params.supplierId, expectedUpdatedAt);
+      return reply.code(204).send();
     } catch (error) {
       return sendError(request, reply, error);
     }
