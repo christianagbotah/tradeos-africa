@@ -177,6 +177,60 @@ require_release_config() {
   fi
 }
 
+_workspace_contract_value() {
+  local file="$1"
+  local key="$2"
+  local prefix line value
+  local -a matches
+
+  mapfile -t matches < <(grep -E "^${key}=" -- "$file" || true)
+  if (( ${#matches[@]} != 1 )); then
+    lightworld_die "workspace registry contract must define ${key} exactly once"
+    return 1
+  fi
+
+  line="${matches[0]}"
+  prefix="${key}='"
+  if [[ "$line" != "$prefix"* || "$line" != *"'" ]]; then
+    lightworld_die "workspace registry contract ${key} must use one single-quoted literal assignment"
+    return 1
+  fi
+  value="${line#"$prefix"}"
+  value="${value%\'}"
+  if [[ "$value" == *"'"* ]]; then
+    lightworld_die "workspace registry contract ${key} contains an unsupported quote"
+    return 1
+  fi
+  printf '%s\n' "$value"
+}
+
+assert_workspace_registry_contract() {
+  local workspace="$1"
+  local app="$2"
+  local environment="$3"
+  local contract key expected actual
+
+  require_absolute_path "$workspace" 'workspace' || return 1
+  validate_identifier "$app" 'app' || return 1
+  validate_identifier "$environment" 'environment' || return 1
+  contract="${workspace}/ops/lightworld-vps/apps/${app}.${environment}.conf.example"
+
+  [[ -e "$contract" || -L "$contract" ]] || return 0
+  if [[ ! -f "$contract" || -L "$contract" || ! -r "$contract" ]]; then
+    lightworld_die "workspace registry contract is missing or unsafe"
+    return 1
+  fi
+
+  for key in PROCESS_NAMES LOCAL_HEALTH_URLS; do
+    expected="$(_workspace_contract_value "$contract" "$key")" || return 1
+    actual="${!key:-}"
+    if [[ "$actual" != "$expected" ]]; then
+      lightworld_die "workspace registry contract mismatch for ${key}"
+      return 1
+    fi
+  done
+}
+
 run_git_as_runner() {
   local workspace="$1"
   shift

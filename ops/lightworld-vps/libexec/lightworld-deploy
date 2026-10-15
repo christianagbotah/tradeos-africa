@@ -32,6 +32,7 @@ if is_test_mode && [[ -n "${LIGHTWORLD_TEST_HOLD_LOCK_SECONDS:-}" ]]; then
 fi
 
 assert_workspace_identity "$workspace" "$GITHUB_REPO" "$sha"
+assert_workspace_registry_contract "$workspace" "$app" "$environment"
 verify_canonical_main_sha "$sha"
 assert_env_outside_workspace "$workspace"
 
