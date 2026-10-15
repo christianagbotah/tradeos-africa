@@ -117,6 +117,10 @@ require_release_config() {
   SOURCE_REPO="${SOURCE_REPO:-}"
   BUILD_ADAPTER="${BUILD_ADAPTER:-}"
   HEALTH_ADAPTER="${HEALTH_ADAPTER:-}"
+  PROCESS_SCRIPTS="${PROCESS_SCRIPTS:-}"
+  PROCESS_MAX_MEMORY="${PROCESS_MAX_MEMORY:-}"
+  PROCESS_INTERPRETER="${PROCESS_INTERPRETER:-}"
+  PROCESS_RESTART_DELAY="${PROCESS_RESTART_DELAY:-}"
 
   require_absolute_path "$RELEASE_ROOT" 'RELEASE_ROOT'
   require_absolute_path "$CURRENT_LINK" 'CURRENT_LINK'
@@ -227,6 +231,16 @@ assert_workspace_registry_contract() {
     if [[ "$actual" != "$expected" ]]; then
       lightworld_die "workspace registry contract mismatch for ${key}"
       return 1
+    fi
+  done
+  for key in PROCESS_SCRIPTS PROCESS_MAX_MEMORY PROCESS_INTERPRETER PROCESS_RESTART_DELAY; do
+    actual="${!key:-}"
+    if grep -q -E "^${key}=" -- "$contract" || [[ -n "$actual" ]]; then
+      expected="$(_workspace_contract_value "$contract" "$key")" || return 1
+      if [[ "$actual" != "$expected" ]]; then
+        lightworld_die "workspace registry contract mismatch for ${key}"
+        return 1
+      fi
     fi
   done
 }
@@ -650,13 +664,76 @@ activate_release_target() {
 }
 
 restart_configured_processes() {
-  local process
-  local -a processes
+  local process group rel_script target max_memory existing_pid i
+  local -a processes scripts max_memory_values
   read -r -a processes <<<"$PROCESS_NAMES"
   if (( ${#processes[@]} == 0 )); then
     lightworld_die 'no process names configured'
     return 1
   fi
+
+  if [[ "$PROCESS_MANAGER" == 'pm2' && -n "${PROCESS_SCRIPTS:-}" ]]; then
+    read -r -a scripts <<<"$PROCESS_SCRIPTS"
+    read -r -a max_memory_values <<<"${PROCESS_MAX_MEMORY:-}"
+    if (( ${#scripts[@]} != ${#processes[@]} )); then
+      lightworld_die 'PROCESS_SCRIPTS must align one-to-one with PROCESS_NAMES'
+      return 1
+    fi
+    if (( ${#max_memory_values[@]} != ${#processes[@]} )); then
+      lightworld_die 'PROCESS_MAX_MEMORY must align one-to-one with PROCESS_NAMES'
+      return 1
+    fi
+    if [[ -z "${PROCESS_INTERPRETER:-}" || "$PROCESS_INTERPRETER" != /* || "$PROCESS_INTERPRETER" == *$'\n'* ]]; then
+      lightworld_die 'PROCESS_INTERPRETER must be an absolute path for PM2 reconciliation'
+      return 1
+    fi
+    if [[ ! "${PROCESS_RESTART_DELAY:-}" =~ ^[0-9]+$ ]]; then
+      lightworld_die 'PROCESS_RESTART_DELAY must be an integer for PM2 reconciliation'
+      return 1
+    fi
+    group="$(id -gn "$APP_USER")" || return 1
+    for i in "${!processes[@]}"; do
+      process="${processes[$i]}"
+      rel_script="${scripts[$i]}"
+      max_memory="${max_memory_values[$i]}"
+      validate_identifier "$process" 'process name' || return 1
+      if [[ -z "$rel_script" || "$rel_script" == /* || "$rel_script" =~ (^|/)\.\.(/|$) || "$rel_script" == *$'\n'* ]]; then
+        lightworld_die "invalid relative process script: $rel_script"
+        return 1
+      fi
+      if [[ ! "$max_memory" =~ ^[1-9][0-9]*[KMG]$ ]]; then
+        lightworld_die "invalid PROCESS_MAX_MEMORY value: $max_memory"
+        return 1
+      fi
+      target="${CURRENT_LINK}/${rel_script}"
+      if [[ ! -f "$target" || ! -x "$target" ]]; then
+        lightworld_die "configured process script is missing or not executable: $rel_script"
+        return 1
+      fi
+    done
+
+    for i in "${!processes[@]}"; do
+      process="${processes[$i]}"
+      rel_script="${scripts[$i]}"
+      max_memory="${max_memory_values[$i]}"
+      target="${CURRENT_LINK}/${rel_script}"
+      existing_pid="$(/usr/bin/env pm2 pid "$process" 2>/dev/null | tail -n 1 | tr -d '[:space:]' || true)"
+      if [[ "$existing_pid" =~ ^[1-9][0-9]*$ ]]; then
+        /usr/bin/env pm2 delete "$process"
+      fi
+      /usr/bin/env pm2 start "$target" \
+        --name "$process" \
+        --interpreter "$PROCESS_INTERPRETER" \
+        --cwd "$CURRENT_LINK" \
+        --uid "$APP_USER" \
+        --gid "$group" \
+        --restart-delay "$PROCESS_RESTART_DELAY" \
+        --max-memory-restart "$max_memory"
+    done
+    /usr/bin/env pm2 save
+    return 0
+  fi
+
   for process in "${processes[@]}"; do
     validate_identifier "$process" 'process name' || return 1
     case "$PROCESS_MANAGER" in

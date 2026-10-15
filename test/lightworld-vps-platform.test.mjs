@@ -206,6 +206,83 @@ test('workspace registry contract preserves existing behavior when no contract f
   } finally { cleanup(fixture); }
 });
 
+test('PM2 reconciliation recreates opted-in processes from the stable current link', () => {
+  const fixture = makeFixture();
+  try {
+    const fakeBin = path.join(fixture.root, 'fake-bin');
+    const pm2Log = path.join(fixture.root, 'pm2.log');
+    fs.mkdirSync(fakeBin);
+    fs.mkdirSync(fixture.currentLink, { recursive: true });
+    for (const script of ['bin/start-api.sh', 'bin/start-web.sh']) {
+      const target = path.join(fixture.currentLink, script);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, '#!/usr/bin/env bash\n', { mode: 0o755 });
+    }
+    const fakePm2 = path.join(fakeBin, 'pm2');
+    fs.writeFileSync(fakePm2, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> ${JSON.stringify(pm2Log)}
+if [[ "\${1-}" == pid ]]; then printf '4321\\n'; fi
+`, { mode: 0o755 });
+
+    const result = run('bash', ['-c', [
+      'source "$1"',
+      'APP_USER="$(id -un)"',
+      'CURRENT_LINK="$2"',
+      'PROCESS_MANAGER=pm2',
+      "PROCESS_NAMES='demo-api demo-web'",
+      "PROCESS_SCRIPTS='bin/start-api.sh bin/start-web.sh'",
+      "PROCESS_MAX_MEMORY='450M 500M'",
+      "PROCESS_INTERPRETER='/bin/bash'",
+      "PROCESS_RESTART_DELAY='2000'",
+      'restart_configured_processes',
+    ].join('; '), 'bash', commonPath, fixture.currentLink], {
+      env: { PATH: `${fakeBin}:${process.env.PATH ?? ''}` },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const log = fs.readFileSync(pm2Log, 'utf8');
+    assert.match(log, /pid demo-api/);
+    assert.match(log, /delete demo-api/);
+    assert.match(log, new RegExp(`start ${fixture.currentLink.replaceAll('/', '\\/')}\/bin\/start-api\\.sh --name demo-api`));
+    assert.match(log, new RegExp(`--cwd ${fixture.currentLink.replaceAll('/', '\\/')}`));
+    assert.match(log, /--interpreter \/bin\/bash/);
+    assert.match(log, /--max-memory-restart 450M/);
+    assert.match(log, /--restart-delay 2000/);
+    assert.match(log, /pid demo-web/);
+    assert.match(log, /delete demo-web/);
+    assert.match(log, /--max-memory-restart 500M/);
+    assert.match(log, /^save$/m);
+  } finally { cleanup(fixture); }
+});
+
+test('PM2 reconciliation contract rejects misaligned process metadata before touching PM2', () => {
+  const fixture = makeFixture();
+  try {
+    const fakeBin = path.join(fixture.root, 'fake-bin');
+    const pm2Log = path.join(fixture.root, 'pm2.log');
+    fs.mkdirSync(fakeBin);
+    const fakePm2 = path.join(fakeBin, 'pm2');
+    fs.writeFileSync(fakePm2, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(pm2Log)}\n`, { mode: 0o755 });
+    const result = run('bash', ['-c', [
+      'source "$1"',
+      'APP_USER="$(id -un)"',
+      'CURRENT_LINK="$2"',
+      'PROCESS_MANAGER=pm2',
+      "PROCESS_NAMES='demo-api demo-web'",
+      "PROCESS_SCRIPTS='bin/start-api.sh'",
+      "PROCESS_MAX_MEMORY='450M 500M'",
+      "PROCESS_INTERPRETER='/bin/bash'",
+      "PROCESS_RESTART_DELAY='2000'",
+      'restart_configured_processes',
+    ].join('; '), 'bash', commonPath, fixture.currentLink], {
+      env: { PATH: `${fakeBin}:${process.env.PATH ?? ''}` },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /PROCESS_SCRIPTS|process/i);
+    assert.equal(fs.existsSync(pm2Log), false, 'invalid contract must fail before invoking PM2');
+  } finally { cleanup(fixture); }
+});
+
 async function waitForFile(file, timeoutMs = 3000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -657,6 +734,10 @@ test('TradeOS staging registry template pins canonical operational metadata with
   assert.match(source, /^RELEASE_ROOT=['"]\/home\/lightworld\/releases\/tradeos-staging['"]$/m);
   assert.match(source, /^PROCESS_MANAGER=['"]pm2['"]$/m);
   assert.match(source, /^PROCESS_NAMES=['"]tradeos-staging-api tradeos-staging-web tradeos-staging-admin['"]$/m);
+  assert.match(source, /^PROCESS_SCRIPTS=['"]bin\/start-api\.sh bin\/start-web\.sh bin\/start-system-admin\.sh['"]$/m);
+  assert.match(source, /^PROCESS_MAX_MEMORY=['"]450M 500M 400M['"]$/m);
+  assert.match(source, /^PROCESS_INTERPRETER=['"]\/bin\/bash['"]$/m);
+  assert.match(source, /^PROCESS_RESTART_DELAY=['"]2000['"]$/m);
   assert.match(source, /^RUNTIME_FAMILY=['"]pnpm-node['"]$/m);
   assert.match(source, /^MIGRATION_MODE=['"]manual['"]$/m);
   assert.match(source, /http:\/\/127\.0\.0\.1:4036\/health/);
