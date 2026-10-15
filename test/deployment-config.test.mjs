@@ -12,14 +12,15 @@ const repoRoot = path.resolve(testDir, '..');
 const ecosystemPath = path.join(repoRoot, 'ecosystem.config.cjs');
 const apiScriptPath = path.join(repoRoot, 'bin', 'start-api.sh');
 const webScriptPath = path.join(repoRoot, 'bin', 'start-web.sh');
+const adminScriptPath = path.join(repoRoot, 'bin', 'start-system-admin.sh');
 
-test('deployment contract defines the two TradeOS PM2 apps with safe ownership', () => {
+test('deployment contract defines the three TradeOS PM2 apps with safe ownership', () => {
   assert.equal(fs.existsSync(ecosystemPath), true, 'ecosystem.config.cjs must be tracked at repo root');
 
   const require = createRequire(import.meta.url);
   const config = require(ecosystemPath);
   assert.ok(Array.isArray(config.apps));
-  assert.deepEqual(config.apps.map((app) => app.name), ['tradeos-staging-api', 'tradeos-staging-web']);
+  assert.deepEqual(config.apps.map((app) => app.name), ['tradeos-staging-api', 'tradeos-staging-web', 'tradeos-staging-admin']);
 
   for (const app of config.apps) {
     assert.equal(app.cwd, repoRoot);
@@ -31,17 +32,20 @@ test('deployment contract defines the two TradeOS PM2 apps with safe ownership',
 
   assert.equal(config.apps[0].script, './bin/start-api.sh');
   assert.equal(config.apps[1].script, './bin/start-web.sh');
+  assert.equal(config.apps[2].script, './bin/start-system-admin.sh');
 });
 
 test('tracked launch scripts resolve the repo root and treat dotenv values as literal data', () => {
   assert.equal(fs.existsSync(apiScriptPath), true, 'bin/start-api.sh must be tracked');
   assert.equal(fs.existsSync(webScriptPath), true, 'bin/start-web.sh must be tracked');
+  assert.equal(fs.existsSync(adminScriptPath), true, 'bin/start-system-admin.sh must be tracked');
 
   const api = fs.readFileSync(apiScriptPath, 'utf8');
   const web = fs.readFileSync(webScriptPath, 'utf8');
-  const combined = `${api}\n${web}`;
+  const admin = fs.readFileSync(adminScriptPath, 'utf8');
+  const combined = `${api}\n${web}\n${admin}`;
 
-  for (const script of [api, web]) {
+  for (const script of [api, web, admin]) {
     assert.match(script, /^#!\/usr\/bin\/env bash/m);
     assert.match(script, /set -euo pipefail/);
     assert.match(script, /BASH_SOURCE\[0\]/);
@@ -54,6 +58,8 @@ test('tracked launch scripts resolve the repo root and treat dotenv values as li
   assert.match(api, /PORT=.*4036/);
   assert.match(api, /apps\/api\/dist\/server\.js/);
   assert.match(web, /WEB_PORT=.*3036/);
+  assert.match(admin, /ADMIN_PORT=.*3038/);
+  assert.match(admin, /apps\/system-admin\/node_modules\/next\/dist\/bin\/next.*start/);
   assert.match(web, /apps\/web\/node_modules\/next\/dist\/bin\/next.*start/);
   assert.doesNotMatch(combined, /\/home\/lightworld\/webapps\/tradeos-staging/);
   assert.doesNotMatch(combined, /(DATABASE_URL|JWT_SECRET|PASSWORD)=['\"][^$]/);
@@ -68,6 +74,7 @@ test('web launcher starts Next from apps/web so the production .next directory r
 for (const [name, scriptPath] of [
   ['API', apiScriptPath],
   ['web', webScriptPath],
+  ['system admin', adminScriptPath],
 ]) {
   test(`${name} launcher preserves dotenv metacharacters without shell evaluation`, () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tradeos-dotenv-'));
@@ -119,8 +126,11 @@ for (const [name, scriptPath] of [
 test('runtime launchers do not depend on Corepack or pnpm bootstrapping', () => {
   const api = fs.readFileSync(apiScriptPath, 'utf8');
   const web = fs.readFileSync(webScriptPath, 'utf8');
+  const admin = fs.readFileSync(adminScriptPath, 'utf8');
   assert.doesNotMatch(api, /\bpnpm\b/);
   assert.doesNotMatch(web, /\bpnpm\b/);
+  assert.doesNotMatch(admin, /\bpnpm\b/);
   assert.match(api, /node.*apps\/api\/dist\/server\.js/);
   assert.match(web, /node.*apps\/web\/node_modules\/next\/dist\/bin\/next.*start/);
+  assert.match(admin, /node.*apps\/system-admin\/node_modules\/next\/dist\/bin\/next.*start/);
 });
