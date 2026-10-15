@@ -1,179 +1,89 @@
-import type { ReactNode } from "react";
-import {
-  Banner,
-  Badge,
-  CommandBar,
-  CommandButton,
-  CommandSearch,
-  CommandSelect,
-  CommandSpacer,
-  PageHeader,
-} from "../../components/admin-ui";
+"use client";
+
+import { useMemo, useState, type ReactNode } from "react";
+import { Badge, CommandBar, CommandButton, CommandSelect, CommandSpacer, PageHeader } from "../../components/admin-ui";
 import { AdminTable, CellMain, CellMuted } from "../../components/admin-table";
 import { AdminEmptyState } from "../../components/admin-empty-state";
 import { StatCard, StatCardGrid } from "../../components/stat-card";
 import { IconActivity, IconDevices, IconRefresh, IconServer } from "../../components/icons";
+import { useAdminResource } from "../../components/platform-admin-session";
 
-/**
- * Devices & sync health.
- *
- * The admin devices endpoint (API-GAP-REGISTER §4) is not implemented. Sync
- * health cards and the device table render honest "pending backend" states.
- */
+interface DeviceRow {
+  id: string;
+  businessId: string;
+  businessName: string;
+  branchId: string | null;
+  branchName: string | null;
+  deviceKey: string;
+  platform: string;
+  appVersion: string;
+  releaseChannel: string;
+  status: string;
+  lastSeenAt: string | null;
+  lastSyncAt: string | null;
+  health: "ONLINE" | "STALE" | "UNKNOWN";
+}
+
 export default function DevicesPage() {
+  const { data, loading, error, reload } = useAdminResource<{ devices: DeviceRow[] }>("/api/admin/devices");
+  const [query, setQuery] = useState("");
+  const [platform, setPlatform] = useState("all");
+  const [health, setHealth] = useState("all");
+  const all = data?.devices ?? [];
+  const rows = useMemo(() => all.filter((device) => {
+    const q = query.trim().toLowerCase();
+    if (q && !`${device.businessName} ${device.deviceKey} ${device.branchName ?? ""}`.toLowerCase().includes(q)) return false;
+    if (platform !== "all" && device.platform.toLowerCase() !== platform) return false;
+    if (health !== "all" && device.health.toLowerCase() !== health) return false;
+    return true;
+  }), [all, health, platform, query]);
+
+  const online = all.filter((device) => device.health === "ONLINE").length;
+  const stale = all.filter((device) => device.health === "STALE").length;
+  const unknown = all.filter((device) => device.health === "UNKNOWN").length;
+
   return (
     <div className="admin-page">
-      <PageHeader
-        eyebrow="Operations"
-        title="Devices & sync"
-        subtitle="Registered devices across tenants, last-seen state, sync queue health and revocation."
-      />
-
+      <PageHeader eyebrow="Operations" title="Devices & sync" subtitle="Registered devices, version/channel state and authoritative last-seen / last-sync telemetry across tenants." />
       <StatCardGrid>
-        <StatCard
-          label="Registered devices"
-          value="—"
-          hint="Pending backend · admin devices API"
-          icon={IconDevices}
-          tone="pending"
-        />
-        <StatCard
-          label="Online now"
-          value="—"
-          hint="Pending backend · last-seen telemetry"
-          icon={IconActivity}
-          tone="pending"
-        />
-        <StatCard
-          label="Stuck queues"
-          value="—"
-          hint="Pending backend · sync queue health"
-          icon={IconServer}
-          tone="pending"
-        />
-        <StatCard
-          label="Avg sync lag"
-          value="—"
-          hint="Pending backend · queue depth probe"
-          icon={IconRefresh}
-          tone="pending"
-        />
+        <StatCard label="Registered devices" value={loading ? "—" : String(all.length)} hint="Current device registry" icon={IconDevices} tone={loading ? "pending" : "default"} />
+        <StatCard label="Online now" value={loading ? "—" : String(online)} hint="Seen in the last 15 minutes" icon={IconActivity} tone={loading ? "pending" : "default"} />
+        <StatCard label="Stale" value={loading ? "—" : String(stale)} hint="Last seen more than 15 minutes ago" icon={IconServer} tone={loading ? "pending" : "default"} />
+        <StatCard label="Unknown" value={loading ? "—" : String(unknown)} hint="No last-seen timestamp recorded" icon={IconRefresh} tone={loading ? "pending" : "default"} />
       </StatCardGrid>
-
-      <Banner tone="info" icon={IconDevices} title="Device telemetry pending backend.">
-        <span className="admin-banner__text">
-          The admin devices endpoint (API-GAP-REGISTER §4) is not implemented. The device table is
-          composed and ready; rows populate when telemetry is connected.
-        </span>
-      </Banner>
-
       <CommandBar>
-        <CommandSearch
-          placeholder="Search by business or device key…"
-          label="Search devices"
-          name="q"
-        />
-        <CommandSelect
-          label="Filter by platform"
-          name="platform"
-          defaultValue="all"
-          options={[
-            { value: "all", label: "All platforms" },
-            { value: "web", label: "Web" },
-            { value: "windows", label: "Windows" },
-            { value: "macos", label: "macOS" },
-            { value: "android", label: "Android" },
-            { value: "ios", label: "iOS" },
-          ]}
-        />
-        <CommandSelect
-          label="Filter by health"
-          name="health"
-          defaultValue="all"
-          options={[
-            { value: "all", label: "All health" },
-            { value: "healthy", label: "Healthy" },
-            { value: "lagging", label: "Lagging" },
-            { value: "stuck", label: "Stuck" },
-            { value: "offline", label: "Offline" },
-          ]}
-        />
+        <div className="admin-commandbar__search"><input type="search" className="admin-commandbar__search-input" placeholder="Search by business or device key…" aria-label="Search devices" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+        <CommandSelect label="Filter by platform" value={platform} onChange={(event) => setPlatform(event.target.value)} options={[
+          { value: "all", label: "All platforms" }, { value: "web", label: "Web" }, { value: "windows", label: "Windows" }, { value: "macos", label: "macOS" }, { value: "android", label: "Android" }, { value: "ios", label: "iOS" },
+        ]} />
+        <CommandSelect label="Filter by health" value={health} onChange={(event) => setHealth(event.target.value)} options={[
+          { value: "all", label: "All health" }, { value: "online", label: "Online" }, { value: "stale", label: "Stale" }, { value: "unknown", label: "Unknown" },
+        ]} />
         <CommandSpacer />
-        <CommandButton icon={IconRefresh} label="Refresh device telemetry">
-          Refresh
-        </CommandButton>
+        <CommandButton icon={IconRefresh} label="Refresh device telemetry" onClick={() => void reload()}>Refresh</CommandButton>
       </CommandBar>
-
-      <AdminTable<DeviceRow>
-        caption="Devices"
-        columns={deviceColumns}
-        rows={[]}
-        rowKey={(r) => r.deviceKey}
-        emptyState={
-          <AdminEmptyState
-            title="Device telemetry pending backend"
-            description="No devices loaded. Once the admin devices endpoint is connected, every registered device appears here with its business, platform, last-seen timestamp and sync queue health."
-            icon={IconDevices}
-            pending
-          />
-        }
-      />
+      {loading ? <div className="admin-api-state" role="status">Loading device telemetry…</div> : error ? <div className="admin-api-state admin-api-state--error" role="alert">{error}</div> : (
+        <AdminTable<DeviceRow> caption="Devices" columns={deviceColumns} rows={rows} rowKey={(row) => row.id} emptyState={<AdminEmptyState title="No devices match" description="The live device registry is empty for the current filters." icon={IconDevices} />} />
+      )}
     </div>
   );
 }
 
-interface DeviceRow {
-  business: string;
-  deviceKey: string;
-  platform: "web" | "windows" | "macos" | "android" | "ios";
-  lastSeen: string;
-  queueHealth: "healthy" | "lagging" | "stuck" | "offline";
-}
-
-function healthTone(h: DeviceRow["queueHealth"]): "positive" | "warning" | "danger" | "neutral" {
-  switch (h) {
-    case "healthy":
-      return "positive";
-    case "lagging":
-      return "warning";
-    case "stuck":
-      return "danger";
-    case "offline":
-      return "neutral";
-  }
+function healthTone(health: DeviceRow["health"]): "positive" | "warning" | "neutral" {
+  if (health === "ONLINE") return "positive";
+  if (health === "STALE") return "warning";
+  return "neutral";
 }
 
 const deviceColumns = [
-  {
-    key: "business",
-    header: "Business",
-    render: (r: DeviceRow): ReactNode => <CellMain title={r.business} sub="Tenant" />,
-  },
-  {
-    key: "deviceKey",
-    header: "Device key",
-    width: "220px",
-    render: (r: DeviceRow): ReactNode => <span className="admin-table__mono">{r.deviceKey}</span>,
-  },
-  {
-    key: "platform",
-    header: "Platform",
-    width: "120px",
-    render: (r: DeviceRow): ReactNode => <span className="admin-table__strong">{r.platform}</span>,
-  },
-  {
-    key: "lastSeen",
-    header: "Last seen",
-    width: "170px",
-    align: "right" as const,
-    render: (r: DeviceRow): ReactNode => <CellMuted>{r.lastSeen}</CellMuted>,
-  },
-  {
-    key: "queueHealth",
-    header: "Queue health",
-    width: "140px",
-    render: (r: DeviceRow): ReactNode => (
-      <Badge tone={healthTone(r.queueHealth)}>{r.queueHealth}</Badge>
-    ),
-  },
+  { key: "business", header: "Business", render: (row: DeviceRow): ReactNode => <CellMain title={row.businessName} sub={row.branchName ?? "No branch"} /> },
+  { key: "deviceKey", header: "Device key", width: "220px", render: (row: DeviceRow): ReactNode => <span className="admin-table__mono">{row.deviceKey}</span> },
+  { key: "platform", header: "Platform", width: "150px", render: (row: DeviceRow): ReactNode => <CellMain title={row.platform} sub={`${row.appVersion} · ${row.releaseChannel}`} /> },
+  { key: "lastSeen", header: "Last seen", width: "180px", align: "right" as const, render: (row: DeviceRow): ReactNode => <CellMuted>{formatDate(row.lastSeenAt)}</CellMuted> },
+  { key: "lastSync", header: "Last sync", width: "180px", align: "right" as const, render: (row: DeviceRow): ReactNode => <CellMuted>{formatDate(row.lastSyncAt)}</CellMuted> },
+  { key: "health", header: "Health", width: "120px", render: (row: DeviceRow): ReactNode => <Badge tone={healthTone(row.health)}>{row.health.toLowerCase()}</Badge> },
 ];
+
+function formatDate(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "Never";
+}

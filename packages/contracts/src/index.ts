@@ -14,3 +14,4 @@ export * from "./exchanges.js";
 export * from "./currency-metadata.js";
 
 export * from "./staff.js";
+export * from "./platform-admin.js";
