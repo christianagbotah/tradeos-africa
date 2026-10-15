@@ -120,6 +120,92 @@ function deploy(fixture, sha, env = {}) {
   });
 }
 
+function writeWorkspaceContract(fixture, content) {
+  const dir = path.join(fixture.workspace, 'ops', 'lightworld-vps', 'apps');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'demo.staging.conf.example'), content);
+}
+
+function checkWorkspaceContract(fixture, processNames, localHealthUrls) {
+  return run('bash', ['-c', [
+    'source "$1"',
+    'PROCESS_NAMES="$2"',
+    'LOCAL_HEALTH_URLS="$3"',
+    'assert_workspace_registry_contract "$4" demo staging',
+  ].join('; '), 'bash', commonPath, processNames, localHealthUrls, fixture.workspace]);
+}
+
+test('workspace registry contract accepts matching process and local-health values', () => {
+  const fixture = makeFixture();
+  try {
+    writeWorkspaceContract(fixture, [
+      "PROCESS_NAMES='demo-api demo-web demo-admin'",
+      "LOCAL_HEALTH_URLS='test://api test://web test://admin'",
+      '',
+    ].join('\n'));
+    const result = checkWorkspaceContract(fixture, 'demo-api demo-web demo-admin', 'test://api test://web test://admin');
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally { cleanup(fixture); }
+});
+
+test('workspace registry contract rejects process or local-health drift', () => {
+  const fixture = makeFixture();
+  try {
+    writeWorkspaceContract(fixture, [
+      "PROCESS_NAMES='demo-api demo-web demo-admin'",
+      "LOCAL_HEALTH_URLS='test://api test://web test://admin'",
+      '',
+    ].join('\n'));
+    for (const [processNames, urls, key] of [
+      ['demo-api demo-web', 'test://api test://web test://admin', 'PROCESS_NAMES'],
+      ['demo-api demo-web demo-admin', 'test://api test://web', 'LOCAL_HEALTH_URLS'],
+    ]) {
+      const result = checkWorkspaceContract(fixture, processNames, urls);
+      assert.notEqual(result.status, 0);
+      assert.match(`${result.stderr}\n${result.stdout}`, new RegExp(key));
+    }
+  } finally { cleanup(fixture); }
+});
+
+test('workspace registry contract fails closed on duplicate or missing required keys', () => {
+  const fixture = makeFixture();
+  try {
+    for (const content of [
+      "PROCESS_NAMES='one'\nPROCESS_NAMES='two'\nLOCAL_HEALTH_URLS='test://local'\n",
+      "PROCESS_NAMES='one'\n",
+    ]) {
+      writeWorkspaceContract(fixture, content);
+      const result = checkWorkspaceContract(fixture, 'one', 'test://local');
+      assert.notEqual(result.status, 0);
+      assert.match(`${result.stderr}\n${result.stdout}`, /contract|PROCESS_NAMES|LOCAL_HEALTH_URLS/i);
+    }
+  } finally { cleanup(fixture); }
+});
+
+test('workspace registry contract treats metacharacters as literal data and never executes them', () => {
+  const fixture = makeFixture();
+  try {
+    const marker = path.join(fixture.root, 'must-not-exist');
+    const processNames = `demo-api $HOME ; $(touch ${marker})`;
+    writeWorkspaceContract(fixture, [
+      `PROCESS_NAMES='${processNames}'`,
+      "LOCAL_HEALTH_URLS='test://local?x=$HOME&y=1;echo-nope'",
+      '',
+    ].join('\n'));
+    const result = checkWorkspaceContract(fixture, processNames, 'test://local?x=$HOME&y=1;echo-nope');
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(fs.existsSync(marker), false);
+  } finally { cleanup(fixture); }
+});
+
+test('workspace registry contract preserves existing behavior when no contract file is tracked', () => {
+  const fixture = makeFixture();
+  try {
+    const result = checkWorkspaceContract(fixture, 'demo-api demo-web', 'test://local');
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally { cleanup(fixture); }
+});
+
 async function waitForFile(file, timeoutMs = 3000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
