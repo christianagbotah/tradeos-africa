@@ -768,3 +768,17 @@ test('TradeOS staging deploy workflow is manual, main-only, serialized and narro
   assert.doesNotMatch(source, /workflow_dispatch:\s*\n\s+inputs:/m);
   assert.doesNotMatch(source, /secrets\.|persist-credentials:\s*true/i);
 });
+
+const systemAdminNginxPath = path.join(opsRoot, 'nginx', 'tradeos-system-admin.location.conf');
+
+test('TradeOS System Admin nginx snippet proxies only the HTTPS-origin path to localhost admin runtime', () => {
+  assert.equal(fs.existsSync(systemAdminNginxPath), true, 'System Admin nginx snippet must exist');
+  const source = fs.readFileSync(systemAdminNginxPath, 'utf8');
+  assert.match(source, /location = \/system-admin\s*\{/);
+  assert.match(source, /location \^~ \/system-admin\/\s*\{/);
+  assert.match(source, /proxy_pass http:\/\/127\.0\.0\.1:3038;/);
+  assert.match(source, /X-Forwarded-Proto \$scheme/);
+  assert.match(source, /X-Robots-Tag "noindex, nofollow, nosnippet" always/);
+  assert.doesNotMatch(source, /\blisten\b|ssl_certificate|server_name/);
+  assert.doesNotMatch(source, /3038.*0\.0\.0\.0|3038.*\[::\]/);
+});
