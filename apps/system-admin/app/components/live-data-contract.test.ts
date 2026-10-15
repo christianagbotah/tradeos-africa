@@ -41,9 +41,11 @@ describe("system-admin live read-plane contract", () => {
   });
 
   it("keeps release and feature-flag mutation controls unavailable in the read plane", () => {
-    expect(read("console/releases/page.tsx")).not.toContain("New release");
-    expect(read("console/flags/page.tsx")).not.toContain("New flag");
-    expect(read("console/releases/page.tsx")).toContain("read-only");
-    expect(read("console/flags/page.tsx")).toContain("read-only");
+    const releases = read("console/releases/page.tsx");
+    const flags = read("console/flags/page.tsx");
+    expect(releases).not.toContain("New release");
+    expect(flags).not.toContain("New flag");
+    expect(releases.toLowerCase()).toContain("read-only");
+    expect(flags.toLowerCase()).toContain("read-only");
   });
 });
