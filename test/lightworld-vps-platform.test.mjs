@@ -570,11 +570,12 @@ test('TradeOS staging registry template pins canonical operational metadata with
   assert.match(source, /^RUNNER_USER=['"]lwrun_tradeos['"]$/m);
   assert.match(source, /^RELEASE_ROOT=['"]\/home\/lightworld\/releases\/tradeos-staging['"]$/m);
   assert.match(source, /^PROCESS_MANAGER=['"]pm2['"]$/m);
-  assert.match(source, /^PROCESS_NAMES=['"]tradeos-staging-api tradeos-staging-web['"]$/m);
+  assert.match(source, /^PROCESS_NAMES=['"]tradeos-staging-api tradeos-staging-web tradeos-staging-admin['"]$/m);
   assert.match(source, /^RUNTIME_FAMILY=['"]pnpm-node['"]$/m);
   assert.match(source, /^MIGRATION_MODE=['"]manual['"]$/m);
   assert.match(source, /http:\/\/127\.0\.0\.1:4036\/health/);
   assert.match(source, /http:\/\/127\.0\.0\.1:3036\//);
+  assert.match(source, /http:\/\/127\.0\.0\.1:3038\//);
   assert.match(source, /^CURRENT_LINK=['"]__SET_FROM_LIVE_VPS__['"]$/m);
   assert.match(source, /^ENV_FILE=['"]__SET_FROM_LIVE_VPS__['"]$/m);
   assert.match(source, /^PUBLIC_HEALTH_URLS=['"]__SET_FROM_LIVE_VPS__['"]$/m);

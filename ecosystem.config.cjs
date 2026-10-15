@@ -26,5 +26,17 @@ module.exports = {
       restart_delay: 2000,
       max_memory_restart: '500M',
     },
+    {
+      name: 'tradeos-staging-admin',
+      cwd: repoRoot,
+      script: './bin/start-system-admin.sh',
+      interpreter: '/bin/bash',
+      uid: 'lightworld',
+      gid: 'lightworld',
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      max_memory_restart: '400M',
+    },
   ],
 };
