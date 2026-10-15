@@ -1,6 +1,6 @@
 # TradeOS Africa — Frontend API Gap Register
 
-**Reviewed on:** 2026-10-13
+**Reviewed on:** 2026-10-15
 
 Backend capabilities required by TradeOS clients, including a clear distinction between implemented contracts and remaining gaps.
 
@@ -10,40 +10,42 @@ Backend capabilities required by TradeOS clients, including a clear distinction 
 
 ### 1. Platform-Admin Authentication
 - **Consumer:** `apps/system-admin`
-- **Endpoint needed:** `POST /api/admin/session/login`, `GET /api/admin/session/me`
+- **Implemented endpoints:** `POST /api/admin/session/login`, `POST /api/admin/session/refresh`, `GET /api/admin/session/me`, `POST /api/admin/session/logout`
 - **Request:** `{ identifier, password, platform, deviceKey }`
-- **Response:** `{ adminUser: { id, displayName, role }, session: { accessToken, refreshToken } }`
-- **Authorization:** Platform-admin only (separate from tenant auth)
-- **Status:** NOT IMPLEMENTED — system-admin cannot authenticate
+- **Response:** `{ adminUser: { id, email, displayName, role, lastLoginAt }, session: { accessToken, refreshToken, accessExpiresAt, refreshExpiresAt } }`
+- **Authorization:** independent `platform_users` + `platform_admin_sessions`; tenant `app_users` / merchant access tokens are not accepted.
+- **Status:** IMPLEMENTED IN READ PLANE — dedicated platform-admin session boundary, refresh rotation and logout are available. Initial credentials require explicit operator provisioning; no production password is seeded.
 
 ### 2. Tenant List + Management
 - **Consumer:** `apps/system-admin`
-- **Endpoint needed:** `GET /api/admin/tenants`, `GET /api/admin/tenants/:id`
-- **Response:** tenant list with status, plan, branch count, device count, last-seen
-- **Status:** NOT IMPLEMENTED
+- **Implemented read endpoints:** `GET /api/admin/tenants`, `GET /api/admin/tenants/:id`
+- **Read model:** business status, current plan/subscription, branch/device counts, branches, entitlement-override count and last-seen telemetry.
+- **Status:** READ IMPLEMENTED — tenant activation/suspension, subscription mutation, support impersonation and other tenant writes remain NOT IMPLEMENTED.
 
 ### 3. Platform Audit Log
 - **Consumer:** `apps/system-admin`
-- **Endpoint needed:** `GET /api/admin/audit-events`
-- **Response:** privileged action log (impersonation, config changes, support access)
-- **Status:** NOT IMPLEMENTED
+- **Implemented endpoint:** `GET /api/admin/audit-events`
+- **Response:** bounded newest-first reads from `platform_audit_events` with actor/business labels and business-safe stored metadata.
+- **Status:** READ IMPLEMENTED — future privileged write operations must append their own audit events when introduced.
 
 ### 4. Device + Sync Health
 - **Consumer:** `apps/system-admin`
-- **Endpoint needed:** `GET /api/admin/devices`
-- **Response:** registered devices, last-seen, queue health, sync status
-- **Status:** NOT IMPLEMENTED
+- **Implemented endpoint:** `GET /api/admin/devices`
+- **Response:** registered devices, tenant/branch, platform, app version, release channel, status, last-seen, last-sync and derived ONLINE/STALE/UNKNOWN health.
+- **Status:** READ IMPLEMENTED — device revoke/retire administration remains NOT IMPLEMENTED.
 
 ### 5. Feature Flags
 - **Consumer:** `apps/system-admin`
-- **Endpoint needed:** `GET /api/admin/feature-flags`, `PUT /api/admin/feature-flags/:key`
-- **Status:** NOT IMPLEMENTED
+- **Implemented endpoint:** `GET /api/admin/feature-flags`
+- **Remaining endpoint:** `PUT /api/admin/feature-flags/:key`
+- **Status:** READ IMPLEMENTED — global/tenant-scoped flag state and configuration are visible; flag mutation remains NOT IMPLEMENTED.
 
 ### 6. Client Release Management
 - **Consumer:** `apps/system-admin`
-- **Endpoint needed:** `GET /api/admin/releases`, `POST /api/admin/releases`
-- **Response:** version tracking, minimum-supported builds
-- **Status:** NOT IMPLEMENTED
+- **Implemented endpoint:** `GET /api/admin/releases`
+- **Remaining endpoint:** `POST /api/admin/releases` plus controlled rollout/withdraw/minimum-version mutation.
+- **Response:** platform, version/build, release channel, status, minimum-supported version, rollout percentage, notes and release timestamps.
+- **Status:** READ IMPLEMENTED — publishing and mutation remain NOT IMPLEMENTED.
 
 ---
 

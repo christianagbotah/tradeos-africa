@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import "./admin-tokens.css";
 import "./admin-shell.css";
 import "./admin-components.css";
+import "./admin-auth.css";
+import { PlatformAdminProvider } from "./components/platform-admin-session";
 
 export const metadata: Metadata = {
   title: "TradeOS System Admin",
@@ -21,7 +23,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><PlatformAdminProvider>{children}</PlatformAdminProvider></body>
     </html>
   );
 }

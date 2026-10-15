@@ -1,154 +1,91 @@
-import type { ReactNode } from "react";
-import { PageHeader, CommandBar, CommandSearch, CommandSelect, CommandButton, CommandSpacer, Banner } from "../../components/admin-ui";
+"use client";
+
+import { useMemo, useState, type ReactNode } from "react";
+import { PageHeader, CommandBar, CommandSelect, CommandButton, CommandSpacer, Banner, Badge } from "../../components/admin-ui";
 import { AdminTable, CellMain, CellMuted } from "../../components/admin-table";
 import { AdminEmptyState } from "../../components/admin-empty-state";
-import { Badge } from "../../components/admin-ui";
 import { IconBuilding, IconRefresh } from "../../components/icons";
+import { useAdminResource } from "../../components/platform-admin-session";
 
-/**
- * Tenant management.
- *
- * The admin tenants endpoint (API-GAP-REGISTER §2) is not implemented, so the
- * table renders zero rows and an honest "pending backend" state. The column
- * schema is fully composed so the data shape is documented and ready.
- */
+interface TenantRow {
+  id: string;
+  name: string;
+  businessType: string;
+  status: string;
+  countryCode: string;
+  currencyCode: string;
+  planCode: string | null;
+  planName: string | null;
+  subscriptionStatus: string | null;
+  branchCount: number;
+  deviceCount: number;
+  lastSeenAt: string | null;
+  updatedAt: string;
+}
+
 export default function TenantsPage() {
+  const { data, loading, error, reload } = useAdminResource<{ tenants: TenantRow[] }>("/api/admin/tenants");
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const [plan, setPlan] = useState("all");
+  const rows = useMemo(() => (data?.tenants ?? []).filter((tenant) => {
+    const q = query.trim().toLowerCase();
+    if (q && !`${tenant.name} ${tenant.id} ${tenant.businessType}`.toLowerCase().includes(q)) return false;
+    if (status !== "all" && tenant.status.toLowerCase() !== status) return false;
+    if (plan !== "all" && (tenant.planCode ?? "none").toLowerCase() !== plan) return false;
+    return true;
+  }), [data?.tenants, plan, query, status]);
+
   return (
     <div className="admin-page">
-      <PageHeader
-        eyebrow="Tenants"
-        title="Tenants"
-        subtitle="Businesses, branches, activation, suspension and support access across the platform."
-      />
-
-      <Banner tone="info" icon={IconBuilding} title="Admin tenants API pending.">
-        <span className="admin-banner__text">
-          Tenant list &amp; detail endpoints are not implemented yet (API-GAP-REGISTER §2). The
-          table is composed and ready; rows will populate when the endpoint ships.
-        </span>
+      <PageHeader eyebrow="Tenants" title="Tenants" subtitle="Authoritative businesses, subscription state, branches, registered devices and latest activity across TradeOS." />
+      <Banner tone="info" icon={IconBuilding} title="Read-only control plane active.">
+        <span className="admin-banner__text">Tenant lifecycle writes remain deliberately disabled in this release. This view reads live platform data only.</span>
       </Banner>
-
       <CommandBar>
-        <CommandSearch
-          placeholder="Search by tenant name or id…"
-          label="Search tenants"
-          name="q"
-        />
-        <CommandSelect
-          label="Filter by status"
-          name="status"
-          defaultValue="all"
-          options={[
-            { value: "all", label: "All statuses" },
-            { value: "active", label: "Active" },
-            { value: "trial", label: "Trial" },
-            { value: "suspended", label: "Suspended" },
-            { value: "churned", label: "Churned" },
-          ]}
-        />
-        <CommandSelect
-          label="Filter by plan"
-          name="plan"
-          defaultValue="all"
-          options={[
-            { value: "all", label: "All plans" },
-            { value: "starter", label: "Starter" },
-            { value: "growth", label: "Growth" },
-            { value: "scale", label: "Scale" },
-          ]}
-        />
+        <div className="admin-commandbar__search">
+          <input type="search" className="admin-commandbar__search-input" placeholder="Search by tenant name or id…" aria-label="Search tenants" value={query} onChange={(event) => setQuery(event.target.value)} />
+        </div>
+        <CommandSelect label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)} options={[
+          { value: "all", label: "All statuses" }, { value: "active", label: "Active" }, { value: "suspended", label: "Suspended" }, { value: "closed", label: "Closed" },
+        ]} />
+        <CommandSelect label="Filter by plan" value={plan} onChange={(event) => setPlan(event.target.value)} options={[
+          { value: "all", label: "All plans" },
+          ...Array.from(new Set((data?.tenants ?? []).map((tenant) => tenant.planCode).filter((value): value is string => Boolean(value)))).sort().map((value) => ({ value: value.toLowerCase(), label: value })),
+        ]} />
         <CommandSpacer />
-        <CommandButton icon={IconRefresh} label="Refresh tenant list">
-          Refresh
-        </CommandButton>
+        <CommandButton icon={IconRefresh} label="Refresh tenant list" onClick={() => void reload()}>Refresh</CommandButton>
       </CommandBar>
-
-      <AdminTable<TenantRow>
-        caption="Tenants"
-        columns={tenantColumns}
-        rows={[]}
-        rowKey={(r) => r.id}
-        emptyState={
-          <AdminEmptyState
-            title="No tenants loaded"
-            description="The admin tenants endpoint is pending. Once connected, every business on the platform appears here with status, plan, branch and device counts, and last-seen telemetry."
-            icon={IconBuilding}
-            pending
-          />
-        }
-      />
-
-      <p className="admin-section__sub">
-        Tenant detail (branches, entitlements, billing state, support impersonation) will open in a
-        side sheet — a future enhancement once the tenant detail endpoint ships.
-      </p>
+      {loading ? <div className="admin-api-state" role="status">Loading tenants…</div> : error ? <div className="admin-api-state admin-api-state--error" role="alert">{error}</div> : (
+        <AdminTable<TenantRow>
+          caption="Tenants"
+          columns={tenantColumns}
+          rows={rows}
+          rowKey={(row) => row.id}
+          emptyState={<AdminEmptyState title="No tenants match" description="The live tenant API returned no businesses for the current filters." icon={IconBuilding} />}
+        />
+      )}
+      <p className="admin-section__sub">Showing {rows.length} of {data?.tenants.length ?? 0} loaded tenants. Tenant mutation and support impersonation remain unavailable in the read-plane release.</p>
     </div>
   );
 }
 
-/** Intended tenant row shape (documented; populated when the API ships). */
-interface TenantRow {
-  id: string;
-  name: string;
-  status: "active" | "trial" | "suspended" | "churned";
-  plan: "starter" | "growth" | "scale";
-  branches: number;
-  devices: number;
-  lastSeen: string;
-}
-
-function statusTone(status: TenantRow["status"]): "positive" | "info" | "warning" | "neutral" {
-  switch (status) {
-    case "active":
-      return "positive";
-    case "trial":
-      return "info";
-    case "suspended":
-      return "warning";
-    case "churned":
-      return "neutral";
-  }
+function statusTone(status: string): "positive" | "warning" | "neutral" {
+  if (status === "ACTIVE") return "positive";
+  if (status === "SUSPENDED") return "warning";
+  return "neutral";
 }
 
 const tenantColumns = [
-  {
-    key: "name",
-    header: "Tenant",
-    render: (r: TenantRow): ReactNode => (
-      <CellMain title={r.name} sub={`ID · ${r.id}`} />
-    ),
-  },
-  {
-    key: "status",
-    header: "Status",
-    width: "120px",
-    render: (r: TenantRow): ReactNode => <Badge tone={statusTone(r.status)}>{r.status}</Badge>,
-  },
-  {
-    key: "plan",
-    header: "Plan",
-    width: "110px",
-    render: (r: TenantRow): ReactNode => <span className="admin-table__strong">{r.plan}</span>,
-  },
-  {
-    key: "branches",
-    header: "Branches",
-    width: "100px",
-    align: "right" as const,
-    render: (r: TenantRow): ReactNode => <span>{r.branches}</span>,
-  },
-  {
-    key: "devices",
-    header: "Devices",
-    width: "100px",
-    align: "right" as const,
-    render: (r: TenantRow): ReactNode => <span>{r.devices}</span>,
-  },
-  {
-    key: "lastSeen",
-    header: "Last seen",
-    width: "160px",
-    align: "right" as const,
-    render: (r: TenantRow): ReactNode => <CellMuted>{r.lastSeen}</CellMuted>,
-  },
+  { key: "name", header: "Tenant", render: (row: TenantRow): ReactNode => <CellMain title={row.name} sub={`${row.businessType.replaceAll("_", " ")} · ${row.id}`} /> },
+  { key: "status", header: "Status", width: "120px", render: (row: TenantRow): ReactNode => <Badge tone={statusTone(row.status)}>{row.status.toLowerCase()}</Badge> },
+  { key: "plan", header: "Plan", width: "150px", render: (row: TenantRow): ReactNode => <CellMain title={row.planName ?? "No plan"} sub={row.subscriptionStatus ?? "No subscription"} /> },
+  { key: "branches", header: "Branches", width: "100px", align: "right" as const, render: (row: TenantRow): ReactNode => <span>{row.branchCount}</span> },
+  { key: "devices", header: "Devices", width: "100px", align: "right" as const, render: (row: TenantRow): ReactNode => <span>{row.deviceCount}</span> },
+  { key: "lastSeen", header: "Last seen", width: "180px", align: "right" as const, render: (row: TenantRow): ReactNode => <CellMuted>{formatDate(row.lastSeenAt)}</CellMuted> },
 ];
+
+function formatDate(value: string | null): string {
+  if (!value) return "Never";
+  return new Date(value).toLocaleString();
+}

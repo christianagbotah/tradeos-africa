@@ -1,132 +1,46 @@
+"use client";
+
 import type { ComponentType, SVGProps } from "react";
 import Link from "next/link";
-import { PageHeader, Banner, Section } from "../components/admin-ui";
+import { Banner, PageHeader, Section } from "../components/admin-ui";
 import { StatCard, StatCardGrid } from "../components/stat-card";
-import {
-  IconActivity,
-  IconAlert,
-  IconBuilding,
-  IconDevices,
-  IconFlag,
-  IconInfo,
-  IconRelease,
-  IconServer,
-  IconTrend,
-  IconUsers,
-} from "../components/icons";
+import { IconActivity, IconBuilding, IconDevices, IconFlag, IconInfo, IconRelease } from "../components/icons";
+import { useAdminResource } from "../components/platform-admin-session";
+
+interface Tenant { status: string; }
+interface Device { health: "ONLINE" | "STALE" | "UNKNOWN"; }
+interface Release { status: string; }
 
 export default function ConsoleOverviewPage() {
+  const tenants = useAdminResource<{ tenants: Tenant[] }>("/api/admin/tenants");
+  const devices = useAdminResource<{ devices: Device[] }>("/api/admin/devices");
+  const releases = useAdminResource<{ releases: Release[] }>("/api/admin/releases");
+  const loading = tenants.loading || devices.loading || releases.loading;
+  const error = tenants.error ?? devices.error ?? releases.error;
+  const tenantRows = tenants.data?.tenants ?? [];
+  const deviceRows = devices.data?.devices ?? [];
+  const releaseRows = releases.data?.releases ?? [];
+
   return (
     <div className="admin-page">
-      <PageHeader
-        eyebrow="TradeOS control plane"
-        title="Platform overview"
-        subtitle="Operator console for super admins, support, compliance and billing. Separate from tenant business administration."
-      />
-
-      <Banner tone="warning" icon={IconAlert} title="Control-plane API pending.">
-        <span className="admin-banner__text">
-          Platform-admin authentication, tenant, device, audit, release and feature-flag endpoints
-          are not implemented yet (see API-GAP-REGISTER §1–§6). Metrics below show{" "}
-          <strong>—</strong> until the control-plane API lands.
-        </span>
+      <PageHeader eyebrow="TradeOS control plane" title="Platform overview" subtitle="Authenticated read-only operations view for Lightworld platform administrators. Separate from tenant business administration." />
+      <Banner tone="info" icon={IconInfo} title="System Admin read plane is active.">
+        <span className="admin-banner__text">Live tenant, device, audit, release and feature-flag data is available. Privileged mutations remain intentionally unavailable until the write plane is separately reviewed.</span>
       </Banner>
-
+      {error ? <div className="admin-api-state admin-api-state--error" role="alert">{error}</div> : null}
       <StatCardGrid>
-        <StatCard
-          label="Active tenants"
-          value="—"
-          hint="Pending backend · admin tenants API"
-          icon={IconBuilding}
-          tone="pending"
-        />
-        <StatCard
-          label="MRR"
-          value="—"
-          hint="Pending backend · subscription ledger"
-          icon={IconTrend}
-          tone="pending"
-        />
-        <StatCard
-          label="Sync health"
-          value="—"
-          hint="Pending backend · device telemetry"
-          icon={IconActivity}
-          tone="pending"
-        />
-        <StatCard
-          label="Release health"
-          value="—"
-          hint="Pending backend · client release tracking"
-          icon={IconRelease}
-          tone="pending"
-        />
+        <StatCard label="Active tenants" value={loading ? "—" : String(tenantRows.filter((tenant) => tenant.status === "ACTIVE").length)} hint={`${tenantRows.length} total loaded`} icon={IconBuilding} tone={loading ? "pending" : "default"} />
+        <StatCard label="Registered devices" value={loading ? "—" : String(deviceRows.length)} hint="Across all loaded tenants" icon={IconDevices} tone={loading ? "pending" : "default"} />
+        <StatCard label="Devices online" value={loading ? "—" : String(deviceRows.filter((device) => device.health === "ONLINE").length)} hint="Seen in the last 15 minutes" icon={IconActivity} tone={loading ? "pending" : "default"} />
+        <StatCard label="Active releases" value={loading ? "—" : String(releaseRows.filter((release) => release.status === "ACTIVE").length)} hint={`${releaseRows.length} release records`} icon={IconRelease} tone={loading ? "pending" : "default"} />
       </StatCardGrid>
-
-      <Section
-        title="Admin areas"
-        sub="Each area is composed and reachable. Data populates once the matching control-plane endpoint ships."
-      >
+      <Section title="Admin areas" sub="All areas below read live control-plane data. Write operations remain unavailable in this milestone.">
         <div className="admin-quicklinks">
-          <QuickLink
-            href="/console/tenants"
-            icon={IconBuilding}
-            title="Tenants"
-            desc="Businesses, branches, activation, suspension and support access."
-          />
-          <QuickLink
-            href="/console/devices"
-            icon={IconDevices}
-            title="Devices & sync"
-            desc="Registered devices, last-seen state, queue health and revocation."
-          />
-          <QuickLink
-            href="/console/audit"
-            icon={IconInfo}
-            title="Platform audit"
-            desc="Privileged actions, support access and configuration changes."
-          />
-          <QuickLink
-            href="/console/releases"
-            icon={IconRelease}
-            title="Client releases"
-            desc="Web, Windows, macOS, Android and iOS versions and minimum-supported builds."
-          />
-          <QuickLink
-            href="/console/flags"
-            icon={IconFlag}
-            title="Feature flags"
-            desc="Module licensing, limits, overrides and platform-wide toggles."
-          />
-        </div>
-      </Section>
-
-      <Section title="Platform status" sub="Live once control-plane telemetry is connected.">
-        <div
-          className="admin-stat-card__grid"
-          style={{ gridTemplateColumns: "repeat(3, minmax(0,1fr))" }}
-        >
-          <StatCard
-            label="API uptime"
-            value="—"
-            hint="Pending backend · health probe"
-            icon={IconServer}
-            tone="pending"
-          />
-          <StatCard
-            label="Support agents online"
-            value="—"
-            hint="Pending backend · admin session API"
-            icon={IconUsers}
-            tone="pending"
-          />
-          <StatCard
-            label="Open incidents"
-            value="—"
-            hint="Pending backend · incident feed"
-            icon={IconAlert}
-            tone="pending"
-          />
+          <QuickLink href="/console/tenants" icon={IconBuilding} title="Tenants" desc="Business status, current subscription, branches, devices and recent activity." />
+          <QuickLink href="/console/devices" icon={IconDevices} title="Devices & sync" desc="Registered device versions, release channels, last-seen and last-sync telemetry." />
+          <QuickLink href="/console/audit" icon={IconInfo} title="Platform audit" desc="Privileged platform audit events and affected resources." />
+          <QuickLink href="/console/releases" icon={IconRelease} title="Client releases" desc="Published client versions, support floors and rollout state." />
+          <QuickLink href="/console/flags" icon={IconFlag} title="Feature flags" desc="Global and tenant-scoped feature flag state and configuration." />
         </div>
       </Section>
     </div>
@@ -143,12 +57,7 @@ interface QuickLinkProps {
 function QuickLink({ href, icon: Icon, title, desc }: QuickLinkProps) {
   return (
     <Link href={href} className="admin-quicklink">
-      <span className="admin-quicklink__head">
-        <span className="admin-quicklink__icon">
-          <Icon />
-        </span>
-        <span className="admin-quicklink__title">{title}</span>
-      </span>
+      <span className="admin-quicklink__head"><span className="admin-quicklink__icon"><Icon /></span><span className="admin-quicklink__title">{title}</span></span>
       <p className="admin-quicklink__desc">{desc}</p>
     </Link>
   );

@@ -1,137 +1,67 @@
-import type { ReactNode } from "react";
-import {
-  Banner,
-  Badge,
-  CommandBar,
-  CommandButton,
-  CommandSearch,
-  CommandSelect,
-  CommandSpacer,
-  PageHeader,
-} from "../../components/admin-ui";
+"use client";
+
+import { useMemo, useState, type ReactNode } from "react";
+import { Badge, Banner, CommandBar, CommandButton, CommandSelect, CommandSpacer, PageHeader } from "../../components/admin-ui";
 import { AdminTable, CellMain, CellMuted } from "../../components/admin-table";
 import { AdminEmptyState } from "../../components/admin-empty-state";
-import { IconFlag, IconPlus, IconRefresh } from "../../components/icons";
+import { IconFlag, IconRefresh } from "../../components/icons";
+import { useAdminResource } from "../../components/platform-admin-session";
 
-/**
- * Feature flags.
- *
- * The admin feature-flags endpoint (API-GAP-REGISTER §5) is not implemented.
- * The flag table renders an honest "pending backend" state.
- */
+interface FlagRow {
+  id: string;
+  code: string;
+  businessId: string | null;
+  businessName: string | null;
+  enabled: boolean;
+  configuration: Record<string, unknown>;
+  updatedByPlatformUserId: string | null;
+  updatedAt: string;
+}
+
 export default function FlagsPage() {
+  const { data, loading, error, reload } = useAdminResource<{ flags: FlagRow[] }>("/api/admin/feature-flags");
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const [scope, setScope] = useState("all");
+  const rows = useMemo(() => (data?.flags ?? []).filter((flag) => {
+    const q = query.trim().toLowerCase();
+    if (q && !`${flag.code} ${flag.businessName ?? "global"}`.toLowerCase().includes(q)) return false;
+    if (status === "on" && !flag.enabled) return false;
+    if (status === "off" && flag.enabled) return false;
+    if (scope === "global" && flag.businessId) return false;
+    if (scope === "tenant" && !flag.businessId) return false;
+    return true;
+  }), [data?.flags, query, scope, status]);
+
   return (
     <div className="admin-page">
-      <PageHeader
-        eyebrow="Platform"
-        title="Feature flags"
-        subtitle="Module licensing, limits, overrides and platform-wide toggles scoped per tenant, plan or globally."
-        actions={
-          <CommandButton icon={IconPlus} label="Create a new feature flag">
-            New flag
-          </CommandButton>
-        }
-      />
-
-      <Banner tone="info" icon={IconFlag} title="Feature flags pending backend.">
-        <span className="admin-banner__text">
-          The admin feature-flags endpoint (API-GAP-REGISTER §5) is not implemented. The flag table
-          is composed and ready; rows populate when the flag service is connected.
-        </span>
+      <PageHeader eyebrow="Platform" title="Feature flags" subtitle="Live global and tenant-scoped platform flags and their current configuration." />
+      <Banner tone="info" icon={IconFlag} title="Feature flags are read-only in this release.">
+        <span className="admin-banner__text">Flag mutation remains unavailable until the privileged write plane is implemented and separately audited.</span>
       </Banner>
-
       <CommandBar>
-        <CommandSearch
-          placeholder="Search by flag key or description…"
-          label="Search feature flags"
-          name="q"
-        />
-        <CommandSelect
-          label="Filter by status"
-          name="status"
-          defaultValue="all"
-          options={[
-            { value: "all", label: "All statuses" },
-            { value: "on", label: "On" },
-            { value: "off", label: "Off" },
-            { value: "gradual", label: "Gradual rollout" },
-          ]}
-        />
-        <CommandSelect
-          label="Filter by scope"
-          name="scope"
-          defaultValue="all"
-          options={[
-            { value: "all", label: "All scopes" },
-            { value: "global", label: "Global" },
-            { value: "plan", label: "Plan" },
-            { value: "tenant", label: "Tenant" },
-          ]}
-        />
+        <div className="admin-commandbar__search"><input type="search" className="admin-commandbar__search-input" placeholder="Search flag key or tenant…" aria-label="Search feature flags" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+        <CommandSelect label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)} options={[{ value: "all", label: "All statuses" }, { value: "on", label: "On" }, { value: "off", label: "Off" }]} />
+        <CommandSelect label="Filter by scope" value={scope} onChange={(event) => setScope(event.target.value)} options={[{ value: "all", label: "All scopes" }, { value: "global", label: "Global" }, { value: "tenant", label: "Tenant" }]} />
         <CommandSpacer />
-        <CommandButton icon={IconRefresh} label="Refresh feature flags">
-          Refresh
-        </CommandButton>
+        <CommandButton icon={IconRefresh} label="Refresh feature flags" onClick={() => void reload()}>Refresh</CommandButton>
       </CommandBar>
-
-      <AdminTable<FlagRow>
-        caption="Feature flags"
-        columns={flagColumns}
-        rows={[]}
-        rowKey={(r) => r.key}
-        emptyState={
-          <AdminEmptyState
-            title="Feature flags pending backend"
-            description="No flags loaded. Once the admin feature-flags endpoint is connected, every platform toggle appears here with its key, description, status (on / off / gradual rollout) and scope (global, plan, tenant)."
-            icon={IconFlag}
-            pending
-          />
-        }
-      />
+      {loading ? <div className="admin-api-state" role="status">Loading feature flags…</div> : error ? <div className="admin-api-state admin-api-state--error" role="alert">{error}</div> : (
+        <AdminTable<FlagRow> caption="Feature flags" columns={flagColumns} rows={rows} rowKey={(row) => row.id} emptyState={<AdminEmptyState title="No feature flags match" description="The live flag registry is empty for the current filters." icon={IconFlag} />} />
+      )}
     </div>
   );
 }
 
-interface FlagRow {
-  key: string;
-  description: string;
-  status: "on" | "off" | "gradual";
-  scope: "global" | "plan" | "tenant";
-}
-
-function statusTone(s: FlagRow["status"]): "positive" | "neutral" | "info" {
-  switch (s) {
-    case "on":
-      return "positive";
-    case "off":
-      return "neutral";
-    case "gradual":
-      return "info";
-  }
-}
-
 const flagColumns = [
-  {
-    key: "key",
-    header: "Flag key",
-    width: "240px",
-    render: (r: FlagRow): ReactNode => <span className="admin-table__mono">{r.key}</span>,
-  },
-  {
-    key: "description",
-    header: "Description",
-    render: (r: FlagRow): ReactNode => <CellMain title={r.description} sub="What this flag controls" />,
-  },
-  {
-    key: "status",
-    header: "Status",
-    width: "150px",
-    render: (r: FlagRow): ReactNode => <Badge tone={statusTone(r.status)}>{r.status}</Badge>,
-  },
-  {
-    key: "scope",
-    header: "Scope",
-    width: "120px",
-    render: (r: FlagRow): ReactNode => <CellMuted>{r.scope}</CellMuted>,
-  },
+  { key: "code", header: "Flag key", width: "240px", render: (row: FlagRow): ReactNode => <span className="admin-table__mono">{row.code}</span> },
+  { key: "scope", header: "Scope", render: (row: FlagRow): ReactNode => <CellMain title={row.businessName ?? "Global"} sub={row.businessId ?? "All tenants"} /> },
+  { key: "status", header: "Status", width: "120px", render: (row: FlagRow): ReactNode => <Badge tone={row.enabled ? "positive" : "neutral"}>{row.enabled ? "on" : "off"}</Badge> },
+  { key: "configuration", header: "Configuration", width: "280px", render: (row: FlagRow): ReactNode => <CellMuted>{compact(row.configuration)}</CellMuted> },
+  { key: "updated", header: "Updated", width: "180px", align: "right" as const, render: (row: FlagRow): ReactNode => <CellMuted>{new Date(row.updatedAt).toLocaleString()}</CellMuted> },
 ];
+
+function compact(configuration: Record<string, unknown>): string {
+  const text = JSON.stringify(configuration ?? {});
+  return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+}

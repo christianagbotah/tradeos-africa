@@ -3,6 +3,9 @@ BEGIN;
 ALTER TABLE platform_users
   ADD COLUMN IF NOT EXISTS password_hash text;
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_users_email_lower
+  ON platform_users(lower(email));
+
 CREATE TABLE platform_admin_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   platform_user_id uuid NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,

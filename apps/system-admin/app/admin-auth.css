@@ -1,0 +1,37 @@
+.admin-auth-screen {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(circle at top, rgba(212, 175, 55, 0.10), transparent 34%), #08111f;
+  color: #e8edf5;
+}
+
+.admin-auth-card {
+  width: min(100%, 460px);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 22px;
+  background: rgba(14, 25, 42, .96);
+  box-shadow: 0 24px 80px rgba(0,0,0,.35);
+  padding: clamp(24px, 5vw, 38px);
+}
+
+.admin-auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+.admin-auth-mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; background: #d6ad3c; color: #101721; font-weight: 900; }
+.admin-auth-brand strong { display: block; font-size: 18px; }
+.admin-auth-brand span { display: block; margin-top: 2px; color: #8fa0b6; font-size: 13px; }
+.admin-auth-eyebrow { margin: 0 0 8px; color: #d6ad3c; text-transform: uppercase; letter-spacing: .12em; font-size: 11px; font-weight: 800; }
+.admin-auth-card h1 { margin: 0; font-size: clamp(27px, 5vw, 36px); line-height: 1.08; }
+.admin-auth-intro { margin: 12px 0 26px; color: #a8b5c7; line-height: 1.6; }
+.admin-auth-form { display: grid; gap: 18px; }
+.admin-auth-field { display: grid; gap: 7px; }
+.admin-auth-field span { font-size: 13px; font-weight: 700; color: #d6dfec; }
+.admin-auth-field input { min-height: 48px; width: 100%; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 0 14px; background: #0b1728; color: #f5f7fa; font: inherit; outline: none; }
+.admin-auth-field input:focus { border-color: #d6ad3c; box-shadow: 0 0 0 3px rgba(214,173,60,.14); }
+.admin-auth-submit { min-height: 50px; border: 0; border-radius: 12px; background: #d6ad3c; color: #111821; font: inherit; font-weight: 850; cursor: pointer; }
+.admin-auth-submit:disabled { opacity: .55; cursor: wait; }
+.admin-auth-error { margin: 0; padding: 11px 12px; border-radius: 10px; background: rgba(225, 76, 76, .12); color: #ffb4b4; font-size: 13px; }
+.admin-auth-note { margin: 20px 0 0; color: #74869d; font-size: 12px; line-height: 1.55; }
+.admin-auth-state { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: #08111f; color: #aab7c7; }
+.admin-api-state { border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 22px; color: #8fa0b6; background: rgba(255,255,255,.025); }
+.admin-api-state--error { border-color: rgba(225,76,76,.25); color: #ffb4b4; }

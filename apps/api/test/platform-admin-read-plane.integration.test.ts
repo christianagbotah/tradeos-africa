@@ -13,7 +13,19 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await pool.query("TRUNCATE TABLE platform_admin_sessions, platform_users, app_users, businesses CASCADE");
+  await pool.query(`TRUNCATE TABLE
+    platform_admin_sessions,
+    platform_audit_events,
+    platform_feature_flags,
+    client_releases,
+    business_entitlement_overrides,
+    business_subscriptions,
+    subscription_plans,
+    registered_devices,
+    platform_users,
+    app_users,
+    businesses
+    CASCADE`);
 });
 
 afterAll(async () => {
@@ -132,7 +144,7 @@ describe("platform admin read plane", () => {
     );
     await pool.query(
       `INSERT INTO platform_audit_events(platform_user_id,business_id,event_type,entity_type,entity_id,reason,payload)
-       VALUES($1,$2,'TENANT_VIEWED','BUSINESS',$2,'integration test','{"safe":true}'::jsonb)`,
+       VALUES($1,$2,'TENANT_VIEWED','BUSINESS',$2::text,'integration test','{"safe":true}'::jsonb)`,
       [adminId, businessId],
     );
 

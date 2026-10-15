@@ -6,8 +6,8 @@ const appRoot = path.resolve(__dirname, "..");
 
 describe("system-admin class-contract", () => {
   it("every className used in admin pages has a CSS definition", () => {
-    const pageFiles = ["console/page.tsx", "console/tenants/page.tsx", "console/devices/page.tsx", "console/audit/page.tsx", "console/releases/page.tsx", "console/flags/page.tsx"];
-    const cssFiles = ["admin-tokens.css", "admin-shell.css", "admin-components.css"];
+    const pageFiles = ["page.tsx", "console/page.tsx", "console/tenants/page.tsx", "console/devices/page.tsx", "console/audit/page.tsx", "console/releases/page.tsx", "console/flags/page.tsx"];
+    const cssFiles = ["admin-tokens.css", "admin-shell.css", "admin-components.css", "admin-auth.css"];
     const css = cssFiles.map((f) => fs.readFileSync(path.join(appRoot, f), "utf8")).join("\n");
     const classNames = new Set<string>();
     const regex = /className="([^"]+)"/g;
@@ -22,9 +22,7 @@ describe("system-admin class-contract", () => {
     }
     const missing: string[] = [];
     for (const cls of classNames) {
-      if (!cls.includes("{") && !css.includes(`.${cls}`)) {
-        missing.push(cls);
-      }
+      if (!cls.includes("{") && !css.includes(`.${cls}`)) missing.push(cls);
     }
     expect(missing).toEqual([]);
   });

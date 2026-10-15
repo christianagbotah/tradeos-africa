@@ -12,8 +12,8 @@ interface AdminShellProps {
   adminName?: string;
   adminRole?: string;
   adminInitials?: string;
-  /** Right-hand topbar actions slot. */
   actions?: ReactNode;
+  onSignOut?: () => void;
 }
 
 export function AdminShell({
@@ -22,17 +22,16 @@ export function AdminShell({
   adminRole = "Platform admin",
   adminInitials = "OP",
   actions,
+  onSignOut,
 }: AdminShellProps) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const meta = resolvePageMeta(pathname);
 
-  // Close the mobile drawer whenever the route changes.
   useEffect(() => {
     setSidebarOpen(false);
   }, [pathname]);
 
-  // Lock body scroll while the mobile drawer is open.
   useEffect(() => {
     if (!sidebarOpen) return;
     const previous = document.body.style.overflow;
@@ -42,7 +41,6 @@ export function AdminShell({
     };
   }, [sidebarOpen]);
 
-  // Close on Escape for keyboard users.
   useEffect(() => {
     if (!sidebarOpen) return;
     const handler = (event: KeyboardEvent) => {
@@ -52,20 +50,12 @@ export function AdminShell({
     return () => window.removeEventListener("keydown", handler);
   }, [sidebarOpen]);
 
-  const handleSignOut = () => {
-    // Platform-admin auth API does not exist yet (API-GAP-REGISTER §1).
-    // No-op until the control-plane session endpoint lands.
-    if (typeof window !== "undefined") {
-      window.console.info("[system-admin] sign-out requested — admin session API pending.");
-    }
-  };
-
   return (
     <div className="admin-shell">
       <AdminSidebar
         open={sidebarOpen}
         onNavigate={() => setSidebarOpen(false)}
-        onSignOut={handleSignOut}
+        onSignOut={() => onSignOut?.()}
       />
       <div
         className="admin-sidebar-scrim"
