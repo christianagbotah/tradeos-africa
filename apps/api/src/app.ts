@@ -17,6 +17,7 @@ import { SUPPLIER_WRITE_ROLES } from "./supplier-service.js";
 import type { DatabasePool } from "./db.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
 import { registerMediaRoutes } from "./media/routes.js";
+import { registerPlatformAdminRoutes } from "./platform-admin/routes.js";
 import { registerSalesReadRoutes } from "./sales-read.js";
 import { registerStaffRoutes } from "./staff/routes.js";
 import { ingestSyncBatch, SyncRequestError } from "./sync.js";
@@ -46,6 +47,7 @@ export function buildApp(pool: DatabasePool) {
   });
 
   registerAuthRoutes(app, pool);
+  registerPlatformAdminRoutes(app, pool);
   registerOnboardingRoutes(app, pool);
   registerBusinessRoutes(app, pool);
   registerMediaRoutes(app, pool);
