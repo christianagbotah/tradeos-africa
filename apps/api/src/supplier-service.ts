@@ -5,6 +5,7 @@ import type { DatabaseClient, DatabasePool } from "./db.js";
 import { withTransaction } from "./db.js";
 
 export const SUPPLIER_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"];
+export const SUPPLIER_DELETE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN"];
 export const SUPPLIER_TERMS_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 
 type SupplierRow = {
@@ -96,6 +97,53 @@ export async function updateSupplier(
       : "SUPPLIER_UPDATED";
     await writeAudit(client, access, eventType, supplierId, { changes });
     return loadSupplier(client, access.businessId, supplierId);
+  });
+}
+
+export async function deleteUnusedSupplier(
+  pool: DatabasePool,
+  access: BusinessAccess,
+  supplierId: string,
+  expectedUpdatedAtInput: string,
+): Promise<void> {
+  const expectedUpdatedAt = revision(expectedUpdatedAtInput);
+
+  await withTransaction(pool, async (client) => {
+    const current = await loadSupplier(client, access.businessId, supplierId, true);
+    if (Date.parse(current.updatedAt) !== Date.parse(expectedUpdatedAt)) {
+      throw new SupplierServiceError("Supplier changed on another device. Reload before deleting.", 409, "STALE_VERSION");
+    }
+
+    const history = await client.query<{ in_use: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM purchases WHERE business_id=$1 AND supplier_id=$2
+         UNION ALL SELECT 1 FROM supplier_payable_ledger WHERE business_id=$1 AND supplier_id=$2
+         UNION ALL SELECT 1 FROM purchase_return_cases WHERE business_id=$1 AND supplier_id=$2
+         UNION ALL SELECT 1 FROM supplier_credit_obligations WHERE business_id=$1 AND supplier_id=$2
+       ) AS in_use`,
+      [access.businessId, supplierId],
+    );
+    if (history.rows[0]?.in_use) {
+      throw new SupplierServiceError(
+        "This supplier has purchase, payment or return history, so it cannot be permanently deleted. Deactivate it instead.",
+        409,
+        "SUPPLIER_IN_USE",
+      );
+    }
+
+    await writeAudit(client, access, "SUPPLIER_DELETED_UNUSED", supplierId, {
+      before: {
+        name: current.name,
+        phone: current.phone,
+        email: current.email,
+        address: current.address,
+        paymentTermsDays: current.paymentTermsDays,
+        active: current.active,
+      },
+      changedFields: ["deleted"],
+    });
+    const removed = await client.query(`DELETE FROM suppliers WHERE id=$1 AND business_id=$2`, [supplierId, access.businessId]);
+    if (removed.rowCount !== 1) throw new SupplierServiceError("Supplier was not found", 404, "SUPPLIER_NOT_FOUND");
   });
 }
 

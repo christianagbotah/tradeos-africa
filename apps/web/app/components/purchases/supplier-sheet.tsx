@@ -8,6 +8,7 @@ import { MoneyInput } from "../ui/money-input";
 import { Button } from "../ui/button";
 import { IconCalendar, IconClose, IconMail, IconPhone, IconReceipt, IconShield, IconWallet } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import {
   buildSupplierUpdatePayload,
   buildSupplierPaymentPayload,
@@ -69,11 +70,16 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
   const { session, role, bump } = useWorkspace();
   const [editOpen, setEditOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!supplier) return;
     setEditOpen(false);
     setPaymentOpen(false);
+    setDeleteArmed(false);
+    setDeleteError(null);
     if (typeof document !== "undefined") document.body.style.overflow = "hidden";
     return () => { if (typeof document !== "undefined") document.body.style.overflow = ""; };
   }, [supplier]);
@@ -82,7 +88,36 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
 
   const canWrite = roleCan(role as WorkspaceRole, SUPPLIER_WRITE_ROLES);
   const canPay = roleCan(role as WorkspaceRole, SUPPLIER_PAYMENT_ROLES);
+  const canDelete = ["OWNER", "ADMIN"].includes(role);
   const currencyCode = session.currencyCode;
+
+  const handleDelete = async () => {
+    if (!canDelete || deleteBusy) return;
+    if (!deleteArmed) {
+      setDeleteArmed(true);
+      setEditOpen(false);
+      setPaymentOpen(false);
+      setDeleteError(null);
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const response = await getOfflineQueue().authenticatedFetch(
+        `/v1/suppliers/${encodeURIComponent(supplier.id)}?businessId=${encodeURIComponent(session.businessId)}&expectedUpdatedAt=${encodeURIComponent(supplier.updatedAt)}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response, "Supplier could not be deleted"));
+      bump();
+      onMutated?.();
+      onClose();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Supplier could not be deleted");
+      setDeleteArmed(false);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const owesAmount = supplier.balanceMinor > 0;
   const balanceCls = owesAmount
@@ -298,8 +333,19 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
             />
           ) : null}
         </div>
+        {deleteError ? <div className="tos-banner tos-banner--danger" role="alert"><span className="tos-banner__title">{deleteError}</span></div> : null}
+        {deleteArmed ? (
+          <div className="tos-callout tos-callout--warning">
+            <span>This permanently removes only an unused supplier. Suppliers with purchase, payment or return history are protected and must be deactivated instead.</span>
+          </div>
+        ) : null}
         <div className="tos-sheet__foot">
           <Button variant="ghost" onClick={onClose}>Close</Button>
+          {canDelete ? (
+            <Button variant="danger" onClick={() => void handleDelete()} loading={deleteBusy}>
+              {deleteArmed ? "Delete permanently" : "Delete supplier"}
+            </Button>
+          ) : null}
           {canWrite ? (
             <Button variant="outline" onClick={() => { setEditOpen((v) => !v); setPaymentOpen(false); }} disabled={editOpen}>
               {editOpen ? "Editing…" : "Edit"}
