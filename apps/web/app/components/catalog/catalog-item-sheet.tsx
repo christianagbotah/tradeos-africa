@@ -174,7 +174,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
     };
   }, []);
 
-  const effectiveTrackStock = kind === "SERVICE" ? false : trackStock;
+  const effectiveTrackStock = kind === "PRODUCT" ? trackStock : false;
   const sellableUnits = units.filter((u) => u.canSell && u.code.trim());
   const stockableUnitCodes = units.filter((u) => u.canStock && u.code.trim()).map((u) => normalizeUnitCode(u.code));
   const primary = sellableUnits[0] ?? null;
@@ -634,6 +634,8 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
             </span>
           </div>
 
+          {validationError ? <div className="tos-banner tos-banner--warning" role="status"><span className="tos-banner__title">Fix before saving</span><span>{validationError}</span></div> : null}
+
           {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
 
           {/* Lifecycle — archive / reactivate (edit mode only) */}
@@ -670,7 +672,7 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
             variant="primary"
             onClick={handleSubmit}
             loading={busy}
-            disabled={!name.trim() || !canWrite || busy || Boolean(validationError)}
+            disabled={!name.trim() || !canWrite || busy}
           >
             {canWrite ? (isEdit ? "Save changes" : "Create item") : "No permission"}
           </Button>

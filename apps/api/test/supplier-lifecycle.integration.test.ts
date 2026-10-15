@@ -60,6 +60,61 @@ describe("supplier lifecycle and procurement safety", () => {
     expect(missingRevision.json<{ error: string }>().error).toBe("REVISION_REQUIRED");
   });
 
+  it("permanently deletes an unused supplier and records an audit event", async () => {
+    const owner = await register("supplier-delete@tradeos.test", "supplier-delete-device");
+    const business = await createBusiness(owner.accessToken);
+    const created = await createSupplier(owner.accessToken, business.businessId, { name: "Disposable Supplier" });
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/v1/suppliers/${created.id}?businessId=${business.businessId}&expectedUpdatedAt=${encodeURIComponent(created.updatedAt)}`,
+      headers: bearer(owner.accessToken),
+    });
+    expect(removed.statusCode, removed.body).toBe(204);
+
+    const missing = await app.inject({ method: "GET", url: `/v1/suppliers/${created.id}?businessId=${business.businessId}`, headers: bearer(owner.accessToken) });
+    expect(missing.statusCode).toBe(404);
+    const audit = await pool.query<{ event_type: string }>(
+      `SELECT event_type FROM audit_events WHERE business_id=$1 AND entity_type='SUPPLIER' AND entity_id=$2`,
+      [business.businessId, created.id],
+    );
+    expect(audit.rows.some((row) => row.event_type === "SUPPLIER_DELETED_UNUSED")).toBe(true);
+  });
+
+  it("restricts permanent deletion and protects suppliers that have accounting history", async () => {
+    const owner = await register("supplier-delete-history@tradeos.test", "supplier-delete-history-device");
+    const business = await createBusiness(owner.accessToken);
+    const created = await createSupplier(owner.accessToken, business.businessId, { name: "Protected Supplier" });
+
+    await setRole(business.businessId, "INVENTORY");
+    const forbidden = await app.inject({
+      method: "DELETE",
+      url: `/v1/suppliers/${created.id}?businessId=${business.businessId}&expectedUpdatedAt=${encodeURIComponent(created.updatedAt)}`,
+      headers: bearer(owner.accessToken),
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    await setRole(business.businessId, "OWNER");
+    const itemId = await createPurchaseItem(owner.accessToken, business.businessId);
+    const received = await sync(owner.accessToken, business, "supplier-delete-history-receipt", "PURCHASE_RECEIVE_CREATE", {
+      supplierId: created.id,
+      settlementMethod: "CASH",
+      lines: [{ itemId, purchaseUnitCode: "piece", quantity: 1, unitCostMinor: 1000 }],
+    });
+    expect(received.status).toBe("APPLIED");
+
+    const before = await getSupplier(owner.accessToken, business.businessId, created.id);
+    const blocked = await app.inject({
+      method: "DELETE",
+      url: `/v1/suppliers/${created.id}?businessId=${business.businessId}&expectedUpdatedAt=${encodeURIComponent(before.supplier.updatedAt)}`,
+      headers: bearer(owner.accessToken),
+    });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json<{ error: string }>().error).toBe("SUPPLIER_IN_USE");
+    const stillThere = await app.inject({ method: "GET", url: `/v1/suppliers/${created.id}?businessId=${business.businessId}`, headers: bearer(owner.accessToken) });
+    expect(stillThere.statusCode).toBe(200);
+  });
+
   it("archives/reactivates suppliers without losing payables, blocks new receiving, and audits lifecycle deltas", async () => {
     const owner = await register("supplier-history@tradeos.test", "supplier-history-device");
     const business = await createBusiness(owner.accessToken);
