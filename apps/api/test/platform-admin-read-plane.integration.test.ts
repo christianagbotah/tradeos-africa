@@ -34,7 +34,7 @@ afterAll(async () => {
 });
 
 describe("platform admin authentication", () => {
-  it("uses an independent admin session, rotates refresh tokens and logs out", async () => {
+  it("uses an independent HttpOnly admin cookie and logs out server-side", async () => {
     await seedAdmin("ops@tradeos.test");
     const login = await app.inject({
       method: "POST",
@@ -42,32 +42,80 @@ describe("platform admin authentication", () => {
       payload: { identifier: "OPS@TRADEOS.TEST", password: PASSWORD, platform: "WEB", deviceKey: "admin-browser-1" },
     });
     expect(login.statusCode, login.body).toBe(200);
-    const first = login.json<{ adminUser: { email: string; role: string }; session: { accessToken: string; refreshToken: string } }>();
+    const first = login.json<{ adminUser: { email: string; role: string }; session: { expiresAt: string; idleExpiresAt: string } }>();
     expect(first.adminUser).toMatchObject({ email: "ops@tradeos.test", role: "SUPER_ADMIN" });
-    expect(first.session.accessToken).toMatch(/^tos_admin_access_/);
-    expect(first.session.refreshToken).toMatch(/^tos_admin_refresh_/);
+    expect(first.session.expiresAt).toBeTruthy();
+    expect(first.session.idleExpiresAt).toBeTruthy();
+    expect(JSON.stringify(first)).not.toMatch(/accessToken|refreshToken|tos_admin_session_/);
 
-    const me = await app.inject({ method: "GET", url: "/api/admin/session/me", headers: bearer(first.session.accessToken) });
+    const cookie = adminCookie(login.headers);
+    expect(login.headers["set-cookie"]).toContain("HttpOnly");
+    expect(login.headers["set-cookie"]).toContain("Secure");
+    expect(login.headers["set-cookie"]).toContain("SameSite=Strict");
+    expect(login.headers["set-cookie"]).toContain("Path=/");
+    expect(login.headers["set-cookie"]).not.toContain("Domain=");
+
+    const me = await app.inject({ method: "GET", url: "/api/admin/session/me", headers: cookieHeader(cookie) });
     expect(me.statusCode, me.body).toBe(200);
     expect(me.json<{ adminUser: { email: string } }>().adminUser.email).toBe("ops@tradeos.test");
 
-    const refreshed = await app.inject({
-      method: "POST",
-      url: "/api/admin/session/refresh",
-      payload: { refreshToken: first.session.refreshToken },
-    });
-    expect(refreshed.statusCode, refreshed.body).toBe(200);
-    const second = refreshed.json<{ session: { accessToken: string; refreshToken: string } }>().session;
-    expect(second.accessToken).not.toBe(first.session.accessToken);
-    expect(second.refreshToken).not.toBe(first.session.refreshToken);
+    const noCookie = await app.inject({ method: "GET", url: "/api/admin/session/me" });
+    expect(noCookie.statusCode).toBe(401);
 
-    const oldAccess = await app.inject({ method: "GET", url: "/api/admin/session/me", headers: bearer(first.session.accessToken) });
-    expect(oldAccess.statusCode).toBe(401);
-
-    const logout = await app.inject({ method: "POST", url: "/api/admin/session/logout", headers: bearer(second.accessToken) });
+    const logout = await app.inject({ method: "POST", url: "/api/admin/session/logout", headers: cookieHeader(cookie) });
     expect(logout.statusCode).toBe(204);
-    const afterLogout = await app.inject({ method: "GET", url: "/api/admin/session/me", headers: bearer(second.accessToken) });
+    expect(logout.headers["set-cookie"]).toContain("Max-Age=0");
+    const afterLogout = await app.inject({ method: "GET", url: "/api/admin/session/me", headers: cookieHeader(cookie) });
     expect(afterLogout.statusCode).toBe(401);
+  });
+
+  it("locks after five failed attempts without revealing account existence and resets after a later success", async () => {
+    const adminId = await seedAdmin("lockout@tradeos.test");
+
+    const unknown = await adminLogin("missing@tradeos.test", "wrong-password-123");
+    const firstWrong = await adminLogin("lockout@tradeos.test", "wrong-password-123");
+    expect(unknown.statusCode).toBe(401);
+    expect(firstWrong.statusCode).toBe(401);
+    expect(unknown.json<{ error: string }>().error).toBe("ADMIN_LOGIN_REJECTED");
+    expect(firstWrong.json<{ error: string }>().error).toBe("ADMIN_LOGIN_REJECTED");
+
+    for (let attempt = 2; attempt <= 5; attempt += 1) {
+      const rejected = await adminLogin("lockout@tradeos.test", "wrong-password-123");
+      expect(rejected.statusCode).toBe(401);
+      expect(rejected.json<{ error: string }>().error).toBe("ADMIN_LOGIN_REJECTED");
+    }
+
+    const locked = await pool.query<{ failed_login_count: number; locked_until: Date | null }>(
+      "SELECT failed_login_count,locked_until FROM platform_users WHERE id=$1",
+      [adminId],
+    );
+    expect(locked.rows[0]?.failed_login_count).toBe(5);
+    expect(locked.rows[0]?.locked_until).toBeInstanceOf(Date);
+
+    const correctWhileLocked = await adminLogin("lockout@tradeos.test");
+    expect(correctWhileLocked.statusCode).toBe(401);
+    expect(correctWhileLocked.json<{ error: string }>().error).toBe("ADMIN_LOGIN_REJECTED");
+
+    const lockEvents = await pool.query(
+      "SELECT 1 FROM platform_audit_events WHERE platform_user_id=$1 AND event_type='ADMIN_LOGIN_LOCKED'",
+      [adminId],
+    );
+    expect(lockEvents.rowCount).toBe(1);
+
+    await pool.query("UPDATE platform_users SET locked_until=now()-interval '1 second' WHERE id=$1", [adminId]);
+    const recovered = await adminLogin("lockout@tradeos.test");
+    expect(recovered.statusCode, recovered.body).toBe(200);
+
+    const reset = await pool.query<{ failed_login_count: number; locked_until: Date | null }>(
+      "SELECT failed_login_count,locked_until FROM platform_users WHERE id=$1",
+      [adminId],
+    );
+    expect(reset.rows[0]).toMatchObject({ failed_login_count: 0, locked_until: null });
+    const successEvents = await pool.query(
+      "SELECT 1 FROM platform_audit_events WHERE platform_user_id=$1 AND event_type='ADMIN_LOGIN_SUCCEEDED'",
+      [adminId],
+    );
+    expect(successEvents.rowCount).toBe(1);
   });
 
   it("rejects tenant access tokens and inactive or unprovisioned admins", async () => {
@@ -108,7 +156,7 @@ describe("platform admin read plane", () => {
     const adminId = await seedAdmin("read@tradeos.test");
     const login = await adminLogin("read@tradeos.test");
     expect(login.statusCode, login.body).toBe(200);
-    const token = login.json<{ session: { accessToken: string } }>().session.accessToken;
+    const cookie = adminCookie(login.headers);
 
     const business = await pool.query<{ id: string }>(
       `INSERT INTO businesses(name,country_code,currency_code,business_type,timezone)
@@ -148,7 +196,7 @@ describe("platform admin read plane", () => {
       [adminId, businessId, businessId],
     );
 
-    const tenants = await app.inject({ method: "GET", url: "/api/admin/tenants", headers: bearer(token) });
+    const tenants = await app.inject({ method: "GET", url: "/api/admin/tenants", headers: cookieHeader(cookie) });
     expect(tenants.statusCode, tenants.body).toBe(200);
     expect(tenants.json<{ tenants: Array<Record<string, unknown>> }>().tenants).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -161,32 +209,32 @@ describe("platform admin read plane", () => {
       }),
     ]));
 
-    const detail = await app.inject({ method: "GET", url: `/api/admin/tenants/${businessId}`, headers: bearer(token) });
+    const detail = await app.inject({ method: "GET", url: `/api/admin/tenants/${businessId}`, headers: cookieHeader(cookie) });
     expect(detail.statusCode, detail.body).toBe(200);
     expect(detail.json<{ tenant: { branches: unknown[]; subscription: { planCode: string } } }>().tenant).toMatchObject({
       branches: [expect.objectContaining({ code: "MAIN", active: true })],
       subscription: expect.objectContaining({ planCode: "GROWTH", status: "ACTIVE" }),
     });
 
-    const devices = await app.inject({ method: "GET", url: "/api/admin/devices", headers: bearer(token) });
+    const devices = await app.inject({ method: "GET", url: "/api/admin/devices", headers: cookieHeader(cookie) });
     expect(devices.statusCode, devices.body).toBe(200);
     expect(devices.json<{ devices: Array<Record<string, unknown>> }>().devices).toEqual(expect.arrayContaining([
       expect.objectContaining({ businessId, deviceKey: "shop-web", health: "ONLINE" }),
     ]));
 
-    const audit = await app.inject({ method: "GET", url: "/api/admin/audit-events", headers: bearer(token) });
+    const audit = await app.inject({ method: "GET", url: "/api/admin/audit-events", headers: cookieHeader(cookie) });
     expect(audit.statusCode, audit.body).toBe(200);
     const auditBody = audit.json<{ events: Array<Record<string, unknown>> }>();
     expect(auditBody.events).toEqual(expect.arrayContaining([expect.objectContaining({ eventType: "TENANT_VIEWED", businessId })]));
     expect(JSON.stringify(auditBody)).not.toMatch(/password_hash|access_token_hash|refresh_token_hash/i);
 
-    const releases = await app.inject({ method: "GET", url: "/api/admin/releases", headers: bearer(token) });
+    const releases = await app.inject({ method: "GET", url: "/api/admin/releases", headers: cookieHeader(cookie) });
     expect(releases.statusCode, releases.body).toBe(200);
     expect(releases.json<{ releases: Array<Record<string, unknown>> }>().releases).toEqual(expect.arrayContaining([
       expect.objectContaining({ platform: "WEB", version: "1.2.3", status: "ACTIVE" }),
     ]));
 
-    const flags = await app.inject({ method: "GET", url: "/api/admin/feature-flags", headers: bearer(token) });
+    const flags = await app.inject({ method: "GET", url: "/api/admin/feature-flags", headers: cookieHeader(cookie) });
     expect(flags.statusCode, flags.body).toBe(200);
     expect(flags.json<{ flags: Array<Record<string, unknown>> }>().flags).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: "AI_INSIGHTS", businessId, enabled: true }),
@@ -200,11 +248,11 @@ describe("platform admin read plane", () => {
     }
     await seedAdmin("not-found@tradeos.test");
     const login = await adminLogin("not-found@tradeos.test");
-    const token = login.json<{ session: { accessToken: string } }>().session.accessToken;
+    const cookie = adminCookie(login.headers);
     const missing = await app.inject({
       method: "GET",
       url: "/api/admin/tenants/00000000-0000-0000-0000-000000000001",
-      headers: bearer(token),
+      headers: cookieHeader(cookie),
     });
     expect(missing.statusCode).toBe(404);
     expect(missing.json<{ error: string }>().error).toBe("ADMIN_TENANT_NOT_FOUND");
@@ -221,14 +269,25 @@ async function seedAdmin(email: string, active = true): Promise<string> {
   return inserted.rows[0]!.id;
 }
 
-async function adminLogin(identifier: string) {
+async function adminLogin(identifier: string, password = PASSWORD) {
   return app.inject({
     method: "POST",
     url: "/api/admin/session/login",
-    payload: { identifier, password: PASSWORD, platform: "WEB", deviceKey: `device-${identifier}` },
+    payload: { identifier, password, platform: "WEB", deviceKey: `device-${identifier}` },
   });
 }
 
 function bearer(token: string) {
   return { authorization: `Bearer ${token}` };
+}
+
+function adminCookie(headers: Record<string, string | string[] | undefined>): string {
+  const raw = headers["set-cookie"];
+  const serialized = Array.isArray(raw) ? raw[0] : raw;
+  expect(serialized).toBeTruthy();
+  return serialized!.split(";", 1)[0]!;
+}
+
+function cookieHeader(cookie: string) {
+  return { cookie };
 }

@@ -4,23 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useRouter } from "next/navigation";
 import { AdminShell } from "./admin-shell";
 
-const STORAGE_KEY = "tradeos.system-admin.session.v1";
-const API_BASE = (process.env.NEXT_PUBLIC_TRADEOS_API_BASE_URL ?? "").replace(/\/$/, "");
-
 export interface PlatformAdminUserView {
   id: string;
   email: string;
   displayName: string;
   role: string;
   lastLoginAt: string | null;
-}
-
-interface StoredAdminSession {
-  adminUser: PlatformAdminUserView;
-  accessToken: string;
-  refreshToken: string;
-  accessExpiresAt: string;
-  refreshExpiresAt: string;
 }
 
 type AdminSessionPhase = "loading" | "signed-out" | "authenticated";
@@ -37,107 +26,74 @@ const AdminSessionContext = createContext<AdminSessionContextValue | null>(null)
 
 export function PlatformAdminProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<AdminSessionPhase>("loading");
-  const [session, setSession] = useState<StoredAdminSession | null>(null);
+  const [adminUser, setAdminUser] = useState<PlatformAdminUserView | null>(null);
 
-  const persist = useCallback((next: StoredAdminSession | null) => {
-    setSession(next);
-    setPhase(next ? "authenticated" : "signed-out");
-    if (typeof window === "undefined") return;
-    if (next) window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    else window.sessionStorage.removeItem(STORAGE_KEY);
+  const markSignedOut = useCallback(() => {
+    setAdminUser(null);
+    setPhase("signed-out");
   }, []);
 
-  const refresh = useCallback(async (current: StoredAdminSession): Promise<StoredAdminSession> => {
-    const response = await fetch(apiUrl("/api/admin/session/refresh"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: current.refreshToken }),
-    });
-    if (!response.ok) throw new Error("Administrator session expired");
-    const body = await response.json() as {
-      adminUser: PlatformAdminUserView;
-      session: Omit<StoredAdminSession, "adminUser">;
-    };
-    const next = { adminUser: body.adminUser, ...body.session };
-    persist(next);
-    return next;
-  }, [persist]);
-
-  const authenticatedFetch = useCallback(async (path: string, init?: RequestInit): Promise<Response> => {
-    const current = session;
-    if (!current) throw new Error("Administrator sign-in is required");
-    const first = await fetch(apiUrl(path), withBearer(init, current.accessToken));
-    if (first.status !== 401) return first;
-    try {
-      const next = await refresh(current);
-      return fetch(apiUrl(path), withBearer(init, next.accessToken));
-    } catch (error) {
-      persist(null);
-      throw error;
-    }
-  }, [persist, refresh, session]);
-
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      setPhase("signed-out");
-      return;
-    }
-    let stored: StoredAdminSession;
-    try {
-      stored = JSON.parse(raw) as StoredAdminSession;
-      if (!stored.accessToken || !stored.refreshToken || !stored.adminUser?.id) throw new Error("invalid");
-    } catch {
-      persist(null);
-      return;
-    }
-    setSession(stored);
-    void fetch(apiUrl("/api/admin/session/me"), withBearer(undefined, stored.accessToken))
+    let active = true;
+    void fetch("/api/admin/session/me", { credentials: "include" })
       .then(async (response) => {
-        if (response.ok) {
-          const body = await response.json() as { adminUser: PlatformAdminUserView };
-          persist({ ...stored, adminUser: body.adminUser });
+        if (!active) return;
+        if (!response.ok) {
+          markSignedOut();
           return;
         }
-        if (response.status !== 401) throw new Error("Administrator session could not be verified");
-        await refresh(stored);
+        const body = await response.json() as { adminUser: PlatformAdminUserView };
+        if (!active) return;
+        setAdminUser(body.adminUser);
+        setPhase("authenticated");
       })
-      .catch(() => persist(null));
-  }, [persist, refresh]);
+      .catch(() => {
+        if (active) markSignedOut();
+      });
+    return () => {
+      active = false;
+    };
+  }, [markSignedOut]);
 
   const login = useCallback(async (identifier: string, password: string) => {
-    const response = await fetch(apiUrl("/api/admin/session/login"), {
+    const response = await fetch("/api/admin/session/login", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifier, password, platform: "WEB", deviceKey: browserDeviceKey() }),
     });
     const body = await response.json().catch(() => ({})) as {
       adminUser?: PlatformAdminUserView;
-      session?: Omit<StoredAdminSession, "adminUser">;
       message?: string;
     };
-    if (!response.ok || !body.adminUser || !body.session) {
+    if (!response.ok || !body.adminUser) {
       throw new Error(body.message ?? "Administrator sign-in failed");
     }
-    persist({ adminUser: body.adminUser, ...body.session });
-  }, [persist]);
+    setAdminUser(body.adminUser);
+    setPhase("authenticated");
+  }, []);
 
   const logout = useCallback(async () => {
-    const current = session;
-    if (current) {
-      await fetch(apiUrl("/api/admin/session/logout"), withBearer({ method: "POST" }, current.accessToken)).catch(() => undefined);
+    try {
+      await fetch("/api/admin/session/logout", { method: "POST", credentials: "include" });
+    } finally {
+      markSignedOut();
     }
-    persist(null);
-  }, [persist, session]);
+  }, [markSignedOut]);
+
+  const authenticatedFetch = useCallback(async (path: string, init?: RequestInit): Promise<Response> => {
+    const response = await fetch(path, { ...init, credentials: "include" });
+    if (response.status === 401) markSignedOut();
+    return response;
+  }, [markSignedOut]);
 
   const value = useMemo<AdminSessionContextValue>(() => ({
     phase,
-    adminUser: session?.adminUser ?? null,
+    adminUser,
     login,
     logout,
     apiFetch: authenticatedFetch,
-  }), [authenticatedFetch, login, logout, phase, session?.adminUser]);
+  }), [adminUser, authenticatedFetch, login, logout, phase]);
 
   return <AdminSessionContext.Provider value={value}>{children}</AdminSessionContext.Provider>;
 }
@@ -197,16 +153,6 @@ export function useAdminResource<T>(path: string) {
   }, [reload]);
 
   return { data, loading, error, reload };
-}
-
-function apiUrl(path: string): string {
-  return `${API_BASE}${path}`;
-}
-
-function withBearer(init: RequestInit | undefined, token: string): RequestInit {
-  const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  return { ...init, headers };
 }
 
 function browserDeviceKey(): string {

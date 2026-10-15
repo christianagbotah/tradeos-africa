@@ -24,6 +24,9 @@ export async function provisionPlatformAdmin(
     throw new PlatformAdminError("A valid platform administrator role is required", 400, "ADMIN_ROLE_INVALID");
   }
   const role = input.role as PlatformAdminRole;
+  if (input.password.length < 12 || input.password.length > 200) {
+    throw new PlatformAdminError("Administrator password must contain at least 12 characters", 400, "ADMIN_PASSWORD_WEAK");
+  }
   const passwordHash = await hashPassword(input.password);
 
   return withTransaction(pool, async (client) => {
@@ -34,14 +37,15 @@ export async function provisionPlatformAdmin(
     const result = existing.rows[0]
       ? await client.query<{ id: string; email: string; display_name: string; role: PlatformAdminRole }>(
           `UPDATE platform_users
-           SET email=$2,display_name=$3,role=$4,is_active=true,password_hash=$5,updated_at=now()
+           SET email=$2,display_name=$3,role=$4,is_active=true,password_hash=$5,
+               failed_login_count=0,locked_until=NULL,password_changed_at=now(),updated_at=now()
            WHERE id=$1
            RETURNING id,email,display_name,role`,
           [existing.rows[0].id, email, displayName, role, passwordHash],
         )
       : await client.query<{ id: string; email: string; display_name: string; role: PlatformAdminRole }>(
-          `INSERT INTO platform_users(email,display_name,role,is_active,password_hash)
-           VALUES($1,$2,$3,true,$4)
+          `INSERT INTO platform_users(email,display_name,role,is_active,password_hash,password_changed_at)
+           VALUES($1,$2,$3,true,$4,now())
            RETURNING id,email,display_name,role`,
           [email, displayName, role, passwordHash],
         );

@@ -1,11 +1,10 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabasePool } from "../db.js";
 import {
   authenticatePlatformAdmin,
   loginPlatformAdmin,
   logoutPlatformAdmin,
   PlatformAdminError,
-  refreshPlatformAdminSession,
 } from "./security.js";
 import {
   getAdminTenant,
@@ -16,33 +15,29 @@ import {
   listAdminTenants,
 } from "./read-service.js";
 
+const ADMIN_COOKIE = "__Host-tradeos_admin_session";
+
 export function registerPlatformAdminRoutes(app: FastifyInstance, pool: DatabasePool): void {
   app.post<{ Body: { identifier?: unknown; password?: unknown; platform?: unknown; deviceKey?: unknown } }>(
     "/api/admin/session/login",
     async (request, reply) => {
       try {
-        return await loginPlatformAdmin(pool, request.body ?? {});
+        const result = await loginPlatformAdmin(pool, request.body ?? {});
+        setAdminCookie(reply, result.sessionToken, result.session.expiresAt);
+        return { adminUser: result.adminUser, session: result.session };
       } catch (error) {
         return sendAdminError(request, reply, error, "ADMIN_LOGIN_FAILED", "Administrator sign-in failed.");
       }
     },
   );
 
-  app.post<{ Body: { refreshToken?: unknown } }>("/api/admin/session/refresh", async (request, reply) => {
-    try {
-      if (typeof request.body?.refreshToken !== "string") {
-        throw new PlatformAdminError("Admin refresh token is required", 400, "ADMIN_REFRESH_REQUIRED");
-      }
-      return await refreshPlatformAdminSession(pool, request.body.refreshToken);
-    } catch (error) {
-      return sendAdminError(request, reply, error, "ADMIN_REFRESH_FAILED", "Administrator session could not be refreshed.");
-    }
-  });
-
   app.get("/api/admin/session/me", async (request, reply) => {
     try {
-      const admin = await authenticatePlatformAdmin(pool, request.headers.authorization);
-      return { adminUser: stripContext(admin) };
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return {
+        adminUser: stripContext(admin),
+        session: { expiresAt: admin.expiresAt, idleExpiresAt: admin.idleExpiresAt },
+      };
     } catch (error) {
       return sendAdminError(request, reply, error, "ADMIN_ME_FAILED", "Administrator session could not be verified.");
     }
@@ -50,8 +45,9 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
 
   app.post("/api/admin/session/logout", async (request, reply) => {
     try {
-      const admin = await authenticatePlatformAdmin(pool, request.headers.authorization);
-      await logoutPlatformAdmin(pool, admin.sessionId);
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      await logoutPlatformAdmin(pool, admin.sessionId, admin.id);
+      clearAdminCookie(reply);
       return reply.code(204).send();
     } catch (error) {
       return sendAdminError(request, reply, error, "ADMIN_LOGOUT_FAILED", "Administrator session could not be signed out.");
@@ -60,7 +56,7 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
 
   app.get("/api/admin/tenants", async (request, reply) => {
     try {
-      await authenticatePlatformAdmin(pool, request.headers.authorization);
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
       return { tenants: await listAdminTenants(pool) };
     } catch (error) {
       return sendAdminError(request, reply, error, "ADMIN_TENANTS_FAILED", "Tenants could not be loaded.");
@@ -69,7 +65,7 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
 
   app.get<{ Params: { id: string } }>("/api/admin/tenants/:id", async (request, reply) => {
     try {
-      await authenticatePlatformAdmin(pool, request.headers.authorization);
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
       return { tenant: await getAdminTenant(pool, request.params.id) };
     } catch (error) {
       return sendAdminError(request, reply, error, "ADMIN_TENANT_FAILED", "Tenant details could not be loaded.");
@@ -78,7 +74,7 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
 
   app.get("/api/admin/devices", async (request, reply) => {
     try {
-      await authenticatePlatformAdmin(pool, request.headers.authorization);
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
       return { devices: await listAdminDevices(pool) };
     } catch (error) {
       return sendAdminError(request, reply, error, "ADMIN_DEVICES_FAILED", "Device health could not be loaded.");
@@ -87,7 +83,7 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
 
   app.get<{ Querystring: { limit?: string } }>("/api/admin/audit-events", async (request, reply) => {
     try {
-      await authenticatePlatformAdmin(pool, request.headers.authorization);
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
       return { events: await listAdminAuditEvents(pool, request.query?.limit) };
     } catch (error) {
       return sendAdminError(request, reply, error, "ADMIN_AUDIT_FAILED", "Platform audit events could not be loaded.");
@@ -96,7 +92,7 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
 
   app.get("/api/admin/releases", async (request, reply) => {
     try {
-      await authenticatePlatformAdmin(pool, request.headers.authorization);
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
       return { releases: await listAdminReleases(pool) };
     } catch (error) {
       return sendAdminError(request, reply, error, "ADMIN_RELEASES_FAILED", "Client releases could not be loaded.");
@@ -105,12 +101,43 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
 
   app.get("/api/admin/feature-flags", async (request, reply) => {
     try {
-      await authenticatePlatformAdmin(pool, request.headers.authorization);
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
       return { flags: await listAdminFeatureFlags(pool) };
     } catch (error) {
       return sendAdminError(request, reply, error, "ADMIN_FLAGS_FAILED", "Feature flags could not be loaded.");
     }
   });
+}
+
+function setAdminCookie(reply: FastifyReply, token: string, expiresAt: string): void {
+  const expires = new Date(expiresAt).toUTCString();
+  reply.header(
+    "Set-Cookie",
+    `${ADMIN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=${expires}`,
+  );
+}
+
+function clearAdminCookie(reply: FastifyReply): void {
+  reply.header(
+    "Set-Cookie",
+    `${ADMIN_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`,
+  );
+}
+
+function readAdminCookie(header: string | undefined): string | undefined {
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const [rawName, ...rawValue] = part.trim().split("=");
+    if (rawName !== ADMIN_COOKIE) continue;
+    const value = rawValue.join("=");
+    if (!value) return undefined;
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 function stripContext(admin: Awaited<ReturnType<typeof authenticatePlatformAdmin>>) {

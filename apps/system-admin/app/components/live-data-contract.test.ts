@@ -6,13 +6,17 @@ const appRoot = path.resolve(__dirname, "..");
 const read = (relative: string) => fs.readFileSync(path.join(appRoot, relative), "utf8");
 
 describe("system-admin live read-plane contract", () => {
-  it("uses a dedicated platform-admin session namespace and admin auth endpoints", () => {
+  it("uses HttpOnly admin-cookie sessions and keeps privileged tokens out of browser JavaScript", () => {
     const session = read("components/platform-admin-session.tsx");
-    expect(session).toContain('tradeos.system-admin.session.v1');
     expect(session).toContain('/api/admin/session/login');
-    expect(session).toContain('/api/admin/session/refresh');
     expect(session).toContain('/api/admin/session/me');
     expect(session).toContain('/api/admin/session/logout');
+    expect(session).toContain('credentials: "include"');
+    expect(session).not.toContain('/api/admin/session/refresh');
+    expect(session).not.toContain('sessionStorage');
+    expect(session).not.toContain('accessToken');
+    expect(session).not.toContain('refreshToken');
+    expect(session).not.toContain('withBearer');
     expect(session).not.toContain('tradeos.web.session');
     expect(session).not.toContain('/v1/auth/login');
   });

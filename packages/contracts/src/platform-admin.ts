@@ -19,10 +19,8 @@ export interface PlatformAdminUser {
 }
 
 export interface PlatformAdminSession {
-  accessToken: string;
-  refreshToken: string;
-  accessExpiresAt: string;
-  refreshExpiresAt: string;
+  expiresAt: string;
+  idleExpiresAt: string;
 }
 
 export interface PlatformAdminLoginRequest {

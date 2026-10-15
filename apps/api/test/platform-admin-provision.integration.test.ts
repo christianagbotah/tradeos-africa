@@ -46,6 +46,17 @@ describe("platform administrator provisioning", () => {
     expect(rows.rows[0]?.password_hash).toMatch(/^scrypt:v1:/);
   });
 
+  it("requires a platform-admin password of at least 12 characters", async () => {
+    await expect(provisionPlatformAdmin(pool, {
+      email: "weak-password@tradeos.test",
+      displayName: "Weak Password",
+      role: "SUPPORT",
+      password: "short123",
+    })).rejects.toMatchObject({ code: "ADMIN_PASSWORD_WEAK" });
+    const rows = await pool.query("SELECT 1 FROM platform_users WHERE lower(email)='weak-password@tradeos.test'");
+    expect(rows.rowCount).toBe(0);
+  });
+
   it("rejects unsupported roles before changing the database", async () => {
     await expect(provisionPlatformAdmin(pool, {
       email: "bad-role@tradeos.test",

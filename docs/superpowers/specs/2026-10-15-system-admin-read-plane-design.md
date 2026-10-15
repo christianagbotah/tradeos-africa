@@ -11,9 +11,9 @@ Make the existing `apps/system-admin` console operational without introducing de
 
 System administrators are not tenant users. Platform authentication uses `platform_users` and a dedicated session table; tenant `app_users`, `auth_sessions`, and business memberships are never accepted as platform-admin credentials.
 
-Only active platform users may authenticate. Passwords use the existing scrypt implementation, but hashes are stored only on `platform_users`. Admin access/refresh tokens are random high-entropy secrets and only SHA-256 hashes are persisted. Access tokens are short lived; refresh tokens rotate. Session/device metadata is bounded and never trusted for authorization.
+Only active platform users may authenticate. Passwords use the existing scrypt implementation, but hashes are stored only on `platform_users`. Admin sessions use one random high-entropy opaque secret in the host-only `__Host-tradeos_admin_session` cookie; only its SHA-256 hash is persisted. The cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, has `Path=/`, and is never exposed to browser JavaScript. Sessions have an eight-hour absolute lifetime and a thirty-minute idle timeout; there is no browser refresh token. Session/device metadata is bounded and never trusted for authorization.
 
-All `/api/admin/*` read endpoints require a valid platform-admin access token. Phase 1 permits all canonical active platform roles to read the console, while later write operations will use narrower role-specific authorization. Support impersonation, tenant mutation, subscription mutation, feature-flag writes, release writes, and user-password administration are out of scope for this read-plane slice.
+All `/api/admin/*` read endpoints require a valid platform-admin cookie session. Tenant bearer tokens and merchant cookies are never accepted at this boundary. Phase 1 permits all canonical active platform roles to read the console, while later write operations will use narrower role-specific authorization. Support impersonation, tenant mutation, subscription mutation, feature-flag writes, release writes, and user-password administration are out of scope for this read-plane slice.
 
 ## Schema
 
@@ -21,8 +21,8 @@ Migration `0020_platform_admin_auth.sql` adds:
 
 - nullable `password_hash` to `platform_users` so existing records remain migration-safe until explicitly provisioned;
 - `last_login_at` updates on successful login;
-- `platform_admin_sessions` with user, device key, platform, access/refresh token hashes, expiry, last-used/revoked timestamps, and creation timestamp;
-- active-token and user indexes.
+- `platform_admin_sessions` with user, device key, platform, one opaque session-token hash, absolute expiry, last-used/revoked timestamps, and creation timestamp;
+- active-session and user indexes.
 
 No default production password is seeded. Initial credentials are provisioned explicitly by an operator/bootstrap script or a trusted one-time DB administration process.
 
@@ -31,7 +31,6 @@ No default production password is seeded. Initial credentials are provisioned ex
 Authentication:
 
 - `POST /api/admin/session/login`
-- `POST /api/admin/session/refresh`
 - `GET /api/admin/session/me`
 - `POST /api/admin/session/logout`
 
@@ -62,7 +61,7 @@ Phase 1 is read-only. Releases come from `client_releases`. Feature flags return
 
 ## System Admin frontend
 
-The existing honest empty states are replaced with authenticated data loaders. A dedicated admin session client owns platform tokens; it does not share TradeOS merchant session storage. Root `/` becomes the platform login when signed out and `/console/*` redirects/guards when no admin session is available.
+The existing honest empty states are replaced with authenticated data loaders. A dedicated admin session client uses same-origin requests with the HttpOnly admin cookie and stores no privileged token in `localStorage`, `sessionStorage`, IndexedDB, or JavaScript-readable cookies. Root `/` becomes the platform login when signed out and `/console/*` redirects/guards when no admin session is available.
 
 Console pages keep their existing design system and table composition. Loading, empty, error, unauthorized and expired-session states must be explicit. No fake rows or hard-coded platform metrics.
 
@@ -76,7 +75,7 @@ Required coverage:
 
 - migration has no plaintext token/password seed;
 - login success/failure/inactive/no-password cases;
-- refresh rotation and logout;
+- secure cookie attributes, absolute/idle expiry and logout revocation;
 - tenant `app_users` token cannot authenticate platform routes;
 - tenant list/detail aggregation and missing tenant 404;
 - device, audit, release and flag reads;
