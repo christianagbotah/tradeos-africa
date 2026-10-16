@@ -22,15 +22,39 @@ export default function SubscriptionsPage() {
   const filtered=useMemo(()=>subscriptions.filter((item)=>(statusFilter==="ALL"||item.status===statusFilter)&&`${item.businessName} ${item.planName}`.toLowerCase().includes(query.toLowerCase())),[subscriptions,statusFilter,query]);
 
   async function assign(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form=event.currentTarget; const fd=new FormData(form); const businessId=String(fd.get("businessId")??""); const planId=String(fd.get("planId")??""); const mode=String(fd.get("mode")??"ACTIVE"); const reason=String(fd.get("reason")??"").trim();
+    event.preventDefault();
+    const form=event.currentTarget; const fd=new FormData(form); const businessId=String(fd.get("businessId")??""); const planId=String(fd.get("planId")??""); const mode=String(fd.get("mode")??"ACTIVE"); const reason=String(fd.get("reason")??"").trim();
     if (!window.confirm("Confirm subscription assignment? The tenant's available features and billing state can change.")) return;
-    setSaving(true); setActionError(null); try { const response=await apiFetch(`/api/admin/tenants/${encodeURIComponent(businessId)}/subscription`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({planId,mode,reason})}); const body=await response.json().catch(()=>({})) as {message?:string}; if(!response.ok) throw new Error(body.message??"Subscription could not be assigned"); form.reset(); await reload(); setNotice("Subscription assigned."); } catch(e){setActionError(e instanceof Error?e.message:"Subscription could not be assigned");} finally{setSaving(false);}
+    setSaving(true); setActionError(null);
+    try {
+      const response=await apiFetch(`/api/admin/tenants/${encodeURIComponent(businessId)}/subscription`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({planId,mode,reason}),
+      });
+      const body=await response.json().catch(()=>({})) as {message?:string};
+      if(!response.ok) throw new Error(body.message??"Subscription could not be assigned");
+      form.reset(); await reload(); setNotice("Subscription assigned.");
+    } catch(e) { setActionError(e instanceof Error?e.message:"Subscription could not be assigned"); }
+    finally { setSaving(false); }
   }
 
   async function transition(event: FormEvent<HTMLFormElement>, subscription: Subscription) {
-    event.preventDefault(); const form=event.currentTarget; const fd=new FormData(form); const action=String(fd.get("action")??""); const reason=String(fd.get("reason")??"").trim(); const planId=String(fd.get("planId")??"");
+    event.preventDefault();
+    const form=event.currentTarget; const fd=new FormData(form); const action=String(fd.get("action")??""); const reason=String(fd.get("reason")??"").trim(); const planId=String(fd.get("planId")??"");
     if (!window.confirm(`Confirm ${action.toLowerCase().replaceAll("_"," ")} for ${subscription.businessName}?`)) return;
-    setSaving(true); setActionError(null); try { const response=await apiFetch(`/api/admin/subscriptions/${subscription.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,reason,expectedUpdatedAt:subscription.updatedAt,...(action==="CHANGE_PLAN"?{planId}:{})})}); const body=await response.json().catch(()=>({})) as {message?:string}; if(!response.ok) throw new Error(body.message??"Subscription could not be changed"); await reload(); setNotice("Subscription updated."); } catch(e){setActionError(e instanceof Error?e.message:"Subscription could not be changed");} finally{setSaving(false);}
+    setSaving(true); setActionError(null);
+    try {
+      const response=await apiFetch(`/api/admin/subscriptions/${subscription.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({action,reason,expectedUpdatedAt:subscription.updatedAt,...(action==="CHANGE_PLAN"?{planId}:{})}),
+      });
+      const body=await response.json().catch(()=>({})) as {message?:string};
+      if(!response.ok) throw new Error(body.message??"Subscription could not be changed");
+      await reload(); setNotice("Subscription updated.");
+    } catch(e) { setActionError(e instanceof Error?e.message:"Subscription could not be changed"); }
+    finally { setSaving(false); }
   }
 
   return <div className="admin-page">
