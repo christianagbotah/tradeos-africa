@@ -70,17 +70,27 @@ export async function getPlatformMetrics(pool: DatabasePool, actor: PlatformAdmi
        FROM businesses`,
     ),
     pool.query<SubscriptionCountRow>(
-      `SELECT
+      `WITH current_subscriptions AS (
+         SELECT DISTINCT ON (business_id) business_id,status
+         FROM business_subscriptions
+         ORDER BY business_id,created_at DESC,id DESC
+       )
+       SELECT
          count(*) FILTER (WHERE status='TRIALING')::text AS trialing,
          count(*) FILTER (WHERE status='ACTIVE')::text AS active,
          count(*) FILTER (WHERE status='PAST_DUE')::text AS past_due,
          count(*) FILTER (WHERE status='PAUSED')::text AS paused,
          count(*) FILTER (WHERE status='CANCELED')::text AS canceled,
          count(*) FILTER (WHERE status='EXPIRED')::text AS expired
-       FROM business_subscriptions`,
+       FROM current_subscriptions`,
     ),
     pool.query<RevenueRow>(
-      `SELECT
+      `WITH current_subscriptions AS (
+         SELECT DISTINCT ON (business_id) business_id,plan_id,status
+         FROM business_subscriptions
+         ORDER BY business_id,created_at DESC,id DESC
+       )
+       SELECT
          sp.currency_code,
          sum(CASE
            WHEN sp.billing_interval='MONTHLY' THEN sp.amount_minor
@@ -92,7 +102,7 @@ export async function getPlatformMetrics(pool: DatabasePool, actor: PlatformAdmi
            WHEN sp.billing_interval='ANNUAL' THEN sp.amount_minor
            ELSE 0
          END)::text AS arr_minor
-       FROM business_subscriptions bs
+       FROM current_subscriptions bs
        JOIN subscription_plans sp ON sp.id=bs.plan_id
        WHERE bs.status='ACTIVE'
          AND sp.billing_interval IN ('MONTHLY','ANNUAL')
