@@ -68,7 +68,12 @@ export function createPlatformAdminIntelligenceService(args: { pool: DatabasePoo
       const correlationId = requireIdentifier(input.correlationId, "ADMIN_AI_CORRELATION_REQUIRED", 200);
       const businessId = optionalUuid(input.businessId);
       const tools = parseAdminIntelligenceTools(input.tools);
-      const evidence = await collectAdminIntelligenceEvidence(pool, actor, tools, { businessId });
+      const evidence = await collectAdminIntelligenceEvidence(
+        pool,
+        actor,
+        tools,
+        businessId ? { businessId } : {},
+      );
       const response = await generate(provider, {
         prompt: `Answer this platform-operations question using only the evidence: ${question}`,
         evidence,
