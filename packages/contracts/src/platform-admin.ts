@@ -130,6 +130,50 @@ export interface AdminTenant360 extends AdminTenantDetail {
   recentActivity: AdminAuditEvent[];
 }
 
+export type AdminBillingInterval = "MONTHLY" | "ANNUAL" | "CUSTOM";
+export type AdminSubscriptionStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "PAUSED" | "CANCELED" | "EXPIRED";
+
+export interface AdminPlanEntitlement {
+  code: string;
+  value: unknown;
+}
+
+export interface AdminSubscriptionPlan {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  currencyCode: string;
+  amountMinor: number;
+  billingInterval: AdminBillingInterval;
+  trialDays: number;
+  public: boolean;
+  active: boolean;
+  entitlements: AdminPlanEntitlement[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminBusinessSubscription {
+  id: string;
+  businessId: string;
+  businessName: string;
+  planId: string;
+  planCode: string;
+  planName: string;
+  status: AdminSubscriptionStatus;
+  provider: string | null;
+  providerCustomerReference: string | null;
+  providerSubscriptionReference: string | null;
+  trialEndsAt: string | null;
+  currentPeriodStartsAt: string | null;
+  currentPeriodEndsAt: string | null;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AdminDeviceSummary {
   id: string;
   businessId: string;

@@ -22,6 +22,14 @@ import {
   updateAdminProfile,
 } from "./profile-service.js";
 import { changeTenantStatus, getTenant360 } from "./tenant-service.js";
+import {
+  createPlan,
+  listPlans,
+  listSubscriptions,
+  setPlanEntitlements,
+  transitionSubscription,
+  updatePlan,
+} from "./subscription-service.js";
 
 const ADMIN_COOKIE = "__Host-tradeos_admin_session";
 
@@ -147,6 +155,84 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
       return sendAdminError(request, reply, error, "ADMIN_TENANT_FAILED", "Tenant details could not be loaded.");
     }
   });
+
+  app.get("/api/admin/plans", async (request, reply) => {
+    try {
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { plans: await listPlans(pool) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PLANS_FAILED", "Plans could not be loaded.");
+    }
+  });
+
+  app.post<{ Body: Record<string, unknown> }>("/api/admin/plans", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return reply.code(201).send({ plan: await createPlan(pool, admin, request.body ?? {}) });
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PLAN_CREATE_FAILED", "Plan could not be created.");
+    }
+  });
+
+  app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>("/api/admin/plans/:id", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { plan: await updatePlan(pool, admin, request.params.id, request.body ?? {}) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PLAN_UPDATE_FAILED", "Plan could not be updated.");
+    }
+  });
+
+  app.put<{ Params: { id: string }; Body: { entitlements?: unknown; reason?: unknown; expectedUpdatedAt?: unknown } }>(
+    "/api/admin/plans/:id/entitlements",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { plan: await setPlanEntitlements(pool, admin, request.params.id, request.body ?? {}) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_PLAN_ENTITLEMENTS_FAILED", "Plan entitlements could not be updated.");
+      }
+    },
+  );
+
+  app.get("/api/admin/subscriptions", async (request, reply) => {
+    try {
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { subscriptions: await listSubscriptions(pool) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_SUBSCRIPTIONS_FAILED", "Subscriptions could not be loaded.");
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: { planId?: unknown; mode?: unknown; reason?: unknown } }>(
+    "/api/admin/tenants/:id/subscription",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        const subscription = await transitionSubscription(pool, admin, {
+          action: "ASSIGN", businessId: request.params.id, planId: request.body?.planId, mode: request.body?.mode, reason: request.body?.reason,
+        });
+        return reply.code(201).send({ subscription });
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_SUBSCRIPTION_CREATE_FAILED", "Subscription could not be assigned.");
+      }
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { action?: unknown; planId?: unknown; reason?: unknown; expectedUpdatedAt?: unknown } }>(
+    "/api/admin/subscriptions/:id",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { subscription: await transitionSubscription(pool, admin, {
+          subscriptionId: request.params.id, action: request.body?.action, planId: request.body?.planId,
+          reason: request.body?.reason, expectedUpdatedAt: request.body?.expectedUpdatedAt,
+        }) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_SUBSCRIPTION_UPDATE_FAILED", "Subscription could not be changed.");
+      }
+    },
+  );
 
   app.get("/api/admin/devices", async (request, reply) => {
     try {
