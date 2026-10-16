@@ -21,6 +21,7 @@ import {
   revokeOwnAdminSession,
   updateAdminProfile,
 } from "./profile-service.js";
+import { changeTenantStatus, getTenant360 } from "./tenant-service.js";
 
 const ADMIN_COOKIE = "__Host-tradeos_admin_session";
 
@@ -116,6 +117,27 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
       return sendAdminError(request, reply, error, "ADMIN_TENANTS_FAILED", "Tenants could not be loaded.");
     }
   });
+
+  app.get<{ Params: { id: string } }>("/api/admin/tenants/:id/overview", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { tenant: await getTenant360(pool, admin, request.params.id) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_TENANT_OVERVIEW_FAILED", "Tenant overview could not be loaded.");
+    }
+  });
+
+  app.patch<{ Params: { id: string }; Body: { status?: unknown; reason?: unknown; expectedUpdatedAt?: unknown } }>(
+    "/api/admin/tenants/:id/status",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { tenant: await changeTenantStatus(pool, admin, request.params.id, request.body ?? {}) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_TENANT_STATUS_FAILED", "Tenant status could not be changed.");
+      }
+    },
+  );
 
   app.get<{ Params: { id: string } }>("/api/admin/tenants/:id", async (request, reply) => {
     try {

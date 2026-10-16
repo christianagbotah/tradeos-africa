@@ -71,6 +71,8 @@ export interface AdminTenantSummary {
 }
 
 export interface AdminTenantDetail extends AdminTenantSummary {
+  timezone: string;
+  createdAt: string;
   branches: Array<{ id: string; name: string; code: string; active: boolean; timezone: string }>;
   subscription: null | {
     id: string;
@@ -83,6 +85,49 @@ export interface AdminTenantDetail extends AdminTenantSummary {
     cancelAtPeriodEnd: boolean;
   };
   entitlementOverrideCount: number;
+}
+
+export interface AdminTenantAccessRoleSummary {
+  role: string;
+  staffCount: number;
+  activeStaffCount: number;
+  membershipCount: number;
+  activeMembershipCount: number;
+}
+
+export interface AdminTenantAccessSummary {
+  staffTotal: number;
+  activeStaff: number;
+  membershipTotal: number;
+  activeMemberships: number;
+  roles: AdminTenantAccessRoleSummary[];
+  membershipStatuses: Array<{ status: string; count: number }>;
+}
+
+export interface AdminTenantContact {
+  userId: string;
+  staffId: string | null;
+  displayName: string;
+  email: string | null;
+  phoneE164: string | null;
+  role: string;
+  membershipStatus: string;
+}
+
+export interface AdminTenantBillingSummary {
+  available: boolean;
+  openInvoiceCount: number | null;
+  overdueInvoiceCount: number | null;
+  openBalanceMinor: number | null;
+  overdueBalanceMinor: number | null;
+}
+
+export interface AdminTenant360 extends AdminTenantDetail {
+  access: AdminTenantAccessSummary;
+  contacts: AdminTenantContact[];
+  devices: AdminDeviceSummary[];
+  billing: AdminTenantBillingSummary;
+  recentActivity: AdminAuditEvent[];
 }
 
 export interface AdminDeviceSummary {
