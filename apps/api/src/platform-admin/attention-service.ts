@@ -174,8 +174,13 @@ async function detectSignals(client: DatabaseClient): Promise<AttentionSignal[]>
   }
 
   const devices = await client.query<{
-    id: string; business_id: string; platform: string; release_channel: string; app_version: string;
-    last_seen_at: Date | null; last_sync_at: Date | null;
+    id: string;
+    business_id: string;
+    platform: string;
+    release_channel: string;
+    app_version: string;
+    last_seen_at: Date | null;
+    last_sync_at: Date | null;
   }>(
     `SELECT id,business_id,platform,release_channel,app_version,last_seen_at,last_sync_at
      FROM registered_devices WHERE status='ACTIVE'`,
@@ -210,7 +215,9 @@ async function detectSignals(client: DatabaseClient): Promise<AttentionSignal[]>
   }
 
   const releases = await client.query<{
-    platform: string; release_channel: string; minimum_supported_version: string;
+    platform: string;
+    release_channel: string;
+    minimum_supported_version: string;
   }>(
     `SELECT DISTINCT ON (platform,release_channel)
        platform,release_channel,minimum_supported_version
@@ -218,7 +225,9 @@ async function detectSignals(client: DatabaseClient): Promise<AttentionSignal[]>
      WHERE status IN ('ACTIVE','ROLLOUT') AND minimum_supported_version IS NOT NULL
      ORDER BY platform,release_channel,released_at DESC NULLS LAST,created_at DESC`,
   );
-  const minimumByClient = new Map(releases.rows.map((row) => [`${row.platform}:${row.release_channel}`, row.minimum_supported_version]));
+  const minimumByClient = new Map(
+    releases.rows.map((row) => [`${row.platform}:${row.release_channel}`, row.minimum_supported_version]),
+  );
   for (const row of devices.rows) {
     const minimum = minimumByClient.get(`${row.platform}:${row.release_channel}`);
     if (!minimum || compareVersion(row.app_version, minimum) >= 0) continue;
@@ -275,7 +284,9 @@ async function detectSignals(client: DatabaseClient): Promise<AttentionSignal[]>
       summary: "A platform administrator account has repeated failed login attempts.",
       evidence: [
         evidence("PLATFORM_ADMIN", row.id, "failedLoginCount", row.failed_login_count),
-        ...(row.locked_until ? [evidence("PLATFORM_ADMIN", row.id, "lockedUntil", row.locked_until.toISOString())] : []),
+        ...(row.locked_until
+          ? [evidence("PLATFORM_ADMIN", row.id, "lockedUntil", row.locked_until.toISOString())]
+          : []),
       ],
     });
   }
@@ -288,12 +299,19 @@ async function upsertSignal(client: DatabaseClient, signal: AttentionSignal): Pr
     `INSERT INTO platform_attention_items(
        source_key,rule_code,business_id,entity_type,entity_id,severity,state,title,summary,evidence,first_seen_at,last_seen_at
      ) VALUES($1,$2,$3,$4,$5,$6,'OPEN',$7,$8,$9::jsonb,now(),now())
-     ON CONFLICT (source_key,business_id,entity_type,entity_id) NULLS NOT DISTINCT WHERE state='OPEN'
+     ON CONFLICT (source_key,business_id,entity_type,entity_id) WHERE state='OPEN'
      DO UPDATE SET rule_code=EXCLUDED.rule_code,severity=EXCLUDED.severity,title=EXCLUDED.title,
        summary=EXCLUDED.summary,evidence=EXCLUDED.evidence,last_seen_at=now(),updated_at=now(),resolved_at=NULL`,
     [
-      signal.sourceKey, signal.ruleCode, signal.businessId, signal.entityType, signal.entityId,
-      signal.severity, signal.title, signal.summary, JSON.stringify(signal.evidence),
+      signal.sourceKey,
+      signal.ruleCode,
+      signal.businessId,
+      signal.entityType,
+      signal.entityId,
+      signal.severity,
+      signal.title,
+      signal.summary,
+      JSON.stringify(signal.evidence),
     ],
   );
 }
