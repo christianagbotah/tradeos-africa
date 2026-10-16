@@ -4,6 +4,7 @@ import path from "node:path";
 
 const appRoot = path.resolve(__dirname, "..");
 const read = (relative: string) => fs.readFileSync(path.join(appRoot, relative), "utf8");
+const readComponentCss = () => ["admin-components-base.css", "admin-components.css"].map(read).join("\n");
 
 describe("System Admin Tenant 360 contract", () => {
   it("makes tenant rows keyboard/click navigable to the dedicated detail route", () => {
@@ -59,7 +60,7 @@ describe("System Admin Tenant 360 contract", () => {
     expect(exists).toBe(true);
     if (!exists) return;
     const page = read(relative);
-    const css = read("admin-components.css");
+    const css = readComponentCss();
     expect(page).toContain("admin-tenant-hero");
     expect(page).toContain("admin-tenant-section-nav");
     expect(page).toContain("admin-tenant-grid");
