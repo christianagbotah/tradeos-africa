@@ -245,10 +245,196 @@
   grid-column: 1 / -1;
 }
 
+/* --- AI operations & approval center ----------------------------------- */
+.admin-ai-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-admin-space-md);
+}
+
+.admin-ai-card,
+.admin-approval-card,
+.admin-ai-answer,
+.admin-ai-policy-form {
+  min-width: 0;
+  padding: var(--tos-admin-space-lg);
+  background: var(--tos-admin-surface);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-admin-radius-md);
+  box-shadow: var(--tos-shadow-1);
+}
+
+.admin-ai-card,
+.admin-approval-card,
+.admin-ai-answer,
+.admin-ai-policy-form,
+.admin-ai-query {
+  display: grid;
+  gap: var(--tos-admin-space-md);
+}
+
+.admin-ai-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-admin-space-md);
+}
+
+.admin-ai-card__head > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.admin-ai-card__head h3,
+.admin-ai-policy-form h3 {
+  margin: 0;
+  color: var(--tos-text-strong);
+  font-size: 16px;
+}
+
+.admin-ai-card p,
+.admin-approval-card p,
+.admin-ai-answer p {
+  margin: 0;
+  color: var(--tos-text-muted);
+  line-height: 1.55;
+}
+
+.admin-ai-kicker,
+.admin-ai-role,
+.admin-ai-confidence {
+  color: var(--tos-text-soft);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.admin-ai-role,
+.admin-ai-confidence {
+  padding: 4px 8px;
+  border: 1px solid var(--tos-border);
+  border-radius: 999px;
+  background: var(--tos-admin-surface-soft);
+  white-space: nowrap;
+}
+
+.admin-ai-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-admin-space-sm);
+}
+
+.admin-ai-facts > div {
+  display: grid;
+  gap: 4px;
+  padding: var(--tos-admin-space-sm);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-admin-radius-sm);
+  background: var(--tos-admin-surface-soft);
+}
+
+.admin-ai-facts span,
+.admin-ai-reason > span {
+  color: var(--tos-text-soft);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.admin-ai-facts strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-ai-evidence {
+  display: grid;
+  gap: 5px;
+  padding: var(--tos-admin-space-sm) var(--tos-admin-space-md);
+  border-left: 3px solid var(--tos-border-strong);
+  background: var(--tos-admin-surface-soft);
+  color: var(--tos-text-muted);
+  font-size: var(--tos-admin-text-meta);
+}
+
+.admin-ai-evidence strong {
+  color: var(--tos-text-strong);
+}
+
+.admin-ai-card__footer,
+.admin-ai-actions,
+.admin-ai-category-grid {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-admin-space-sm);
+  flex-wrap: wrap;
+}
+
+.admin-ai-card__footer {
+  justify-content: space-between;
+  color: var(--tos-text-muted);
+}
+
+.admin-ai-card__footer a {
+  color: var(--tos-link);
+  font-weight: 700;
+}
+
+.admin-ai-reason {
+  display: grid;
+  gap: var(--tos-admin-space-xs);
+}
+
+.admin-ai-actions > button {
+  flex: 1 1 150px;
+}
+
+.admin-ai-category-grid {
+  margin-bottom: var(--tos-admin-space-md);
+}
+
+.admin-ai-category-grid span {
+  padding: 6px 10px;
+  border: 1px solid var(--tos-border);
+  border-radius: 999px;
+  background: var(--tos-admin-surface-soft);
+  color: var(--tos-text-muted);
+  font-size: var(--tos-admin-text-meta);
+  font-weight: 700;
+}
+
+.admin-ai-query {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  margin-bottom: var(--tos-admin-space-md);
+}
+
+.admin-ai-query .admin-billing-textarea {
+  min-height: 100px;
+}
+
+.admin-ai-policy-form {
+  margin-top: var(--tos-admin-space-lg);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-ai-policy-form h3,
+.admin-ai-policy-form textarea,
+.admin-ai-policy-form button {
+  grid-column: 1 / -1;
+}
+
+.admin-ai-run {
+  border-left: 3px solid var(--tos-border-strong);
+}
+
 @media (max-width: 840px) {
   .admin-billing-grid,
   .admin-billing-detail,
-  .admin-admin-grid {
+  .admin-admin-grid,
+  .admin-ai-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -258,12 +444,19 @@
   .admin-billing-form,
   .admin-billing-inline-form,
   .admin-admin-grid,
-  .admin-admin-manager {
+  .admin-admin-manager,
+  .admin-ai-grid,
+  .admin-ai-query,
+  .admin-ai-policy-form,
+  .admin-ai-facts {
     grid-template-columns: 1fr;
   }
 
   .admin-billing-form__wide,
-  .admin-admin-manager__actions {
+  .admin-admin-manager__actions,
+  .admin-ai-policy-form h3,
+  .admin-ai-policy-form textarea,
+  .admin-ai-policy-form button {
     grid-column: auto;
   }
 
@@ -274,8 +467,16 @@
   .admin-billing-toolbar .admin-field__input,
   .admin-billing-toolbar .admin-primary-button,
   .admin-billing-toolbar .admin-secondary-button,
-  .admin-admin-card .admin-secondary-button {
+  .admin-admin-card .admin-secondary-button,
+  .admin-ai-query .admin-primary-button,
+  .admin-ai-actions > button {
     width: 100%;
     max-width: none;
+  }
+
+  .admin-ai-card__head,
+  .admin-ai-card__footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
