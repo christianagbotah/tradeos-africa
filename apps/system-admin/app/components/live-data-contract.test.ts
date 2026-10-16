@@ -44,6 +44,19 @@ describe("system-admin live read-plane contract", () => {
     }
   });
 
+  it("uses one authoritative metrics endpoint for the command center without disconnected placeholder values", () => {
+    const overview = read("console/page.tsx");
+    expect(overview).toContain("useAdminResource");
+    expect(overview).toContain('/api/admin/metrics');
+    expect(overview).not.toContain('/api/admin/tenants');
+    expect(overview).not.toContain('/api/admin/devices');
+    expect(overview).not.toContain('/api/admin/releases');
+    expect(overview).not.toContain('"—"');
+    expect(overview).toContain("recurringRevenue");
+    expect(overview).toContain("overdueBalanceByCurrency");
+    expect(overview).toContain("syncRiskTenantCount");
+  });
+
   it("keeps release and feature-flag mutation controls unavailable in the read plane", () => {
     const releases = read("console/releases/page.tsx");
     const flags = read("console/flags/page.tsx");
