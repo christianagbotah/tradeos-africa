@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   AdminAiBriefing,
   AdminAiRecommendation,
@@ -91,7 +92,7 @@ export function createPlatformAdminIntelligenceService(args: { pool: DatabasePoo
     },
 
     async briefing(actor: PlatformAdminContext, input: { correlationId?: unknown } = {}): Promise<AdminAiBriefing> {
-      const correlationId = requireIdentifier(input.correlationId, "ADMIN_AI_CORRELATION_REQUIRED", 200);
+      const correlationId = optionalCorrelationId(input.correlationId);
       const tools = parseAdminIntelligenceTools([
         "platform_metrics",
         "attention_items",
@@ -227,6 +228,11 @@ function requireText(value: unknown, code: string, max: number): string {
 
 function requireIdentifier(value: unknown, code: string, max: number): string {
   return requireText(value, code, max);
+}
+
+function optionalCorrelationId(value: unknown): string {
+  if (value === undefined || value === null || value === "") return `briefing:${randomUUID()}`;
+  return requireIdentifier(value, "ADMIN_AI_CORRELATION_REQUIRED", 200);
 }
 
 function optionalUuid(value: unknown): string | undefined {
