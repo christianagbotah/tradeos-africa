@@ -30,6 +30,12 @@ import {
   transitionSubscription,
   updatePlan,
 } from "./subscription-service.js";
+import {
+  createPlatformAdmin,
+  listPlatformAdmins,
+  setPlatformAdminActive,
+  updatePlatformAdminRole,
+} from "./admin-user-service.js";
 
 const ADMIN_COOKIE = "__Host-tradeos_admin_session";
 
@@ -116,6 +122,51 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
       return sendAdminError(request, reply, error, "ADMIN_SESSION_REVOKE_FAILED", "Administrator session could not be revoked.");
     }
   });
+
+  app.get("/api/admin/admins", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { admins: await listPlatformAdmins(pool, admin) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_USERS_FAILED", "Platform administrators could not be loaded.");
+    }
+  });
+
+  app.post<{ Body: { email?: unknown; displayName?: unknown; role?: unknown; reason?: unknown } }>(
+    "/api/admin/admins",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return reply.code(201).send({ admin: await createPlatformAdmin(pool, admin, request.body ?? {}) });
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_USER_CREATE_FAILED", "Platform administrator could not be created.");
+      }
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { role?: unknown; reason?: unknown } }>(
+    "/api/admin/admins/:id/role",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { admin: await updatePlatformAdminRole(pool, admin, request.params.id, request.body ?? {}) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_USER_ROLE_FAILED", "Administrator role could not be changed.");
+      }
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { active?: unknown; reason?: unknown } }>(
+    "/api/admin/admins/:id/status",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { admin: await setPlatformAdminActive(pool, admin, request.params.id, request.body ?? {}) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_USER_STATUS_FAILED", "Administrator status could not be changed.");
+      }
+    },
+  );
 
   app.get("/api/admin/tenants", async (request, reply) => {
     try {
