@@ -1,13 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../db.js";
 import {
-  approveAutomationRun,
   createAutomationPolicy,
   evaluateAutomationPolicy,
   listAutomationPolicies,
   listAutomationRuns,
-  rejectAutomationRun,
 } from "./automation-service.js";
+import {
+  approvePinnedAutomationRun,
+  rejectPinnedAutomationRun,
+  retryFailedAutomationRun,
+  updateAutomationPolicyVersion,
+} from "./automation-versioning-service.js";
 import { registerPlatformAdminIntelligenceRoutes } from "./intelligence-routes.js";
 import { authenticatePlatformAdmin, PlatformAdminError } from "./security.js";
 
@@ -35,6 +39,18 @@ export function registerPlatformAdminAutomationRoutes(app: FastifyInstance, pool
     }
   });
 
+  app.patch<{ Params: { policyId: string }; Body: Record<string, unknown> }>(
+    "/api/admin/automation/policies/:policyId",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { policy: await updateAutomationPolicyVersion(pool, admin, request.params.policyId, request.body ?? {}) };
+      } catch (error) {
+        return sendAutomationError(request, reply, error, "ADMIN_AUTOMATION_POLICY_UPDATE_FAILED", "Automation policy could not be updated.");
+      }
+    },
+  );
+
   app.get("/api/admin/automation/runs", async (request, reply) => {
     try {
       const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
@@ -58,7 +74,7 @@ export function registerPlatformAdminAutomationRoutes(app: FastifyInstance, pool
     async (request, reply) => {
       try {
         const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
-        return { run: await approveAutomationRun(pool, admin, request.params.runId, request.body ?? {}) };
+        return { run: await approvePinnedAutomationRun(pool, admin, request.params.runId, request.body ?? {}) };
       } catch (error) {
         return sendAutomationError(request, reply, error, "ADMIN_AUTOMATION_APPROVAL_FAILED", "Automation run could not be approved.");
       }
@@ -70,9 +86,21 @@ export function registerPlatformAdminAutomationRoutes(app: FastifyInstance, pool
     async (request, reply) => {
       try {
         const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
-        return { run: await rejectAutomationRun(pool, admin, request.params.runId, request.body ?? {}) };
+        return { run: await rejectPinnedAutomationRun(pool, admin, request.params.runId, request.body ?? {}) };
       } catch (error) {
         return sendAutomationError(request, reply, error, "ADMIN_AUTOMATION_REJECTION_FAILED", "Automation run could not be rejected.");
+      }
+    },
+  );
+
+  app.post<{ Params: { runId: string }; Body: Record<string, unknown> }>(
+    "/api/admin/automation/runs/:runId/retry",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { run: await retryFailedAutomationRun(pool, admin, request.params.runId, request.body ?? {}) };
+      } catch (error) {
+        return sendAutomationError(request, reply, error, "ADMIN_AUTOMATION_RETRY_FAILED", "Automation run could not be retried.");
       }
     },
   );
