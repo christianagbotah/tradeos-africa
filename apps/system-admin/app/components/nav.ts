@@ -8,6 +8,7 @@ import {
   IconFlag,
   IconRelease,
   IconShield,
+  IconUsers,
 } from "./icons";
 
 export interface AdminNavItem {
@@ -53,7 +54,10 @@ export const adminNavGroups: AdminNavGroup[] = [
   },
   {
     label: "Security",
-    items: [{ href: "/console/profile", label: "My account", icon: IconShield }],
+    items: [
+      { href: "/console/admins", label: "Administrators", icon: IconUsers },
+      { href: "/console/profile", label: "My account", icon: IconShield },
+    ],
   },
 ];
 
