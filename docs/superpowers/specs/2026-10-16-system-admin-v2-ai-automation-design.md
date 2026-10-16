@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-16  
 **Status:** Written design for owner review  
-**Scope:** Upgrade the existing secure System Admin read plane into an easy-to-use, auditable platform control center with tenant management, subscription billing, administrator account controls, and AI-assisted operations.
+**Scope:** Upgrade the existing secure System Admin read plane into an easy-to-use, auditable platform control center with tenant management, subscription billing, administrator account controls, and AI-assisted operations. This is Workstream A of a committed two-workstream TradeOS intelligence program; Workstream B applies the same ease-of-use, rich workflows, and policy-controlled AI automation to tenant/business users.
 
 ## 1. Product intent
 
@@ -26,7 +26,8 @@ System Admin V2 succeeds when an authorized operator can:
 - review AI recommendations and approve or reject sensitive actions;
 - configure safe automations for repetitive platform work;
 - see a complete audit trail for administrator and AI-assisted actions;
-- perform common workflows comfortably on phone, tablet, or desktop.
+- perform common workflows comfortably on phone, tablet, or desktop;
+- establish reusable attention, recommendation, approval, automation, and evidence patterns that the tenant/business-user experience will consume in Workstream B.
 
 ## 3. Existing foundation
 
@@ -554,16 +555,34 @@ This subsystem is implemented in slices so each release is useful and testable.
 
 ## 23. Explicit non-goals for this implementation cycle
 
+These limits apply to the **System Admin V2 implementation plan only**. They do not remove tenant/user AI from the TradeOS roadmap; Workstream B below is mandatory follow-on scope.
+
 - replacing tenant/business operational pages inside System Admin;
 - allowing AI to autonomously refund money, suspend tenants, change plans, revoke administrators, or alter permissions without the required approval class;
 - building a general-purpose chatbot with unrestricted database access;
 - deleting tenant operational history;
 - hard-coding Hubtel as the only billing provider;
 - attempting predictive churn/profit models before enough trustworthy platform history exists;
-- redesigning the tenant-facing TradeOS AI assistant in this same implementation plan.
+- implementing tenant-facing operational AI inside the **same** System Admin implementation plan.
 
-## 24. Follow-on tenant AI design
+## 24. Committed Workstream B — tenant/user intelligence and automation
 
-After System Admin V2 is delivered, a separate design will apply the reusable AI/automation concepts to tenant operations: intelligent cash-flow alerts, stock/reorder suggestions, receivables/payables follow-up, sales anomaly detection, daily owner briefing, natural-language reporting, workflow automation, and role-aware approvals.
+TradeOS tenant users must receive the same product philosophy as System Admin: easy to understand, rich in capability, proactive, mobile-first, and AI-assisted without surrendering accounting correctness or role controls. This is a committed implementation track, not an optional future idea.
 
-That tenant-facing design remains separate because it operates on different permissions, offline behavior, accounting invariants, and user roles.
+Workstream B will be specified and implemented as its own subsystem because tenant operations have different permissions, offline behavior, accounting invariants, branch context, and user roles. It will reuse the platform patterns for evidence, recommendations, approval classes, automation runs, idempotency, and audit where appropriate.
+
+The tenant/user scope includes at minimum:
+
+- **Owner/manager daily briefing** — sales, cash, stock, receivables, payables, unusual events, and prioritized next actions;
+- **natural-language business queries** — questions such as “what sold best this week?”, “who owes us money?”, “what stock should I reorder?”, and “why is cash lower than expected?”, answered from authoritative business data;
+- **cash-flow and working-capital intelligence** — forward-looking cash pressure, overdue receivables/payables, expected inflows/outflows, and explainable recommendations;
+- **inventory intelligence** — reorder suggestions, slow/dead stock, stockout risk, unusual consumption/wastage, unit-conversion-aware recommendations, and supplier-aware purchase suggestions;
+- **sales/customer intelligence** — trend and anomaly detection, customer follow-up opportunities, declining sales alerts, basket/product insights, and branch comparisons where authorized;
+- **guided workflows** — AI can pre-fill or prepare purchase orders, follow-up tasks, expense categorizations, stock checks, customer reminders, reports, and other low-risk work, while the canonical transaction services remain authoritative;
+- **role-aware automation** — owners/admins may configure business automations, while managers/cashiers/accountants see only actions appropriate to their permissions;
+- **offline-aware behavior** — AI recommendations can be viewed from cached authoritative data where appropriate, but economic mutations continue through the existing durable/offline sync contracts and never bypass idempotency;
+- **human approval for sensitive actions** — payments, refunds, credit changes, stock write-offs, destructive actions, user/role changes, and other high-impact mutations remain governed by existing permissions and explicit approval policies;
+- **explainability and evidence** — recommendations must link to the sales, stock, cashbook, customer, supplier, or report facts that produced them;
+- **simple UX** — AI appears in contextual cards, action queues, smart defaults, command/search surfaces, and concise briefings rather than forcing users into a generic chat screen for routine work.
+
+Workstream B will have its own written design and implementation plan immediately after the System Admin V2 foundation is underway, so both tracks share primitives without coupling tenant operational logic to the platform-admin security boundary.
