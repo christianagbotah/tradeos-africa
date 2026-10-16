@@ -1,5 +1,6 @@
 import type { AdminAutomationRun } from "@tradeos/contracts";
 import type { DatabasePool } from "../db.js";
+import { evaluatePlatformAttentionSystem } from "./attention-service.js";
 import { evaluateSystemAutomationPolicy } from "./automation-system-service.js";
 
 export const PLATFORM_AUTOMATION_SCHEDULER_LOCK_KEY = "8706112026101601";
@@ -31,9 +32,9 @@ export async function runPlatformAutomationSchedulerTick(
     const bucketMs = Math.floor(now.getTime() / intervalMs) * intervalMs;
     const correlationId = `scheduled:${new Date(bucketMs).toISOString()}`;
 
-    // Deterministic scheduling deliberately performs no model/provider call.
-    // Attention facts are maintained by the deterministic attention engine;
-    // scheduled policies consume only authoritative database state.
+    // Facts first, automation second. This layer never calls an AI/model provider.
+    await evaluatePlatformAttentionSystem(pool);
+
     const policies = await client.query<PolicyTriggerRow>(
       `SELECT id,business_id,trigger_type,conditions
        FROM platform_automation_policies
