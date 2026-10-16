@@ -63,6 +63,7 @@ CREATE TABLE platform_automation_runs (
   trigger_correlation_id text NOT NULL,
   state text NOT NULL CHECK (state IN ('QUEUED', 'EVALUATING', 'WAITING_APPROVAL', 'APPROVED', 'EXECUTING', 'SUCCEEDED', 'FAILED', 'REJECTED', 'CANCELED')),
   execution_class smallint NOT NULL CHECK (execution_class BETWEEN 0 AND 3),
+  approval_role text CHECK (approval_role IS NULL OR approval_role IN ('SUPER_ADMIN', 'PLATFORM_ADMIN', 'DEVELOPER', 'SUPPORT', 'BILLING', 'OPERATIONS')),
   structured_input jsonb NOT NULL DEFAULT '{}'::jsonb,
   output_summary jsonb NOT NULL DEFAULT '{}'::jsonb,
   proposed_action jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -81,6 +82,22 @@ CREATE TABLE platform_automation_runs (
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (policy_id, policy_version, trigger_correlation_id)
 );
+
+CREATE OR REPLACE FUNCTION pin_platform_automation_run_approval_role()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.approval_role IS NULL THEN
+    SELECT approval_role INTO NEW.approval_role
+    FROM platform_automation_policies
+    WHERE id = NEW.policy_id AND policy_version = NEW.policy_version;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_platform_automation_run_pin_approval_role
+BEFORE INSERT ON platform_automation_runs
+FOR EACH ROW EXECUTE FUNCTION pin_platform_automation_run_approval_role();
 
 CREATE INDEX idx_platform_automation_runs_state_time
   ON platform_automation_runs(state, created_at DESC);
