@@ -8,11 +8,14 @@ import {
   listAutomationRuns,
   rejectAutomationRun,
 } from "./automation-service.js";
+import { registerPlatformAdminIntelligenceRoutes } from "./intelligence-routes.js";
 import { authenticatePlatformAdmin, PlatformAdminError } from "./security.js";
 
 const ADMIN_COOKIE = "__Host-tradeos_admin_session";
 
 export function registerPlatformAdminAutomationRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  registerPlatformAdminIntelligenceRoutes(app, pool);
+
   app.get("/api/admin/automation/policies", async (request, reply) => {
     try {
       const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
