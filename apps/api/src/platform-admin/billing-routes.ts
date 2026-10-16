@@ -2,10 +2,20 @@ import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../db.js";
 import { authenticatePlatformAdmin, PlatformAdminError } from "./security.js";
 import { getInvoice, listInvoices, listSubscriptionPayments, reconcilePayment } from "./billing-service.js";
+import { getPlatformMetrics } from "./metrics-service.js";
 
 const ADMIN_COOKIE = "__Host-tradeos_admin_session";
 
 export function registerPlatformAdminBillingRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  app.get("/api/admin/metrics", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { metrics: await getPlatformMetrics(pool, admin) };
+    } catch (error) {
+      return sendBillingError(request, reply, error, "ADMIN_METRICS_FAILED", "Platform metrics could not be loaded.");
+    }
+  });
+
   app.get("/api/admin/billing/invoices", async (request, reply) => {
     try {
       await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
