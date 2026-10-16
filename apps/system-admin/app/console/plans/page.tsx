@@ -53,16 +53,23 @@ export default function PlansPage() {
     const verb = current ? "update" : "create";
     if (!window.confirm(`Confirm ${verb} plan ${draft.name || draft.code}? This changes what can be assigned to tenants.`)) return;
     setSaving(true); setActionError(null); setNotice(null);
+    const payload = {
+      code: draft.code, name: draft.name, description: draft.description || null, currencyCode: draft.currencyCode,
+      amountMinor, billingInterval: draft.billingInterval, trialDays: Number(draft.trialDays || 0), public: draft.public,
+      active: draft.active, reason: draft.reason, ...(current ? { expectedUpdatedAt: current.updatedAt } : {}),
+    };
     try {
-      const response = await apiFetch(current ? `/api/admin/plans/${current.id}` : "/api/admin/plans", {
-        method: current ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: draft.code, name: draft.name, description: draft.description || null, currencyCode: draft.currencyCode,
-          amountMinor, billingInterval: draft.billingInterval, trialDays: Number(draft.trialDays || 0), public: draft.public,
-          active: draft.active, reason: draft.reason, ...(current ? { expectedUpdatedAt: current.updatedAt } : {}),
-        }),
-      });
+      const response = current
+        ? await apiFetch(`/api/admin/plans/${current.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          })
+        : await apiFetch("/api/admin/plans", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
       const body = await response.json().catch(() => ({})) as { message?: string };
       if (!response.ok) throw new Error(body.message ?? `Could not ${verb} plan`);
       setDraft(blankDraft); setEditingId(null); await reload(); setNotice(`Plan ${verb}d successfully.`);
