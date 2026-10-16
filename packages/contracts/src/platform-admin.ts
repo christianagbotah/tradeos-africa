@@ -18,6 +18,18 @@ export interface PlatformAdminUser {
   lastLoginAt: string | null;
 }
 
+export interface AdminPlatformUserSummary {
+  id: string;
+  email: string;
+  displayName: string;
+  role: PlatformAdminRole;
+  active: boolean;
+  credentialProvisioned: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PlatformAdminSession {
   expiresAt: string;
   idleExpiresAt: string;
