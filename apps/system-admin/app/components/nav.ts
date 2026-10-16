@@ -7,6 +7,8 @@ import {
   IconDevices,
   IconFlag,
   IconRelease,
+  IconShield,
+  IconUsers,
 } from "./icons";
 
 export interface AdminNavItem {
@@ -35,10 +37,26 @@ export const adminNavGroups: AdminNavGroup[] = [
     items: [{ href: "/console/tenants", label: "Tenants", icon: IconBuilding }],
   },
   {
+    label: "Billing",
+    items: [
+      { href: "/console/plans", label: "Plans", icon: IconBuilding },
+      { href: "/console/subscriptions", label: "Subscriptions", icon: IconActivity },
+      { href: "/console/billing/invoices", label: "Invoices", icon: IconAudit },
+      { href: "/console/billing/payments", label: "Payments", icon: IconDevices },
+    ],
+  },
+  {
     label: "Platform",
     items: [
       { href: "/console/releases", label: "Client releases", icon: IconRelease },
       { href: "/console/flags", label: "Feature flags", icon: IconFlag },
+    ],
+  },
+  {
+    label: "Security",
+    items: [
+      { href: "/console/admins", label: "Administrators", icon: IconUsers },
+      { href: "/console/profile", label: "My account", icon: IconShield },
     ],
   },
 ];
