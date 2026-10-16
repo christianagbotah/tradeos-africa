@@ -235,7 +235,7 @@ async function seedTenant360(): Promise<string> {
   );
   await pool.query(
     `INSERT INTO platform_audit_events(business_id,event_type,entity_type,entity_id,reason,payload)
-     VALUES($1,'TENANT_NOTE','BUSINESS',$1::text,'Seed activity','{}'::jsonb)`, [businessId],
+     VALUES($1::uuid,'TENANT_NOTE','BUSINESS',($1::uuid)::text,'Seed activity','{}'::jsonb)`, [businessId],
   );
   return businessId;
 }
