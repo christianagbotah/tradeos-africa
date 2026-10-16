@@ -117,7 +117,8 @@ export function startPlatformAutomationScheduler(
     if (stopped || running) return;
     running = true;
     try {
-      await runPlatformAutomationSchedulerTick(pool, { intervalMs, now: options.now });
+      const tickOptions = options.now ? { intervalMs, now: options.now } : { intervalMs };
+      await runPlatformAutomationSchedulerTick(pool, tickOptions);
     } catch (error) {
       console.error("TradeOS platform automation scheduler tick failed", error);
     } finally {
