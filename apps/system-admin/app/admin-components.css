@@ -192,9 +192,63 @@
   color: var(--tos-danger) !important;
 }
 
+/* --- Platform administrators ------------------------------------------- */
+.admin-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-admin-space-md);
+}
+
+.admin-admin-card {
+  display: grid;
+  gap: var(--tos-admin-space-md);
+  min-width: 0;
+  padding: var(--tos-admin-space-lg);
+  background: var(--tos-admin-surface);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-admin-radius-md);
+  box-shadow: var(--tos-shadow-1);
+}
+
+.admin-admin-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-admin-space-md);
+}
+
+.admin-admin-card__head > div,
+.admin-admin-card__meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.admin-admin-card__head strong,
+.admin-admin-card__head small {
+  overflow-wrap: anywhere;
+}
+
+.admin-admin-card__head small,
+.admin-admin-card__meta {
+  color: var(--tos-text-muted);
+  font-size: var(--tos-admin-text-meta);
+}
+
+.admin-admin-manager {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-admin-space-md);
+}
+
+.admin-admin-manager__actions {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 840px) {
   .admin-billing-grid,
-  .admin-billing-detail {
+  .admin-billing-detail,
+  .admin-admin-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -202,11 +256,14 @@
 @media (max-width: 640px) {
   .admin-billing-grid,
   .admin-billing-form,
-  .admin-billing-inline-form {
+  .admin-billing-inline-form,
+  .admin-admin-grid,
+  .admin-admin-manager {
     grid-template-columns: 1fr;
   }
 
-  .admin-billing-form__wide {
+  .admin-billing-form__wide,
+  .admin-admin-manager__actions {
     grid-column: auto;
   }
 
@@ -216,7 +273,8 @@
 
   .admin-billing-toolbar .admin-field__input,
   .admin-billing-toolbar .admin-primary-button,
-  .admin-billing-toolbar .admin-secondary-button {
+  .admin-billing-toolbar .admin-secondary-button,
+  .admin-admin-card .admin-secondary-button {
     width: 100%;
     max-width: none;
   }
