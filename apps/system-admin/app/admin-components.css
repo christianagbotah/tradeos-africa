@@ -707,3 +707,193 @@
   gap: var(--tos-admin-space-sm);
   flex-shrink: 0;
 }
+
+/* --- My account & security --------------------------------------------- */
+.admin-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-admin-space-lg);
+}
+
+.admin-profile-form {
+  display: grid;
+  gap: var(--tos-admin-space-lg);
+}
+
+.admin-field {
+  display: grid;
+  gap: var(--tos-admin-space-xs);
+}
+
+.admin-field__label {
+  color: var(--tos-text-muted);
+  font-size: var(--tos-admin-text-meta);
+  font-weight: 700;
+}
+
+.admin-field__input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 var(--tos-admin-space-md);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-admin-radius-sm);
+  background: var(--tos-admin-surface-soft);
+  color: var(--tos-text);
+  font: inherit;
+}
+
+.admin-field__input:focus {
+  outline: none;
+  border-color: var(--tos-gold-border);
+  box-shadow: var(--tos-focus-ring);
+  background: var(--tos-admin-surface);
+}
+
+.admin-field__hint {
+  color: var(--tos-text-soft);
+}
+
+.admin-profile-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-admin-space-md);
+  padding: var(--tos-admin-space-md);
+  border-radius: var(--tos-admin-radius-sm);
+  background: var(--tos-admin-surface-soft);
+}
+
+.admin-profile-facts > div {
+  display: grid;
+  gap: var(--tos-admin-space-xs);
+}
+
+.admin-profile-facts span:first-child {
+  color: var(--tos-text-soft);
+  font-size: var(--tos-admin-text-meta);
+}
+
+.admin-profile-facts strong {
+  color: var(--tos-text);
+  font-size: var(--tos-admin-text-cell);
+}
+
+.admin-profile-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-primary-button,
+.admin-secondary-button,
+.admin-danger-button {
+  min-height: 40px;
+  border-radius: var(--tos-admin-radius-sm);
+  padding: 0 var(--tos-admin-space-lg);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-primary-button {
+  border: 1px solid var(--tos-gold-border);
+  background: var(--tos-gold);
+  color: var(--tos-admin-sidebar);
+}
+
+.admin-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tos-admin-space-sm);
+  border: 1px solid var(--tos-border);
+  background: var(--tos-admin-surface);
+  color: var(--tos-text);
+}
+
+.admin-secondary-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.admin-danger-button {
+  border: 1px solid color-mix(in srgb, var(--tos-danger) 32%, var(--tos-border));
+  background: color-mix(in srgb, var(--tos-danger) 8%, var(--tos-admin-surface));
+  color: var(--tos-danger);
+}
+
+.admin-primary-button:disabled,
+.admin-secondary-button:disabled,
+.admin-danger-button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.admin-security-session-list {
+  display: grid;
+  gap: var(--tos-admin-space-sm);
+}
+
+.admin-security-session {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--tos-admin-space-md);
+  align-items: center;
+  padding: var(--tos-admin-space-md);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-admin-radius-sm);
+  background: var(--tos-admin-surface-soft);
+}
+
+.admin-security-session__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--tos-admin-surface);
+  color: var(--tos-gold);
+}
+
+.admin-security-session__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.admin-security-session__body {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.admin-security-session__title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tos-admin-space-sm);
+}
+
+.admin-security-session__body > span,
+.admin-security-session__body > small {
+  overflow-wrap: anywhere;
+  color: var(--tos-text-muted);
+}
+
+@media (max-width: 760px) {
+  .admin-profile-grid,
+  .admin-profile-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-security-session {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .admin-security-session .admin-danger-button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .admin-profile-actions .admin-primary-button,
+  .admin-secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+}

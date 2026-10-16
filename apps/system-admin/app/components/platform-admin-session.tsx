@@ -19,6 +19,7 @@ interface AdminSessionContextValue {
   adminUser: PlatformAdminUserView | null;
   login(identifier: string, password: string): Promise<void>;
   logout(): Promise<void>;
+  refreshAdminUser(): Promise<void>;
   apiFetch(path: string, init?: RequestInit): Promise<Response>;
 }
 
@@ -33,27 +34,26 @@ export function PlatformAdminProvider({ children }: { children: ReactNode }) {
     setPhase("signed-out");
   }, []);
 
+  const refreshAdminUser = useCallback(async (): Promise<void> => {
+    const response = await fetch("/api/admin/session/me", { credentials: "include" });
+    if (!response.ok) {
+      if (response.status === 401) markSignedOut();
+      throw new Error("Administrator session could not be refreshed");
+    }
+    const body = await response.json() as { adminUser: PlatformAdminUserView };
+    setAdminUser(body.adminUser);
+    setPhase("authenticated");
+  }, [markSignedOut]);
+
   useEffect(() => {
     let active = true;
-    void fetch("/api/admin/session/me", { credentials: "include" })
-      .then(async (response) => {
-        if (!active) return;
-        if (!response.ok) {
-          markSignedOut();
-          return;
-        }
-        const body = await response.json() as { adminUser: PlatformAdminUserView };
-        if (!active) return;
-        setAdminUser(body.adminUser);
-        setPhase("authenticated");
-      })
-      .catch(() => {
-        if (active) markSignedOut();
-      });
+    void refreshAdminUser().catch(() => {
+      if (active) markSignedOut();
+    });
     return () => {
       active = false;
     };
-  }, [markSignedOut]);
+  }, [markSignedOut, refreshAdminUser]);
 
   const login = useCallback(async (identifier: string, password: string) => {
     const response = await fetch("/api/admin/session/login", {
@@ -92,8 +92,9 @@ export function PlatformAdminProvider({ children }: { children: ReactNode }) {
     adminUser,
     login,
     logout,
+    refreshAdminUser,
     apiFetch: authenticatedFetch,
-  }), [adminUser, authenticatedFetch, login, logout, phase]);
+  }), [adminUser, authenticatedFetch, login, logout, phase, refreshAdminUser]);
 
   return <AdminSessionContext.Provider value={value}>{children}</AdminSessionContext.Provider>;
 }
