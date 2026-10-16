@@ -12,7 +12,7 @@ export interface PlatformAutomationActionResult {
 
 export async function executeApprovedPlatformAction(
   pool: DatabasePool,
-  actor: PlatformAdminContext,
+  actor: PlatformAdminContext | null,
   actionType: string,
   configuration: Record<string, unknown>,
 ): Promise<PlatformAutomationActionResult> {
@@ -40,13 +40,20 @@ export async function executeApprovedPlatformAction(
       await client.query(
         `INSERT INTO platform_audit_events(platform_user_id,business_id,event_type,entity_type,entity_id,reason,payload)
          VALUES($1,$2,'ATTENTION_RESOLVED','PLATFORM_ATTENTION_ITEM',$3,$4,$5::jsonb)`,
-        [actor.id, item.business_id, attentionItemId, reason, JSON.stringify({ source: "AUTOMATION" })],
+        [actor?.id ?? null, item.business_id, attentionItemId, reason, JSON.stringify({ source: actor ? "AUTOMATION" : "SYSTEM_AUTOMATION" })],
       );
     });
     return { actionType, summary: "Attention item resolved.", entityType: "PLATFORM_ATTENTION_ITEM", entityId: attentionItemId };
   }
 
   if (actionType === "TENANT_STATUS_CHANGE") {
+    if (!actor) {
+      throw new PlatformAdminError(
+        "Tenant status changes require an authorized human administrator",
+        403,
+        "ADMIN_AUTOMATION_HUMAN_REQUIRED",
+      );
+    }
     const businessId = requireUuid(configuration.businessId, "ADMIN_AUTOMATION_ACTION_INVALID");
     const status = configuration.status === "ACTIVE" || configuration.status === "SUSPENDED" ? configuration.status : null;
     if (!status) throw new PlatformAdminError("Tenant status action is invalid", 400, "ADMIN_AUTOMATION_ACTION_INVALID");
