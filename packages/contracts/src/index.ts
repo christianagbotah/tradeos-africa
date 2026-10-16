@@ -15,3 +15,4 @@ export * from "./currency-metadata.js";
 
 export * from "./staff.js";
 export * from "./platform-admin.js";
+export * from "./platform-admin-metrics.js";
