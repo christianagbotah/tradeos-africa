@@ -4,6 +4,7 @@ import path from "node:path";
 
 const appRoot = path.resolve(__dirname, "..");
 const read = (relative: string) => fs.readFileSync(path.join(appRoot, relative), "utf8");
+const readComponentCss = () => ["admin-components-base.css", "admin-components.css"].map(read).join("\n");
 
 describe("System Admin My Account & Security contract", () => {
   it("adds My account to navigation and resolves its page metadata", () => {
@@ -48,7 +49,7 @@ describe("System Admin My Account & Security contract", () => {
     expect(exists).toBe(true);
     if (!exists) return;
     const page = read(relative);
-    const css = read("admin-components.css");
+    const css = readComponentCss();
     expect(page).toContain("<PageHeader");
     expect(page).toContain("<Section");
     expect(page).toContain("admin-profile-grid");
