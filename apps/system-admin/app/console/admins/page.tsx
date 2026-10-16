@@ -28,7 +28,7 @@ export default function AdministratorsPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const canManage = adminUser?.role === "SUPER_ADMIN";
+  const canManage = Boolean(adminUser && adminUser.role === "SUPER_ADMIN");
   const admins = data?.admins ?? [];
   const filtered = useMemo(
     () => admins.filter((item) => `${item.displayName} ${item.email} ${item.role}`.toLowerCase().includes(query.toLowerCase())),
