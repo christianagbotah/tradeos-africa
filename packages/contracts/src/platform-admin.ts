@@ -174,6 +174,72 @@ export interface AdminBusinessSubscription {
   updatedAt: string;
 }
 
+export type AdminSubscriptionInvoiceStatus = "DRAFT" | "OPEN" | "PARTIALLY_PAID" | "PAID" | "VOID" | "UNCOLLECTIBLE" | "REFUNDED";
+export type AdminSubscriptionPaymentStatus = "PENDING" | "SUCCEEDED" | "FAILED" | "REVERSED" | "REFUNDED" | "PARTIALLY_REFUNDED";
+export type AdminSubscriptionRefundStatus = "REQUESTED" | "SUCCEEDED" | "FAILED";
+
+export interface AdminSubscriptionInvoice {
+  id: string;
+  businessId: string;
+  businessName: string;
+  subscriptionId: string;
+  invoiceNumber: string;
+  currencyCode: string;
+  subtotalMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  amountPaidMinor: number;
+  status: AdminSubscriptionInvoiceStatus;
+  periodStart: string;
+  periodEnd: string;
+  issuedAt: string;
+  dueAt: string;
+  paidAt: string | null;
+  provider: string | null;
+  providerInvoiceReference: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminSubscriptionPayment {
+  id: string;
+  businessId: string;
+  businessName: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  amountMinor: number;
+  currencyCode: string;
+  method: string;
+  provider: string;
+  providerEventReference: string;
+  providerTransactionReference: string;
+  status: AdminSubscriptionPaymentStatus;
+  failureCode: string | null;
+  failureMessage: string | null;
+  receivedAt: string;
+  reconciledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminSubscriptionPaymentRefund {
+  id: string;
+  businessId: string;
+  paymentId: string;
+  amountMinor: number;
+  currencyCode: string;
+  provider: string;
+  providerEventReference: string;
+  providerRefundReference: string;
+  status: AdminSubscriptionRefundStatus;
+  failureCode: string | null;
+  failureMessage: string | null;
+  requestedAt: string;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AdminDeviceSummary {
   id: string;
   businessId: string;
