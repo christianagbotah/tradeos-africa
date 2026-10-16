@@ -8622,3 +8622,110 @@
   .tos-team-invite__tabs { flex-direction: column; overflow: visible; }
   .tos-team-invite__tabs button { width: 100%; }
 }
+
+/* --- Bulk selection + actions ------------------------------------------- */
+.tos-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+  flex-wrap: wrap;
+  margin: 0 0 var(--tos-space-3);
+  padding: var(--tos-space-2) var(--tos-space-3);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface);
+  box-shadow: var(--tos-shadow-sm);
+}
+
+.tos-bulk-bar--active {
+  border-color: var(--tos-gold-border);
+  background: var(--tos-gold-soft);
+}
+
+.tos-bulk-bar__summary,
+.tos-bulk-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tos-space-2);
+  flex-wrap: wrap;
+}
+
+.tos-bulk-bar__count {
+  min-width: 74px;
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  color: var(--tos-text-strong);
+}
+
+.tos-table__select-col {
+  width: 44px;
+  min-width: 44px;
+  text-align: center !important;
+}
+
+.tos-table__select-col input[type="checkbox"],
+.tos-row-select input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--tos-gold-dark);
+}
+
+.tos-table tbody tr[data-selected="true"] > td {
+  background: var(--tos-gold-soft);
+}
+
+.tos-selectable-card {
+  position: relative;
+  border-radius: var(--tos-radius-md);
+}
+
+.tos-selectable-card--selected {
+  outline: 2px solid var(--tos-gold-border);
+  outline-offset: 2px;
+}
+
+.tos-row-select--card {
+  position: absolute;
+  z-index: 3;
+  top: 10px;
+  left: 10px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-sm);
+  background: var(--tos-surface);
+  box-shadow: var(--tos-shadow-sm);
+  cursor: pointer;
+}
+
+.tos-selectable-card .tos-catalog-card,
+.tos-selectable-card .tos-supplier-card {
+  width: 100%;
+  padding-left: 58px;
+}
+
+.tos-sheet__inline-editor {
+  scroll-margin-top: var(--tos-space-3);
+  border-top: 1px solid var(--tos-border);
+  padding-top: var(--tos-space-3);
+}
+
+@media (max-width: 720px) {
+  .tos-bulk-bar {
+    align-items: stretch;
+  }
+
+  .tos-bulk-bar__summary,
+  .tos-bulk-bar__actions {
+    width: 100%;
+  }
+
+  .tos-bulk-bar__actions .tos-btn {
+    flex: 1 1 auto;
+  }
+}
