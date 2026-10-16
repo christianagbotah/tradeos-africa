@@ -73,6 +73,7 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const editFormRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!supplier) return;
@@ -83,6 +84,15 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
     if (typeof document !== "undefined") document.body.style.overflow = "hidden";
     return () => { if (typeof document !== "undefined") document.body.style.overflow = ""; };
   }, [supplier]);
+
+  useEffect(() => {
+    if (!editOpen) return;
+    const frame = requestAnimationFrame(() => {
+      editFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      editFormRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editOpen]);
 
   if (!supplier || !session) return null;
 
@@ -284,26 +294,28 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
           </div>
 
           {editOpen && session ? (
-            <SupplierEditForm
-              supplier={supplier}
-              onCancel={() => setEditOpen(false)}
-              onSubmit={async (payload) => {
-                const queue = getOfflineQueue();
-                const mutation = queue.build({
-                  businessId: session.businessId,
-                  mutationType: SUPPLIER_UPDATE_TYPE,
-                  payload,
-                });
-                await queue.enqueue(mutation);
-                await queue.flushOrThrow({
-                  activeBusinessId: session.businessId,
-                  online: typeof navigator !== "undefined" ? navigator.onLine : true,
-                });
-                bump();
-                onMutated?.();
-                setEditOpen(false);
-              }}
-            />
+            <div ref={editFormRef} className="tos-sheet__inline-editor">
+              <SupplierEditForm
+                supplier={supplier}
+                onCancel={() => setEditOpen(false)}
+                onSubmit={async (payload) => {
+                  const queue = getOfflineQueue();
+                  const mutation = queue.build({
+                    businessId: session.businessId,
+                    mutationType: SUPPLIER_UPDATE_TYPE,
+                    payload,
+                  });
+                  await queue.enqueue(mutation);
+                  await queue.flushOrThrow({
+                    activeBusinessId: session.businessId,
+                    online: typeof navigator !== "undefined" ? navigator.onLine : true,
+                  });
+                  bump();
+                  onMutated?.();
+                  setEditOpen(false);
+                }}
+              />
+            </div>
           ) : null}
 
           {paymentOpen && session ? (

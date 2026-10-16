@@ -17,7 +17,10 @@ import {
   IconRefresh,
   IconSearch,
   IconWallet,
+  IconTrash,
 } from "../ui/icons";
+import { getOfflineQueue } from "../../../lib/offline-sync";
+import { readApiErrorMessage } from "../../../lib/auth-fetch";
 
 interface SuppliersResponse { suppliers: Supplier[] }
 
@@ -67,6 +70,12 @@ function initialOf(name: string): string {
   return trimmed.charAt(0).toUpperCase();
 }
 
+function networkFailureMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? `Network request failed: ${error.message}`
+    : "Network request failed";
+}
+
 export function SupplierWorkspace() {
   const { session, role, bump } = useWorkspace();
   const [query, setQuery] = useState("");
@@ -77,6 +86,10 @@ export function SupplierWorkspace() {
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [purchaseDetailId, setPurchaseDetailId] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkDeleteArmed, setBulkDeleteArmed] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
 
   const suppliersPath = session ? `/v1/suppliers?businessId=${encodeURIComponent(session.businessId)}` : null;
   const purchasesPath = session ? `/v1/purchases?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}` : null;
@@ -92,6 +105,7 @@ export function SupplierWorkspace() {
   }, [nonce, refetchSuppliers, refetchPurchases]);
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "INVENTORY"].includes(role);
+  const canDelete = ["OWNER", "ADMIN"].includes(role);
 
   const suppliers = suppliersData?.suppliers ?? [];
   const purchases = purchasesData?.purchases ?? [];
@@ -125,10 +139,152 @@ export function SupplierWorkspace() {
     return { total, active, owesCount, totalPayableMinor };
   }, [suppliers]);
 
+  const selectedSuppliers = useMemo(
+    () => suppliers.filter((supplier) => selectedIds.has(supplier.id)),
+    [suppliers, selectedIds],
+  );
+  const allFilteredSelected = filteredSuppliers.length > 0 && filteredSuppliers.every((supplier) => selectedIds.has(supplier.id));
+  const hasActiveSelection = selectedSuppliers.some((supplier) => supplier.active);
+  const hasInactiveSelection = selectedSuppliers.some((supplier) => !supplier.active);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setBulkDeleteArmed(false);
+    setBulkNotice(null);
+  }, [query, statusFilter, balanceFilter]);
+
+  useEffect(() => {
+    const currentIds = new Set(suppliers.map((supplier) => supplier.id));
+    setSelectedIds((previous) => {
+      const next = new Set([...previous].filter((id) => currentIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [suppliers]);
+
   const clearFilters = () => {
     setQuery("");
     setStatusFilter("ALL");
     setBalanceFilter("ALL");
+  };
+
+  const openAddSupplier = () => {
+    setSelected(null);
+    setFormOpen(true);
+  };
+
+  const openSupplier = (supplier: Supplier) => {
+    setFormOpen(false);
+    setSelected(supplier);
+  };
+
+  const toggleSelection = (supplierId: string) => {
+    setBulkDeleteArmed(false);
+    setBulkNotice(null);
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(supplierId)) next.delete(supplierId);
+      else next.add(supplierId);
+      return next;
+    });
+  };
+
+  const toggleAllFiltered = () => {
+    setBulkDeleteArmed(false);
+    setBulkNotice(null);
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (allFilteredSelected) filteredSuppliers.forEach((supplier) => next.delete(supplier.id));
+      else filteredSuppliers.forEach((supplier) => next.add(supplier.id));
+      return next;
+    });
+  };
+
+  const runBulkStatus = async (active: boolean) => {
+    if (!session || !canWrite || bulkBusy) return;
+    const targets = selectedSuppliers.filter((supplier) => supplier.active !== active);
+    if (targets.length === 0) return;
+    setBulkBusy(true);
+    setBulkDeleteArmed(false);
+    setBulkNotice(null);
+    const failures: Array<{ id: string; name: string; message: string }> = [];
+    let changed = 0;
+    try {
+      for (const supplier of targets) {
+        try {
+          const response = await getOfflineQueue().authenticatedFetch(
+            `/v1/suppliers/${encodeURIComponent(supplier.id)}`,
+            {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                businessId: session.businessId,
+                expectedUpdatedAt: supplier.updatedAt,
+                active,
+              }),
+            },
+          );
+          if (!response.ok) {
+            failures.push({ id: supplier.id, name: supplier.name, message: await readApiErrorMessage(response, "Supplier status could not be changed") });
+          } else {
+            changed += 1;
+          }
+        } catch (error) {
+          failures.push({ id: supplier.id, name: supplier.name, message: networkFailureMessage(error) });
+        }
+      }
+      refetchSuppliers();
+      bump();
+      setSelectedIds(new Set(failures.map((failure) => failure.id)));
+      const action = active ? "activated" : "deactivated";
+      setBulkNotice(
+        failures.length > 0
+          ? `${changed} supplier(s) ${action}. ${failures.length} could not be changed: ${failures.map((failure) => `${failure.name} — ${failure.message}`).join("; ")}`
+          : `${changed} supplier(s) ${action}.`,
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const runBulkDelete = async () => {
+    if (!session || !canDelete || bulkBusy || selectedSuppliers.length === 0) return;
+    if (!bulkDeleteArmed) {
+      setBulkDeleteArmed(true);
+      setBulkNotice("Permanent deletion only succeeds for suppliers with no purchase, payment, return or credit history. Protected suppliers should be deactivated instead.");
+      return;
+    }
+    setBulkBusy(true);
+    setBulkNotice(null);
+    const failures: Array<{ id: string; name: string; message: string }> = [];
+    let deleted = 0;
+    try {
+      for (const supplier of selectedSuppliers) {
+        try {
+          const response = await getOfflineQueue().authenticatedFetch(
+            `/v1/suppliers/${encodeURIComponent(supplier.id)}?businessId=${encodeURIComponent(session.businessId)}&expectedUpdatedAt=${encodeURIComponent(supplier.updatedAt)}`,
+            { method: "DELETE" },
+          );
+          if (!response.ok) {
+            failures.push({ id: supplier.id, name: supplier.name, message: await readApiErrorMessage(response, "Supplier could not be deleted") });
+          } else {
+            deleted += 1;
+          }
+        } catch (error) {
+          failures.push({ id: supplier.id, name: supplier.name, message: networkFailureMessage(error) });
+        }
+      }
+      refetchSuppliers();
+      bump();
+      setSelectedIds(new Set(failures.map((failure) => failure.id)));
+      setBulkDeleteArmed(false);
+      setBulkNotice(
+        failures.length > 0
+          ? `${deleted} supplier(s) deleted. ${failures.length} protected or changed supplier(s) remain selected: ${failures.map((failure) => `${failure.name} — ${failure.message}`).join("; ")}`
+          : `${deleted} supplier(s) permanently deleted.`,
+      );
+    } finally {
+      setBulkBusy(false);
+    }
   };
 
   return (
@@ -145,7 +301,7 @@ export function SupplierWorkspace() {
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => setNonce((n) => n + 1)}>Refresh</Button>
           {canWrite ? (
             <>
-              <Button variant="outline" icon={<IconPurchases className="tos-btn__icon" />} onClick={() => setFormOpen(true)}>Add supplier</Button>
+              <Button variant="outline" icon={<IconPurchases className="tos-btn__icon" />} onClick={openAddSupplier}>Add supplier</Button>
               <Button variant="gold" icon={<IconReceipt className="tos-btn__icon" />} onClick={() => setReceiptOpen(true)}>Record receipt</Button>
             </>
           ) : null}
@@ -218,6 +374,41 @@ export function SupplierWorkspace() {
         </div>
       </div>
 
+      {canWrite && filteredSuppliers.length > 0 ? (
+        <div className={`tos-bulk-bar ${selectedSuppliers.length > 0 ? "tos-bulk-bar--active" : ""}`}>
+          <div className="tos-bulk-bar__summary">
+            <Button size="sm" variant="ghost" onClick={toggleAllFiltered}>
+              {allFilteredSelected ? "Clear visible selection" : "Select all visible"}
+            </Button>
+            <span className="tos-bulk-bar__count">{selectedSuppliers.length} selected</span>
+          </div>
+          {selectedSuppliers.length > 0 ? (
+            <div className="tos-bulk-bar__actions">
+              <Button size="sm" variant="outline" onClick={() => void runBulkStatus(false)} loading={bulkBusy} disabled={!hasActiveSelection}>
+                Deactivate selected
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => void runBulkStatus(true)} loading={bulkBusy} disabled={!hasInactiveSelection}>
+                Activate selected
+              </Button>
+              {canDelete ? (
+                <Button size="sm" variant="danger" icon={<IconTrash style={{ width: 14, height: 14 }} />} onClick={() => void runBulkDelete()} loading={bulkBusy}>
+                  {bulkDeleteArmed ? `Confirm delete ${selectedSuppliers.length}` : "Delete selected"}
+                </Button>
+              ) : null}
+              <Button size="sm" variant="ghost" onClick={() => { setSelectedIds(new Set()); setBulkDeleteArmed(false); setBulkNotice(null); }} disabled={bulkBusy}>
+                Clear
+              </Button>
+            </div>
+          ) : (
+            <span className="tos-section__sub">Select suppliers to activate, deactivate, or delete unused records in bulk.</span>
+          )}
+        </div>
+      ) : null}
+
+      {bulkNotice ? (
+        <div className="tos-callout tos-callout--info" role="status">{bulkNotice}</div>
+      ) : null}
+
       {suppliersLoading ? (
         <div className="tos-card tos-card--padded"><StatePanel inline variant="loading" /></div>
       ) : suppliersError ? (
@@ -229,7 +420,7 @@ export function SupplierWorkspace() {
           title="No suppliers yet"
           text="Add suppliers so you can record purchase receipts, track payables, and post returns to suppliers. Each supplier carries its own payment terms and payable balance."
           actionLabel={canWrite ? "Add supplier" : undefined}
-          onAction={canWrite ? () => setFormOpen(true) : undefined}
+          onAction={canWrite ? openAddSupplier : undefined}
         />
       ) : filteredSuppliers.length === 0 ? (
         <StatePanel
@@ -257,12 +448,23 @@ export function SupplierWorkspace() {
                 : "tos-supplier-card__balance tos-supplier-card__balance--settled";
               return (
                 <li key={s.id}>
-                  <button
-                    type="button"
-                    className={cardCls}
-                    onClick={() => setSelected(s)}
-                    aria-label={`Open ${s.name}`}
-                  >
+                  <div className={`tos-selectable-card ${selectedIds.has(s.id) ? "tos-selectable-card--selected" : ""}`}>
+                    {canWrite ? (
+                      <label className="tos-row-select tos-row-select--card">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(s.id)}
+                          onChange={() => toggleSelection(s.id)}
+                          aria-label={`Select ${s.name}`}
+                        />
+                      </label>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={cardCls}
+                      onClick={() => openSupplier(s)}
+                      aria-label={`Open ${s.name}`}
+                    >
                     <span className="tos-supplier-card__avatar" aria-hidden="true">{initialOf(s.name)}</span>
                     <span className="tos-supplier-card__body">
                       <span className="tos-supplier-card__name">{s.name}</span>
@@ -283,7 +485,8 @@ export function SupplierWorkspace() {
                         <span className="tos-badge__dot" />{s.active ? "Active" : "Inactive"}
                       </span>
                     </span>
-                  </button>
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -295,6 +498,16 @@ export function SupplierWorkspace() {
               <table className="tos-table">
                 <thead>
                   <tr>
+                    {canWrite ? (
+                      <th className="tos-table__select-col">
+                        <input
+                          type="checkbox"
+                          checked={allFilteredSelected}
+                          onChange={toggleAllFiltered}
+                          aria-label="Select all visible suppliers"
+                        />
+                      </th>
+                    ) : null}
                     <th>Name</th>
                     <th>Phone</th>
                     <th>Email</th>
@@ -305,7 +518,17 @@ export function SupplierWorkspace() {
                 </thead>
                 <tbody>
                   {filteredSuppliers.map((s) => (
-                    <tr key={s.id} data-clickable="true" onClick={() => setSelected(s)}>
+                    <tr key={s.id} data-clickable="true" data-selected={selectedIds.has(s.id) ? "true" : undefined} onClick={() => openSupplier(s)}>
+                      {canWrite ? (
+                        <td className="tos-table__select-col" onClick={(event) => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(s.id)}
+                            onChange={() => toggleSelection(s.id)}
+                            aria-label={`Select ${s.name}`}
+                          />
+                        </td>
+                      ) : null}
                       <td>
                         <div className="tos-table__cell-main">
                           <span className="tos-table__cell-title">{s.name}</span>

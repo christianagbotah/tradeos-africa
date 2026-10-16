@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { CatalogItemSheet } from "./catalog-item-sheet";
@@ -17,9 +17,12 @@ import {
   IconRefresh,
   IconSearch,
   IconTrending,
+  IconTrash,
 } from "../ui/icons";
 import type { CatalogItem } from "../../../lib/catalog-read-model";
 import { primarySellableUnit } from "../../../lib/catalog-read-model";
+import { getOfflineQueue } from "../../../lib/offline-sync";
+import { readApiErrorMessage } from "../../../lib/auth-fetch";
 
 type KindFilter = "ALL" | CatalogItem["kind"];
 type StatusFilter = "ALL" | "ACTIVE" | "ARCHIVED";
@@ -71,6 +74,12 @@ const KIND_DESC: Record<CatalogItem["kind"], string> = {
   SERVICE: "No stock tracked",
 };
 
+function networkFailureMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? `Network request failed: ${error.message}`
+    : "Network request failed";
+}
+
 export function CatalogWorkspace() {
   const { catalog, inventory, role, refreshCatalog, session } = useWorkspace();
   const [query, setQuery] = useState("");
@@ -78,8 +87,13 @@ export function CatalogWorkspace() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [editing, setEditing] = useState<CatalogItem | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkDeleteArmed, setBulkDeleteArmed] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
+  const canDelete = ["OWNER", "ADMIN"].includes(role);
   const currencyCode = session?.currencyCode ?? "GHS";
 
   const filtered = useMemo(() => {
@@ -100,10 +114,150 @@ export function CatalogWorkspace() {
     return { total, active, services, lowStock };
   }, [catalog, inventory]);
 
+  const selectedItems = useMemo(
+    () => catalog.filter((item) => selectedIds.has(item.id)),
+    [catalog, selectedIds],
+  );
+  const allFilteredSelected = filtered.length > 0 && filtered.every((item) => selectedIds.has(item.id));
+  const hasActiveSelection = selectedItems.some((item) => item.active);
+  const hasArchivedSelection = selectedItems.some((item) => !item.active);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setBulkDeleteArmed(false);
+    setBulkNotice(null);
+  }, [query, kindFilter, statusFilter]);
+
+  useEffect(() => {
+    const currentIds = new Set(catalog.map((item) => item.id));
+    setSelectedIds((previous) => {
+      const next = new Set([...previous].filter((id) => currentIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [catalog]);
+
   const clearFilters = () => {
     setQuery("");
     setKindFilter("ALL");
     setStatusFilter("ALL");
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setFormOpen(true);
+  };
+
+  const openEdit = (item: CatalogItem) => {
+    setFormOpen(false);
+    setEditing(item);
+  };
+
+  const toggleSelection = (itemId: string) => {
+    setBulkDeleteArmed(false);
+    setBulkNotice(null);
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const toggleAllFiltered = () => {
+    setBulkDeleteArmed(false);
+    setBulkNotice(null);
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (allFilteredSelected) filtered.forEach((item) => next.delete(item.id));
+      else filtered.forEach((item) => next.add(item.id));
+      return next;
+    });
+  };
+
+  const runBulkLifecycle = async (active: boolean) => {
+    if (!session || !canWrite || bulkBusy) return;
+    const targets = selectedItems.filter((item) => item.active !== active);
+    if (targets.length === 0) return;
+    setBulkBusy(true);
+    setBulkDeleteArmed(false);
+    setBulkNotice(null);
+    const failures: Array<{ id: string; name: string; message: string }> = [];
+    let changed = 0;
+    try {
+      for (const item of targets) {
+        try {
+          const response = await getOfflineQueue().authenticatedFetch(
+            `/v1/catalog/items/${encodeURIComponent(item.id)}`,
+            {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                businessId: session.businessId,
+                expectedUpdatedAt: item.updatedAt,
+                active,
+              }),
+            },
+          );
+          if (!response.ok) {
+            failures.push({ id: item.id, name: item.name, message: await readApiErrorMessage(response, "Status could not be changed") });
+          } else {
+            changed += 1;
+          }
+        } catch (error) {
+          failures.push({ id: item.id, name: item.name, message: networkFailureMessage(error) });
+        }
+      }
+      await refreshCatalog();
+      setSelectedIds(new Set(failures.map((failure) => failure.id)));
+      const action = active ? "reactivated" : "archived";
+      setBulkNotice(
+        failures.length > 0
+          ? `${changed} item(s) ${action}. ${failures.length} could not be changed: ${failures.map((failure) => `${failure.name} — ${failure.message}`).join("; ")}`
+          : `${changed} item(s) ${action}.`,
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const runBulkDelete = async () => {
+    if (!session || !canDelete || bulkBusy || selectedItems.length === 0) return;
+    if (!bulkDeleteArmed) {
+      setBulkDeleteArmed(true);
+      setBulkNotice("Permanent deletion only succeeds for items with no sales, purchase, stock or recipe history. Protected items should be archived instead.");
+      return;
+    }
+    setBulkBusy(true);
+    setBulkNotice(null);
+    const failures: Array<{ id: string; name: string; message: string }> = [];
+    let deleted = 0;
+    try {
+      for (const item of selectedItems) {
+        try {
+          const response = await getOfflineQueue().authenticatedFetch(
+            `/v1/catalog/items/${encodeURIComponent(item.id)}?businessId=${encodeURIComponent(session.businessId)}&expectedUpdatedAt=${encodeURIComponent(item.updatedAt)}`,
+            { method: "DELETE" },
+          );
+          if (!response.ok) {
+            failures.push({ id: item.id, name: item.name, message: await readApiErrorMessage(response, "Item could not be deleted") });
+          } else {
+            deleted += 1;
+          }
+        } catch (error) {
+          failures.push({ id: item.id, name: item.name, message: networkFailureMessage(error) });
+        }
+      }
+      await refreshCatalog();
+      setSelectedIds(new Set(failures.map((failure) => failure.id)));
+      setBulkDeleteArmed(false);
+      setBulkNotice(
+        failures.length > 0
+          ? `${deleted} item(s) deleted. ${failures.length} protected or changed item(s) remain selected: ${failures.map((failure) => `${failure.name} — ${failure.message}`).join("; ")}`
+          : `${deleted} item(s) permanently deleted.`,
+      );
+    } finally {
+      setBulkBusy(false);
+    }
   };
 
   return (
@@ -119,7 +273,7 @@ export function CatalogWorkspace() {
         <div className="tos-page__actions">
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => void refreshCatalog()}>Refresh</Button>
           {canWrite ? (
-            <Button variant="gold" icon={<IconPlus className="tos-btn__icon" />} onClick={() => setFormOpen(true)}>Add item</Button>
+            <Button variant="gold" icon={<IconPlus className="tos-btn__icon" />} onClick={openCreate}>Add item</Button>
           ) : null}
         </div>
       </header>
@@ -189,6 +343,41 @@ export function CatalogWorkspace() {
         </div>
       </div>
 
+      {canWrite && filtered.length > 0 ? (
+        <div className={`tos-bulk-bar ${selectedItems.length > 0 ? "tos-bulk-bar--active" : ""}`}>
+          <div className="tos-bulk-bar__summary">
+            <Button size="sm" variant="ghost" onClick={toggleAllFiltered}>
+              {allFilteredSelected ? "Clear visible selection" : "Select all visible"}
+            </Button>
+            <span className="tos-bulk-bar__count">{selectedItems.length} selected</span>
+          </div>
+          {selectedItems.length > 0 ? (
+            <div className="tos-bulk-bar__actions">
+              <Button size="sm" variant="outline" onClick={() => void runBulkLifecycle(false)} loading={bulkBusy} disabled={!hasActiveSelection}>
+                Archive selected
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => void runBulkLifecycle(true)} loading={bulkBusy} disabled={!hasArchivedSelection}>
+                Reactivate selected
+              </Button>
+              {canDelete ? (
+                <Button size="sm" variant="danger" icon={<IconTrash style={{ width: 14, height: 14 }} />} onClick={() => void runBulkDelete()} loading={bulkBusy}>
+                  {bulkDeleteArmed ? `Confirm delete ${selectedItems.length}` : "Delete selected"}
+                </Button>
+              ) : null}
+              <Button size="sm" variant="ghost" onClick={() => { setSelectedIds(new Set()); setBulkDeleteArmed(false); setBulkNotice(null); }} disabled={bulkBusy}>
+                Clear
+              </Button>
+            </div>
+          ) : (
+            <span className="tos-section__sub">Select items to archive, reactivate, or delete unused records in bulk.</span>
+          )}
+        </div>
+      ) : null}
+
+      {bulkNotice ? (
+        <div className="tos-callout tos-callout--info" role="status">{bulkNotice}</div>
+      ) : null}
+
       {catalog.length === 0 ? (
         <StatePanel
           variant="empty"
@@ -196,7 +385,7 @@ export function CatalogWorkspace() {
           title="No catalog items yet"
           text="Add your first product, prepared item, or service to start selling. Each item can track stock in its sale unit, and prices are set here — never negotiated at the POS."
           actionLabel={canWrite ? "Add item" : undefined}
-          onAction={canWrite ? () => setFormOpen(true) : undefined}
+          onAction={canWrite ? openCreate : undefined}
         />
       ) : filtered.length === 0 ? (
         <StatePanel
@@ -224,12 +413,23 @@ export function CatalogWorkspace() {
                 : "No stock tracked";
               return (
                 <li key={c.id}>
-                  <button
-                    type="button"
-                    className="tos-catalog-card tos-card-hover tos-animate-fade-in-up"
-                    onClick={() => setEditing(c)}
-                    aria-label={`Open ${c.name}`}
-                  >
+                  <div className={`tos-selectable-card ${selectedIds.has(c.id) ? "tos-selectable-card--selected" : ""}`}>
+                    {canWrite ? (
+                      <label className="tos-row-select tos-row-select--card">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(c.id)}
+                          onChange={() => toggleSelection(c.id)}
+                          aria-label={`Select ${c.name}`}
+                        />
+                      </label>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="tos-catalog-card tos-card-hover tos-animate-fade-in-up"
+                      onClick={() => openEdit(c)}
+                      aria-label={`Open ${c.name}`}
+                    >
                     <span className={KIND_TILE_CLASS[c.kind]} aria-hidden="true">
                       {KIND_ICON[c.kind]}
                     </span>
@@ -260,7 +460,8 @@ export function CatalogWorkspace() {
                         <span className="tos-badge__dot" />{c.active ? "Active" : "Archived"}
                       </span>
                     </span>
-                  </button>
+                    </button>
+                  </div>
                 </li>
               );
             })}
@@ -272,6 +473,16 @@ export function CatalogWorkspace() {
               <table className="tos-table">
                 <thead>
                   <tr>
+                    {canWrite ? (
+                      <th className="tos-table__select-col">
+                        <input
+                          type="checkbox"
+                          checked={allFilteredSelected}
+                          onChange={toggleAllFiltered}
+                          aria-label="Select all visible catalog items"
+                        />
+                      </th>
+                    ) : null}
                     <th>Item</th>
                     <th>SKU</th>
                     <th>Kind</th>
@@ -286,7 +497,17 @@ export function CatalogWorkspace() {
                     const sellable = primarySellableUnit(c);
                     const stock = inventory.find((i) => i.id === c.id) ?? null;
                     return (
-                      <tr key={c.id} data-clickable="true" onClick={() => setEditing(c)}>
+                      <tr key={c.id} data-clickable="true" data-selected={selectedIds.has(c.id) ? "true" : undefined} onClick={() => openEdit(c)}>
+                        {canWrite ? (
+                          <td className="tos-table__select-col" onClick={(event) => event.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(c.id)}
+                              onChange={() => toggleSelection(c.id)}
+                              aria-label={`Select ${c.name}`}
+                            />
+                          </td>
+                        ) : null}
                         <td>
                           <div className="tos-table__cell-main">
                             <span className="tos-table__cell-title">{c.name}</span>
