@@ -1,6 +1,6 @@
 # TradeOS Africa System Admin V2 + AI Operations Design
 
-**Date:** 2026-10-16  
+**Date:** 2026-10-16
 **Status:** Approved for implementation planning
 **Scope:** Upgrade the existing secure System Admin read plane into an easy-to-use, auditable platform control center with tenant management, subscription billing, administrator account controls, and AI-assisted operations. This is Workstream A of a committed two-workstream TradeOS intelligence program; Workstream B applies the same ease-of-use, rich workflows, and policy-controlled AI automation to tenant/business users.
 
@@ -331,16 +331,20 @@ AI automation is policy-controlled and event-driven.
 
 ### Automation classes
 
-**Class 0 — Inform only**  
+**Class 0 — Inform only**
+
 Summaries, explanations, risk flags, daily briefing. No mutation.
 
-**Class 1 — Auto-execute low-risk communication/workflow**  
+**Class 1 — Auto-execute low-risk communication/workflow**
+
 Create internal follow-up tasks, tag/queue records, draft notices, send notifications only when a configured template/channel policy allows it.
 
-**Class 2 — Recommend + human approval**  
+**Class 2 — Recommend + human approval**
+
 Plan changes, subscription pause/cancel, tenant suspension, entitlement changes, device revocation, payment refunds, admin-role changes. AI can prepare the action but cannot execute without an authorized administrator confirming it.
 
-**Class 3 — Never delegated to AI**  
+**Class 3 — Never delegated to AI**
+
 Deleting platform administrators, deleting tenant/business history, changing the last SUPER_ADMIN, bypassing payment/security controls, changing audit history, exposing credentials/secrets.
 
 ### Automation policy storage
