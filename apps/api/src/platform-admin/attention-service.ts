@@ -79,7 +79,10 @@ export async function evaluatePlatformAttention(
       "ADMIN_ATTENTION_EVALUATE_FORBIDDEN",
     );
   }
+  return evaluatePlatformAttentionSystem(pool);
+}
 
+export async function evaluatePlatformAttentionSystem(pool: DatabasePool): Promise<AdminAttentionItem[]> {
   return withTransaction(pool, async (client) => {
     const signals = await detectSignals(client);
     for (const signal of signals) await upsertSignal(client, signal);
