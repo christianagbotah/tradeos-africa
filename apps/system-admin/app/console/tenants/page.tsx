@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { PageHeader, CommandBar, CommandSelect, CommandButton, CommandSpacer, Banner, Badge } from "../../components/admin-ui";
 import { AdminTable, CellMain, CellMuted } from "../../components/admin-table";
 import { AdminEmptyState } from "../../components/admin-empty-state";
@@ -24,6 +25,7 @@ interface TenantRow {
 }
 
 export default function TenantsPage() {
+  const router = useRouter();
   const { data, loading, error, reload } = useAdminResource<{ tenants: TenantRow[] }>("/api/admin/tenants");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
@@ -39,8 +41,8 @@ export default function TenantsPage() {
   return (
     <div className="admin-page">
       <PageHeader eyebrow="Tenants" title="Tenants" subtitle="Authoritative businesses, subscription state, branches, registered devices and latest activity across TradeOS." />
-      <Banner tone="info" icon={IconBuilding} title="Read-only control plane active.">
-        <span className="admin-banner__text">Tenant lifecycle writes remain deliberately disabled in this release. This view reads live platform data only.</span>
+      <Banner tone="info" icon={IconBuilding} title="Tenant 360 is active.">
+        <span className="admin-banner__text">Open a tenant for branches, access, subscription, devices, activity and permissioned lifecycle controls. Tenant workspaces remain separate from this platform console.</span>
       </Banner>
       <CommandBar>
         <div className="admin-commandbar__search">
@@ -62,10 +64,11 @@ export default function TenantsPage() {
           columns={tenantColumns}
           rows={rows}
           rowKey={(row) => row.id}
+          onRowClick={(tenant) => router.push(`/console/tenants/${tenant.id}`)}
           emptyState={<AdminEmptyState title="No tenants match" description="The live tenant API returned no businesses for the current filters." icon={IconBuilding} />}
         />
       )}
-      <p className="admin-section__sub">Showing {rows.length} of {data?.tenants.length ?? 0} loaded tenants. Tenant mutation and support impersonation remain unavailable in the read-plane release.</p>
+      <p className="admin-section__sub">Showing {rows.length} of {data?.tenants.length ?? 0} loaded tenants. Select a tenant to open its platform-level operational view.</p>
     </div>
   );
 }

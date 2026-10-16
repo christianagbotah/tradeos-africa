@@ -897,3 +897,122 @@
     justify-content: center;
   }
 }
+
+/* --- Tenant 360 --------------------------------------------------------- */
+.admin-tenant-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tos-admin-space-sm);
+}
+
+.admin-tenant-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 1fr);
+  gap: var(--tos-admin-space-lg);
+  padding: var(--tos-admin-space-xl);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-admin-radius-lg);
+  background: var(--tos-admin-surface);
+  box-shadow: var(--tos-admin-shadow-card);
+}
+
+.admin-tenant-hero__identity {
+  display: flex;
+  gap: var(--tos-admin-space-md);
+  min-width: 0;
+}
+
+.admin-tenant-hero__mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--tos-admin-sidebar);
+  color: var(--tos-gold);
+}
+
+.admin-tenant-hero__mark svg { width: 22px; height: 22px; }
+.admin-tenant-hero__identity h2 { margin: 0; font-size: 1.25rem; }
+.admin-tenant-hero__identity p,
+.admin-tenant-hero__identity small { color: var(--tos-text-muted); overflow-wrap: anywhere; }
+.admin-tenant-hero__title { display: flex; align-items: center; flex-wrap: wrap; gap: var(--tos-admin-space-sm); }
+.admin-tenant-hero__metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tos-admin-space-sm); }
+.admin-tenant-metric { display: grid; gap: 2px; padding: var(--tos-admin-space-md); border-radius: var(--tos-admin-radius-sm); background: var(--tos-admin-surface-soft); }
+.admin-tenant-metric span { color: var(--tos-text-soft); font-size: var(--tos-admin-text-meta); }
+.admin-tenant-metric strong { color: var(--tos-text); overflow-wrap: anywhere; }
+
+.admin-tenant-section-nav {
+  position: sticky;
+  top: var(--tos-admin-topbar-height, 64px);
+  z-index: 4;
+  display: flex;
+  gap: var(--tos-admin-space-xs);
+  overflow-x: auto;
+  padding: var(--tos-admin-space-sm);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-admin-radius-md);
+  background: color-mix(in srgb, var(--tos-admin-surface) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.admin-tenant-section-nav a {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: var(--tos-text-muted);
+  font-size: var(--tos-admin-text-meta);
+  font-weight: 700;
+  text-decoration: none;
+}
+.admin-tenant-section-nav a:hover,
+.admin-tenant-section-nav a:focus-visible { background: var(--tos-admin-surface-soft); color: var(--tos-text); outline: none; }
+
+.admin-tenant-grid { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: var(--tos-admin-space-lg); align-items: start; }
+.admin-tenant-main { display: grid; gap: var(--tos-admin-space-lg); min-width: 0; }
+.admin-tenant-aside { position: sticky; top: calc(var(--tos-admin-topbar-height, 64px) + 64px); }
+.admin-tenant-subgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tos-admin-space-xl); }
+.admin-tenant-subgrid h3 { margin: 0 0 var(--tos-admin-space-md); font-size: var(--tos-admin-text-cell); }
+.admin-tenant-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tos-admin-space-sm); }
+.admin-tenant-fact { display: grid; gap: 3px; padding: var(--tos-admin-space-md); border: 1px solid var(--tos-border); border-radius: var(--tos-admin-radius-sm); background: var(--tos-admin-surface-soft); }
+.admin-tenant-fact span { color: var(--tos-text-soft); font-size: var(--tos-admin-text-meta); }
+.admin-tenant-fact strong { color: var(--tos-text); font-size: var(--tos-admin-text-cell); overflow-wrap: anywhere; }
+
+.admin-tenant-stack { display: grid; gap: var(--tos-admin-space-sm); }
+.admin-tenant-stack--compact { margin-top: var(--tos-admin-space-md); }
+.admin-tenant-row { display: flex; justify-content: space-between; gap: var(--tos-admin-space-md); align-items: center; padding: var(--tos-admin-space-md); border: 1px solid var(--tos-border); border-radius: var(--tos-admin-radius-sm); background: var(--tos-admin-surface-soft); }
+.admin-tenant-row > div { display: grid; gap: 3px; min-width: 0; }
+.admin-tenant-row span,
+.admin-tenant-row small { color: var(--tos-text-muted); overflow-wrap: anywhere; }
+
+.admin-tenant-contact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tos-admin-space-sm); margin-top: var(--tos-admin-space-lg); }
+.admin-tenant-contact { display: grid; gap: 4px; padding: var(--tos-admin-space-md); border-radius: var(--tos-admin-radius-sm); background: var(--tos-admin-surface-soft); }
+.admin-tenant-contact > div { display: flex; align-items: center; flex-wrap: wrap; gap: var(--tos-admin-space-sm); }
+.admin-tenant-contact span,
+.admin-tenant-contact small { color: var(--tos-text-muted); overflow-wrap: anywhere; }
+
+.admin-tenant-pending { padding: var(--tos-admin-space-lg); border: 1px dashed var(--tos-border); border-radius: var(--tos-admin-radius-sm); background: var(--tos-admin-surface-soft); }
+.admin-tenant-pending p { margin: var(--tos-admin-space-xs) 0 0; color: var(--tos-text-muted); line-height: 1.55; }
+.admin-tenant-lifecycle { display: grid; gap: var(--tos-admin-space-lg); }
+.admin-tenant-lifecycle > div { display: flex; align-items: center; justify-content: space-between; gap: var(--tos-admin-space-md); }
+.admin-tenant-lifecycle form { display: grid; gap: var(--tos-admin-space-md); }
+.admin-tenant-lifecycle p { margin: 0; color: var(--tos-text-muted); line-height: 1.5; }
+.admin-tenant-reason { min-height: 96px; padding-top: var(--tos-admin-space-sm); padding-bottom: var(--tos-admin-space-sm); resize: vertical; }
+
+@media (max-width: 1050px) {
+  .admin-tenant-hero,
+  .admin-tenant-grid { grid-template-columns: 1fr; }
+  .admin-tenant-aside { position: static; }
+}
+
+@media (max-width: 760px) {
+  .admin-tenant-hero { padding: var(--tos-admin-space-lg); }
+  .admin-tenant-hero__metrics,
+  .admin-tenant-subgrid,
+  .admin-tenant-facts,
+  .admin-tenant-contact-grid { grid-template-columns: 1fr; }
+  .admin-tenant-row { align-items: flex-start; flex-direction: column; }
+  .admin-tenant-header-actions { width: 100%; }
+  .admin-tenant-header-actions > * { flex: 1 1 100%; justify-content: center; text-align: center; }
+}
