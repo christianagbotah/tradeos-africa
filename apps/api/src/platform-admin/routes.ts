@@ -14,6 +14,13 @@ import {
   listAdminReleases,
   listAdminTenants,
 } from "./read-service.js";
+import {
+  changeAdminPassword,
+  getAdminProfile,
+  listOwnAdminSessions,
+  revokeOwnAdminSession,
+  updateAdminProfile,
+} from "./profile-service.js";
 
 const ADMIN_COOKIE = "__Host-tradeos_admin_session";
 
@@ -51,6 +58,53 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
       return reply.code(204).send();
     } catch (error) {
       return sendAdminError(request, reply, error, "ADMIN_LOGOUT_FAILED", "Administrator session could not be signed out.");
+    }
+  });
+
+  app.get("/api/admin/profile", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { profile: await getAdminProfile(pool, admin) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PROFILE_FAILED", "Administrator profile could not be loaded.");
+    }
+  });
+
+  app.patch<{ Body: { email?: unknown; displayName?: unknown } }>("/api/admin/profile", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { profile: await updateAdminProfile(pool, admin, request.body ?? {}) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PROFILE_UPDATE_FAILED", "Administrator profile could not be updated.");
+    }
+  });
+
+  app.post<{ Body: { currentPassword?: unknown; newPassword?: unknown } }>("/api/admin/profile/password", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      await changeAdminPassword(pool, admin, request.body ?? {});
+      return reply.code(204).send();
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PASSWORD_CHANGE_FAILED", "Administrator password could not be changed.");
+    }
+  });
+
+  app.get("/api/admin/profile/sessions", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { sessions: await listOwnAdminSessions(pool, admin) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_SESSIONS_FAILED", "Administrator sessions could not be loaded.");
+    }
+  });
+
+  app.delete<{ Params: { sessionId: string } }>("/api/admin/profile/sessions/:sessionId", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      await revokeOwnAdminSession(pool, admin, request.params.sessionId);
+      return reply.code(204).send();
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_SESSION_REVOKE_FAILED", "Administrator session could not be revoked.");
     }
   });
 

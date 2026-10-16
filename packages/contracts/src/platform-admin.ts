@@ -23,6 +23,25 @@ export interface PlatformAdminSession {
   idleExpiresAt: string;
 }
 
+export interface AdminProfile {
+  id: string;
+  email: string;
+  displayName: string;
+  role: PlatformAdminRole;
+  lastLoginAt: string | null;
+}
+
+export interface AdminSessionSummary {
+  id: string;
+  deviceKey: string;
+  platform: PlatformClient;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  current: boolean;
+}
+
 export interface PlatformAdminLoginRequest {
   identifier: string;
   password: string;
