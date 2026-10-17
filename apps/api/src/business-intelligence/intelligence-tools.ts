@@ -69,10 +69,10 @@ export async function collectBusinessIntelligenceEvidence(
 export function toAiGroundingEvidence(evidence: BusinessEvidenceReference[]): AiGroundingEvidence[] {
   return evidence.map((item) => ({
     sourceType: item.source,
-    sourceId: item.entityId ?? undefined,
     label: item.label ?? item.entityType,
-    value: item.value,
-    observedAt: item.observedAt ?? undefined,
+    ...(item.entityId ? { sourceId: item.entityId } : {}),
+    ...(item.value !== undefined ? { value: item.value } : {}),
+    ...(item.observedAt ? { observedAt: item.observedAt } : {}),
   }));
 }
 
