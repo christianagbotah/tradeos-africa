@@ -21,7 +21,7 @@ describe("business daily briefing", () => {
       headers: authHeaders(tenant.token),
     });
 
-    expect(response.statusCode).toBe(200);
+    expectStatusWithBody(response, 200, "owner briefing");
     const body = response.json();
     expect(body).toEqual(expect.objectContaining({
       businessId: tenant.businessId,
@@ -61,7 +61,7 @@ describe("business daily briefing", () => {
       headers: authHeaders(tenantA.token),
     });
 
-    expect(response.statusCode).toBe(404);
+    expectStatusWithBody(response, 404, "cross-business branch briefing");
     expect(response.json().error).toBe("BRANCH_NOT_FOUND");
   });
 
@@ -78,7 +78,7 @@ describe("business daily briefing", () => {
       headers: authHeaders(tenant.token),
     });
 
-    expect(response.statusCode).toBe(403);
+    expectStatusWithBody(response, 403, "cashier briefing");
     expect(response.json().error).toBe("ROLE_FORBIDDEN");
   });
 });
@@ -96,7 +96,7 @@ async function createTenant(email: string, name: string): Promise<Tenant> {
       appVersion: "test",
     },
   });
-  expect(registration.statusCode).toBe(201);
+  expectStatusWithBody(registration, 201, "tenant registration");
   const body = registration.json();
   const token = body.session.accessToken as string;
   const userId = body.user.id as string;
@@ -107,13 +107,20 @@ async function createTenant(email: string, name: string): Promise<Tenant> {
     headers: authHeaders(token),
     payload: { name, businessType: "RETAIL_HARDWARE", branchName: "Main" },
   });
-  expect(onboard.statusCode).toBe(201);
+  expectStatusWithBody(onboard, 201, "tenant onboarding");
   return {
     token,
     userId,
     businessId: onboard.json().business.id,
     branchId: onboard.json().branch.id,
   };
+}
+
+function expectStatusWithBody(response: { statusCode: number; body: string }, expected: number, label: string): void {
+  if (response.statusCode !== expected) {
+    throw new Error(`${label}: expected HTTP ${expected}, received ${response.statusCode}; body=${response.body}`);
+  }
+  expect(response.statusCode).toBe(expected);
 }
 
 function authHeaders(token: string) {
