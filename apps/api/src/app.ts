@@ -19,6 +19,8 @@ import { registerOnboardingRoutes } from "./onboarding.js";
 import { registerMediaRoutes } from "./media/routes.js";
 import { registerPlatformAdminRoutes } from "./platform-admin/routes.js";
 import { registerPlatformAdminBillingRoutes } from "./platform-admin/billing-routes.js";
+import { registerPlatformAdminAttentionRoutes } from "./platform-admin/attention-routes.js";
+import { registerPlatformAdminAutomationRoutes } from "./platform-admin/automation-routes.js";
 import { registerSalesReadRoutes } from "./sales-read.js";
 import { registerStaffRoutes } from "./staff/routes.js";
 import { ingestSyncBatch, SyncRequestError } from "./sync.js";
@@ -50,6 +52,8 @@ export function buildApp(pool: DatabasePool) {
   registerAuthRoutes(app, pool);
   registerPlatformAdminRoutes(app, pool);
   registerPlatformAdminBillingRoutes(app, pool);
+  registerPlatformAdminAttentionRoutes(app, pool);
+  registerPlatformAdminAutomationRoutes(app, pool);
   registerOnboardingRoutes(app, pool);
   registerBusinessRoutes(app, pool);
   registerMediaRoutes(app, pool);
@@ -101,9 +105,6 @@ async function authorizeAndEnrichSyncBatch(
   const mutations: ClientMutation[] = [];
 
   for (const mutation of body.mutations) {
-    // The authenticated session is authoritative for device identity. A stale
-    // browser queue may carry an older clientId, so never trust or reject on
-    // that client-supplied value; normalize it before authorization/ingest.
     const normalizedMutation: ClientMutation = mutation.clientId === auth.deviceKey
       ? mutation
       : { ...mutation, clientId: auth.deviceKey };

@@ -1,14 +1,17 @@
 import { buildApp } from "./app.js";
 import { createPool } from "./db.js";
+import { startPlatformAutomationScheduler } from "./platform-admin/automation-scheduler.js";
 
 const pool = createPool();
 const app = buildApp(pool);
+const automationScheduler = startPlatformAutomationScheduler(pool);
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "0.0.0.0";
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
+  automationScheduler.stop();
   await app.close();
   await pool.end();
   process.exit(0);
@@ -20,6 +23,7 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 try {
   await app.listen({ port, host });
 } catch (error) {
+  automationScheduler.stop();
   app.log.error(error);
   await pool.end();
   process.exit(1);

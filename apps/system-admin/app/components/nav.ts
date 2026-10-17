@@ -28,6 +28,7 @@ export const adminNavGroups: AdminNavGroup[] = [
     label: "Operations",
     items: [
       { href: "/console", label: "Overview", icon: IconDashboard },
+      { href: "/console/automation", label: "AI Operations", icon: IconActivity },
       { href: "/console/devices", label: "Devices & sync", icon: IconDevices },
       { href: "/console/audit", label: "Audit log", icon: IconAudit },
     ],
@@ -80,6 +81,7 @@ export function resolvePageMeta(pathname: string): AdminPageMeta {
 
 export const adminAreaIcons = {
   overview: IconDashboard,
+  automation: IconActivity,
   tenants: IconBuilding,
   devices: IconDevices,
   audit: IconAudit,

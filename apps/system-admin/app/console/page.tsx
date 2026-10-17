@@ -1,11 +1,12 @@
 "use client";
 
-import type { ComponentType, SVGProps } from "react";
+import { useEffect, useState, type ComponentType, type SVGProps } from "react";
 import Link from "next/link";
 import { Banner, PageHeader, Section } from "../components/admin-ui";
 import { StatCard, StatCardGrid } from "../components/stat-card";
 import { IconActivity, IconBuilding, IconDevices, IconFlag, IconInfo, IconRelease } from "../components/icons";
-import { useAdminResource } from "../components/platform-admin-session";
+import { useAdminResource, usePlatformAdminSession } from "../components/platform-admin-session";
+import { AiInsightCard } from "../components/ai-insight-card";
 
 interface CurrencyAmount {
   currencyCode: string;
@@ -33,6 +34,32 @@ interface PlatformMetrics {
   releases: { draft: number; rollout: number; active: number; withdrawn: number };
 }
 
+interface AttentionItem {
+  id: string;
+  businessId: string | null;
+  severity: string;
+  title: string;
+  summary: string;
+  evidence: unknown[];
+  lastSeenAt: string;
+}
+
+interface BriefingRecommendation {
+  id: string;
+  title: string;
+  summary: string;
+  priority: string;
+  businessId: string | null;
+  evidence: unknown[];
+}
+
+interface OperationsBriefingData {
+  generatedAt: string;
+  headline: string;
+  summary: string;
+  recommendations: BriefingRecommendation[];
+}
+
 export default function ConsoleOverviewPage() {
   const resource = useAdminResource<{ metrics: PlatformMetrics }>("/api/admin/metrics");
   const metrics = resource.data?.metrics;
@@ -52,6 +79,8 @@ export default function ConsoleOverviewPage() {
       </Banner>
       {resource.error ? <div className="admin-api-state admin-api-state--error" role="alert">{resource.error}</div> : null}
       {loading ? <div className="admin-api-state" role="status">Loading platform metrics…</div> : null}
+
+      <OperationsBriefing />
 
       <StatCardGrid>
         <StatCard label="Active tenants" value={loading ? "Loading" : String(metrics?.tenants.active ?? 0)} hint={`${metrics?.tenants.total ?? 0} total tenants`} icon={IconBuilding} tone={loading ? "pending" : "default"} />
@@ -91,6 +120,7 @@ export default function ConsoleOverviewPage() {
 
       <Section title="Admin areas" sub={metrics ? `Metrics refreshed ${new Date(metrics.generatedAt).toLocaleString()}. Open an area for operational detail or controlled actions.` : "Open an area for operational detail or controlled actions."}>
         <div className="admin-quicklinks">
+          <QuickLink href="/console/automation" icon={IconActivity} title="AI Operations" desc="Grounded briefings, deterministic attention, approval-controlled automation and run history." />
           <QuickLink href="/console/tenants" icon={IconBuilding} title="Tenant 360" desc="Business state, access, subscriptions, billing, devices and recent activity." />
           <QuickLink href="/console/subscriptions" icon={IconActivity} title="Subscriptions" desc="Assign plans and manage subscription lifecycle with audited reasons." />
           <QuickLink href="/console/billing/invoices" icon={IconInfo} title="Invoices" desc="Inspect SaaS billing exposure, due dates and payment state." />
@@ -102,6 +132,93 @@ export default function ConsoleOverviewPage() {
         </div>
       </Section>
     </div>
+  );
+}
+
+function OperationsBriefing() {
+  const { apiFetch } = usePlatformAdminSession();
+  const attention = useAdminResource<{ items: AttentionItem[] }>("/api/admin/attention");
+  const [briefing, setBriefing] = useState<OperationsBriefingData | null>(null);
+  const [aiLoading, setAiLoading] = useState(true);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setAiLoading(true);
+    setAiError(null);
+    void apiFetch("/api/admin/intelligence/briefing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).then(async (response) => {
+      const body = await response.json().catch(() => ({})) as OperationsBriefingData & { message?: string };
+      if (!response.ok) throw new Error(body.message ?? `AI briefing failed (${response.status})`);
+      if (active) setBriefing(body);
+    }).catch((error: unknown) => {
+      if (active) setAiError(error instanceof Error ? error.message : "AI briefing is unavailable.");
+    }).finally(() => {
+      if (active) setAiLoading(false);
+    });
+    return () => { active = false; };
+  }, [apiFetch]);
+
+  return (
+    <Section
+      title="AI operations briefing"
+      sub="Grounded AI interpretation sits on top of deterministic control-plane facts; it never replaces them."
+      actions={<Link className="admin-secondary-button" href="/console/automation">Open AI Operations</Link>}
+    >
+      <div className="admin-ai-category-grid" aria-label="Briefing priorities">
+        <span>Urgent now</span>
+        <span>Revenue & billing risk</span>
+        <span>Tenant health</span>
+        <span>Sync & device health</span>
+      </div>
+
+      {aiLoading ? <div className="admin-api-state" role="status">Preparing grounded operations briefing…</div> : null}
+      {aiError ? (
+        <Banner tone="warning" icon={IconInfo} title="AI unavailable">
+          <span className="admin-banner__text">Deterministic attention remains available. {aiError}</span>
+        </Banner>
+      ) : null}
+      {briefing ? (
+        <div className="admin-ai-answer">
+          <span className="admin-ai-kicker">{briefing.headline}</span>
+          <p>{briefing.summary}</p>
+          <small>Generated {new Date(briefing.generatedAt).toLocaleString()}</small>
+          <div className="admin-ai-grid">
+            {briefing.recommendations.slice(0, 4).map((recommendation) => (
+              <AiInsightCard
+                key={recommendation.id}
+                finding={recommendation.title}
+                severity={recommendation.priority}
+                evidence={recommendation.evidence}
+                recommendation={recommendation.summary}
+                recordHref={recommendation.businessId ? `/console/tenants/${recommendation.businessId}` : "/console/automation"}
+                generatedAt={briefing.generatedAt}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {attention.error ? <div className="admin-api-state admin-api-state--error">{attention.error}</div> : null}
+      {attention.loading ? <div className="admin-api-state">Loading deterministic attention…</div> : null}
+      {!attention.loading && (attention.data?.items.length ?? 0) === 0 ? <div className="admin-api-state">No deterministic attention items are open.</div> : null}
+      <div className="admin-ai-grid">
+        {(attention.data?.items ?? []).slice(0, 4).map((item) => (
+          <AiInsightCard
+            key={item.id}
+            finding={item.title}
+            severity={item.severity}
+            evidence={item.evidence}
+            recommendation={item.summary}
+            recordHref={item.businessId ? `/console/tenants/${item.businessId}` : "/console/automation"}
+            generatedAt={item.lastSeenAt}
+          />
+        ))}
+      </div>
+    </Section>
   );
 }
 
