@@ -17,3 +17,4 @@ export * from "./staff.js";
 export * from "./platform-admin.js";
 export * from "./platform-admin-metrics.js";
 export * from "./platform-admin-ai.js";
+export * from "./business-intelligence.js";
