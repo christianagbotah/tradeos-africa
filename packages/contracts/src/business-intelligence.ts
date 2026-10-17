@@ -15,6 +15,8 @@ export type BusinessEvidenceReference = {
 
 export type BusinessAttentionSeverity = "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type BusinessAttentionState = "OPEN" | "RESOLVED" | "DISMISSED";
+export type BusinessInsightRange = "today" | "week" | "month";
+export type BusinessInsightConfidenceLevel = "LOW" | "MEDIUM" | "HIGH";
 
 export type BusinessAttentionItem = BusinessIntelligenceScope & {
   id: string;
@@ -42,14 +44,13 @@ export type BusinessRecommendation = BusinessIntelligenceScope & {
 };
 
 export type BusinessBriefingSectionCode =
-  | "TODAY"
-  | "CASH_FLOW"
-  | "RECEIVABLES"
-  | "PAYABLES"
-  | "INVENTORY"
+  | "URGENT"
   | "SALES"
-  | "CUSTOMERS"
-  | "OPERATIONS";
+  | "CASH"
+  | "CUSTOMERS_CREDIT"
+  | "SUPPLIERS_PAYABLES"
+  | "INVENTORY"
+  | "OPPORTUNITIES";
 
 export type BusinessBriefingSection = {
   code: BusinessBriefingSectionCode;
@@ -60,9 +61,19 @@ export type BusinessBriefingSection = {
 };
 
 export type BusinessBriefing = BusinessIntelligenceScope & {
+  range: BusinessInsightRange;
   generatedAt: string;
   headline: string;
   summary: string;
+  confidence: {
+    level: BusinessInsightConfidenceLevel;
+    reason: string;
+  };
+  dataQuality: {
+    completedSales30d: number;
+    sufficientForTrends: boolean;
+    currencyCode: string;
+  };
   sections: BusinessBriefingSection[];
   evidence: BusinessEvidenceReference[];
 };
