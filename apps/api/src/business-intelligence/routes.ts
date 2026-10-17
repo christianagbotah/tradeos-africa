@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { BusinessInsightRange } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessRole } from "../auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "../auth/security.js";
+import { AiProviderError } from "../ai/provider.js";
+import { OpenAiResponsesProvider } from "../ai/openai-responses-provider.js";
 import type { DatabasePool } from "../db.js";
 import {
   BusinessAttentionError,
@@ -10,6 +12,7 @@ import {
   listBusinessAttention,
 } from "./attention-service.js";
 import { buildBusinessBriefing, BusinessBriefingError } from "./briefing-service.js";
+import { answerBusinessQuestion, BusinessQueryError } from "./query-service.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "CASHIER", "SALES", "INVENTORY", "STAFF", "VIEWER",
@@ -22,8 +25,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type AttentionQuery = { businessId?: string; branchId?: string };
 type BriefingQuery = AttentionQuery & { range?: string };
 type EvaluateBody = { businessId?: string; branchId?: string | null; correlationId?: string };
+type QueryBody = {
+  businessId?: string;
+  branchId?: string | null;
+  question?: string;
+  conversationId?: string | null;
+  tools?: unknown;
+};
 
 export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  const provider = new OpenAiResponsesProvider();
+
   app.get<{ Querystring: AttentionQuery }>("/v1/intelligence/attention", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
@@ -49,6 +61,36 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
       const range = insightRange(request.query.range);
       await requireBusinessRole(pool, auth, businessId, BRIEFING_ROLES);
       return await buildBusinessBriefing(pool, { businessId, branchId, range });
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.post<{ Body: QueryBody }>("/v1/intelligence/query", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const body = request.body ?? {};
+      const businessId = uuid(body.businessId, "businessId");
+      const branchId = optionalUuid(body.branchId ?? undefined, "branchId");
+      const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      if (Object.prototype.hasOwnProperty.call(body, "tools")) {
+        throw new BusinessQueryError(
+          "Client-selected intelligence tools are not supported. TradeOS chooses safe evidence sources server-side.",
+          400,
+          "BUSINESS_AI_TOOL_UNSUPPORTED",
+        );
+      }
+      return await answerBusinessQuestion(
+        pool,
+        access,
+        {
+          businessId,
+          branchId,
+          question: typeof body.question === "string" ? body.question : "",
+          conversationId: body.conversationId ?? null,
+        },
+        provider,
+      );
     } catch (error) {
       return sendError(error, reply);
     }
@@ -99,7 +141,11 @@ function text(value: unknown, label: string, max: number): string {
 }
 
 function sendError(error: unknown, reply: { code(statusCode: number): { send(payload: unknown): unknown } }) {
-  if (error instanceof AuthError || error instanceof BusinessAttentionError || error instanceof BusinessBriefingError) {
+  if (error instanceof AuthError
+    || error instanceof BusinessAttentionError
+    || error instanceof BusinessBriefingError
+    || error instanceof BusinessQueryError
+    || error instanceof AiProviderError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });
   }
   throw error;
