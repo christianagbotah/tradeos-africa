@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { AskTradeOSDrawer } from "../intelligence/ask-tradeos-drawer";
 import { useWorkspace } from "./use-workspace";
 import {
   findNavItem,
@@ -51,6 +52,7 @@ export function AppShell({ children }: AppShellProps) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [askTradeOSOpen, setAskTradeOSOpen] = useState(false);
   const [shellFeedback, setShellFeedback] = useState<ShellFeedback>(null);
 
   useEffect(() => {
@@ -58,16 +60,17 @@ export function AppShell({ children }: AppShellProps) {
     setMoreOpen(false);
     setContextOpen(false);
     setAccountOpen(false);
+    setAskTradeOSOpen(false);
     setShellFeedback(null);
   }, [pathname]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    document.body.style.overflow = drawerOpen ? "hidden" : "";
+    document.body.style.overflow = drawerOpen || askTradeOSOpen ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
     };
-  }, [drawerOpen]);
+  }, [drawerOpen, askTradeOSOpen]);
 
   const activeSegment = deriveActiveSegment(pathname);
   const activeItem = findNavItem(activeSegment);
@@ -197,6 +200,20 @@ export function AppShell({ children }: AppShellProps) {
             />
           </div>
           <div className="tos-topbar__spacer" />
+
+          <Button
+            variant="gold"
+            size="sm"
+            className="tos-ai-topbar-button"
+            onClick={() => {
+              setAskTradeOSOpen(true);
+              setContextOpen(false);
+              setAccountOpen(false);
+              setMoreOpen(false);
+            }}
+          >
+            Ask TradeOS
+          </Button>
 
           <div className="tos-shell-context">
             <button
@@ -381,6 +398,8 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           </>
         ) : null}
+
+        <AskTradeOSDrawer open={askTradeOSOpen} onClose={() => setAskTradeOSOpen(false)} />
       </div>
     </div>
   );

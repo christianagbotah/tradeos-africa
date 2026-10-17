@@ -10,6 +10,7 @@ import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./a
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authenticateAccessToken, AuthError, type AuthContext } from "./auth/security.js";
 import { registerBusinessRoutes } from "./businesses.js";
+import { registerBusinessIntelligenceRoutes } from "./business-intelligence/routes.js";
 import { registerCatalogRoutes } from "./catalog.js";
 import { registerCustomerRoutes } from "./customers.js";
 import { CUSTOMER_WRITE_ROLES } from "./customer-service.js";
@@ -56,6 +57,7 @@ export function buildApp(pool: DatabasePool) {
   registerPlatformAdminAutomationRoutes(app, pool);
   registerOnboardingRoutes(app, pool);
   registerBusinessRoutes(app, pool);
+  registerBusinessIntelligenceRoutes(app, pool);
   registerMediaRoutes(app, pool);
   registerCatalogRoutes(app, pool);
   registerCustomerRoutes(app, pool);
