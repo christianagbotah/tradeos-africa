@@ -11,6 +11,16 @@ import {
   FINANCIAL_BUSINESS_ATTENTION_RULE_CODES,
   listBusinessAttention,
 } from "./attention-service.js";
+import {
+  BusinessAutomationError,
+  completeBusinessActionItem,
+  createBusinessAutomationPolicy,
+  evaluateBusinessAutomation,
+  listBusinessActionItems,
+  listBusinessAutomationPolicies,
+  snoozeBusinessActionItem,
+  updateBusinessAutomationPolicy,
+} from "./automation-service.js";
 import { buildBusinessBriefing, BusinessBriefingError } from "./briefing-service.js";
 import { answerBusinessQuestion, BusinessQueryError } from "./query-service.js";
 
@@ -20,6 +30,8 @@ const READ_ROLES: readonly BusinessRole[] = [
 const FINANCIAL_ROLES = new Set<BusinessRole>(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
 const EVALUATE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const BRIEFING_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
+const AUTOMATION_CONFIGURE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER"];
+const AUTOMATION_EVALUATE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type AttentionQuery = { businessId?: string; branchId?: string };
@@ -32,6 +44,8 @@ type QueryBody = {
   conversationId?: string | null;
   tools?: unknown;
 };
+type AutomationBody = Record<string, unknown>;
+type IdParams = { id: string };
 
 export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: DatabasePool): void {
   const provider = new OpenAiResponsesProvider();
@@ -114,6 +128,101 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
       return sendError(error, reply);
     }
   });
+
+  app.get<{ Querystring: AttentionQuery }>("/v1/intelligence/automations", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = uuid(request.query.businessId, "businessId");
+      const branchId = optionalUuid(request.query.branchId, "branchId");
+      const access = await requireBusinessRole(pool, auth, businessId, AUTOMATION_CONFIGURE_ROLES);
+      const policies = await listBusinessAutomationPolicies(pool, automationActor(auth.userId, access), branchId);
+      return { policies };
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.post<{ Body: AutomationBody }>("/v1/intelligence/automations", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const body = request.body ?? {};
+      const businessId = uuid(body.businessId, "businessId");
+      const access = await requireBusinessRole(pool, auth, businessId, AUTOMATION_CONFIGURE_ROLES);
+      const policy = await createBusinessAutomationPolicy(pool, automationActor(auth.userId, access), body);
+      return reply.code(201).send({ policy });
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.patch<{ Params: IdParams; Body: AutomationBody }>("/v1/intelligence/automations/:id", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const body = request.body ?? {};
+      const businessId = uuid(body.businessId, "businessId");
+      const access = await requireBusinessRole(pool, auth, businessId, AUTOMATION_CONFIGURE_ROLES);
+      const policy = await updateBusinessAutomationPolicy(pool, automationActor(auth.userId, access), request.params.id, body);
+      return { policy };
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.post<{ Body: AutomationBody }>("/v1/intelligence/automations/evaluate", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const body = request.body ?? {};
+      const businessId = uuid(body.businessId, "businessId");
+      const access = await requireBusinessRole(pool, auth, businessId, AUTOMATION_EVALUATE_ROLES);
+      const run = await evaluateBusinessAutomation(pool, automationActor(auth.userId, access), body);
+      return { run };
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.get<{ Querystring: AttentionQuery }>("/v1/intelligence/action-items", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = uuid(request.query.businessId, "businessId");
+      const branchId = optionalUuid(request.query.branchId, "branchId");
+      const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      const items = await listBusinessActionItems(pool, automationActor(auth.userId, access), branchId);
+      return { items };
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.post<{ Params: IdParams; Body: AutomationBody }>("/v1/intelligence/action-items/:id/snooze", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const body = request.body ?? {};
+      const businessId = uuid(body.businessId, "businessId");
+      const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      const item = await snoozeBusinessActionItem(pool, automationActor(auth.userId, access), request.params.id, body);
+      return { item };
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.post<{ Params: IdParams; Body: AutomationBody }>("/v1/intelligence/action-items/:id/complete", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const body = request.body ?? {};
+      const businessId = uuid(body.businessId, "businessId");
+      const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      const item = await completeBusinessActionItem(pool, automationActor(auth.userId, access), request.params.id, body);
+      return { item };
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+}
+
+function automationActor(userId: string, access: { businessId: string; role: BusinessRole; staffId: string | null }) {
+  return { userId, businessId: access.businessId, role: access.role, staffId: access.staffId };
 }
 
 function uuid(value: unknown, label: string): string {
@@ -143,6 +252,7 @@ function text(value: unknown, label: string, max: number): string {
 function sendError(error: unknown, reply: { code(statusCode: number): { send(payload: unknown): unknown } }) {
   if (error instanceof AuthError
     || error instanceof BusinessAttentionError
+    || error instanceof BusinessAutomationError
     || error instanceof BusinessBriefingError
     || error instanceof BusinessQueryError
     || error instanceof AiProviderError) {
