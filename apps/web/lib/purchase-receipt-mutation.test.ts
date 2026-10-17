@@ -1,22 +1,5 @@
 import { describe, expect, it } from "vitest";
-import * as builders from "./mutation-builders";
-
-type PurchaseReceiveBuilder = (input: {
-  supplierId: string;
-  settlementMethod: "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER" | "SUPPLIER_CREDIT";
-  supplierReference?: string | null;
-  moneyAccountId?: string | null;
-  lines: ReadonlyArray<{
-    itemId: string;
-    purchaseUnitCode: string;
-    quantity: number;
-    unitCostMinor: number;
-  }>;
-}) => Record<string, unknown>;
-
-const buildPurchaseReceivePayload = (builders as typeof builders & {
-  buildPurchaseReceivePayload?: PurchaseReceiveBuilder;
-}).buildPurchaseReceivePayload;
+import { buildPurchaseReceivePayload } from "./purchase-receipt-mutation";
 
 describe("purchase receipt mutation contract", () => {
   it("exports a dedicated PURCHASE_RECEIVE_CREATE payload builder", () => {
@@ -24,9 +7,6 @@ describe("purchase receipt mutation contract", () => {
   });
 
   it("sends the exact server contract for a paid purchase receipt", () => {
-    expect(buildPurchaseReceivePayload).toBeTypeOf("function");
-    if (!buildPurchaseReceivePayload) return;
-
     const payload = buildPurchaseReceivePayload({
       supplierId: "supplier-1",
       settlementMethod: "BANK",
@@ -61,9 +41,6 @@ describe("purchase receipt mutation contract", () => {
   });
 
   it("never sends a money account for supplier credit", () => {
-    expect(buildPurchaseReceivePayload).toBeTypeOf("function");
-    if (!buildPurchaseReceivePayload) return;
-
     expect(buildPurchaseReceivePayload({
       supplierId: "supplier-1",
       settlementMethod: "SUPPLIER_CREDIT",
