@@ -141,7 +141,7 @@ test('staging deployment keeps manual dispatch and supports an explicit main-bra
   const workflow = fs.readFileSync(workflowPath, 'utf8');
 
   assert.match(workflow, /workflow_dispatch:/, 'manual staging deployment must remain available');
-  assert.match(workflow, /push:\s*\n\s*branches:\s*\[main\]/, 'marker deployments must be restricted to main');
+  assert.match(workflow, /["']push["']:\s*\n\s*branches:\s*\[main\]/, 'marker deployments must be restricted to main');
   assert.match(workflow, /paths:\s*\n\s*- ['"]?\.github\/deploy-staging-request['"]?/, 'push deploys must require the explicit marker file');
   assert.equal(fs.existsSync(markerPath), true, 'the explicit staging deployment marker must be tracked');
   assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/, 'deployment job must retain the main-branch guard');
