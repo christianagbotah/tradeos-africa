@@ -50,6 +50,7 @@ export async function applyPurchaseReceiveMutation(
   context: PurchaseReceiveContext,
   payload: PurchaseReceiveMutationPayload,
 ): Promise<PurchaseReceiveResult> {
+  payload = { ...payload, settlementMethod: payload.settlementMethod ?? "SUPPLIER_CREDIT" };
   validate(context, payload);
 
   return withTransaction(pool, async (client) => {
