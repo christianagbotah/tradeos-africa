@@ -30,9 +30,10 @@ describe("deployment update guard", () => {
     expect(route).toContain('buildId: "development"');
   });
 
-  it("tracks a per-tab baseline and detects a newer deployment", () => {
+  it("polls only in production, tracks a per-tab baseline and detects a newer deployment", () => {
     const guard = readIfPresent(guardPath);
     expect(existsSync(guardPath)).toBe(true);
+    expect(guard).toContain('process.env.NODE_ENV !== "production"');
     expect(guard).toContain("sessionStorage");
     expect(guard).toContain("/client-build");
     expect(guard).toContain('cache: "no-store"');
