@@ -40,6 +40,8 @@ type PurchaseItemRow = {
   stock_unit_code: string;
 };
 type ConversionRow = { from_unit_code: string; to_unit_code: string; factor: string | number };
+type RuntimePurchaseLine = PurchaseReceiveMutationPayload["lines"][number] & { costMinor?: number };
+type NormalizedPurchaseLine = PurchaseReceiveMutationPayload["lines"][number];
 
 export class PurchaseMutationError extends Error {
   constructor(message: string, readonly code = "PURCHASE_INVALID") { super(message); }
@@ -50,6 +52,13 @@ export async function applyPurchaseReceiveMutation(
   context: PurchaseReceiveContext,
   payload: PurchaseReceiveMutationPayload,
 ): Promise<PurchaseReceiveResult> {
+  const runtimeSettlementMethod = (payload as { settlementMethod?: unknown }).settlementMethod;
+  if (runtimeSettlementMethod === undefined || runtimeSettlementMethod === null) {
+    return applyPurchaseReceiveMutation(pool, context, {
+      ...payload,
+      settlementMethod: "SUPPLIER_CREDIT",
+    });
+  }
   validate(context, payload);
 
   return withTransaction(pool, async (client) => {
@@ -88,7 +97,8 @@ export async function applyPurchaseReceiveMutation(
     );
     if (!supplier.rows[0]) throw new PurchaseMutationError("Supplier is not active for this business", "SUPPLIER_NOT_FOUND");
 
-    const purchaseItemIds = [...new Set(payload.lines.map((line) => line.itemId))].sort();
+    const normalizedLines = await normalizePurchaseLines(client, context.businessId, payload.lines);
+    const purchaseItemIds = [...new Set(normalizedLines.map((line) => line.itemId))].sort();
     if (purchaseItemIds.length > 0) {
       await client.query(
         `SELECT id FROM catalog_items WHERE business_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE`,
@@ -110,8 +120,8 @@ export async function applyPurchaseReceiveMutation(
     if (!purchaseId) throw new PurchaseMutationError("Purchase receipt could not be created", "PURCHASE_CREATE_FAILED");
 
     let totalMinor = 0;
-    for (let index = 0; index < payload.lines.length; index += 1) {
-      const requested = payload.lines[index]!;
+    for (let index = 0; index < normalizedLines.length; index += 1) {
+      const requested = normalizedLines[index]!;
       const item = await loadPurchaseItem(client, context.businessId, requested.itemId, requested.purchaseUnitCode);
       const stockQuantity = await convertToStockQuantity(client, item, requested.purchaseUnitCode, requested.quantity);
       quantityUnits(stockQuantity);
@@ -159,8 +169,50 @@ export async function applyPurchaseReceiveMutation(
     }
     if (totalMinor > 0 && isCashMethod(payload.settlementMethod)) await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode,method:payload.settlementMethod,amountDeltaMinor:-totalMinor,entryType:"PURCHASE_PAYMENT",sourceType:"PURCHASE",sourceId:purchaseId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`purchase:${purchaseId}`});
     await writeEvents(client, context, payload, purchaseId, totalMinor);
-    return { purchaseId, status: "RECEIVED", totalMinor, lineCount: payload.lines.length, idempotentReplay: false };
+    return { purchaseId, status: "RECEIVED", totalMinor, lineCount: normalizedLines.length, idempotentReplay: false };
   });
+}
+
+async function normalizePurchaseLines(
+  client: DatabaseClient,
+  businessId: string,
+  lines: PurchaseReceiveMutationPayload["lines"],
+): Promise<NormalizedPurchaseLine[]> {
+  const normalized: NormalizedPurchaseLine[] = [];
+  for (const declaredLine of lines) {
+    const line = declaredLine as RuntimePurchaseLine;
+    const unitCostMinor = line.unitCostMinor ?? line.costMinor;
+    let purchaseUnitCode = typeof line.purchaseUnitCode === "string" ? line.purchaseUnitCode.trim() : "";
+
+    if (!purchaseUnitCode) {
+      const stockUnit = await client.query<{ stock_unit_code: string }>(
+        `SELECT ci.stock_unit_code
+         FROM catalog_items ci
+         JOIN catalog_item_units u
+           ON u.business_id=ci.business_id AND u.item_id=ci.id
+          AND u.unit_code=ci.stock_unit_code AND u.can_purchase=true
+         WHERE ci.id=$1 AND ci.business_id=$2 AND ci.is_active=true AND ci.kind='PRODUCT'
+           AND ci.track_stock=true AND ci.stock_unit_code IS NOT NULL
+         FOR SHARE OF ci`,
+        [line.itemId, businessId],
+      );
+      purchaseUnitCode = stockUnit.rows[0]?.stock_unit_code ?? "";
+      if (!purchaseUnitCode) {
+        throw new PurchaseMutationError("Item/unit is not configured for purchasing", "ITEM_NOT_PURCHASABLE");
+      }
+    }
+
+    if (!Number.isSafeInteger(unitCostMinor) || (unitCostMinor ?? -1) < 0) {
+      throw new PurchaseMutationError("Unit cost must be a non-negative minor-unit integer");
+    }
+    normalized.push({
+      itemId: line.itemId,
+      purchaseUnitCode,
+      quantity: line.quantity,
+      unitCostMinor: unitCostMinor!,
+    });
+  }
+  return normalized;
 }
 
 async function loadPurchaseItem(
@@ -220,11 +272,14 @@ function validate(context: PurchaseReceiveContext, payload: PurchaseReceiveMutat
   if (!payload.supplierId) throw new PurchaseMutationError("supplierId is required", "SUPPLIER_REQUIRED");
   if (payload.supplierReference && payload.supplierReference.trim().length > 160) throw new PurchaseMutationError("Supplier reference is too long");
   if (!Array.isArray(payload.lines) || payload.lines.length === 0) throw new PurchaseMutationError("At least one purchase line is required");
-  for (const line of payload.lines) {
-    if (!line.itemId || !line.purchaseUnitCode?.trim()) throw new PurchaseMutationError("Purchase lines need an item and purchase unit");
+  for (const declaredLine of payload.lines) {
+    const line = declaredLine as RuntimePurchaseLine;
+    const unitCostMinor = line.unitCostMinor ?? line.costMinor;
+    if (!line.itemId) throw new PurchaseMutationError("Purchase lines need an item and purchase unit");
+    if (line.purchaseUnitCode !== undefined && !line.purchaseUnitCode?.trim()) throw new PurchaseMutationError("Purchase lines need an item and purchase unit");
     quantityUnits(line.quantity);
     if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new PurchaseMutationError("Purchase quantity must be positive");
-    if (!Number.isSafeInteger(line.unitCostMinor) || line.unitCostMinor < 0) throw new PurchaseMutationError("Unit cost must be a non-negative minor-unit integer");
+    if (!Number.isSafeInteger(unitCostMinor) || (unitCostMinor ?? -1) < 0) throw new PurchaseMutationError("Unit cost must be a non-negative minor-unit integer");
   }
 }
 
