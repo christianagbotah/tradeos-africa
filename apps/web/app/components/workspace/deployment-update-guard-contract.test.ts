@@ -19,13 +19,15 @@ describe("deployment update guard", () => {
     expect(layout).toContain("<DeploymentUpdateGuard");
   });
 
-  it("serves the active Next build id with no-store caching", () => {
+  it("serves the active Next build id with no-store caching in production", () => {
     const route = readIfPresent(versionRoutePath);
     expect(existsSync(versionRoutePath)).toBe(true);
     expect(route).toContain(".next");
     expect(route).toContain("BUILD_ID");
     expect(route).toContain("Cache-Control");
     expect(route).toContain("no-store");
+    expect(route).toContain('process.env.NODE_ENV !== "production"');
+    expect(route).toContain('buildId: "development"');
   });
 
   it("tracks a per-tab baseline and detects a newer deployment", () => {
