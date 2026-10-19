@@ -32,7 +32,7 @@ describe("purchase receipt compatibility", () => {
       method: "POST",
       url: "/v1/onboarding/business",
       headers,
-      payload: { name: "Legacy Shop", businessType: "RETAIL", branchName: "Main" },
+      payload: { name: "Legacy Shop", businessType: "DRINKING_SPOT", branchName: "Main" },
     });
     expect(onboard.statusCode).toBe(201);
     const businessId = onboard.json().business.id as string;
