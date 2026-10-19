@@ -50,6 +50,13 @@ export async function applyPurchaseReceiveMutation(
   context: PurchaseReceiveContext,
   payload: PurchaseReceiveMutationPayload,
 ): Promise<PurchaseReceiveResult> {
+  const runtimeSettlementMethod = (payload as { settlementMethod?: unknown }).settlementMethod;
+  if (runtimeSettlementMethod === undefined || runtimeSettlementMethod === null) {
+    return applyPurchaseReceiveMutation(pool, context, {
+      ...payload,
+      settlementMethod: "SUPPLIER_CREDIT",
+    });
+  }
   validate(context, payload);
 
   return withTransaction(pool, async (client) => {
