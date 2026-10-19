@@ -14,6 +14,8 @@ export function DeploymentUpdateGuard() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
   useEffect(() => {
+    if (process.env.NODE_ENV !== "production") return;
+
     let cancelled = false;
 
     const checkForUpdate = async () => {
