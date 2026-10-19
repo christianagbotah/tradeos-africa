@@ -12,7 +12,7 @@ beforeEach(async () => { await pool.query("TRUNCATE TABLE app_users,businesses C
 afterAll(async () => { await app.close(); await pool.end(); });
 
 describe("purchase receipt compatibility", () => {
-  it("treats a legacy receipt with no settlement method as supplier credit without deducting cash", async () => {
+  it("treats the legacy receipt payload as supplier credit without deducting cash", async () => {
     const registration = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
@@ -63,6 +63,7 @@ describe("purchase receipt compatibility", () => {
     expect(catalog.statusCode).toBe(201);
     const itemId = catalog.json().item.id as string;
 
+    // Exact legacy web payload: no settlementMethod and line unit cost used the old `costMinor` field.
     const sync = await app.inject({
       method: "POST",
       url: "/v1/sync",
@@ -77,7 +78,8 @@ describe("purchase receipt compatibility", () => {
           occurredAt: new Date().toISOString(),
           payload: {
             supplierId,
-            lines: [{ itemId, purchaseUnitCode: "piece", quantity: 2, unitCostMinor: 12000 }],
+            currencyCode: "GHS",
+            lines: [{ itemId, quantity: 2, costMinor: 12000 }],
           },
         }],
       },
