@@ -2,6 +2,10 @@ name: Deploy TradeOS Staging
 
 on:
   workflow_dispatch:
+  "push":
+    branches: [main]
+    paths:
+      - '.github/deploy-staging-request'
 
 permissions:
   contents: read
