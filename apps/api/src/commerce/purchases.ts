@@ -53,7 +53,8 @@ export async function applyPurchaseReceiveMutation(
   payload: PurchaseReceiveMutationPayload,
 ): Promise<PurchaseReceiveResult> {
   const runtimeSettlementMethod = (payload as { settlementMethod?: unknown }).settlementMethod;
-  if (runtimeSettlementMethod === undefined || runtimeSettlementMethod === null) {
+  const legacyBlankSettlementMethod = typeof runtimeSettlementMethod === "string" && runtimeSettlementMethod.trim() === "";
+  if (runtimeSettlementMethod === undefined || runtimeSettlementMethod === null || legacyBlankSettlementMethod) {
     return applyPurchaseReceiveMutation(pool, context, {
       ...payload,
       settlementMethod: "SUPPLIER_CREDIT",

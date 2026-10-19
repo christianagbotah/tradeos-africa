@@ -12,7 +12,7 @@ beforeEach(async () => { await pool.query("TRUNCATE TABLE app_users,businesses C
 afterAll(async () => { await app.close(); await pool.end(); });
 
 describe("purchase receipt compatibility", () => {
-  it("treats the legacy receipt payload as supplier credit without deducting cash", async () => {
+  it("treats missing and blank legacy payment methods as supplier credit without deducting cash", async () => {
     const registration = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
@@ -63,39 +63,61 @@ describe("purchase receipt compatibility", () => {
     expect(catalog.statusCode).toBe(201);
     const itemId = catalog.json().item.id as string;
 
-    // Exact legacy web payload: no settlementMethod and line unit cost used the old `costMinor` field.
     const sync = await app.inject({
       method: "POST",
       url: "/v1/sync",
       headers,
       payload: {
-        mutations: [{
-          clientId: "legacy-purchase-device",
-          clientMutationId: "legacy-receipt-no-method",
-          businessId,
-          branchId,
-          mutationType: "PURCHASE_RECEIVE_CREATE",
-          occurredAt: new Date().toISOString(),
-          payload: {
-            supplierId,
-            currencyCode: "GHS",
-            lines: [{ itemId, quantity: 2, costMinor: 12000 }],
+        mutations: [
+          {
+            clientId: "legacy-purchase-device",
+            clientMutationId: "legacy-receipt-no-method",
+            businessId,
+            branchId,
+            mutationType: "PURCHASE_RECEIVE_CREATE",
+            occurredAt: new Date().toISOString(),
+            payload: {
+              supplierId,
+              currencyCode: "GHS",
+              lines: [{ itemId, quantity: 2, costMinor: 12000 }],
+            },
           },
-        }],
+          {
+            clientId: "legacy-purchase-device",
+            clientMutationId: "legacy-receipt-blank-method",
+            businessId,
+            branchId,
+            mutationType: "PURCHASE_RECEIVE_CREATE",
+            occurredAt: new Date().toISOString(),
+            payload: {
+              supplierId,
+              settlementMethod: "   ",
+              currencyCode: "GHS",
+              lines: [{ itemId, quantity: 1, costMinor: 5000 }],
+            },
+          },
+        ],
       },
     });
 
     expect(sync.statusCode).toBe(200);
-    const result = sync.json().mutationResults[0];
-    expect(result.status).toBe("APPLIED");
-    expect(result.result.totalMinor).toBe(24000);
+    const [missingMethod, blankMethod] = sync.json().mutationResults;
+    expect(missingMethod.status).toBe("APPLIED");
+    expect(missingMethod.result.totalMinor).toBe(24000);
+    expect(blankMethod.status).toBe("APPLIED");
+    expect(blankMethod.result.totalMinor).toBe(5000);
 
-    const purchase = await pool.query<{ settlement_method: string; total_minor: string }>(
-      `SELECT settlement_method,total_minor FROM purchases WHERE business_id=$1 AND client_mutation_id=$2`,
-      [businessId, "legacy-receipt-no-method"],
+    const purchases = await pool.query<{ client_mutation_id: string; settlement_method: string; total_minor: string }>(
+      `SELECT client_mutation_id,settlement_method,total_minor
+       FROM purchases
+       WHERE business_id=$1
+       ORDER BY client_mutation_id`,
+      [businessId],
     );
-    expect(purchase.rows[0]).toMatchObject({ settlement_method: "SUPPLIER_CREDIT" });
-    expect(Number(purchase.rows[0]!.total_minor)).toBe(24000);
+    expect(purchases.rows).toEqual([
+      { client_mutation_id: "legacy-receipt-blank-method", settlement_method: "SUPPLIER_CREDIT", total_minor: "5000" },
+      { client_mutation_id: "legacy-receipt-no-method", settlement_method: "SUPPLIER_CREDIT", total_minor: "24000" },
+    ]);
 
     const payable = await pool.query<{ balance: string }>(
       `SELECT COALESCE(SUM(balance_delta_minor),0)::text AS balance
@@ -103,7 +125,7 @@ describe("purchase receipt compatibility", () => {
        WHERE business_id=$1 AND supplier_id=$2`,
       [businessId, supplierId],
     );
-    expect(Number(payable.rows[0]!.balance)).toBe(24000);
+    expect(Number(payable.rows[0]!.balance)).toBe(29000);
 
     const cashbook = await pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
