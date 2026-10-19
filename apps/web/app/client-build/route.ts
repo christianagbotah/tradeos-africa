@@ -10,6 +10,10 @@ const NO_STORE_HEADERS = {
 } as const;
 
 export async function GET() {
+  if (process.env.NODE_ENV !== "production") {
+    return Response.json({ buildId: "development" }, { headers: NO_STORE_HEADERS });
+  }
+
   try {
     const buildId = (await readFile(join(process.cwd(), ".next", "BUILD_ID"), "utf8")).trim();
     if (!buildId) {
