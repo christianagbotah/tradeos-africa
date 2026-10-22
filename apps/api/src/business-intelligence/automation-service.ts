@@ -127,7 +127,7 @@ export async function createBusinessAutomationPolicy(
 ): Promise<BusinessAutomationPolicy> {
   const parsed = parsePolicyInput(input);
   assertBusiness(actor, parsed.businessId);
-  assertActionAllowed(actor.role, parsed.actionType);
+  assertHumanActionAllowed(actor.role, parsed.actionType);
   const actionConfiguration = normalizeActionConfiguration(actor, parsed.actionConfiguration);
 
   try {
@@ -186,7 +186,7 @@ export async function updateBusinessAutomationPolicy(
     const branchId = input.branchId === undefined ? current.branch_id : optionalUuid(input.branchId, "branchId");
     await assertBranchScope(client, actor.businessId, branchId);
     const actionType = input.actionType === undefined ? current.action_type : requiredText(input.actionType, "actionType", 100);
-    assertActionAllowed(actor.role, actionType);
+    assertHumanActionAllowed(actor.role, actionType);
 
     const name = input.name === undefined ? current.name : requiredText(input.name, "name", 160);
     const description = input.description === undefined
@@ -236,86 +236,250 @@ export async function evaluateBusinessAutomation(
   const triggerSource = requiredText(input.triggerSource ?? "MANUAL", "triggerSource", 80);
   const correlationId = requiredText(input.triggerCorrelationId, "triggerCorrelationId", 200);
 
+  return evaluatePreparedBusinessAutomation(pool, {
+    businessId,
+    branchId,
+    policyId,
+    triggerSource,
+    correlationId,
+    origin: { kind: "HUMAN", actor },
+  });
+}
+
+export async function evaluateBusinessAutomationSystem(
+  pool: DatabasePool,
+  input: {
+    businessId: string;
+    branchId: string;
+    policyId: string;
+    triggerSource: "ATTENTION";
+    triggerCorrelationId: string;
+    now?: Date;
+  },
+): Promise<BusinessAutomationRun> {
+  const businessId = parseUuid(input.businessId, "businessId");
+  const branchId = parseUuid(input.branchId, "branchId");
+  const policyId = parseUuid(input.policyId, "policyId");
+  if (input.triggerSource !== "ATTENTION") {
+    throw new BusinessAutomationError("System dispatcher supports ATTENTION triggers only", 400, "BUSINESS_AUTOMATION_TRIGGER_INVALID");
+  }
+  const correlationId = requiredText(input.triggerCorrelationId, "triggerCorrelationId", 200);
+
+  return evaluatePreparedBusinessAutomation(pool, {
+    businessId,
+    branchId,
+    policyId,
+    triggerSource: "ATTENTION",
+    correlationId,
+    origin: { kind: "SYSTEM_DISPATCHER" },
+    ...(input.now ? { now: input.now } : {}),
+  });
+}
+
+type AutomationExecutionOrigin =
+  | { kind: "HUMAN"; actor: Actor }
+  | { kind: "SYSTEM_DISPATCHER" };
+
+type AutomationEvaluationInput = {
+  businessId: string;
+  branchId: string | null;
+  policyId: string;
+  triggerSource: string;
+  correlationId: string;
+  origin: AutomationExecutionOrigin;
+  now?: Date;
+};
+
+type PreparedAutomationEvaluation = {
+  run: BusinessAutomationRun;
+  isNew: boolean;
+  policy: PolicyRow;
+  attention: AttentionRow | null;
+};
+
+async function evaluatePreparedBusinessAutomation(
+  pool: DatabasePool,
+  input: AutomationEvaluationInput,
+): Promise<BusinessAutomationRun> {
+  const prepared = await prepareAutomationRun(pool, input);
+  if (!prepared.isNew) return prepared.run;
+
+  try {
+    return await withTransaction(pool, async (client) => {
+      const configuration = prepared.policy.action_configuration ?? {};
+      const action = actionPresentation(prepared.policy.action_type, prepared.attention);
+      const dueAt = dueAtFromConfiguration(configuration, input.now);
+      const assignment = input.origin.kind === "HUMAN"
+        ? configuration.assignToActor === true
+          ? { userId: input.origin.actor.userId, staffId: input.origin.actor.staffId }
+          : { userId: null, staffId: null }
+        : await resolveSystemAssignment(client, prepared.policy);
+
+      const actionInsert = await client.query<ActionRow>(
+        `INSERT INTO business_action_items(
+           business_id,branch_id,source_attention_item_id,source_automation_run_id,action_type,title,reason,
+           evidence,assigned_user_id,assigned_staff_id,due_at,status
+         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,'OPEN')
+         RETURNING *`,
+        [
+          input.businessId,
+          input.branchId,
+          prepared.attention?.id ?? null,
+          prepared.run.id,
+          prepared.policy.action_type,
+          action.title,
+          action.reason,
+          JSON.stringify(prepared.run.evidence),
+          assignment.userId,
+          assignment.staffId,
+          dueAt,
+        ],
+      );
+      const actionItem = actionInsert.rows[0]!;
+
+      const completed = await client.query<RunRow>(
+        `UPDATE business_automation_runs
+         SET state='SUCCEEDED',output_summary=$2::jsonb,error_message=NULL,completed_at=now(),updated_at=now()
+         WHERE id=$1 AND state='EVALUATING'
+         RETURNING *`,
+        [prepared.run.id, JSON.stringify({ actionItemId: actionItem.id, actionType: prepared.policy.action_type })],
+      );
+      const row = completed.rows[0];
+      if (!row) {
+        throw new BusinessAutomationError("Automation run is no longer executable", 409, "BUSINESS_AUTOMATION_RUN_NOT_EXECUTABLE");
+      }
+      return mapRun(row);
+    });
+  } catch (error) {
+    const failed = await markAutomationRunFailed(pool, prepared.run.id, error);
+    if (input.origin.kind === "SYSTEM_DISPATCHER") return failed;
+    if (error instanceof BusinessAutomationError) throw error;
+    throw new BusinessAutomationError("Automation action failed", 500, "BUSINESS_AUTOMATION_EXECUTION_FAILED");
+  }
+}
+
+async function prepareAutomationRun(
+  pool: DatabasePool,
+  input: AutomationEvaluationInput,
+): Promise<PreparedAutomationEvaluation> {
   return withTransaction(pool, async (client) => {
-    await assertBranchScope(client, actor.businessId, branchId);
+    await assertBranchScope(client, input.businessId, input.branchId);
     const found = await client.query<PolicyRow>(
-      `${POLICY_SELECT} WHERE id=$1 AND business_id=$2 FOR UPDATE`,
-      [policyId, actor.businessId],
+      `${POLICY_SELECT} WHERE id=$1 AND business_id=$2 FOR SHARE`,
+      [input.policyId, input.businessId],
     );
     const policy = found.rows[0];
     if (!policy || !policy.enabled) {
       throw new BusinessAutomationError("Enabled automation policy was not found", 404, "BUSINESS_AUTOMATION_POLICY_NOT_FOUND");
     }
-    if (policy.branch_id !== null && policy.branch_id !== branchId) {
+    if (policy.branch_id !== null && policy.branch_id !== input.branchId) {
       throw new BusinessAutomationError("Automation policy does not apply to this branch", 403, "BUSINESS_AUTOMATION_BRANCH_FORBIDDEN");
     }
-    assertActionAllowed(actor.role, policy.action_type);
+    assertSafeActionType(policy.action_type);
+    if (input.origin.kind === "HUMAN") assertHumanActionAllowed(input.origin.actor.role, policy.action_type);
 
     const existing = await client.query<RunRow>(
       `${RUN_SELECT}
        WHERE business_id=$1 AND policy_id=$2 AND policy_version=$3 AND trigger_correlation_id=$4`,
-      [actor.businessId, policy.id, policy.policy_version, correlationId],
+      [input.businessId, policy.id, policy.policy_version, input.correlationId],
     );
-    if (existing.rows[0]) return mapRun(existing.rows[0]);
+    if (existing.rows[0]) {
+      return { run: mapRun(existing.rows[0]), isNew: false, policy, attention: null };
+    }
 
-    const attention = triggerSource === "ATTENTION"
-      ? await loadAttentionForTrigger(client, actor.businessId, branchId, correlationId, policy)
+    const attention = input.triggerSource === "ATTENTION"
+      ? await loadAttentionForTrigger(client, input.businessId, input.branchId, input.correlationId, policy)
       : null;
     const evidence = attention?.evidence ?? [];
-
     const inserted = await client.query<RunRow>(
       `INSERT INTO business_automation_runs(
          business_id,branch_id,policy_id,policy_version,trigger_source,trigger_correlation_id,state,
          structured_input,output_summary,evidence,started_at
-       ) VALUES($1,$2,$3,$4,$5,$6,'EVALUATING',$7::jsonb,'{}'::jsonb,$8::jsonb,now())
+       ) VALUES($1,$2,$3,$4,$5,$6,'EVALUATING',$7::jsonb,'{}'::jsonb,$8::jsonb,$9)
+       ON CONFLICT (business_id,policy_id,policy_version,trigger_correlation_id) DO NOTHING
        RETURNING *`,
       [
-        actor.businessId,
-        branchId,
+        input.businessId,
+        input.branchId,
         policy.id,
         policy.policy_version,
-        triggerSource,
-        correlationId,
-        JSON.stringify({ sourceAttentionItemId: attention?.id ?? null }),
+        input.triggerSource,
+        input.correlationId,
+        JSON.stringify({ sourceAttentionItemId: attention?.id ?? null, executionOrigin: input.origin.kind }),
         JSON.stringify(evidence),
+        input.now ?? new Date(),
       ],
     );
-    const run = inserted.rows[0]!;
+    if (inserted.rows[0]) {
+      return { run: mapRun(inserted.rows[0]), isNew: true, policy, attention };
+    }
 
-    const action = actionPresentation(policy.action_type, attention);
-    const configuration = policy.action_configuration ?? {};
-    const assignToActor = configuration.assignToActor === true;
-    const dueAt = dueAtFromConfiguration(configuration);
-    const actionInsert = await client.query<ActionRow>(
-      `INSERT INTO business_action_items(
-         business_id,branch_id,source_attention_item_id,source_automation_run_id,action_type,title,reason,
-         evidence,assigned_user_id,assigned_staff_id,due_at,status
-       ) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,'OPEN')
-       RETURNING *`,
-      [
-        actor.businessId,
-        branchId,
-        attention?.id ?? null,
-        run.id,
-        policy.action_type,
-        action.title,
-        action.reason,
-        JSON.stringify(evidence),
-        assignToActor ? actor.userId : null,
-        assignToActor ? actor.staffId : null,
-        dueAt,
-      ],
+    const replay = await client.query<RunRow>(
+      `${RUN_SELECT}
+       WHERE business_id=$1 AND policy_id=$2 AND policy_version=$3 AND trigger_correlation_id=$4`,
+      [input.businessId, policy.id, policy.policy_version, input.correlationId],
     );
-    const actionItem = actionInsert.rows[0]!;
-
-    const completed = await client.query<RunRow>(
-      `UPDATE business_automation_runs
-       SET state='SUCCEEDED',output_summary=$2::jsonb,completed_at=now(),updated_at=now()
-       WHERE id=$1 RETURNING *`,
-      [run.id, JSON.stringify({ actionItemId: actionItem.id, actionType: policy.action_type })],
-    );
-    return mapRun(completed.rows[0]!);
+    const replayRow = replay.rows[0];
+    if (!replayRow) {
+      throw new BusinessAutomationError("Automation run could not be prepared", 500, "BUSINESS_AUTOMATION_RUN_PREPARE_FAILED");
+    }
+    return { run: mapRun(replayRow), isNew: false, policy, attention: null };
   });
+}
+
+async function markAutomationRunFailed(
+  pool: DatabasePool,
+  runId: string,
+  error: unknown,
+): Promise<BusinessAutomationRun> {
+  const errorMessage = error instanceof BusinessAutomationError ? error.message : "Automation action failed";
+  const updated = await pool.query<RunRow>(
+    `UPDATE business_automation_runs
+     SET state='FAILED',error_message=$2,completed_at=now(),updated_at=now()
+     WHERE id=$1 AND state='EVALUATING'
+     RETURNING *`,
+    [runId, errorMessage],
+  );
+  if (updated.rows[0]) return mapRun(updated.rows[0]);
+
+  const current = await pool.query<RunRow>(`${RUN_SELECT} WHERE id=$1`, [runId]);
+  const row = current.rows[0];
+  if (!row) throw new BusinessAutomationError("Automation run was not found", 404, "BUSINESS_AUTOMATION_RUN_NOT_FOUND");
+  return mapRun(row);
+}
+
+async function resolveSystemAssignment(
+  client: DatabaseClient,
+  policy: PolicyRow,
+): Promise<{ userId: string | null; staffId: string | null }> {
+  const configuration = policy.action_configuration ?? {};
+  if (configuration.assignToActor !== true) return { userId: null, staffId: null };
+
+  const rawUserId = configuration.assignedUserId;
+  const rawStaffId = configuration.assignedStaffId;
+  const hasBoundAssignment = rawUserId !== undefined || rawStaffId !== undefined;
+  if (hasBoundAssignment && (typeof rawUserId !== "string" || !UUID.test(rawUserId))) {
+    return { userId: null, staffId: null };
+  }
+  if (rawStaffId !== undefined && (typeof rawStaffId !== "string" || !UUID.test(rawStaffId))) {
+    return { userId: null, staffId: null };
+  }
+
+  const userId = hasBoundAssignment ? rawUserId as string : policy.created_by_user_id;
+  const expectedStaffId = typeof rawStaffId === "string" ? rawStaffId : null;
+  const result = await client.query<{ user_id: string; staff_id: string }>(
+    `SELECT u.id AS user_id,m.staff_id
+     FROM app_users u
+     JOIN business_memberships m ON m.user_id=u.id AND m.business_id=$1 AND m.status='ACTIVE'
+     JOIN staff s ON s.id=m.staff_id AND s.business_id=m.business_id AND s.is_active=true
+     WHERE u.id=$2 AND u.status='ACTIVE'
+       AND m.staff_id IS NOT NULL
+       AND ($3::uuid IS NULL OR m.staff_id=$3)
+     LIMIT 1`,
+    [policy.business_id, userId, expectedStaffId],
+  );
+  const row = result.rows[0];
+  return row ? { userId: row.user_id, staffId: row.staff_id } : { userId: null, staffId: null };
 }
 
 export async function listBusinessActionItems(
@@ -406,15 +570,24 @@ async function loadAttentionForTrigger(
   if (attention.branch_id !== null && attention.branch_id !== branchId) {
     throw new BusinessAutomationError("Attention item is outside this branch", 403, "BUSINESS_AUTOMATION_BRANCH_FORBIDDEN");
   }
-  const ruleCodes = stringArray(policy.conditions?.ruleCodes);
-  const severities = stringArray(policy.conditions?.severities);
-  if (ruleCodes.length > 0 && !ruleCodes.includes(attention.rule_code)) {
+  if (!businessAutomationConditionsMatch(policy.conditions ?? {}, {
+    ruleCode: attention.rule_code,
+    severity: attention.severity,
+  })) {
     throw new BusinessAutomationError("Attention item does not match this policy", 409, "BUSINESS_AUTOMATION_CONDITION_NOT_MET");
   }
-  if (severities.length > 0 && !severities.includes(attention.severity)) {
-    throw new BusinessAutomationError("Attention severity does not match this policy", 409, "BUSINESS_AUTOMATION_CONDITION_NOT_MET");
-  }
   return attention;
+}
+
+export function businessAutomationConditionsMatch(
+  conditions: Record<string, unknown>,
+  attention: { ruleCode: string; severity: string },
+): boolean {
+  const ruleCodes = stringArray(conditions.ruleCodes);
+  const severities = stringArray(conditions.severities);
+  if (ruleCodes.length > 0 && !ruleCodes.includes(attention.ruleCode)) return false;
+  if (severities.length > 0 && !severities.includes(attention.severity)) return false;
+  return true;
 }
 
 async function getActionForUpdate(client: DatabaseClient, actor: Actor, actionId: string): Promise<ActionRow> {
@@ -474,7 +647,7 @@ function normalizeActionConfiguration(
   };
 }
 
-function assertActionAllowed(role: BusinessRole, actionType: string): void {
+function assertSafeActionType(actionType: string): void {
   if (!SAFE_ACTION_TYPES.has(actionType)) {
     throw new BusinessAutomationError(
       "This action is not eligible for direct business automation",
@@ -482,6 +655,10 @@ function assertActionAllowed(role: BusinessRole, actionType: string): void {
       "BUSINESS_AUTOMATION_ACTION_FORBIDDEN",
     );
   }
+}
+
+function assertHumanActionAllowed(role: BusinessRole, actionType: string): void {
+  assertSafeActionType(actionType);
   if (role === "MANAGER" && !MANAGER_ACTION_TYPES.has(actionType)) {
     throw new BusinessAutomationError(
       "Managers may configure operational workflow automations only",
@@ -552,13 +729,13 @@ function parseFutureDate(value: unknown, label: string): Date {
   return date;
 }
 
-function dueAtFromConfiguration(configuration: Record<string, unknown>): Date | null {
+function dueAtFromConfiguration(configuration: Record<string, unknown>, now?: Date): Date | null {
   const raw = configuration.dueInHours;
   if (raw === undefined || raw === null) return null;
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0 || raw > 24 * 365) {
     throw new BusinessAutomationError("dueInHours must be between 0 and 8760");
   }
-  return new Date(Date.now() + raw * 3_600_000);
+  return new Date((now ?? new Date()).getTime() + raw * 3_600_000);
 }
 
 function stringArray(value: unknown): string[] {
