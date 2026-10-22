@@ -402,3 +402,93 @@
   .tos-ai-workflow-link { width: 100%; }
   .tos-ai-evidence__row { align-items: flex-start; }
 }
+
+/* Tenant AI automation control surface */
+.tos-ai-automations {
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-lg);
+  background: var(--tos-surface);
+  box-shadow: var(--tos-shadow-sm);
+  padding: clamp(var(--tos-space-4), 3vw, var(--tos-space-6));
+  display: grid;
+  gap: var(--tos-space-4);
+}
+
+.tos-ai-automations__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-space-4);
+}
+
+.tos-ai-automations__head h2 { margin: 4px 0 0; font-size: clamp(19px, 2.4vw, 24px); }
+.tos-ai-automations__head p { margin: var(--tos-space-2) 0 0; max-width: 78ch; color: var(--tos-text-muted); line-height: 1.55; }
+
+.tos-ai-automation-list { display: grid; gap: var(--tos-space-3); }
+
+.tos-ai-automation-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--tos-space-4);
+  align-items: center;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface-subtle);
+  padding: var(--tos-space-4);
+}
+
+.tos-ai-automation-card__body { min-width: 0; display: grid; gap: var(--tos-space-3); }
+.tos-ai-automation-card__title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--tos-space-3); }
+.tos-ai-automation-card__title-row h3 { margin: 0; font-size: var(--tos-text-heading-sm); }
+.tos-ai-automation-card__title-row p { margin: 5px 0 0; color: var(--tos-text-muted); line-height: 1.5; }
+
+.tos-ai-automation-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid var(--tos-border);
+  border-radius: 999px;
+  background: var(--tos-surface);
+  padding: 3px 8px;
+  color: var(--tos-text-strong);
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tos-ai-automation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px var(--tos-space-4);
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-meta);
+}
+
+.tos-ai-automation-meta strong { color: var(--tos-text-strong); }
+
+.tos-ai-automation-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--tos-space-2);
+}
+
+.tos-ai-automation-feedback,
+.tos-ai-automation-offline {
+  border-radius: var(--tos-radius-sm);
+  padding: 9px 11px;
+  font-size: var(--tos-text-meta);
+  line-height: 1.45;
+}
+
+.tos-ai-automation-feedback { background: var(--tos-positive-soft); color: var(--tos-positive-text); }
+.tos-ai-automation-offline { border: 1px solid var(--tos-border); background: var(--tos-surface-subtle); color: var(--tos-text-muted); }
+
+@media (max-width: 720px) {
+  .tos-ai-automations__head,
+  .tos-ai-automation-card,
+  .tos-ai-automation-card__title-row { grid-template-columns: 1fr; flex-direction: column; }
+  .tos-ai-automation-card { grid-template-columns: 1fr; align-items: stretch; }
+  .tos-ai-automation-card__actions { display: grid; grid-template-columns: 1fr 1fr; justify-content: stretch; }
+  .tos-ai-automation-card__actions .tos-btn { width: 100%; }
+}
