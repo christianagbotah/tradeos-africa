@@ -3,6 +3,7 @@ import type { BusinessAutomationPolicy } from "@tradeos/contracts";
 import {
   canControlBusinessAutomationPolicy,
   canManageBusinessAutomations,
+  guidedAutomationTemplates,
   mutateBusinessAutomationPolicy,
   relevantBusinessAutomationPolicies,
   runBusinessAutomationNow,
@@ -50,6 +51,18 @@ describe("business automation controls", () => {
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "SNOOZE_ATTENTION" }))).toBe(true);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_CASH_REVIEW" }))).toBe(false);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_RECEIVABLE_FOLLOW_UP" }))).toBe(false);
+  });
+
+  it("describes attention templates as automatic while keeping cash review manual", () => {
+    const templates = guidedAutomationTemplates("OWNER");
+    const attentionTemplates = templates.filter((template) => template.triggerType === "ATTENTION");
+    expect(attentionTemplates.length).toBeGreaterThan(0);
+    for (const template of attentionTemplates) {
+      expect(`${template.description} ${template.preview}`).toMatch(/automatic/i);
+    }
+    const cashReview = templates.find((template) => template.id === "cash-review");
+    expect(cashReview?.triggerType).toBe("MANUAL");
+    expect(`${cashReview?.description} ${cashReview?.preview}`).toMatch(/manual/i);
   });
 
   it("shows business-wide and current-branch policies while hiding other branches", () => {

@@ -51,7 +51,7 @@ it("builds safe create payloads from guided form choices", () => {
     branchId: "branch-1",
     code: "guided-reorder-review-abc",
     name: "Urgent stock review",
-    description: "Creates an internal reorder review when stockout risk needs attention.",
+    description: "Automatically creates an internal reorder review when stockout risk needs attention.",
     enabled: true,
     triggerType: "ATTENTION",
     conditions: { ruleCodes: ["STOCKOUT_RISK"], severities: ["HIGH", "CRITICAL"] },
@@ -139,7 +139,7 @@ it("creates and edits guided policies through the safe automation endpoints", as
         branchId: "branch-1",
         code: "guided-reorder-review-abc",
         name: "Urgent stock review",
-        description: "Creates an internal reorder review when stockout risk needs attention.",
+        description: "Automatically creates an internal reorder review when stockout risk needs attention.",
         enabled: true,
         triggerType: "ATTENTION",
         conditions: { ruleCodes: ["STOCKOUT_RISK"], severities: ["HIGH", "CRITICAL"] },
@@ -200,14 +200,14 @@ it("publishes guided labels, previews and only approved signal choices", () => {
     expect.objectContaining({
       id: "reorder-review",
       label: "Stock reorder review",
-      preview: expect.stringContaining("internal reorder review"),
+      preview: expect.stringMatching(/checks .* automatically.*internal reorder review/i),
       ruleOptions: [{ value: "STOCKOUT_RISK", label: "Stockout risk" }],
     }),
     expect.objectContaining({
       id: "cash-review",
       label: "Cash position review",
       ruleOptions: [],
-      preview: expect.stringContaining("manual"),
+      preview: expect.stringMatching(/manual/i),
     }),
   ]));
 

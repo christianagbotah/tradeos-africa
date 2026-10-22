@@ -46,10 +46,12 @@ it("offers guided create and edit controls without exposing arbitrary action typ
   expect(panel).not.toMatch(/POST_PAYMENT|REFUND|STOCK_WRITE_OFF|CHANGE_ROLE|CREATE_PURCHASE|CREATE_SALE/);
 });
 
-it("keeps the guided editor honest about manual cash review and future event dispatch", () => {
+it("keeps the guided editor honest about automatic attention checks and manual cash review", () => {
   const panel = source(panelPath);
-  expect(panel).toMatch(/manual/i);
-  expect(panel).toMatch(/event-ready|dispatcher|background execution/i);
+  expect(panel).toMatch(/manual template/i);
+  expect(panel).toMatch(/checked automatically|runs automatically|automatic background/i);
+  expect(panel).toMatch(/Run now/);
+  expect(panel).not.toMatch(/background execution still needs the automation dispatcher/i);
 });
 
 it("has responsive styling for the guided editor and preview", () => {

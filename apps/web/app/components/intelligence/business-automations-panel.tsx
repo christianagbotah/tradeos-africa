@@ -179,7 +179,7 @@ export function BusinessAutomationsPanel() {
         <div>
           <span className="tos-ai-eyebrow">AI workflow control</span>
           <h2 id="tradeos-ai-automations-title">AI Automations</h2>
-          <p>Review and control safe workflow automations for this business. These automations create internal work items only; they do not move money, issue refunds, or change stock directly.</p>
+          <p>Review and control safe workflow automations for this business. Enabled attention automations are checked automatically and create internal work items only; they do not move money, issue refunds, or change stock directly.</p>
         </div>
         <div className="tos-ai-automations__head-actions">
           <span className="tos-ai-count">{policies.length}</span>
@@ -335,7 +335,7 @@ export function BusinessAutomationsPanel() {
                 <small>
                   {selectedTemplate.triggerType === "MANUAL"
                     ? "Manual template: it runs only when an authorized user chooses Run now."
-                    : "Event-ready policy: the rule is stored now, but tenant background execution still needs the automation dispatcher. Use Run now to test the internal workflow safely."}
+                    : "Enabled attention automation: TradeOS checks this signal automatically in the background. Use Run now to test or create the internal workflow immediately."}
                 </small>
               </div>
 
