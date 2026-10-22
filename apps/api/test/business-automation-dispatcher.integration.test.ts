@@ -77,6 +77,7 @@ describe("tenant proactive automation dispatcher", () => {
     const targetBranchId = tenant.branches[0]!.id;
     const otherBranchId = tenant.branches[1]!.id;
     const policyId = await seedPolicy(tenant, { code: "branch-low-data", branchId: targetBranchId });
+    const beforeSafety = await economicAndAccessCounts(tenant.businessId);
 
     const result = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
     expect(result).toMatchObject({ acquired: true, scopesEvaluated: 1, policiesEvaluated: 1, matches: 1, succeeded: 1, failed: 0 });
@@ -93,6 +94,7 @@ describe("tenant proactive automation dispatcher", () => {
       [tenant.businessId, otherBranchId],
     );
     expect(other.rows[0]!.count).toBe("0");
+    expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
   });
 
   it("expands business-wide policies across active branches once each without crossing tenants", async () => {
@@ -257,6 +259,29 @@ async function seedPolicy(
     ],
   );
   return result.rows[0]!.id;
+}
+
+async function economicAndAccessCounts(businessId: string) {
+  const result = await pool.query<{
+    sales: string;
+    payments: string;
+    refunds: string;
+    inventory: string;
+    cashbook: string;
+    memberships: string;
+    staff: string;
+  }>(
+    `SELECT
+       (SELECT count(*) FROM sales WHERE business_id=$1)::text AS sales,
+       (SELECT count(*) FROM payments WHERE business_id=$1)::text AS payments,
+       (SELECT count(*) FROM refund_transactions WHERE business_id=$1)::text AS refunds,
+       (SELECT count(*) FROM inventory_movements WHERE business_id=$1)::text AS inventory,
+       (SELECT count(*) FROM cashbook_entries WHERE business_id=$1)::text AS cashbook,
+       (SELECT count(*) FROM business_memberships WHERE business_id=$1)::text AS memberships,
+       (SELECT count(*) FROM staff WHERE business_id=$1)::text AS staff`,
+    [businessId],
+  );
+  return result.rows[0];
 }
 
 async function runCount(policyId: string): Promise<number> {

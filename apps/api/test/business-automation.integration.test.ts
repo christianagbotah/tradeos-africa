@@ -146,6 +146,81 @@ describe("safe business workflow automation", () => {
       { ruleCode: "STOCKOUT_RISK", severity: "MEDIUM" },
     )).toBe(false);
     expect(businessAutomationConditionsMatch({}, { ruleCode: "SLOW_STOCK", severity: "INFO" })).toBe(true);
+    expect(businessAutomationConditionsMatch(
+      { ruleCodes: "STOCKOUT_RISK" },
+      { ruleCode: "SLOW_STOCK", severity: "INFO" },
+    )).toBe(false);
+    expect(businessAutomationConditionsMatch(
+      { severities: ["HIGH", 42] },
+      { ruleCode: "SLOW_STOCK", severity: "HIGH" },
+    )).toBe(false);
+  });
+
+  it("recovers an existing evaluating system run exactly once after an interrupted execution", async () => {
+    const tenant = await createTenant("automation-system-recovery@tradeos.test", "Automation System Recovery");
+    const attention = await seedAttention(tenant, "SLOW_STOCK", "MEDIUM", [], "recovery");
+    const policyId = await seedDirectPolicy(tenant, {
+      code: "recover-evaluating",
+      actionType: "CREATE_FOLLOW_UP",
+      conditions: { ruleCodes: ["SLOW_STOCK"], severities: ["MEDIUM"] },
+      actionConfiguration: { dueInHours: 24, assignToActor: true },
+    });
+    const runId = await seedEvaluatingRun(tenant, policyId, attention.id, `attention:${attention.id}`);
+    await pool.query(
+      "UPDATE business_attention_items SET state='RESOLVED',resolved_at=now(),updated_at=now() WHERE id=$1 AND business_id=$2",
+      [attention.id, tenant.businessId],
+    );
+
+    const input = {
+      businessId: tenant.businessId,
+      branchId: tenant.branchId,
+      policyId,
+      triggerSource: "ATTENTION" as const,
+      triggerCorrelationId: `attention:${attention.id}`,
+    };
+    const recovered = await evaluateBusinessAutomationSystem(pool, input);
+    const replay = await evaluateBusinessAutomationSystem(pool, input);
+
+    expect(recovered.id).toBe(runId);
+    expect(recovered.state).toBe("SUCCEEDED");
+    expect(replay.id).toBe(runId);
+    expect(replay.state).toBe("SUCCEEDED");
+    const actions = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM business_action_items WHERE source_automation_run_id=$1",
+      [runId],
+    );
+    expect(actions.rows[0]!.count).toBe("1");
+  });
+
+  it("finishes an interrupted evaluating run without duplicating an action item that already exists", async () => {
+    const tenant = await createTenant("automation-system-action-recovery@tradeos.test", "Automation System Action Recovery");
+    const attention = await seedAttention(tenant, "SLOW_STOCK", "MEDIUM", [], "action-recovery");
+    const policyId = await seedDirectPolicy(tenant, {
+      code: "recover-existing-action",
+      actionType: "CREATE_FOLLOW_UP",
+      conditions: { ruleCodes: ["SLOW_STOCK"], severities: ["MEDIUM"] },
+      actionConfiguration: { dueInHours: 24, assignToActor: true },
+    });
+    const correlationId = `attention:${attention.id}`;
+    const runId = await seedEvaluatingRun(tenant, policyId, attention.id, correlationId);
+    const existingActionId = await seedRunActionItem(tenant, runId, attention.id);
+
+    const recovered = await evaluateBusinessAutomationSystem(pool, {
+      businessId: tenant.businessId,
+      branchId: tenant.branchId,
+      policyId,
+      triggerSource: "ATTENTION",
+      triggerCorrelationId: correlationId,
+    });
+
+    expect(recovered.id).toBe(runId);
+    expect(recovered.state).toBe("SUCCEEDED");
+    expect(recovered.outputSummary).toMatchObject({ actionItemId: existingActionId, actionType: "CREATE_FOLLOW_UP" });
+    const actions = await pool.query<{ id: string }>(
+      "SELECT id FROM business_action_items WHERE source_automation_run_id=$1 ORDER BY created_at,id",
+      [runId],
+    );
+    expect(actions.rows).toEqual([{ id: existingActionId }]);
   });
 
   it("deduplicates true concurrent system delivery and keeps the bound assignment without economic writes", async () => {
@@ -259,6 +334,30 @@ describe("safe business workflow automation", () => {
       [second.id],
     );
     expect(secondAction.rows).toEqual([{ assigned_user_id: null, assigned_staff_id: null }]);
+  });
+
+  it("keeps SNOOZE_ATTENTION human-only until dispatcher semantics are explicitly supported", async () => {
+    const tenant = await createTenant("automation-system-snooze@tradeos.test", "Automation System Snooze");
+    const attention = await seedAttention(tenant, "SLOW_STOCK", "MEDIUM", [], "system-snooze");
+    const policyId = await seedDirectPolicy(tenant, {
+      code: "system-snooze-attention",
+      actionType: "SNOOZE_ATTENTION",
+      conditions: { ruleCodes: ["SLOW_STOCK"] },
+      actionConfiguration: {},
+    });
+
+    await expect(evaluateBusinessAutomationSystem(pool, {
+      businessId: tenant.businessId,
+      branchId: tenant.branchId,
+      policyId,
+      triggerSource: "ATTENTION",
+      triggerCorrelationId: `attention:${attention.id}`,
+    })).rejects.toMatchObject({ code: "BUSINESS_AUTOMATION_SYSTEM_ACTION_FORBIDDEN" });
+    const actions = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM business_action_items WHERE business_id=$1",
+      [tenant.businessId],
+    );
+    expect(actions.rows[0]!.count).toBe("0");
   });
 
   it("rejects a corrupt forbidden system policy before any economic mutation", async () => {
@@ -551,6 +650,34 @@ async function seedDirectPolicy(
       JSON.stringify(input.actionConfiguration ?? {}),
       tenant.userId,
     ],
+  );
+  return result.rows[0]!.id;
+}
+
+async function seedEvaluatingRun(
+  tenant: Tenant,
+  policyId: string,
+  attentionId: string,
+  correlationId: string,
+): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    `INSERT INTO business_automation_runs(
+       business_id,branch_id,policy_id,policy_version,trigger_source,trigger_correlation_id,state,
+       structured_input,output_summary,evidence,started_at
+     ) VALUES($1,$2,$3,1,'ATTENTION',$4,'EVALUATING',$5::jsonb,'{}'::jsonb,'[]'::jsonb,now())
+     RETURNING id`,
+    [tenant.businessId, tenant.branchId, policyId, correlationId, JSON.stringify({ sourceAttentionItemId: attentionId, executionOrigin: "SYSTEM_DISPATCHER" })],
+  );
+  return result.rows[0]!.id;
+}
+
+async function seedRunActionItem(tenant: Tenant, runId: string, attentionId: string): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    `INSERT INTO business_action_items(
+       business_id,branch_id,source_attention_item_id,source_automation_run_id,action_type,title,reason,evidence,status
+     ) VALUES($1,$2,$3,$4,'CREATE_FOLLOW_UP','Recovered follow-up','Existing action from interrupted execution','[]'::jsonb,'OPEN')
+     RETURNING id`,
+    [tenant.businessId, tenant.branchId, attentionId, runId],
   );
   return result.rows[0]!.id;
 }

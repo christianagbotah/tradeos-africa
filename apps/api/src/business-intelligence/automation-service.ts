@@ -15,6 +15,12 @@ const SAFE_ACTION_TYPES = new Set([
   "CREATE_CASH_REVIEW",
   "SNOOZE_ATTENTION",
 ]);
+const SYSTEM_DISPATCH_ACTION_TYPES = new Set([
+  "CREATE_FOLLOW_UP",
+  "CREATE_REORDER_REVIEW",
+  "CREATE_RECEIVABLE_FOLLOW_UP",
+  "CREATE_CASH_REVIEW",
+]);
 const MANAGER_ACTION_TYPES = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "SNOOZE_ATTENTION"]);
 const TRIGGER_TYPES = new Set(["ATTENTION", "SCHEDULE", "MANUAL", "EVENT"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -292,7 +298,7 @@ type AutomationEvaluationInput = {
 
 type PreparedAutomationEvaluation = {
   run: BusinessAutomationRun;
-  isNew: boolean;
+  shouldExecute: boolean;
   policy: PolicyRow;
   attention: AttentionRow | null;
 };
@@ -302,10 +308,48 @@ async function evaluatePreparedBusinessAutomation(
   input: AutomationEvaluationInput,
 ): Promise<BusinessAutomationRun> {
   const prepared = await prepareAutomationRun(pool, input);
-  if (!prepared.isNew) return prepared.run;
+  if (!prepared.shouldExecute) return prepared.run;
 
   try {
     return await withTransaction(pool, async (client) => {
+      const locked = await client.query<RunRow>(`${RUN_SELECT} WHERE id=$1 FOR UPDATE`, [prepared.run.id]);
+      const currentRun = locked.rows[0];
+      if (!currentRun) {
+        throw new BusinessAutomationError("Automation run was not found", 404, "BUSINESS_AUTOMATION_RUN_NOT_FOUND");
+      }
+      if (currentRun.state !== "EVALUATING") return mapRun(currentRun);
+
+      const existingAction = await client.query<ActionRow>(
+        `${ACTION_SELECT}
+         WHERE source_automation_run_id=$1 AND business_id=$2
+         ORDER BY created_at,id
+         LIMIT 1
+         FOR UPDATE`,
+        [currentRun.id, input.businessId],
+      );
+      if (existingAction.rows[0]) {
+        const actionItem = existingAction.rows[0];
+        if (actionItem.action_type !== prepared.policy.action_type) {
+          throw new BusinessAutomationError(
+            "Existing automation action does not match the policy",
+            409,
+            "BUSINESS_AUTOMATION_RUN_ACTION_CONFLICT",
+          );
+        }
+        const recovered = await client.query<RunRow>(
+          `UPDATE business_automation_runs
+           SET state='SUCCEEDED',output_summary=$2::jsonb,error_message=NULL,completed_at=now(),updated_at=now()
+           WHERE id=$1 AND state='EVALUATING'
+           RETURNING *`,
+          [currentRun.id, JSON.stringify({ actionItemId: actionItem.id, actionType: prepared.policy.action_type })],
+        );
+        const recoveredRun = recovered.rows[0];
+        if (!recoveredRun) {
+          throw new BusinessAutomationError("Automation run is no longer executable", 409, "BUSINESS_AUTOMATION_RUN_NOT_EXECUTABLE");
+        }
+        return mapRun(recoveredRun);
+      }
+
       const configuration = prepared.policy.action_configuration ?? {};
       const action = actionPresentation(prepared.policy.action_type, prepared.attention);
       const dueAt = dueAtFromConfiguration(configuration, input.now);
@@ -325,11 +369,11 @@ async function evaluatePreparedBusinessAutomation(
           input.businessId,
           input.branchId,
           prepared.attention?.id ?? null,
-          prepared.run.id,
+          currentRun.id,
           prepared.policy.action_type,
           action.title,
           action.reason,
-          JSON.stringify(prepared.run.evidence),
+          JSON.stringify(currentRun.evidence),
           assignment.userId,
           assignment.staffId,
           dueAt,
@@ -342,7 +386,7 @@ async function evaluatePreparedBusinessAutomation(
          SET state='SUCCEEDED',output_summary=$2::jsonb,error_message=NULL,completed_at=now(),updated_at=now()
          WHERE id=$1 AND state='EVALUATING'
          RETURNING *`,
-        [prepared.run.id, JSON.stringify({ actionItemId: actionItem.id, actionType: prepared.policy.action_type })],
+        [currentRun.id, JSON.stringify({ actionItemId: actionItem.id, actionType: prepared.policy.action_type })],
       );
       const row = completed.rows[0];
       if (!row) {
@@ -377,6 +421,7 @@ async function prepareAutomationRun(
     }
     assertSafeActionType(policy.action_type);
     if (input.origin.kind === "HUMAN") assertHumanActionAllowed(input.origin.actor.role, policy.action_type);
+    else assertSystemActionAllowed(policy.action_type);
 
     const existing = await client.query<RunRow>(
       `${RUN_SELECT}
@@ -384,7 +429,12 @@ async function prepareAutomationRun(
       [input.businessId, policy.id, policy.policy_version, input.correlationId],
     );
     if (existing.rows[0]) {
-      return { run: mapRun(existing.rows[0]), isNew: false, policy, attention: null };
+      const run = mapRun(existing.rows[0]);
+      if (run.state !== "EVALUATING") return { run, shouldExecute: false, policy, attention: null };
+      const recoveryAttention = input.triggerSource === "ATTENTION"
+        ? await loadAttentionForTrigger(client, input.businessId, input.branchId, input.correlationId, policy, false)
+        : null;
+      return { run, shouldExecute: true, policy, attention: recoveryAttention };
     }
 
     const attention = input.triggerSource === "ATTENTION"
@@ -411,7 +461,7 @@ async function prepareAutomationRun(
       ],
     );
     if (inserted.rows[0]) {
-      return { run: mapRun(inserted.rows[0]), isNew: true, policy, attention };
+      return { run: mapRun(inserted.rows[0]), shouldExecute: true, policy, attention };
     }
 
     const replay = await client.query<RunRow>(
@@ -423,7 +473,12 @@ async function prepareAutomationRun(
     if (!replayRow) {
       throw new BusinessAutomationError("Automation run could not be prepared", 500, "BUSINESS_AUTOMATION_RUN_PREPARE_FAILED");
     }
-    return { run: mapRun(replayRow), isNew: false, policy, attention: null };
+    const replayRun = mapRun(replayRow);
+    if (replayRun.state !== "EVALUATING") return { run: replayRun, shouldExecute: false, policy, attention: null };
+    const recoveryAttention = input.triggerSource === "ATTENTION"
+      ? await loadAttentionForTrigger(client, input.businessId, input.branchId, input.correlationId, policy, false)
+      : null;
+    return { run: replayRun, shouldExecute: true, policy, attention: recoveryAttention };
   });
 }
 
@@ -554,6 +609,7 @@ async function loadAttentionForTrigger(
   branchId: string | null,
   correlationId: string,
   policy: PolicyRow,
+  requireOpen = true,
 ): Promise<AttentionRow> {
   const match = /^attention:([0-9a-f-]{36})(?::|$)/i.exec(correlationId);
   if (!match || !UUID.test(match[1]!)) {
@@ -562,7 +618,7 @@ async function loadAttentionForTrigger(
   const result = await client.query<AttentionRow>(
     `SELECT id,business_id,branch_id,rule_code,severity,title,summary,evidence
      FROM business_attention_items
-     WHERE id=$1 AND business_id=$2 AND state='OPEN'`,
+     WHERE id=$1 AND business_id=$2${requireOpen ? " AND state='OPEN'" : ""}`,
     [match[1], businessId],
   );
   const attention = result.rows[0];
@@ -583,8 +639,9 @@ export function businessAutomationConditionsMatch(
   conditions: Record<string, unknown>,
   attention: { ruleCode: string; severity: string },
 ): boolean {
-  const ruleCodes = stringArray(conditions.ruleCodes);
-  const severities = stringArray(conditions.severities);
+  const ruleCodes = strictStringArray(conditions.ruleCodes);
+  const severities = strictStringArray(conditions.severities);
+  if (ruleCodes === null || severities === null) return false;
   if (ruleCodes.length > 0 && !ruleCodes.includes(attention.ruleCode)) return false;
   if (severities.length > 0 && !severities.includes(attention.severity)) return false;
   return true;
@@ -653,6 +710,16 @@ function assertSafeActionType(actionType: string): void {
       "This action is not eligible for direct business automation",
       400,
       "BUSINESS_AUTOMATION_ACTION_FORBIDDEN",
+    );
+  }
+}
+
+function assertSystemActionAllowed(actionType: string): void {
+  if (!SYSTEM_DISPATCH_ACTION_TYPES.has(actionType)) {
+    throw new BusinessAutomationError(
+      "This action is not enabled for system dispatch",
+      400,
+      "BUSINESS_AUTOMATION_SYSTEM_ACTION_FORBIDDEN",
     );
   }
 }
@@ -738,8 +805,10 @@ function dueAtFromConfiguration(configuration: Record<string, unknown>, now?: Da
   return new Date((now ?? new Date()).getTime() + raw * 3_600_000);
 }
 
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+function strictStringArray(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) return null;
+  return value as string[];
 }
 
 function actionPresentation(actionType: string, attention: AttentionRow | null) {
