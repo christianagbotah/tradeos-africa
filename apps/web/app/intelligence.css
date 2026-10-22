@@ -324,6 +324,14 @@
 .tos-ai-recommendation-card__copy { min-width: 0; }
 .tos-ai-empty-copy { margin: 0; color: var(--tos-text-muted); line-height: 1.55; }
 
+.tos-ai-action-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--tos-space-2);
+}
+
 .tos-ai-priority { margin-bottom: 5px; }
 .tos-ai-priority--critical,
 .tos-ai-priority--high { background: var(--tos-danger-soft); color: var(--tos-danger-text); }
@@ -384,6 +392,13 @@
   .tos-ai-briefing { padding: var(--tos-space-4); }
   .tos-ai-action-card,
   .tos-ai-recommendation-card { grid-template-columns: 1fr; }
+  .tos-ai-action-card__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    justify-content: stretch;
+  }
+  .tos-ai-action-card__actions .tos-ai-workflow-link { grid-column: 1 / -1; }
+  .tos-ai-action-card__actions .tos-btn { width: 100%; }
   .tos-ai-workflow-link { width: 100%; }
   .tos-ai-evidence__row { align-items: flex-start; }
 }

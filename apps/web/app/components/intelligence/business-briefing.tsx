@@ -8,7 +8,9 @@ import type {
   BusinessRecommendation,
 } from "@tradeos/contracts";
 import { useApiFetch } from "../../../lib/use-api-fetch";
+import { getOfflineQueue } from "../../../lib/offline-sync";
 import { useWorkspace } from "../workspace/use-workspace";
+import { Button } from "../ui/button";
 import { StatePanel } from "../ui/state-panel";
 import {
   businessIntelligenceCacheKey,
@@ -18,6 +20,7 @@ import {
   type BusinessIntelligenceCacheEnvelope,
   type BusinessIntelligenceCacheScope,
 } from "./business-intelligence-cache";
+import { isBusinessActionItemActive, mutateBusinessActionItem } from "./business-action-items";
 
 interface ActionItemsResponse {
   items: BusinessActionItem[];
@@ -33,6 +36,8 @@ const MAX_CACHE_AGE_MS = 15 * 60 * 1000;
 export function BusinessBriefing() {
   const { session, account, queue } = useWorkspace();
   const [cached, setCached] = useState<BusinessIntelligenceCacheEnvelope<CachedBriefingData> | null>(null);
+  const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const scope = useMemo<BusinessIntelligenceCacheScope | null>(() => {
     if (!session || !account) return null;
@@ -79,6 +84,41 @@ export function BusinessBriefing() {
     setCached(envelope);
   }, [actionQuery.data, briefingQuery.data, queue.online, scope]);
 
+  const updateActionItem = async (item: BusinessActionItem, action: "complete" | "snooze") => {
+    if (!session || !queue.online || actionBusyKey) return;
+    setActionBusyKey(`${item.id}:${action}`);
+    setActionError(null);
+    try {
+      const client = getOfflineQueue();
+      const updated = await mutateBusinessActionItem(
+        (input, init) => client.authenticatedFetch(input, init),
+        action === "snooze"
+          ? {
+              action: "snooze",
+              actionItemId: item.id,
+              businessId: session.businessId,
+              snoozedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            }
+          : {
+              action: "complete",
+              actionItemId: item.id,
+              businessId: session.businessId,
+            },
+      );
+      if (actionQuery.data) {
+        actionQuery.setData({
+          items: actionQuery.data.items.map((candidate) => candidate.id === updated.id ? updated : candidate),
+        });
+      }
+      actionQuery.refetch();
+      briefingQuery.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Action item could not be updated.");
+    } finally {
+      setActionBusyKey(null);
+    }
+  };
+
   const live = Boolean(queue.online && briefingQuery.data && actionQuery.data);
   const view: CachedBriefingData | null = live
     ? { briefing: briefingQuery.data!, actionItems: actionQuery.data!.items }
@@ -119,7 +159,7 @@ export function BusinessBriefing() {
 
   const { briefing, actionItems } = view;
   const recommendations = uniqueRecommendations(briefing.sections.flatMap((section) => section.recommendations));
-  const openActions = actionItems.filter((item) => item.status === "OPEN" || item.status === "SNOOZED").slice(0, 4);
+  const openActions = actionItems.filter((item) => isBusinessActionItemActive(item)).slice(0, 4);
 
   return (
     <section className="tos-ai-briefing" data-cache-state={usingCache ? "cached" : "live"}>
@@ -156,6 +196,7 @@ export function BusinessBriefing() {
             </div>
             <span className="tos-ai-count">{openActions.length}</span>
           </div>
+          {actionError ? <div className="tos-ai-error" role="alert">{actionError}</div> : null}
           {openActions.length > 0 ? (
             <div className="tos-ai-action-list">
               {openActions.map((item) => (
@@ -166,9 +207,29 @@ export function BusinessBriefing() {
                     <small>{item.dueAt ? `Due ${formatTimestamp(item.dueAt)}` : item.status}</small>
                   </div>
                   {queue.online ? (
-                    <Link className="tos-ai-workflow-link" href={workflowHref(item.actionType)}>Open workflow</Link>
+                    <div className="tos-ai-action-card__actions">
+                      <Link className="tos-ai-workflow-link" href={workflowHref(item.actionType)}>Open workflow</Link>
+                      <Button
+                        size="sm"
+                        variant="positive"
+                        loading={actionBusyKey === `${item.id}:complete`}
+                        disabled={Boolean(actionBusyKey)}
+                        onClick={() => void updateActionItem(item, "complete")}
+                      >
+                        Mark done
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        loading={actionBusyKey === `${item.id}:snooze`}
+                        disabled={Boolean(actionBusyKey)}
+                        onClick={() => void updateActionItem(item, "snooze")}
+                      >
+                        Snooze 24h
+                      </Button>
+                    </div>
                   ) : (
-                    <span className="tos-ai-workflow-link tos-ai-workflow-link--disabled">Reconnect to open workflow</span>
+                    <span className="tos-ai-workflow-link tos-ai-workflow-link--disabled">Reconnect to manage this action</span>
                   )}
                 </article>
               ))}

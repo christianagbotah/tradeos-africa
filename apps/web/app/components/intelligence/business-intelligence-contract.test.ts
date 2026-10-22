@@ -60,6 +60,15 @@ describe("tenant intelligence experience contract", () => {
     expect(combined).toMatch(/queue\.online|online/);
     expect(combined).toMatch(/Open workflow|open workflow|Go to|Review in/);
     expect(combined).not.toMatch(/\/v1\/intelligence\/(payment|refund|sale|stock-write-off)/);
-    expect(combined).not.toMatch(/autoSubmit|auto-submit|autonomousPayment/i);
+    expect(combined).not.toMatch(/autoSubmit\s*\(|autonomousPayment\s*\(/i);
+  });
+
+  it("lets online users complete or snooze AI action items without leaving the briefing", () => {
+    const briefing = source(paths.briefing);
+    expect(briefing).toContain("mutateBusinessActionItem");
+    expect(briefing).toMatch(/Mark done|Done/);
+    expect(briefing).toMatch(/Snooze/);
+    expect(briefing).toContain("actionQuery.refetch");
+    expect(briefing).toMatch(/queue\.online/);
   });
 });

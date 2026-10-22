@@ -2,15 +2,15 @@
  * TradeOS Web — className contract test.
  *
  * Verifies that every `className` literal used in the public-entry + workspace
- * components has a corresponding CSS definition in one of the four canonical
- * TradeOS stylesheets (globals, tokens, ui-primitives, workspace-shell).
+ * components has a corresponding CSS definition in one of the canonical
+ * TradeOS stylesheets, including the dedicated intelligence surface.
  *
  * This catches the common bug of referencing a CSS class that was never
  * defined — which would silently render unstyled in production.
  *
  * The test scans `.tsx` files under app/components/ for className="..." and
  * className={`...`} string literals, then checks each token appears as a CSS
- * selector (`.token {` or `.token,`) in any of the four CSS files.
+ * selector (`.token {` or `.token,`) in any canonical CSS file.
  */
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
@@ -23,6 +23,7 @@ const CSS_FILES = [
   "app/tradeos-tokens.css",
   "app/ui-primitives.css",
   "app/workspace-shell.css",
+  "app/intelligence.css",
 ] as const;
 
 const COMPONENT_DIRS = [
@@ -32,6 +33,7 @@ const COMPONENT_DIRS = [
   "app/components/business",
   "app/components/pos",
   "app/components/dashboard",
+  "app/components/intelligence",
   "app/components/sales",
   "app/components/customers",
   "app/components/catalog",
@@ -87,7 +89,7 @@ function walk(target: string): string[] {
   return out;
 }
 
-/** Collects every CSS class selector defined in the four canonical stylesheets. */
+/** Collects every CSS class selector defined in the canonical stylesheets. */
 function collectDefinedClasses(): Set<string> {
   const defined = new Set<string>();
   for (const rel of CSS_FILES) {
@@ -126,6 +128,12 @@ describe("className contract", () => {
       return unique.map((name) => ({ file: file.replace(ROOT + "/", ""), name }));
     }),
   )("$file uses className \"$name\" which must be defined in CSS", ({ name }) => {
-    expect(defined.has(name), `className "${name}" is not defined in any CSS file`).toBe(true);
+    const definedDirectly = defined.has(name);
+    const definedAsDynamicVariant = name.endsWith("--")
+      && Array.from(defined).some((candidate) => candidate.startsWith(name) && candidate.length > name.length);
+    expect(
+      definedDirectly || definedAsDynamicVariant,
+      `className "${name}" is not defined in any CSS file`,
+    ).toBe(true);
   });
 });
