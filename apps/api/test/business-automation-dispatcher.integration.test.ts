@@ -172,6 +172,16 @@ describe("tenant proactive automation dispatcher", () => {
     expect(await runCount(successfulPolicyId)).toBe(1);
   });
 
+  it("wires the tenant dispatcher only into the real server lifecycle with environment controls", () => {
+    const serverSource = fs.readFileSync(path.join(apiRoot, "server.ts"), "utf8");
+    const appSource = fs.readFileSync(path.join(apiRoot, "app.ts"), "utf8");
+    expect(serverSource).toContain("startTenantAutomationDispatcher");
+    expect(serverSource).toContain("TENANT_AUTOMATION_SCHEDULER_ENABLED");
+    expect(serverSource).toContain("TENANT_AUTOMATION_SCHEDULER_INTERVAL_MS");
+    expect(serverSource.match(/tenantAutomationDispatcher\.stop\(\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(appSource).not.toContain("startTenantAutomationDispatcher");
+  });
+
   it("keeps the dispatcher deterministic and model-free", () => {
     const source = fs.readFileSync(path.join(apiRoot, "business-intelligence/automation-dispatcher.ts"), "utf8");
     expect(source).toContain("pg_try_advisory_lock");
