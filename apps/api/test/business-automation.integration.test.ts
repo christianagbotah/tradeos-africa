@@ -6,7 +6,7 @@ process.env.DATABASE_URL ??= "postgresql://tradeos:tradeos@127.0.0.1:5432/tradeo
 const pool = createPool();
 const app = buildApp(pool);
 
-type Tenant = { token: string; userId: string; businessId: string; branchId: string };
+type Tenant = { token: string; userId: string; staffId: string; businessId: string; branchId: string };
 
 beforeAll(async () => { await app.ready(); });
 beforeEach(async () => { await pool.query("TRUNCATE TABLE app_users,businesses CASCADE"); });
@@ -54,6 +54,68 @@ describe("safe business workflow automation", () => {
       expect(denied.statusCode).toBe(403);
       expect(denied.json().error).toBe("ROLE_FORBIDDEN");
     }
+  });
+
+  it("binds Assign to me to the authenticated policy editor instead of trusting client assignee ids", async () => {
+    const tenant = await createTenant("automation-assignment@tradeos.test", "Automation Assignment");
+    const forgedUserId = "00000000-0000-4000-8000-000000000001";
+    const forgedStaffId = "00000000-0000-4000-8000-000000000002";
+
+    const created = await createPolicy(tenant, authHeaders(tenant.token), {
+      code: "bound-assignment",
+      actionConfiguration: {
+        dueInHours: 24,
+        assignToActor: true,
+        assignedUserId: forgedUserId,
+        assignedStaffId: forgedStaffId,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().policy.actionConfiguration).toMatchObject({
+      dueInHours: 24,
+      assignToActor: true,
+      assignedUserId: tenant.userId,
+      assignedStaffId: tenant.staffId,
+    });
+
+    const editor = await createBusinessEditor(tenant, "automation-editor@tradeos.test");
+    const edited = await app.inject({
+      method: "PATCH",
+      url: `/v1/intelligence/automations/${created.json().policy.id}`,
+      headers: authHeaders(editor.token),
+      payload: {
+        businessId: tenant.businessId,
+        branchId: tenant.branchId,
+        expectedPolicyVersion: 1,
+        actionConfiguration: {
+          dueInHours: 12,
+          assignToActor: true,
+          assignedUserId: forgedUserId,
+          assignedStaffId: forgedStaffId,
+        },
+      },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().policy.actionConfiguration).toMatchObject({
+      dueInHours: 12,
+      assignToActor: true,
+      assignedUserId: editor.userId,
+      assignedStaffId: editor.staffId,
+    });
+
+    const unassigned = await app.inject({
+      method: "PATCH",
+      url: `/v1/intelligence/automations/${created.json().policy.id}`,
+      headers: authHeaders(editor.token),
+      payload: {
+        businessId: tenant.businessId,
+        branchId: tenant.branchId,
+        expectedPolicyVersion: 2,
+        actionConfiguration: { dueInHours: 12, assignToActor: false, assignedUserId: forgedUserId, assignedStaffId: forgedStaffId },
+      },
+    });
+    expect(unassigned.statusCode).toBe(200);
+    expect(unassigned.json().policy.actionConfiguration).toEqual({ dueInHours: 12, assignToActor: false });
   });
 
   it.each(["POST_PAYMENT", "REFUND", "STOCK_WRITE_OFF", "CHANGE_ROLE", "CREATE_PURCHASE", "CREATE_SALE"])(
@@ -341,12 +403,48 @@ async function createTenant(email: string, name: string): Promise<Tenant> {
     payload: { name, businessType: "RETAIL_HARDWARE", branchName: "Main" },
   });
   expect(onboard.statusCode).toBe(201);
+  const businessId = onboard.json().business.id as string;
+  const membership = await pool.query<{ staff_id: string }>(
+    `SELECT staff_id FROM business_memberships WHERE business_id=$1 AND user_id=$2 AND status='ACTIVE'`,
+    [businessId, userId],
+  );
   return {
     token,
     userId,
-    businessId: onboard.json().business.id,
+    staffId: membership.rows[0]!.staff_id,
+    businessId,
     branchId: onboard.json().branch.id,
   };
+}
+
+async function createBusinessEditor(tenant: Tenant, email: string): Promise<Pick<Tenant, "token" | "userId" | "staffId">> {
+  const registration = await app.inject({
+    method: "POST",
+    url: "/v1/auth/register",
+    payload: {
+      displayName: "Automation Editor",
+      email,
+      password: "TradeOS-Test-1234",
+      platform: "WEB",
+      deviceKey: `device-${email}`,
+      appVersion: "test",
+    },
+  });
+  expect(registration.statusCode).toBe(201);
+  const body = registration.json();
+  const userId = body.user.id as string;
+  const token = body.session.accessToken as string;
+  const staff = await pool.query<{ id: string }>(
+    `INSERT INTO staff(business_id,display_name,email,role,is_active)
+     VALUES($1,'Automation Editor',$2,'ADMIN',true) RETURNING id`,
+    [tenant.businessId, email],
+  );
+  await pool.query(
+    `INSERT INTO business_memberships(business_id,user_id,staff_id,role,status,created_by_user_id)
+     VALUES($1,$2,$3,'ADMIN','ACTIVE',$4)`,
+    [tenant.businessId, userId, staff.rows[0]!.id, tenant.userId],
+  );
+  return { token, userId, staffId: staff.rows[0]!.id };
 }
 
 function authHeaders(token: string) {

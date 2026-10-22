@@ -128,6 +128,7 @@ export async function createBusinessAutomationPolicy(
   const parsed = parsePolicyInput(input);
   assertBusiness(actor, parsed.businessId);
   assertActionAllowed(actor.role, parsed.actionType);
+  const actionConfiguration = normalizeActionConfiguration(actor, parsed.actionConfiguration);
 
   try {
     return await withTransaction(pool, async (client) => {
@@ -148,7 +149,7 @@ export async function createBusinessAutomationPolicy(
           parsed.triggerType,
           JSON.stringify(parsed.conditions),
           parsed.actionType,
-          JSON.stringify(parsed.actionConfiguration),
+          JSON.stringify(actionConfiguration),
           actor.userId,
         ],
       );
@@ -196,7 +197,7 @@ export async function updateBusinessAutomationPolicy(
     const conditions = input.conditions === undefined ? current.conditions : objectValue(input.conditions, "conditions");
     const actionConfiguration = input.actionConfiguration === undefined
       ? current.action_configuration
-      : objectValue(input.actionConfiguration, "actionConfiguration");
+      : normalizeActionConfiguration(actor, objectValue(input.actionConfiguration, "actionConfiguration"));
 
     const updated = await client.query<PolicyRow>(
       `UPDATE business_automation_policies
@@ -457,6 +458,19 @@ function parsePolicyInput(input: Record<string, unknown>) {
     conditions: objectValue(input.conditions, "conditions"),
     actionType,
     actionConfiguration: objectValue(input.actionConfiguration, "actionConfiguration"),
+  };
+}
+
+function normalizeActionConfiguration(
+  actor: Actor,
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const { assignedUserId: _ignoredUser, assignedStaffId: _ignoredStaff, ...configuration } = value;
+  if (configuration.assignToActor !== true) return configuration;
+  return {
+    ...configuration,
+    assignedUserId: actor.userId,
+    ...(actor.staffId ? { assignedStaffId: actor.staffId } : {}),
   };
 }
 
