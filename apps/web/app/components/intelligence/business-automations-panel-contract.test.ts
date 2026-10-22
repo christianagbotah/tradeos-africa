@@ -29,3 +29,34 @@ describe("business automations control surface", () => {
     expect(panel).toContain("runBusinessAutomationNow");
   });
 });
+
+it("offers guided create and edit controls without exposing arbitrary action types", () => {
+  const panel = source(panelPath);
+  expect(panel).toMatch(/Create automation/);
+  expect(panel).toMatch(/Edit setup/);
+  expect(panel).toMatch(/Automation template/);
+  expect(panel).toMatch(/Scope/);
+  expect(panel).toMatch(/Signal/);
+  expect(panel).toMatch(/Severity threshold/);
+  expect(panel).toMatch(/Assign to me/);
+  expect(panel).toMatch(/Due within/);
+  expect(panel).toMatch(/Preview/);
+  expect(panel).toContain("saveGuidedBusinessAutomationPolicy");
+  expect(panel).toContain("guidedAutomationDraftFromPolicy");
+  expect(panel).not.toMatch(/POST_PAYMENT|REFUND|STOCK_WRITE_OFF|CHANGE_ROLE|CREATE_PURCHASE|CREATE_SALE/);
+});
+
+it("keeps the guided editor honest about manual cash review and future event dispatch", () => {
+  const panel = source(panelPath);
+  expect(panel).toMatch(/manual/i);
+  expect(panel).toMatch(/event-ready|dispatcher|background execution/i);
+});
+
+it("has responsive styling for the guided editor and preview", () => {
+  const css = source(resolve(root, "app/intelligence.css"));
+  expect(css).toMatch(/\.tos-ai-automation-editor\s*\{/);
+  expect(css).toMatch(/\.tos-ai-automation-editor__grid\s*\{/);
+  expect(css).toMatch(/\.tos-ai-automation-preview\s*\{/);
+  expect(css).toMatch(/\.tos-ai-automation-check\s*\{/);
+  expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.tos-ai-automation-editor__grid/);
+});

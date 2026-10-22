@@ -78,3 +78,240 @@ export async function runBusinessAutomationNow(
   if (!payload.run) throw new Error("Server returned an incomplete automation run response.");
   return payload.run;
 }
+
+export type GuidedAutomationTemplateId =
+  | "reorder-review"
+  | "receivables-follow-up"
+  | "cash-review"
+  | "general-follow-up";
+
+export type GuidedAutomationSeverityThreshold = "ANY" | "MEDIUM_PLUS" | "HIGH_PLUS" | "CRITICAL_ONLY";
+export type GuidedAutomationScope = "CURRENT_BRANCH" | "BUSINESS_WIDE";
+
+export interface GuidedAutomationRuleOption {
+  value: string;
+  label: string;
+}
+
+export interface GuidedAutomationTemplate {
+  id: GuidedAutomationTemplateId;
+  label: string;
+  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_CASH_REVIEW" | "CREATE_FOLLOW_UP";
+  triggerType: "ATTENTION" | "MANUAL";
+  description: string;
+  preview: string;
+  defaultRuleCode: string | null;
+  ruleOptions: readonly GuidedAutomationRuleOption[];
+}
+
+export interface GuidedAutomationDraft {
+  businessId: string;
+  currentBranchId: string;
+  templateId: GuidedAutomationTemplateId;
+  name: string;
+  scope: GuidedAutomationScope;
+  signalRuleCode: string | null;
+  severityThreshold: GuidedAutomationSeverityThreshold;
+  assignToActor: boolean;
+  dueInHours: number;
+  enabled: boolean;
+  code: string;
+}
+
+const GUIDED_AUTOMATION_TEMPLATES: readonly GuidedAutomationTemplate[] = [
+  {
+    id: "reorder-review",
+    label: "Stock reorder review",
+    actionType: "CREATE_REORDER_REVIEW",
+    triggerType: "ATTENTION",
+    description: "Creates an internal reorder review when stockout risk needs attention.",
+    preview: "When TradeOS detects stockout risk, create an internal reorder review task. No purchase or stock adjustment is made automatically.",
+    defaultRuleCode: "STOCKOUT_RISK",
+    ruleOptions: [{ value: "STOCKOUT_RISK", label: "Stockout risk" }],
+  },
+  {
+    id: "receivables-follow-up",
+    label: "Receivables follow-up",
+    actionType: "CREATE_RECEIVABLE_FOLLOW_UP",
+    triggerType: "ATTENTION",
+    description: "Creates an internal customer receivables follow-up when overdue balances need attention.",
+    preview: "When TradeOS identifies overdue receivables, create an internal follow-up task. No payment is posted automatically.",
+    defaultRuleCode: "RECEIVABLES_OVERDUE",
+    ruleOptions: [{ value: "RECEIVABLES_OVERDUE", label: "Overdue customer balances" }],
+  },
+  {
+    id: "cash-review",
+    label: "Cash position review",
+    actionType: "CREATE_CASH_REVIEW",
+    triggerType: "MANUAL",
+    description: "Creates a manual internal cash-position review. No cash is moved automatically.",
+    preview: "This is a manual review template today: Run now creates an internal cash-position review task. It does not transfer, reconcile, or post money.",
+    defaultRuleCode: null,
+    ruleOptions: [],
+  },
+  {
+    id: "general-follow-up",
+    label: "General follow-up",
+    actionType: "CREATE_FOLLOW_UP",
+    triggerType: "ATTENTION",
+    description: "Creates an internal follow-up task for an evidence-backed TradeOS attention signal.",
+    preview: "When the selected TradeOS signal appears, create an internal follow-up task for a person to review and act on.",
+    defaultRuleCode: "SLOW_STOCK",
+    ruleOptions: [
+      { value: "SLOW_STOCK", label: "Slow-moving stock" },
+      { value: "WASTAGE_SPIKE", label: "Wastage spike" },
+      { value: "SALES_DROP", label: "Sales drop" },
+      { value: "MARGIN_PRESSURE", label: "Margin pressure" },
+      { value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" },
+      { value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" },
+    ],
+  },
+];
+
+const SEVERITIES_BY_THRESHOLD: Record<GuidedAutomationSeverityThreshold, string[]> = {
+  ANY: [],
+  MEDIUM_PLUS: ["MEDIUM", "HIGH", "CRITICAL"],
+  HIGH_PLUS: ["HIGH", "CRITICAL"],
+  CRITICAL_ONLY: ["CRITICAL"],
+};
+
+export function guidedAutomationTemplates(role: string | null | undefined): GuidedAutomationTemplate[] {
+  if (role === "OWNER" || role === "ADMIN") return [...GUIDED_AUTOMATION_TEMPLATES];
+  if (role === "MANAGER") {
+    return GUIDED_AUTOMATION_TEMPLATES.filter((template) => MANAGER_AUTOMATION_ACTIONS.has(template.actionType));
+  }
+  return [];
+}
+
+export function buildGuidedAutomationPayload(input: GuidedAutomationDraft): Record<string, unknown> {
+  const template = GUIDED_AUTOMATION_TEMPLATES.find((candidate) => candidate.id === input.templateId);
+  if (!template) throw new Error("Unsupported guided automation template.");
+  const name = input.name.trim();
+  if (!name) throw new Error("Automation name is required.");
+  if (name.length > 160) throw new Error("Automation name must be at most 160 characters.");
+  if (!Number.isFinite(input.dueInHours) || input.dueInHours < 1 || input.dueInHours > 8760) {
+    throw new Error("Due time must be between 1 and 8760 hours.");
+  }
+  const branchId = input.scope === "BUSINESS_WIDE" ? null : input.currentBranchId;
+  const selectedRuleCode = input.signalRuleCode ?? template.defaultRuleCode;
+  if (template.triggerType === "ATTENTION" && !template.ruleOptions.some((option) => option.value === selectedRuleCode)) {
+    throw new Error("Signal is not available for this guided automation template.");
+  }
+  const conditions = template.triggerType === "ATTENTION"
+    ? {
+        ruleCodes: selectedRuleCode ? [selectedRuleCode] : [],
+        severities: SEVERITIES_BY_THRESHOLD[input.severityThreshold],
+      }
+    : {};
+
+  return {
+    businessId: input.businessId,
+    branchId,
+    code: input.code,
+    name,
+    description: template.description,
+    enabled: input.enabled,
+    triggerType: template.triggerType,
+    conditions,
+    actionType: template.actionType,
+    actionConfiguration: { dueInHours: input.dueInHours, assignToActor: input.assignToActor },
+  };
+}
+
+export function guidedAutomationDraftFromPolicy(
+  policy: BusinessAutomationPolicy,
+  currentBranchId: string,
+): GuidedAutomationDraft | null {
+  const template = GUIDED_AUTOMATION_TEMPLATES.find((candidate) => candidate.actionType === policy.actionType);
+  if (!template || policy.triggerType !== template.triggerType) return null;
+  const ruleCodes = Array.isArray(policy.conditions?.ruleCodes)
+    ? policy.conditions.ruleCodes.filter((value): value is string => typeof value === "string")
+    : [];
+  const severities = Array.isArray(policy.conditions?.severities)
+    ? policy.conditions.severities.filter((value): value is string => typeof value === "string")
+    : [];
+  if (template.triggerType === "ATTENTION") {
+    const ruleCode = ruleCodes[0] ?? template.defaultRuleCode;
+    if (!ruleCode || !template.ruleOptions.some((option) => option.value === ruleCode)) return null;
+  }
+  const dueInHours = typeof policy.actionConfiguration?.dueInHours === "number"
+    && Number.isFinite(policy.actionConfiguration.dueInHours)
+    && policy.actionConfiguration.dueInHours > 0
+    ? policy.actionConfiguration.dueInHours
+    : 24;
+
+  return {
+    businessId: policy.businessId,
+    currentBranchId,
+    templateId: template.id,
+    name: policy.name,
+    scope: policy.branchId === null ? "BUSINESS_WIDE" : "CURRENT_BRANCH",
+    signalRuleCode: template.triggerType === "ATTENTION" ? (ruleCodes[0] ?? template.defaultRuleCode) : null,
+    severityThreshold: thresholdFromSeverities(severities),
+    assignToActor: policy.actionConfiguration?.assignToActor === true,
+    dueInHours,
+    enabled: policy.enabled,
+    code: policy.code,
+  };
+}
+
+export async function saveGuidedBusinessAutomationPolicy(
+  fetcher: AuthenticatedFetcher,
+  input: {
+    draft: GuidedAutomationDraft;
+    existingPolicy?: Pick<BusinessAutomationPolicy, "id" | "policyVersion">;
+  },
+): Promise<BusinessAutomationPolicy> {
+  const payload = buildGuidedAutomationPayload(input.draft);
+  const existing = input.existingPolicy;
+  const requestPayload = existing
+    ? { ...payload, code: undefined, expectedPolicyVersion: existing.policyVersion }
+    : payload;
+  if (existing) delete requestPayload.code;
+
+  const response = await fetcher(
+    existing ? `/v1/intelligence/automations/${encodeURIComponent(existing.id)}` : "/v1/intelligence/automations",
+    {
+      method: existing ? "PATCH" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(requestPayload),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response, existing ? "Automation policy could not be updated" : "Automation policy could not be created"));
+  }
+  const body = await response.json() as { policy?: BusinessAutomationPolicy };
+  if (!body.policy) throw new Error("Server returned an incomplete automation policy response.");
+  return body.policy;
+}
+
+function thresholdFromSeverities(severities: readonly string[]): GuidedAutomationSeverityThreshold {
+  const normalized = [...severities].sort().join("|");
+  if (normalized === ["HIGH", "CRITICAL"].sort().join("|")) return "HIGH_PLUS";
+  if (normalized === ["MEDIUM", "HIGH", "CRITICAL"].sort().join("|")) return "MEDIUM_PLUS";
+  if (normalized === "CRITICAL") return "CRITICAL_ONLY";
+  return "ANY";
+}
+
+export function createGuidedAutomationDraft(input: {
+  businessId: string;
+  currentBranchId: string;
+  templateId: GuidedAutomationTemplateId;
+  code: string;
+}): GuidedAutomationDraft {
+  const template = GUIDED_AUTOMATION_TEMPLATES.find((candidate) => candidate.id === input.templateId);
+  if (!template) throw new Error("Unsupported guided automation template.");
+  return {
+    businessId: input.businessId,
+    currentBranchId: input.currentBranchId,
+    templateId: template.id,
+    name: template.label,
+    scope: "CURRENT_BRANCH",
+    signalRuleCode: template.defaultRuleCode,
+    severityThreshold: template.id === "reorder-review" || template.id === "receivables-follow-up" ? "HIGH_PLUS" : "ANY",
+    assignToActor: true,
+    dueInHours: 24,
+    enabled: true,
+    code: input.code,
+  };
+}
