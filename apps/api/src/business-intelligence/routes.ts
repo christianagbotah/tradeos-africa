@@ -26,6 +26,10 @@ import {
   BusinessEntityIntelligenceError,
   getBusinessEntityIntelligence,
 } from "./entity-service.js";
+import {
+  BusinessEntityActionError,
+  createBusinessEntityActionItem,
+} from "./entity-action-service.js";
 import { answerBusinessQuestion, BusinessQueryError } from "./query-service.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
@@ -102,6 +106,29 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
         entityType,
         entityId,
       });
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.post<{ Body: Record<string, unknown> }>("/v1/intelligence/entity/action-items", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const body = request.body ?? {};
+      assertEntityActionBodyShape(body);
+      const businessId = uuid(body.businessId, "businessId");
+      const branchId = optionalUuid(body.branchId ?? undefined, "branchId");
+      const context = optionalEntityContext(body.context);
+      if (!context) {
+        throw new BusinessEntityActionError("Entity context is required.", 400, "ENTITY_CONTEXT_INVALID");
+      }
+      await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      const result = await createBusinessEntityActionItem(
+        pool,
+        { userId: auth.userId, businessId },
+        { businessId, branchId, entityType: context.entityType, entityId: context.entityId },
+      );
+      return reply.code(result.created ? 201 : 200).send(result);
     } catch (error) {
       return sendError(error, reply);
     }
@@ -275,6 +302,17 @@ function businessEntityType(value: unknown): BusinessEntityType {
   );
 }
 
+function assertEntityActionBodyShape(value: Record<string, unknown>): void {
+  const allowed = new Set(["businessId", "branchId", "context"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) {
+    throw new BusinessEntityActionError(
+      "Entity review task details are server-owned and cannot be shaped by the client.",
+      400,
+      "ENTITY_ACTION_CLIENT_SHAPING_FORBIDDEN",
+    );
+  }
+}
+
 function optionalEntityContext(value: unknown): BusinessEntityContext | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "object" || Array.isArray(value)) {
@@ -308,6 +346,7 @@ function sendError(error: unknown, reply: { code(statusCode: number): { send(pay
     || error instanceof BusinessAttentionError
     || error instanceof BusinessAutomationError
     || error instanceof BusinessBriefingError
+    || error instanceof BusinessEntityActionError
     || error instanceof BusinessEntityIntelligenceError
     || error instanceof BusinessQueryError
     || error instanceof AiProviderError) {

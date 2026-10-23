@@ -84,6 +84,97 @@ describe("entity intelligence routes and contextual query", () => {
     }
   });
 
+  it("creates one server-owned entity review task and returns the active task on retry", async () => {
+    const tenant = await createTenant("entity-action-route@tradeos.test", "Entity Action Route");
+    const customerId = await seedCustomer(tenant.businessId, "Action Customer");
+    const payload = {
+      businessId: tenant.businessId,
+      branchId: tenant.branchId,
+      context: { entityType: "CUSTOMER", entityId: customerId },
+    };
+
+    const first = await app.inject({
+      method: "POST", url: "/v1/intelligence/entity/action-items", headers: authHeaders(tenant.token), payload,
+    });
+    expect(first.statusCode, first.body).toBe(201);
+    expect(first.json()).toMatchObject({
+      created: true,
+      item: {
+        businessId: tenant.businessId,
+        branchId: tenant.branchId,
+        sourceEntityType: "CUSTOMER",
+        sourceEntityId: customerId,
+        createdByUserId: tenant.userId,
+        assignedUserId: tenant.userId,
+        actionType: "CREATE_RECEIVABLE_FOLLOW_UP",
+        status: "OPEN",
+      },
+    });
+
+    const retry = await app.inject({
+      method: "POST", url: "/v1/intelligence/entity/action-items", headers: authHeaders(tenant.token), payload,
+    });
+    expect(retry.statusCode, retry.body).toBe(200);
+    expect(retry.json().created).toBe(false);
+    expect(retry.json().item.id).toBe(first.json().item.id);
+  });
+
+  it("rejects client attempts to shape an entity action", async () => {
+    const tenant = await createTenant("entity-action-inject@tradeos.test", "Entity Action Inject");
+    const customerId = await seedCustomer(tenant.businessId, "Injection Customer");
+    for (const injected of [
+      { actionType: "POST_PAYMENT" },
+      { title: "Pay now" },
+      { reason: "Client says so" },
+      { evidence: [{ source: "client" }] },
+      { assignedUserId: crypto.randomUUID() },
+      { dueInHours: 9999 },
+    ]) {
+      const response = await app.inject({
+        method: "POST", url: "/v1/intelligence/entity/action-items", headers: authHeaders(tenant.token),
+        payload: {
+          businessId: tenant.businessId,
+          branchId: tenant.branchId,
+          context: { entityType: "CUSTOMER", entityId: customerId },
+          ...injected,
+        },
+      });
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json().error).toBe("ENTITY_ACTION_CLIENT_SHAPING_FORBIDDEN");
+    }
+    const count = await pool.query<{ count: number }>(`SELECT count(*)::int AS count FROM business_action_items WHERE business_id=$1`, [tenant.businessId]);
+    expect(count.rows[0]?.count).toBe(0);
+  });
+
+  it("validates entity type, tenant ownership, and eligible membership role before action creation", async () => {
+    const tenantA = await createTenant("entity-action-a@tradeos.test", "Entity Action A");
+    const tenantB = await createTenant("entity-action-b@tradeos.test", "Entity Action B");
+    const foreignCustomerId = await seedCustomer(tenantB.businessId, "Foreign Action Customer");
+
+    const unsupported = await app.inject({
+      method: "POST", url: "/v1/intelligence/entity/action-items", headers: authHeaders(tenantA.token),
+      payload: { businessId: tenantA.businessId, branchId: tenantA.branchId, context: { entityType: "SQL_TABLE", entityId: crypto.randomUUID() } },
+    });
+    expect(unsupported.statusCode).toBe(400);
+    expect(unsupported.json().error).toBe("ENTITY_TYPE_UNSUPPORTED");
+
+    const foreign = await app.inject({
+      method: "POST", url: "/v1/intelligence/entity/action-items", headers: authHeaders(tenantA.token),
+      payload: { businessId: tenantA.businessId, branchId: tenantA.branchId, context: { entityType: "CUSTOMER", entityId: foreignCustomerId } },
+    });
+    expect(foreign.statusCode).toBe(404);
+    expect(foreign.json().error).toBe("ENTITY_NOT_FOUND");
+
+    const localCustomerId = await seedCustomer(tenantA.businessId, "Viewer Customer");
+    await pool.query(`UPDATE business_memberships SET role='VIEWER' WHERE business_id=$1 AND user_id=$2`, [tenantA.businessId, tenantA.userId]);
+    const viewer = await app.inject({
+      method: "POST", url: "/v1/intelligence/entity/action-items", headers: authHeaders(tenantA.token),
+      payload: { businessId: tenantA.businessId, branchId: tenantA.branchId, context: { entityType: "CUSTOMER", entityId: localCustomerId } },
+    });
+    expect(viewer.statusCode).toBe(403);
+    expect(viewer.json().error).toBe("ENTITY_ACTION_FORBIDDEN");
+  });
+
   it("grounds Ask TradeOS on server-validated structured entity context", async () => {
     const tenant = await createTenant("entity-query@tradeos.test", "Entity Query");
     const customerId = await seedCustomer(tenant.businessId, "Grounded Customer");
