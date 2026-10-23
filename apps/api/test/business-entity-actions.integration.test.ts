@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { applyMigrations } from "../src/migrations/migration-runner.js";
 import { createBusinessEntityActionItem, BusinessEntityActionError } from "../src/business-intelligence/entity-action-service.js";
-import { listBusinessActionItems } from "../src/business-intelligence/automation-service.js";
+import { completeBusinessActionItem, listBusinessActionItems } from "../src/business-intelligence/automation-service.js";
 
 const { Pool } = pg;
 const baseDatabaseUrl = process.env.DATABASE_URL ?? "postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci";
@@ -161,6 +161,19 @@ describe("entity intelligence safe action creation", () => {
     expect(visibleSupplier).toBeTruthy();
     expect(visibleSupplier?.evidence.some((item) => item.label === "recentPurchaseTotalMinor30d")).toBe(false);
     expect(inventoryQueue.some((item) => item.id === customerTask.item.id)).toBe(false);
+
+    const completedSupplier = await completeBusinessActionItem(pool, {
+      userId: OWNER, businessId: B1, role: "INVENTORY", staffId: OWNER_STAFF,
+    }, supplierTask.item.id, { businessId: B1 });
+    expect(completedSupplier.status).toBe("DONE");
+    expect(completedSupplier.evidence.some((item) => item.label === "recentPurchaseTotalMinor30d")).toBe(false);
+
+    await expect(completeBusinessActionItem(pool, {
+      userId: OWNER, businessId: B1, role: "INVENTORY", staffId: OWNER_STAFF,
+    }, customerTask.item.id, { businessId: B1 })).rejects.toMatchObject({
+      statusCode: 403,
+      code: "BUSINESS_ACTION_ITEM_FORBIDDEN",
+    });
   });
 
   it("creates only an internal action item and leaves economic/access ledgers unchanged", async () => {

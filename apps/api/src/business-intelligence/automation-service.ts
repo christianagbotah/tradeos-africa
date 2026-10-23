@@ -547,7 +547,7 @@ export async function listBusinessActionItems(
   actor: Actor,
   branchId: string | null,
 ): Promise<BusinessActionItem[]> {
-  const canReadFullQueue = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"].includes(actor.role);
+  const canReadFullQueue = canReadFullActionQueue(actor.role);
   const result = await pool.query<ActionRow>(
     `${ACTION_SELECT}
      WHERE business_id=$1
@@ -557,17 +557,8 @@ export async function listBusinessActionItems(
     [actor.businessId, branchId, canReadFullQueue, actor.userId, actor.staffId],
   );
   return result.rows
-    .filter((row) => canReadFullQueue
-      || row.source_entity_type === null
-      || businessEntitySafeAction(actor.role, row.source_entity_type)?.actionType === row.action_type)
-    .map((row) => {
-      const item = mapAction(row);
-      if (canReadFullQueue || row.source_entity_type === null) return item;
-      return {
-        ...item,
-        evidence: filterBusinessEntityEvidenceForRole(actor.role, row.source_entity_type, item.evidence),
-      };
-    });
+    .filter((row) => canReadFullQueue || actionItemAllowedForAssignedActor(actor, row))
+    .map((row) => mapActionForActor(row, actor));
 }
 
 export async function snoozeBusinessActionItem(
@@ -592,7 +583,7 @@ export async function snoozeBusinessActionItem(
        WHERE id=$1 AND business_id=$2 RETURNING *`,
       [actionId, actor.businessId, snoozedUntil],
     );
-    return mapAction(updated.rows[0]!);
+    return mapActionForActor(updated.rows[0]!, actor);
   });
 }
 
@@ -611,14 +602,14 @@ export async function completeBusinessActionItem(
     if (current.status === "CANCELED") {
       throw new BusinessAutomationError("Canceled action items cannot be completed", 409, "BUSINESS_ACTION_ITEM_FINAL");
     }
-    if (current.status === "DONE") return mapAction(current);
+    if (current.status === "DONE") return mapActionForActor(current, actor);
     const updated = await client.query<ActionRow>(
       `UPDATE business_action_items
        SET status='DONE',completed_at=now(),snoozed_until=NULL,updated_at=now()
        WHERE id=$1 AND business_id=$2 RETURNING *`,
       [actionId, actor.businessId],
     );
-    return mapAction(updated.rows[0]!);
+    return mapActionForActor(updated.rows[0]!, actor);
   });
 }
 
@@ -673,14 +664,22 @@ async function getActionForUpdate(client: DatabaseClient, actor: Actor, actionId
   );
   const item = result.rows[0];
   if (!item) throw new BusinessAutomationError("Action item was not found", 404, "BUSINESS_ACTION_ITEM_NOT_FOUND");
-  if (!["OWNER", "ADMIN", "MANAGER"].includes(actor.role)) {
-    const assignedToActor = item.assigned_user_id === actor.userId
-      || (actor.staffId !== null && item.assigned_staff_id === actor.staffId);
-    if (!assignedToActor) {
-      throw new BusinessAutomationError("This action item is not assigned to you", 403, "BUSINESS_ACTION_ITEM_FORBIDDEN");
-    }
+  if (!canReadFullActionQueue(actor.role) && !actionItemAllowedForAssignedActor(actor, item)) {
+    throw new BusinessAutomationError("This action item is not assigned or permitted for your current role", 403, "BUSINESS_ACTION_ITEM_FORBIDDEN");
   }
   return item;
+}
+
+function canReadFullActionQueue(role: BusinessRole): boolean {
+  return ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"].includes(role);
+}
+
+function actionItemAllowedForAssignedActor(actor: Actor, item: ActionRow): boolean {
+  const assignedToActor = item.assigned_user_id === actor.userId
+    || (actor.staffId !== null && item.assigned_staff_id === actor.staffId);
+  if (!assignedToActor) return false;
+  if (item.source_entity_type === null) return true;
+  return businessEntitySafeAction(actor.role, item.source_entity_type)?.actionType === item.action_type;
 }
 
 async function assertBranchScope(client: DatabaseClient, businessId: string, branchId: string | null): Promise<void> {
@@ -906,6 +905,15 @@ function mapAction(row: ActionRow): BusinessActionItem {
     completedAt: iso(row.completed_at),
     createdAt: iso(row.created_at)!,
     updatedAt: iso(row.updated_at)!,
+  };
+}
+
+function mapActionForActor(row: ActionRow, actor: Actor): BusinessActionItem {
+  const item = mapAction(row);
+  if (canReadFullActionQueue(actor.role) || row.source_entity_type === null) return item;
+  return {
+    ...item,
+    evidence: filterBusinessEntityEvidenceForRole(actor.role, row.source_entity_type, item.evidence),
   };
 }
 
