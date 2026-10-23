@@ -126,17 +126,9 @@ const metricIntelligence: BusinessFinancialMetricIntelligence = {
   askPrompt: "Why did net revenue change this month?",
 };
 
-const metricQuery: BusinessAssistantQueryRequest = {
-  businessId: intelligence.businessId,
-  branchId: intelligence.branchId,
-  question: "Explain this metric.",
-  context: metricContext,
-};
-
 void assistantEntityContext;
 void assistantMetricContext;
 void metricIntelligence;
-void metricQuery;
 
 // @ts-expect-error unsupported metric key
 const badMetricKey: BusinessFinancialMetricKey = "GROSS_MARGIN";
