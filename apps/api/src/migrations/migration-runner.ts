@@ -64,7 +64,7 @@ export async function applyMigrations(
 
       try {
         const sql = fs.readFileSync(migration.fullPath, "utf8");
-        await client.query(sql);
+        await client.query(transactionalSql(sql));
         await client.query(
           `UPDATE lightworld_schema_migrations
            SET state='APPLIED',applied_at=now(),failed_at=NULL,error_message=NULL
@@ -116,21 +116,7 @@ function discoverMigrations(directory: string): MigrationFile[] {
   }
 
   candidates.sort((left, right) => left.name.localeCompare(right.name));
-  return candidates.map((candidate) => {
-    assertTransactionalMigration(candidate.fullPath, candidate.name);
-    return { ...candidate, checksum: checksumFile(candidate.fullPath) };
-  });
-}
-
-function assertTransactionalMigration(file: string, name: string): void {
-  const normalized = fs.readFileSync(file, "utf8")
-    .split(/\r?\n/)
-    .filter((line) => !line.trim().startsWith("--"))
-    .join("\n")
-    .trim();
-  if (!/^BEGIN;\s/i.test(normalized) || !/COMMIT;\s*$/i.test(normalized)) {
-    throw new Error(`Migration ${name} must begin with BEGIN; and end with COMMIT;`);
-  }
+  return candidates.map((candidate) => ({ ...candidate, checksum: checksumFile(candidate.fullPath) }));
 }
 
 
@@ -160,6 +146,16 @@ async function readLedgerRow(client: PoolClient, migrationName: string): Promise
   return result.rows[0] ?? null;
 }
 
+
+function transactionalSql(sql: string): string {
+  const normalized = sql
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .trim();
+  if (/^BEGIN;\s/i.test(normalized) && /COMMIT;\s*$/i.test(normalized)) return sql;
+  return `BEGIN;\n${sql.trim()}\nCOMMIT;\n`;
+}
 
 function checksumFile(file: string): string {
   return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");

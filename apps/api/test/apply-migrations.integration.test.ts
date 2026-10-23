@@ -90,13 +90,18 @@ describe("PostgreSQL migration ledger runner", () => {
     await duplicate.pool.end();
   });
 
-  it("rejects a nontransactional migration before touching the ledger", async () => {
+  it("wraps legacy nontransactional migrations so failures still roll back atomically", async () => {
     const fixture = await makeFixture();
-    writeMigration(fixture.dir, "0001_nontransactional.sql", `CREATE TABLE unsafe_marker(id integer);`);
+    writeMigration(
+      fixture.dir,
+      "0001_nontransactional.sql",
+      `CREATE TABLE unsafe_marker(id integer); SELECT * FROM nontransactional_missing_table;`,
+    );
 
-    await expect(applyMigrations(fixture.pool, { migrationDirectory: fixture.dir })).rejects.toThrow(/BEGIN|COMMIT|transaction/i);
+    await expect(applyMigrations(fixture.pool, { migrationDirectory: fixture.dir })).rejects.toThrow(/0001_nontransactional\.sql/);
+    const state = await fixture.pool.query(`SELECT state FROM lightworld_schema_migrations WHERE migration_name='0001_nontransactional.sql'`);
+    expect(state.rows[0]?.state).toBe("FAILED");
     expect((await fixture.pool.query(`SELECT to_regclass('unsafe_marker')::text AS relation`)).rows[0]?.relation).toBeNull();
-    expect((await fixture.pool.query(`SELECT to_regclass('lightworld_schema_migrations')::text AS relation`)).rows[0]?.relation).toBeNull();
     await fixture.pool.end();
   });
 
