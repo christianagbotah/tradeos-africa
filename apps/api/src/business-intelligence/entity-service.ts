@@ -14,6 +14,19 @@ import { withTransaction, type DatabaseClient, type DatabasePool } from "../db.j
 import { listBusinessAttention } from "./attention-service.js";
 
 const FINANCIAL_ROLES = new Set<BusinessRole>(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
+const NON_FINANCIAL_ENTITY_EVIDENCE_DENYLIST: Record<BusinessEntityType, ReadonlySet<string>> = {
+  CATALOG_ITEM: new Set(["netRevenueMinor30d"]),
+  CUSTOMER: new Set([
+    "creditLimitMinor", "creditTermsDays", "openBalanceMinor", "openObligationCount",
+    "overdueObligationCount", "oldestDueAt", "recentAccountEntryCount30d",
+    "latestAccountEntryAt", "latestAccountEntryType",
+  ]),
+  SUPPLIER: new Set([
+    "paymentTermsDays", "recentPurchaseTotalMinor30d", "openPayableMinor", "openObligationCount",
+    "overdueObligationCount", "oldestDueAt",
+  ]),
+  PURCHASE: new Set(["totalMinor"]),
+};
 
 export class BusinessEntityIntelligenceError extends Error {
   constructor(
@@ -102,6 +115,18 @@ export function businessEntitySafeAction(role: BusinessRole, entityType: Busines
         ? { actionType: "CREATE_FOLLOW_UP", label: "Create purchase follow-up", dueInHours: 24 }
         : null;
   }
+}
+
+export function filterBusinessEntityEvidenceForRole(
+  role: BusinessRole,
+  entityType: BusinessEntityType,
+  evidence: BusinessEvidenceReference[],
+): BusinessEvidenceReference[] {
+  if (FINANCIAL_ROLES.has(role)) return evidence;
+  const denied = NON_FINANCIAL_ENTITY_EVIDENCE_DENYLIST[entityType];
+  return evidence.filter((item) =>
+    item.metadata?.kind !== "money_minor" && !denied.has(item.label ?? ""),
+  );
 }
 
 async function assertScope(client: DatabaseClient, businessId: string, branchId: string | null): Promise<{ currencyCode: string }> {

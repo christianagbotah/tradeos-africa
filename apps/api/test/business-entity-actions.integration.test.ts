@@ -142,6 +142,27 @@ describe("entity intelligence safe action creation", () => {
     expect(ownerItems.some((item) => item.id === ownerTask.item.id)).toBe(true);
   });
 
+  it("reapplies current entity permissions and financial evidence filtering after a creator role is downgraded", async () => {
+    const supplierTask = await createBusinessEntityActionItem(pool, { userId: OWNER, businessId: B1 }, {
+      businessId: B1, branchId: BR1, entityType: "SUPPLIER", entityId: SUPPLIER1, now: NOW,
+    });
+    const customerTask = await createBusinessEntityActionItem(pool, { userId: OWNER, businessId: B1 }, {
+      businessId: B1, branchId: BR1, entityType: "CUSTOMER", entityId: CUSTOMER1, now: NOW,
+    });
+    expect(supplierTask.item.evidence.some((item) => item.label === "recentPurchaseTotalMinor30d")).toBe(true);
+    expect(customerTask.item.evidence.some((item) => item.label === "creditLimitMinor")).toBe(true);
+
+    await pool.query(`UPDATE business_memberships SET role='INVENTORY' WHERE business_id=$1 AND user_id=$2`, [B1, OWNER]);
+    const inventoryQueue = await listBusinessActionItems(pool, {
+      userId: OWNER, businessId: B1, role: "INVENTORY", staffId: OWNER_STAFF,
+    }, BR1);
+
+    const visibleSupplier = inventoryQueue.find((item) => item.id === supplierTask.item.id);
+    expect(visibleSupplier).toBeTruthy();
+    expect(visibleSupplier?.evidence.some((item) => item.label === "recentPurchaseTotalMinor30d")).toBe(false);
+    expect(inventoryQueue.some((item) => item.id === customerTask.item.id)).toBe(false);
+  });
+
   it("creates only an internal action item and leaves economic/access ledgers unchanged", async () => {
     const before = await invariantCounts();
     await createBusinessEntityActionItem(pool, { userId: OWNER, businessId: B1 }, {

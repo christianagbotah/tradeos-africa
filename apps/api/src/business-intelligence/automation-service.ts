@@ -8,6 +8,7 @@ import type {
 import type { BusinessRole } from "../auth/authorization.js";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
+import { businessEntitySafeAction, filterBusinessEntityEvidenceForRole } from "./entity-service.js";
 
 const SAFE_ACTION_TYPES = new Set([
   "CREATE_FOLLOW_UP",
@@ -555,7 +556,18 @@ export async function listBusinessActionItems(
      ORDER BY CASE status WHEN 'OPEN' THEN 0 WHEN 'SNOOZED' THEN 1 ELSE 2 END,due_at NULLS LAST,created_at DESC`,
     [actor.businessId, branchId, canReadFullQueue, actor.userId, actor.staffId],
   );
-  return result.rows.map(mapAction);
+  return result.rows
+    .filter((row) => canReadFullQueue
+      || row.source_entity_type === null
+      || businessEntitySafeAction(actor.role, row.source_entity_type)?.actionType === row.action_type)
+    .map((row) => {
+      const item = mapAction(row);
+      if (canReadFullQueue || row.source_entity_type === null) return item;
+      return {
+        ...item,
+        evidence: filterBusinessEntityEvidenceForRole(actor.role, row.source_entity_type, item.evidence),
+      };
+    });
 }
 
 export async function snoozeBusinessActionItem(
