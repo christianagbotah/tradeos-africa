@@ -43,6 +43,11 @@ import {
   getBusinessFinancialMetricIntelligence,
 } from "./metric-service.js";
 import { answerBusinessQuestion, BusinessQueryError } from "./query-service.js";
+import {
+  BusinessPulseError,
+  getBusinessPulse,
+  markBusinessPulseSeen,
+} from "./pulse-service.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "CASHIER", "SALES", "INVENTORY", "STAFF", "VIEWER",
@@ -63,6 +68,7 @@ const FINANCIAL_METRIC_RANGES = new Set<BusinessFinancialMetricRange>(["today", 
 
 type AttentionQuery = { businessId?: string; branchId?: string };
 type BriefingQuery = AttentionQuery & { range?: string };
+type PulseQuery = AttentionQuery & { limit?: string };
 type EntityQuery = AttentionQuery & { entityType?: string; entityId?: string };
 type MetricQuery = AttentionQuery & { metricKey?: string; range?: string };
 type EvaluateBody = { businessId?: string; branchId?: string | null; correlationId?: string };
@@ -79,6 +85,34 @@ type IdParams = { id: string };
 
 export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: DatabasePool): void {
   const provider = new OpenAiResponsesProvider();
+
+
+  app.get<{ Querystring: PulseQuery }>("/v1/intelligence/pulse", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = uuid(request.query.businessId, "businessId");
+      const branchId = optionalUuid(request.query.branchId, "branchId");
+      const limit = pulseLimit(request.query.limit);
+      const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      return await getBusinessPulse(pool, automationActor(auth.userId, access), { businessId, branchId, limit });
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.post<{ Body: Record<string, unknown> }>("/v1/intelligence/pulse/seen", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const body = request.body ?? {};
+      assertPulseSeenBodyShape(body);
+      const businessId = uuid(body.businessId, "businessId");
+      const branchId = optionalUuid(body.branchId ?? undefined, "branchId");
+      const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      return await markBusinessPulseSeen(pool, automationActor(auth.userId, access), { businessId, branchId });
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
 
   app.get<{ Querystring: AttentionQuery }>("/v1/intelligence/attention", async (request, reply) => {
     try {
@@ -337,6 +371,28 @@ function businessEntityType(value: unknown): BusinessEntityType {
   );
 }
 
+
+function pulseLimit(value: unknown): number {
+  if (value === undefined || value === null || value === "") return 12;
+  if (typeof value !== "string" || !/^[0-9]+$/.test(value)) {
+    throw new BusinessPulseError("limit must be an integer between 1 and 50");
+  }
+  const parsed = Number(value);
+  if (parsed < 1 || parsed > 50) throw new BusinessPulseError("limit must be an integer between 1 and 50");
+  return parsed;
+}
+
+function assertPulseSeenBodyShape(value: Record<string, unknown>): void {
+  const allowed = new Set(["businessId", "branchId"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) {
+    throw new BusinessPulseError(
+      "Pulse seen state is server-owned and cannot be shaped by the client.",
+      400,
+      "BUSINESS_PULSE_CLIENT_SHAPING_FORBIDDEN",
+    );
+  }
+}
+
 function assertEntityActionBodyShape(value: Record<string, unknown>): void {
   const allowed = new Set(["businessId", "branchId", "context"]);
   if (Object.keys(value).some((key) => !allowed.has(key))) {
@@ -438,6 +494,7 @@ function sendError(error: unknown, reply: { code(statusCode: number): { send(pay
     || error instanceof BusinessEntityIntelligenceError
     || error instanceof BusinessMetricIntelligenceError
     || error instanceof BusinessQueryError
+    || error instanceof BusinessPulseError
     || error instanceof AiProviderError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });
   }
