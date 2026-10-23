@@ -89,12 +89,23 @@ export type BusinessBriefing = BusinessIntelligenceScope & {
   evidence: BusinessEvidenceReference[];
 };
 
+export type BusinessEntitySafeAction = {
+  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_FOLLOW_UP";
+  label: string;
+  dueInHours: 24;
+};
+
+export type BusinessEntityActionItemRequest = BusinessIntelligenceScope & {
+  context: BusinessEntityContext;
+};
+
 export type BusinessEntityIntelligence = BusinessIntelligenceScope & {
   entity: BusinessEntityIdentity;
   generatedAt: string;
   evidence: BusinessEvidenceReference[];
   attentionItems: BusinessAttentionItem[];
   recommendations: BusinessRecommendation[];
+  safeAction: BusinessEntitySafeAction | null;
   askPrompt: string;
 };
 
@@ -154,6 +165,9 @@ export type BusinessActionItem = BusinessIntelligenceScope & {
   id: string;
   sourceAttentionItemId: string | null;
   sourceAutomationRunId: string | null;
+  sourceEntityType: BusinessEntityType | null;
+  sourceEntityId: string | null;
+  createdByUserId: string | null;
   actionType: string | null;
   title: string;
   reason: string;
@@ -166,4 +180,9 @@ export type BusinessActionItem = BusinessIntelligenceScope & {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type BusinessEntityActionItemResponse = {
+  item: BusinessActionItem;
+  created: boolean;
 };

@@ -1,7 +1,10 @@
 import type {
   BusinessAssistantQueryRequest,
   BusinessEntityContext,
+  BusinessEntityActionItemRequest,
+  BusinessEntityActionItemResponse,
   BusinessEntityIntelligence,
+  BusinessEntitySafeAction,
   BusinessEntityType,
 } from "./business-intelligence.js";
 
@@ -26,6 +29,7 @@ const intelligence: BusinessEntityIntelligence = {
   evidence: [],
   attentionItems: [],
   recommendations: [],
+  safeAction: { actionType: "CREATE_RECEIVABLE_FOLLOW_UP", label: "Create receivables follow-up", dueInHours: 24 },
   askPrompt: "What should I know about this customer?",
 };
 
@@ -37,3 +41,45 @@ const query: BusinessAssistantQueryRequest = {
 };
 
 void query;
+
+const safeAction: BusinessEntitySafeAction = {
+  actionType: "CREATE_REORDER_REVIEW",
+  label: "Create reorder review",
+  dueInHours: 24,
+};
+
+const actionRequest: BusinessEntityActionItemRequest = {
+  businessId: intelligence.businessId,
+  branchId: intelligence.branchId,
+  context,
+};
+
+const actionResponse: BusinessEntityActionItemResponse = {
+  item: {
+    businessId: intelligence.businessId,
+    branchId: intelligence.branchId,
+    id: "70000000-0000-4000-8000-000000000010",
+    sourceAttentionItemId: null,
+    sourceAutomationRunId: null,
+    sourceEntityType: "CUSTOMER",
+    sourceEntityId: context.entityId,
+    createdByUserId: "70000000-0000-4000-8000-000000000011",
+    actionType: safeAction.actionType,
+    title: "Review customer",
+    reason: "Evidence-backed review",
+    evidence: [],
+    assignedUserId: "70000000-0000-4000-8000-000000000011",
+    assignedStaffId: null,
+    dueAt: "2026-10-24T00:00:00.000Z",
+    status: "OPEN",
+    snoozedUntil: null,
+    completedAt: null,
+    createdAt: "2026-10-23T00:00:00.000Z",
+    updatedAt: "2026-10-23T00:00:00.000Z",
+  },
+  created: true,
+};
+
+void safeAction;
+void actionRequest;
+void actionResponse;

@@ -141,6 +141,76 @@ describe("business intelligence and automation persistence", () => {
       [businessId],
     )).rejects.toMatchObject({ code: "23514" });
   });
+
+  it("tracks entity provenance, creator audit, and active entity-task uniqueness", async () => {
+    const columns = await pool.query<{ column_name: string; is_nullable: string }>(
+      `SELECT column_name,is_nullable
+       FROM information_schema.columns
+       WHERE table_schema=current_schema() AND table_name='business_action_items'
+         AND column_name = ANY($1::text[])
+       ORDER BY column_name`,
+      [["created_by_user_id", "source_entity_id", "source_entity_type"]],
+    );
+    expect(columns.rows).toEqual([
+      { column_name: "created_by_user_id", is_nullable: "YES" },
+      { column_name: "source_entity_id", is_nullable: "YES" },
+      { column_name: "source_entity_type", is_nullable: "YES" },
+    ]);
+
+    const businessId = await seedBusiness("Entity Task Tenant");
+    const branchId = await seedBranch(businessId, "ENTITY");
+    const userId = await seedUser("entity-task@test.local");
+    const entityId = "70000000-0000-4000-8000-000000000099";
+
+    await expect(pool.query(
+      `INSERT INTO business_action_items(
+         business_id,branch_id,source_entity_type,title,reason,evidence,status
+       ) VALUES($1,$2,'CUSTOMER','Invalid provenance','Missing id','[]','OPEN')`,
+      [businessId, branchId],
+    )).rejects.toMatchObject({ code: "23514" });
+
+    await expect(pool.query(
+      `INSERT INTO business_action_items(
+         business_id,branch_id,source_entity_type,source_entity_id,title,reason,evidence,status
+       ) VALUES($1,$2,'SQL_TABLE',$3,'Invalid type','Invalid type','[]','OPEN')`,
+      [businessId, branchId, entityId],
+    )).rejects.toMatchObject({ code: "23514" });
+
+    await expect(pool.query(
+      `INSERT INTO business_action_items(
+         business_id,branch_id,source_entity_type,source_entity_id,created_by_user_id,action_type,title,reason,evidence,status
+       ) VALUES($1,$2,'CUSTOMER',$3,$4,'CREATE_RECEIVABLE_FOLLOW_UP','Follow up','Evidence','[]','OPEN')`,
+      [businessId, branchId, entityId, userId],
+    )).resolves.toBeTruthy();
+
+    await expect(pool.query(
+      `INSERT INTO business_action_items(
+         business_id,branch_id,source_entity_type,source_entity_id,created_by_user_id,action_type,title,reason,evidence,status
+       ) VALUES($1,$2,'CUSTOMER',$3,$4,'CREATE_RECEIVABLE_FOLLOW_UP','Duplicate','Evidence','[]','SNOOZED')`,
+      [businessId, branchId, entityId, userId],
+    )).rejects.toMatchObject({ code: "23505" });
+
+    await pool.query(
+      `UPDATE business_action_items SET status='DONE',completed_at=now()
+       WHERE business_id=$1 AND source_entity_type='CUSTOMER' AND source_entity_id=$2`,
+      [businessId, entityId],
+    );
+
+    await expect(pool.query(
+      `INSERT INTO business_action_items(
+         business_id,branch_id,source_entity_type,source_entity_id,created_by_user_id,action_type,title,reason,evidence,status
+       ) VALUES($1,$2,'CUSTOMER',$3,$4,'CREATE_RECEIVABLE_FOLLOW_UP','Reopened','Evidence','[]','OPEN')`,
+      [businessId, branchId, entityId, userId],
+    )).resolves.toBeTruthy();
+
+    await expect(pool.query(
+      `INSERT INTO business_action_items(
+         business_id,branch_id,source_entity_type,source_entity_id,created_by_user_id,action_type,title,reason,evidence,status
+       ) VALUES($1,$2,'SUPPLIER',$3,'70000000-0000-4000-8000-000000009999','CREATE_FOLLOW_UP','Bad creator','Evidence','[]','OPEN')`,
+      [businessId, branchId, "70000000-0000-4000-8000-000000000100"],
+    )).rejects.toMatchObject({ code: "23503" });
+  });
+
 });
 
 async function seedBusiness(name: string): Promise<string> {
