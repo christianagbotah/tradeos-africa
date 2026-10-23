@@ -153,6 +153,14 @@ describe("entity intelligence safe action creation", () => {
     expect(customerTask.item.evidence.some((item) => item.label === "creditLimitMinor")).toBe(true);
 
     await pool.query(`UPDATE business_memberships SET role='INVENTORY' WHERE business_id=$1 AND user_id=$2`, [B1, OWNER]);
+
+    const retryAsInventory = await createBusinessEntityActionItem(pool, { userId: OWNER, businessId: B1 }, {
+      businessId: B1, branchId: BR1, entityType: "SUPPLIER", entityId: SUPPLIER1, now: NOW,
+    });
+    expect(retryAsInventory.created).toBe(false);
+    expect(retryAsInventory.item.id).toBe(supplierTask.item.id);
+    expect(retryAsInventory.item.evidence.some((item) => item.label === "recentPurchaseTotalMinor30d")).toBe(false);
+
     const inventoryQueue = await listBusinessActionItems(pool, {
       userId: OWNER, businessId: B1, role: "INVENTORY", staffId: OWNER_STAFF,
     }, BR1);

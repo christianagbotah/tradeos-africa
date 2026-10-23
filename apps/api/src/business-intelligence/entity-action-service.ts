@@ -7,7 +7,7 @@ import type {
 import type { BusinessRole } from "../auth/authorization.js";
 import type { DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
-import { getBusinessEntityIntelligence } from "./entity-service.js";
+import { filterBusinessEntityEvidenceForRole, getBusinessEntityIntelligence } from "./entity-service.js";
 
 export class BusinessEntityActionError extends Error {
   constructor(
@@ -92,7 +92,9 @@ export async function createBusinessEntityActionItem(
   const dueAt = new Date(now.getTime() + safeAction.dueInHours * 3_600_000);
 
   const existing = await findActive(pool, input, safeAction.actionType);
-  if (existing) return { item: mapAction(existing), created: false };
+  if (existing) {
+    return { item: mapActionForRole(existing, initialAccess.role, input.entityType), created: false };
+  }
 
   try {
     const inserted = await withTransaction(pool, async (client) => {
@@ -123,11 +125,13 @@ export async function createBusinessEntityActionItem(
       );
       return result.rows[0]!;
     });
-    return { item: mapAction(inserted), created: true };
+    return { item: mapActionForRole(inserted, initialAccess.role, input.entityType), created: true };
   } catch (error) {
     if (isPgCode(error, "23505")) {
       const duplicate = await findActive(pool, input, safeAction.actionType);
-      if (duplicate) return { item: mapAction(duplicate), created: false };
+      if (duplicate) {
+        return { item: mapActionForRole(duplicate, initialAccess.role, input.entityType), created: false };
+      }
     }
     throw error;
   }
@@ -214,6 +218,18 @@ function mapAction(row: ActionRow): BusinessActionItem {
     completedAt: iso(row.completed_at),
     createdAt: iso(row.created_at)!,
     updatedAt: iso(row.updated_at)!,
+  };
+}
+
+function mapActionForRole(
+  row: ActionRow,
+  role: BusinessRole,
+  entityType: BusinessEntityType,
+): BusinessActionItem {
+  const item = mapAction(row);
+  return {
+    ...item,
+    evidence: filterBusinessEntityEvidenceForRole(role, entityType, item.evidence),
   };
 }
 
