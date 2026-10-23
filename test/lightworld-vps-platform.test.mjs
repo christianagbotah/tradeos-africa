@@ -536,6 +536,31 @@ test('adapter runtime executes only an identifier-resolved deployment adapter', 
   } finally { cleanup(fixture); }
 });
 
+test('tracked source drift is rejected before postgres-ledger migrations can execute', () => {
+  const fixture = makeFixture();
+  try {
+    const migrationMarker = path.join(fixture.root, 'drift-migration.marker');
+    const sha = addMigrationProbe(fixture);
+    const adapter = path.join(fixture.adapterRoot, 'mutating-build-before-migration');
+    fs.writeFileSync(adapter, '#!/usr/bin/env bash\nset -euo pipefail\nprintf "mutated\n" > README.md\n', { mode: 0o700 });
+    writeRegistry(fixture, {
+      SOURCE_MODE: 'canonical-worktree',
+      SOURCE_REPO: fixture.sourceRepo,
+      RUNTIME_FAMILY: 'adapter',
+      BUILD_ADAPTER: 'mutating-build-before-migration',
+      MIGRATION_MODE: 'postgres-ledger',
+    });
+    const result = deploy(fixture, sha, {
+      LIGHTWORLD_TEST_MIGRATION_MARKER: migrationMarker,
+      LIGHTWORLD_TEST_CURRENT_LINK: fixture.currentLink,
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /tracked|source|drift|canonical/i);
+    assert.equal(fs.existsSync(migrationMarker), false, 'unverified tracked source must never reach migrations');
+    assert.equal(fs.existsSync(fixture.currentLink), false, 'drifted release must never activate');
+  } finally { cleanup(fixture); }
+});
+
 test('canonical-worktree deployment rejects tracked source drift introduced by the build adapter', () => {
   const fixture = makeFixture();
   try {
