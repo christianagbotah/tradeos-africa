@@ -578,3 +578,80 @@
   .tos-ai-automation-editor__actions,
   .tos-ai-automation-card__actions { grid-template-columns: 1fr; }
 }
+
+/* Contextual intelligence — shared across tenant workflows. */
+.tos-context-ai {
+  display: grid;
+  gap: var(--tos-space-4);
+  margin: 0 0 var(--tos-space-5);
+  padding: var(--tos-space-4);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-lg);
+  background: linear-gradient(145deg, var(--tos-surface), var(--tos-surface-muted));
+  box-shadow: var(--tos-shadow-sm);
+}
+
+.tos-context-ai__head,
+.tos-context-ai__footer,
+.tos-context-ai__panel-head,
+.tos-context-ai__signal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tos-space-3);
+}
+
+.tos-context-ai__heading h2,
+.tos-context-ai__panel h3 { margin: 0; color: var(--tos-text-strong); }
+.tos-context-ai__heading p { margin: 6px 0 0; max-width: 78ch; color: var(--tos-text); line-height: 1.55; }
+.tos-context-ai__meta { display: grid; justify-items: end; gap: 6px; flex: 0 0 auto; }
+
+.tos-context-ai__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-space-3);
+}
+
+.tos-context-ai__panel {
+  min-width: 0;
+  padding: var(--tos-space-3);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: color-mix(in srgb, var(--tos-surface) 92%, transparent);
+}
+
+.tos-context-ai__signal-list,
+.tos-context-ai__recommendations { display: grid; gap: var(--tos-space-2); margin-top: var(--tos-space-3); }
+
+.tos-context-ai__signal,
+.tos-context-ai__recommendation,
+.tos-context-ai__readiness,
+.tos-context-ai__calm {
+  padding: var(--tos-space-3);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface-muted);
+}
+
+.tos-context-ai__signal p,
+.tos-context-ai__recommendation p,
+.tos-context-ai__readiness p { margin: 6px 0 0; color: var(--tos-text); line-height: 1.5; }
+.tos-context-ai__recommendation .tos-ai-workflow-link { display: inline-flex; margin-top: var(--tos-space-2); }
+.tos-context-ai__severity { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; color: var(--tos-text-muted); }
+.tos-context-ai__signal[data-severity="critical"] .tos-context-ai__severity,
+.tos-context-ai__signal[data-severity="high"] .tos-context-ai__severity { color: var(--tos-danger); }
+.tos-context-ai__signal[data-severity="medium"] .tos-context-ai__severity { color: var(--tos-warning); }
+.tos-context-ai__calm { color: var(--tos-text-muted); line-height: 1.5; }
+
+.tos-context-ai__footer { align-items: center; color: var(--tos-text-muted); font-size: 0.82rem; }
+.tos-context-ai__offline-actions { display: flex; justify-content: flex-end; }
+.tos-context-ai--loading { min-height: 140px; align-content: center; }
+
+@media (max-width: 720px) {
+  .tos-context-ai { padding: var(--tos-space-3); }
+  .tos-context-ai__head,
+  .tos-context-ai__footer { flex-direction: column; align-items: stretch; }
+  .tos-context-ai__meta { justify-items: start; }
+  .tos-context-ai__grid { grid-template-columns: 1fr; }
+  .tos-context-ai__footer .tos-btn,
+  .tos-context-ai__offline-actions .tos-btn { width: 100%; }
+}
