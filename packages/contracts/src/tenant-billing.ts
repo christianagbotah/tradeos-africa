@@ -12,9 +12,10 @@ export type TenantBillingInvoiceStatus =
   | "PARTIALLY_PAID"
   | "PAID"
   | "VOID"
-  | "UNCOLLECTIBLE";
+  | "UNCOLLECTIBLE"
+  | "REFUNDED";
 
-export type TenantBillingPaymentStatus = "PENDING" | "SUCCEEDED" | "FAILED" | "REFUNDED" | "PARTIALLY_REFUNDED";
+export type TenantBillingPaymentStatus = "PENDING" | "SUCCEEDED" | "FAILED" | "REVERSED" | "REFUNDED" | "PARTIALLY_REFUNDED";
 export type TenantBillingAction = "CANCEL_AT_PERIOD_END" | "RESUME";
 
 export type TenantBillingEntitlement = {

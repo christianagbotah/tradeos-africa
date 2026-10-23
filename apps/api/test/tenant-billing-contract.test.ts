@@ -27,6 +27,8 @@ describe("tenant billing contracts", () => {
     expect(source).toContain("TenantBillingInvoiceSummary");
     expect(source).toContain("TenantBillingInvoiceDetail");
     expect(source).toContain("TenantBillingPaymentSummary");
+    expect(source).toContain('"REFUNDED";');
+    expect(source).toContain('"REVERSED"');
     expect(source).not.toMatch(/providerCustomerReference|providerSubscriptionReference|providerEventReference|idempotencyKey|rawMetadata/);
   });
 
