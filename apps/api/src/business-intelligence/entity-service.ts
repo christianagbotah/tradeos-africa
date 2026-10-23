@@ -4,6 +4,8 @@ import type {
   BusinessEntityContext,
   BusinessEntityIdentity,
   BusinessEntityIntelligence,
+  BusinessEntitySafeAction,
+  BusinessEntityType,
   BusinessEvidenceReference,
   BusinessRecommendation,
 } from "@tradeos/contracts";
@@ -72,8 +74,34 @@ export async function getBusinessEntityIntelligence(
     evidence: collected.evidence.slice(0, 30),
     attentionItems: attentionItems.slice(0, 6),
     recommendations: [recommendation(input, collected, attentionItems)],
+    safeAction: businessEntitySafeAction(input.role, input.entityType),
     askPrompt: askPrompt(collected.entity),
   };
+}
+
+
+export function businessEntitySafeAction(role: BusinessRole, entityType: BusinessEntityType): BusinessEntitySafeAction | null {
+  switch (entityType) {
+    case "CATALOG_ITEM":
+      return ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role)
+        ? { actionType: "CREATE_REORDER_REVIEW", label: "Create reorder review", dueInHours: 24 }
+        : null;
+    case "CUSTOMER":
+      if (["OWNER", "ADMIN", "ACCOUNTANT"].includes(role)) {
+        return { actionType: "CREATE_RECEIVABLE_FOLLOW_UP", label: "Create receivables follow-up", dueInHours: 24 };
+      }
+      return ["MANAGER", "SALES"].includes(role)
+        ? { actionType: "CREATE_FOLLOW_UP", label: "Create customer follow-up", dueInHours: 24 }
+        : null;
+    case "SUPPLIER":
+      return ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "INVENTORY"].includes(role)
+        ? { actionType: "CREATE_FOLLOW_UP", label: "Create supplier follow-up", dueInHours: 24 }
+        : null;
+    case "PURCHASE":
+      return ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "INVENTORY"].includes(role)
+        ? { actionType: "CREATE_FOLLOW_UP", label: "Create purchase follow-up", dueInHours: 24 }
+        : null;
+  }
 }
 
 async function assertScope(client: DatabaseClient, businessId: string, branchId: string | null): Promise<{ currencyCode: string }> {

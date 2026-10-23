@@ -56,6 +56,7 @@ describe("business entity intelligence", () => {
       businessId: B1, branchId: BR1, role: "OWNER", entityType: "CATALOG_ITEM", entityId: ITEM1, now: NOW,
     });
     expect(owner.entity).toEqual({ entityType: "CATALOG_ITEM", entityId: ITEM1, label: "Widget" });
+    expect(owner.safeAction).toEqual({ actionType: "CREATE_REORDER_REVIEW", label: "Create reorder review", dueInHours: 24 });
     expect(value(owner, "availableQuantity")).toBe("5.00000000");
     expect(value(owner, "quarantineQuantity")).toBe("2.00000000");
     expect(value(owner, "soldQuantity30d")).toBe("2.00000000");
@@ -70,6 +71,7 @@ describe("business entity intelligence", () => {
     });
     expect(labels(inventory)).not.toContain("netRevenueMinor30d");
     expect(labels(inventory)).toContain("soldQuantity30d");
+    expect(inventory.safeAction?.actionType).toBe("CREATE_REORDER_REVIEW");
   });
 
   it("subtracts completed return reversals from item net revenue evidence", async () => {
@@ -103,6 +105,7 @@ describe("business entity intelligence", () => {
       businessId: B1, branchId: BR1, role: "OWNER", entityType: "CUSTOMER", entityId: CUSTOMER1, now: NOW,
     });
     expect(owner.entity.label).toBe("Customer One");
+    expect(owner.safeAction).toEqual({ actionType: "CREATE_RECEIVABLE_FOLLOW_UP", label: "Create receivables follow-up", dueInHours: 24 });
     expect(value(owner, "hasPhone")).toBe(true);
     expect(value(owner, "hasEmail")).toBe(true);
     expect(value(owner, "openBalanceMinor")).toBe("2500");
@@ -116,6 +119,12 @@ describe("business entity intelligence", () => {
     });
     expect(labels(sales)).toEqual(expect.arrayContaining(["customerName", "isActive", "hasPhone", "hasEmail"]));
     expect(labels(sales)).not.toEqual(expect.arrayContaining(["openBalanceMinor", "creditLimitMinor", "oldestDueAt"]));
+    expect(sales.safeAction).toEqual({ actionType: "CREATE_FOLLOW_UP", label: "Create customer follow-up", dueInHours: 24 });
+
+    const viewer = await getBusinessEntityIntelligence(pool, {
+      businessId: B1, branchId: BR1, role: "VIEWER", entityType: "CUSTOMER", entityId: CUSTOMER1, now: NOW,
+    });
+    expect(viewer.safeAction).toBeNull();
   });
 
   it("returns supplier operational history to inventory roles but payable amounts only to financial roles", async () => {
@@ -123,6 +132,7 @@ describe("business entity intelligence", () => {
       businessId: B1, branchId: BR1, role: "ACCOUNTANT", entityType: "SUPPLIER", entityId: SUPPLIER1, now: NOW,
     });
     expect(value(owner, "openPayableMinor")).toBe("6000");
+    expect(owner.safeAction).toEqual({ actionType: "CREATE_FOLLOW_UP", label: "Create supplier follow-up", dueInHours: 24 });
     expect(metadata(owner, "openPayableMinor")).toEqual({ kind: "money_minor", currencyCode: "GHS" });
     expect(metadata(owner, "recentPurchaseTotalMinor30d")).toEqual({ kind: "money_minor", currencyCode: "GHS" });
     expect(value(owner, "recentPurchaseCount30d")).toBe(1);
@@ -133,6 +143,7 @@ describe("business entity intelligence", () => {
     expect(value(inventory, "recentPurchaseCount30d")).toBe(1);
     expect(labels(inventory)).not.toContain("openPayableMinor");
     expect(labels(inventory)).not.toContain("recentPurchaseTotalMinor30d");
+    expect(inventory.safeAction?.actionType).toBe("CREATE_FOLLOW_UP");
   });
 
   it("enforces purchase branch scope and filters purchase totals for non-financial roles", async () => {
@@ -140,6 +151,7 @@ describe("business entity intelligence", () => {
       businessId: B1, branchId: BR1, role: "MANAGER", entityType: "PURCHASE", entityId: PURCHASE1, now: NOW,
     });
     expect(owner.entity.label).toContain("Supplier One");
+    expect(owner.safeAction).toEqual({ actionType: "CREATE_FOLLOW_UP", label: "Create purchase follow-up", dueInHours: 24 });
     expect(value(owner, "lineCount")).toBe(1);
     expect(value(owner, "totalMinor")).toBe("8000");
     expect(metadata(owner, "totalMinor")).toEqual({ kind: "money_minor", currencyCode: "GHS" });

@@ -3,6 +3,7 @@ import type {
   BusinessAutomationPolicy,
   BusinessAutomationRun,
   BusinessEvidenceReference,
+  BusinessEntityType,
 } from "@tradeos/contracts";
 import type { BusinessRole } from "../auth/authorization.js";
 import type { DatabaseClient, DatabasePool } from "../db.js";
@@ -76,6 +77,9 @@ type ActionRow = {
   branch_id: string | null;
   source_attention_item_id: string | null;
   source_automation_run_id: string | null;
+  source_entity_type: BusinessEntityType | null;
+  source_entity_id: string | null;
+  created_by_user_id: string | null;
   action_type: string | null;
   title: string;
   reason: string;
@@ -872,6 +876,9 @@ function mapAction(row: ActionRow): BusinessActionItem {
     id: row.id,
     sourceAttentionItemId: row.source_attention_item_id,
     sourceAutomationRunId: row.source_automation_run_id,
+    sourceEntityType: row.source_entity_type,
+    sourceEntityId: row.source_entity_id,
+    createdByUserId: row.created_by_user_id,
     actionType: row.action_type,
     title: row.title,
     reason: row.reason,
@@ -902,6 +909,6 @@ const POLICY_SELECT = `SELECT id,business_id,branch_id,code,name,description,ena
 const RUN_SELECT = `SELECT id,business_id,branch_id,policy_id,policy_version,trigger_source,trigger_correlation_id,state,
   structured_input,output_summary,evidence,error_message,started_at,completed_at,created_at,updated_at
   FROM business_automation_runs`;
-const ACTION_SELECT = `SELECT id,business_id,branch_id,source_attention_item_id,source_automation_run_id,action_type,title,reason,
+const ACTION_SELECT = `SELECT id,business_id,branch_id,source_attention_item_id,source_automation_run_id,source_entity_type,source_entity_id,created_by_user_id,action_type,title,reason,
   evidence,assigned_user_id,assigned_staff_id,due_at,status,snoozed_until,completed_at,created_at,updated_at
   FROM business_action_items`;
