@@ -7242,6 +7242,11 @@
   }
 }
 
+@media (max-width: 480px) {
+  /* Reports narrow-phone overflow guard */
+  .tos-report-kpi-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* --- Report flow card (cash in / out / net) -------------------------- */
 .tos-report-flow {
   display: flex;

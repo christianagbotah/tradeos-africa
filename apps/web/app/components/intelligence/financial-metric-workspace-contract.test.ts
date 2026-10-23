@@ -4,9 +4,14 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = resolve(__dirname, "../../..");
 const reportsPath = resolve(ROOT, "app/components/reports/financial-reports.tsx");
+const reportsCssPath = resolve(ROOT, "app/workspace-shell.css");
 
 function source(): string {
   return readFileSync(reportsPath, "utf8");
+}
+
+function cssSource(): string {
+  return readFileSync(reportsCssPath, "utf8");
 }
 
 describe("financial metric workspace contract", () => {
@@ -51,5 +56,11 @@ describe("financial metric workspace contract", () => {
     const reports = source();
     expect(reports).toMatch(/range=\{range\}/);
     expect(reports).toMatch(/onClick=\{\(\)\s*=>\s*setRange\(r\.value\)\}/);
+  });
+
+  it("stacks report KPI cards on narrow phones so Explain controls cannot widen the page", () => {
+    const css = cssSource();
+    expect(css).toContain("/* Reports narrow-phone overflow guard */");
+    expect(css).toContain(".tos-report-kpi-grid { grid-template-columns: minmax(0, 1fr); }");
   });
 });
