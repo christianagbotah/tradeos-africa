@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "pnpm --filter @tradeos/domain build",
     "test": "vitest run --no-file-parallelism",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "apply-migrations": "tsx src/scripts/apply-migrations.ts"
   },
   "dependencies": {
     "@fastify/multipart": "10.1.3",

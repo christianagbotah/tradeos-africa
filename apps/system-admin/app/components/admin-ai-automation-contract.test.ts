@@ -27,6 +27,15 @@ describe("System Admin AI operations and automation contract", () => {
     expect(overview).toContain("Deterministic attention remains available");
   });
 
+  it("gives the overview AI briefing padded content and consistent vertical spacing", () => {
+    const overview = read("console/page.tsx");
+    const css = read("admin-components.css");
+    expect(overview).toMatch(/<Section[\s\S]*title="AI operations briefing"[\s\S]*padded[\s\S]*>/);
+    expect(overview).toContain('className="admin-ai-briefing-stack"');
+    expect(css).toMatch(/\.admin-ai-briefing-stack\s*\{[\s\S]*display:\s*grid;[\s\S]*gap:\s*var\(--tos-admin-space-md\)/);
+    expect(css).toMatch(/\.admin-ai-category-grid span\s*\{[\s\S]*padding:\s*8px 12px/);
+  });
+
   it("renders insight cards with evidence, confidence, record links and generated time", () => {
     expect(exists("components/ai-insight-card.tsx")).toBe(true);
     if (!exists("components/ai-insight-card.tsx")) return;

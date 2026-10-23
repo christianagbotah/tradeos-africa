@@ -167,7 +167,9 @@ function OperationsBriefing() {
       title="AI operations briefing"
       sub="Grounded AI interpretation sits on top of deterministic control-plane facts; it never replaces them."
       actions={<Link className="admin-secondary-button" href="/console/automation">Open AI Operations</Link>}
+      padded
     >
+      <div className="admin-ai-briefing-stack">
       <div className="admin-ai-category-grid" aria-label="Briefing priorities">
         <span>Urgent now</span>
         <span>Revenue & billing risk</span>
@@ -217,6 +219,7 @@ function OperationsBriefing() {
             generatedAt={item.lastSeenAt}
           />
         ))}
+      </div>
       </div>
     </Section>
   );
