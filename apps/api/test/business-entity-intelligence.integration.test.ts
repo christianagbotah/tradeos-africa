@@ -71,6 +71,32 @@ describe("business entity intelligence", () => {
     expect(labels(inventory)).toContain("soldQuantity30d");
   });
 
+  it("subtracts completed return reversals from item net revenue evidence", async () => {
+    const saleLine = await pool.query<{ id: string }>(
+      `SELECT id FROM sale_lines WHERE business_id=$1 AND sale_id=$2 AND item_id=$3 LIMIT 1`,
+      [B1, SALE1, ITEM1],
+    );
+    const returnCase = await pool.query<{ id: string }>(
+      `INSERT INTO return_cases(
+         business_id,branch_id,original_sale_id,customer_id,initiated_by_staff_id,status,reason,refund_method,currency_code,
+         net_revenue_reversal_minor,refund_total_minor,cogs_reversal_minor,client_mutation_id,created_at,completed_at
+       ) VALUES($1,$2,$3,$4,$5,'COMPLETED','Customer return','CASH','GHS',2000,2000,800,'entity-return-1',$6,$6) RETURNING id`,
+      [B1, BR1, SALE1, CUSTOMER1, STAFF1, NOW],
+    );
+    await pool.query(
+      `INSERT INTO return_lines(return_case_id,original_sale_line_id,quantity,disposition,net_revenue_reversal_minor,cogs_reversal_minor)
+       VALUES($1,$2,0.8,'RESTOCK',2000,800)`,
+      [returnCase.rows[0]!.id, saleLine.rows[0]!.id],
+    );
+    await pool.query(`UPDATE sales SET status='PARTIALLY_REFUNDED' WHERE id=$1`, [SALE1]);
+
+    const owner = await getBusinessEntityIntelligence(pool, {
+      businessId: B1, branchId: BR1, role: "OWNER", entityType: "CATALOG_ITEM", entityId: ITEM1, now: NOW,
+    });
+
+    expect(value(owner, "netRevenueMinor30d")).toBe("3000");
+  });
+
   it("returns customer credit evidence only to financial roles and never leaks contact values", async () => {
     const owner = await getBusinessEntityIntelligence(pool, {
       businessId: B1, branchId: BR1, role: "OWNER", entityType: "CUSTOMER", entityId: CUSTOMER1, now: NOW,

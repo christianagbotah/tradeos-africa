@@ -133,13 +133,25 @@ async function collectCatalogItem(
   }
 
   const sales = (await client.query<{ sale_count: number; sold_quantity: string; revenue_minor: string }>(
-    `SELECT count(DISTINCT s.id)::int AS sale_count,
-            COALESCE(SUM(COALESCE(sl.stock_quantity,sl.quantity)),0)::text AS sold_quantity,
-            COALESCE(SUM(sl.line_net_minor),0)::text AS revenue_minor
-     FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id AND s.business_id=sl.business_id
-     WHERE s.business_id=$1::uuid AND sl.item_id=$3::uuid AND ($2::uuid IS NULL OR s.branch_id=$2::uuid)
-       AND s.status IN ('COMPLETED','PARTIALLY_REFUNDED','REFUNDED')
-       AND s.completed_at >= $4::timestamptz - interval '30 days'`,
+    `WITH sale_events AS (
+       SELECT count(DISTINCT s.id)::int AS sale_count,
+              COALESCE(SUM(COALESCE(sl.stock_quantity,sl.quantity)),0) AS sold_quantity,
+              COALESCE(SUM(sl.line_net_minor),0)::bigint AS revenue_minor
+       FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id AND s.business_id=sl.business_id
+       WHERE s.business_id=$1::uuid AND sl.item_id=$3::uuid AND ($2::uuid IS NULL OR s.branch_id=$2::uuid)
+         AND s.status IN ('COMPLETED','PARTIALLY_REFUNDED','REFUNDED')
+         AND s.completed_at >= $4::timestamptz - interval '30 days'
+     ), return_events AS (
+       SELECT COALESCE(SUM(rl.net_revenue_reversal_minor),0)::bigint AS revenue_reversal_minor
+       FROM return_lines rl
+       JOIN return_cases r ON r.id=rl.return_case_id
+       JOIN sale_lines sl ON sl.id=rl.original_sale_line_id
+       WHERE r.business_id=$1::uuid AND sl.item_id=$3::uuid AND ($2::uuid IS NULL OR r.branch_id=$2::uuid)
+         AND r.status IN ('PROCESSING','COMPLETED')
+         AND COALESCE(r.completed_at,r.created_at) >= $4::timestamptz - interval '30 days'
+     )
+     SELECT s.sale_count,s.sold_quantity::text,(s.revenue_minor-r.revenue_reversal_minor)::text AS revenue_minor
+     FROM sale_events s CROSS JOIN return_events r`,
     [input.businessId, input.branchId, input.entityId, observedAt],
   )).rows[0];
   evidence.push(ref("sales", "CATALOG_ITEM", item.id, "completedSales30d", sales?.sale_count ?? 0, observedAt));
