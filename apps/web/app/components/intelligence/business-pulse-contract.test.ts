@@ -35,8 +35,20 @@ describe("business pulse contract",()=>{
     expect(pulse).toMatch(/method:\s*"POST"/);
     expect(pulse).toMatch(/JSON\.stringify\(\{\s*businessId:\s*session\.businessId,\s*branchId:\s*session\.branchId\s*\}\)/s);
     expect(pulse).toMatch(/if \((?:!session \|\| )?!queue\.online/);
-    expect(pulse).toMatch(/useEffect\(\(\) => \{[\s\S]*if \(!open \|\| !pulse \|\| pulse\.unseenCount < 1\) return;[\s\S]*void markSeen\(pulse\);/);
+    expect(pulse).toContain("refetch");
+    expect(pulse).toContain("awaitingFresh");
+    expect(pulse).toMatch(/setAwaitingFresh\(true\);[\s\S]*refetch\(\);/);
+    expect(pulse).toMatch(/if \(!open \|\| awaitingFresh \|\| loading \|\| !pulse \|\| pulse\.unseenCount < 1\) return;/);
+    expect(pulse).toMatch(/void markSeen\(pulse\);/);
     expect(pulse).not.toMatch(/\/(?:sales|payments|refunds|returns|purchases|inventory|cashbook|staff|memberships)\b[^"']*["'][^\n]*method:\s*"(?:POST|PATCH|DELETE)"/s);
+  });
+
+  it("resets open/acknowledgement UI when business or branch context changes",()=>{
+    const pulse=source(panelPath);
+    expect(pulse).toContain("contextKeyRef");
+    expect(pulse).toMatch(/setOpen\(false\);[\s\S]*setAwaitingFresh\(false\);[\s\S]*setSeenBusy\(false\);[\s\S]*setSeenError\(null\);/);
+    expect(pulse).toMatch(/\[contextKey\]/);
+    expect(pulse).toMatch(/contextKeyRef\.current !== requestKey/);
   });
 
   it("keeps feed actions navigation-only and ships responsive drawer styling",()=>{

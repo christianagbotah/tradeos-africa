@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BusinessActionItem, BusinessAttentionItem, BusinessPulse } from "@tradeos/contracts";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { getOfflineQueue } from "../../../lib/offline-sync";
@@ -13,15 +13,26 @@ export function BusinessPulsePanel() {
   const [open, setOpen] = useState(false);
   const [seenBusy, setSeenBusy] = useState(false);
   const [seenError, setSeenError] = useState<string | null>(null);
+  const [awaitingFresh, setAwaitingFresh] = useState(false);
+  const contextKey = session ? `${session.businessId}:${session.branchId ?? ""}` : "";
+  const contextKeyRef = useRef(contextKey);
   const pulsePath = session && queue.online
     ? `/v1/intelligence/pulse?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=12`
     : null;
-  const { data, loading, error, setData } = useApiFetch<BusinessPulse>(pulsePath);
+  const { data, loading, error, refetch, setData } = useApiFetch<BusinessPulse>(pulsePath);
   const pulseMatchesContext = Boolean(
     session && data && data.businessId === session.businessId && data.branchId === session.branchId,
   );
   const pulse = pulseMatchesContext ? data : null;
   const unseenCount = pulse?.unseenCount ?? 0;
+
+  useEffect(() => {
+    contextKeyRef.current = contextKey;
+    setOpen(false);
+    setAwaitingFresh(false);
+    setSeenBusy(false);
+    setSeenError(null);
+  }, [contextKey]);
 
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
@@ -31,7 +42,8 @@ export function BusinessPulsePanel() {
   }, [open]);
 
   async function markSeen(snapshot: BusinessPulse) {
-    if (!session || !queue.online || seenBusy || snapshot.unseenCount < 1) return;
+    const requestKey = `${snapshot.businessId}:${snapshot.branchId ?? ""}`;
+    if (!session || !queue.online || seenBusy || snapshot.unseenCount < 1 || contextKeyRef.current !== requestKey) return;
     setSeenBusy(true);
     setSeenError(null);
     try {
@@ -42,29 +54,39 @@ export function BusinessPulsePanel() {
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response));
       const acknowledged = (await response.json()) as { lastSeenAt: string };
-      if (snapshot.businessId === session.businessId && snapshot.branchId === session.branchId) {
+      if (contextKeyRef.current === requestKey) {
         setData({ ...snapshot, lastSeenAt: acknowledged.lastSeenAt, unseenCount: 0 });
       }
     } catch (markError) {
-      setSeenError(markError instanceof Error ? markError.message : "Pulse could not be marked as seen.");
+      if (contextKeyRef.current === requestKey) {
+        setSeenError(markError instanceof Error ? markError.message : "Pulse could not be marked as seen.");
+      }
     } finally {
-      setSeenBusy(false);
+      if (contextKeyRef.current === requestKey) setSeenBusy(false);
     }
   }
 
   useEffect(() => {
-    if (!open || !pulse || pulse.unseenCount < 1) return;
+    if (!open || !awaitingFresh || loading) return;
+    setAwaitingFresh(false);
+  }, [open, awaitingFresh, loading]);
+
+  useEffect(() => {
+    if (!open || awaitingFresh || loading || !pulse || pulse.unseenCount < 1) return;
     void markSeen(pulse);
     // A failed seen request should not loop; retry occurs when the live Pulse snapshot changes or the drawer is reopened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, pulse]);
+  }, [open, awaitingFresh, loading, pulse]);
 
   if (!session) return null;
 
   const openPulse = () => {
     setOpen(true);
     setSeenError(null);
-    if (pulse) void markSeen(pulse);
+    if (queue.online) {
+      setAwaitingFresh(true);
+      refetch();
+    }
   };
 
   return (
