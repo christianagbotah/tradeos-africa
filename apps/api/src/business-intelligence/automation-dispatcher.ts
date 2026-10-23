@@ -143,34 +143,40 @@ export async function runTenantAutomationDispatcherTick(
 export function startTenantAutomationDispatcher(
   pool: DatabasePool,
   options: StartOptions = {},
-): { stop(): void } {
-  if (options.enabled === false) return { stop() {} };
+): { stop(): Promise<void> } {
+  if (options.enabled === false) return { async stop() {} };
 
   const intervalMs = normalizeInterval(options.intervalMs);
   let stopped = false;
-  let running = false;
-  const tick = async () => {
-    if (stopped || running) return;
-    running = true;
-    try {
-      const tickOptions = options.now ? { intervalMs, now: options.now } : { intervalMs };
-      await runTenantAutomationDispatcherTick(pool, tickOptions);
-    } catch (error) {
-      logDispatcherError("scheduler tick failed", error, {});
-    } finally {
-      running = false;
-    }
+  let currentTick: Promise<void> | null = null;
+  const tick = () => {
+    if (stopped || currentTick) return;
+    const pending = (async () => {
+      try {
+        const tickOptions = options.now ? { intervalMs, now: options.now } : { intervalMs };
+        await runTenantAutomationDispatcherTick(pool, tickOptions);
+      } catch (error) {
+        logDispatcherError("scheduler tick failed", error, {});
+      }
+    })();
+    const tracked = pending.finally(() => {
+      if (currentTick === tracked) currentTick = null;
+    });
+    currentTick = tracked;
   };
 
-  void tick();
-  const timer = setInterval(() => { void tick(); }, intervalMs);
+  tick();
+  const timer = setInterval(tick, intervalMs);
   timer.unref?.();
 
   return {
-    stop() {
-      if (stopped) return;
-      stopped = true;
-      clearInterval(timer);
+    async stop() {
+      if (!stopped) {
+        stopped = true;
+        clearInterval(timer);
+      }
+      const pending = currentTick;
+      if (pending) await pending;
     },
   };
 }

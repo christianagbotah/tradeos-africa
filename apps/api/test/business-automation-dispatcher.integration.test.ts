@@ -53,16 +53,12 @@ describe("tenant proactive automation dispatcher", () => {
     });
 
     const disabled = startTenantAutomationDispatcher(pool, { enabled: false, intervalMs: 40, now: () => FIXED_NOW });
-    await sleep(100);
-    disabled.stop();
+    await disabled.stop();
     expect(await runCount(policyId)).toBe(0);
 
     const first = startTenantAutomationDispatcher(pool, { intervalMs: 40, now: () => FIXED_NOW });
     const second = startTenantAutomationDispatcher(pool, { intervalMs: 40, now: () => FIXED_NOW });
-    await sleep(400);
-    first.stop();
-    second.stop();
-    await sleep(50);
+    await Promise.all([first.stop(), second.stop()]);
 
     expect(await runCount(policyId)).toBe(1);
     const actions = await pool.query<{ count: string }>(
@@ -180,7 +176,7 @@ describe("tenant proactive automation dispatcher", () => {
     expect(serverSource).toContain("startTenantAutomationDispatcher");
     expect(serverSource).toContain("TENANT_AUTOMATION_SCHEDULER_ENABLED");
     expect(serverSource).toContain("TENANT_AUTOMATION_SCHEDULER_INTERVAL_MS");
-    expect(serverSource.match(/tenantAutomationDispatcher\.stop\(\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(serverSource.match(/await tenantAutomationDispatcher\.stop\(\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     expect(appSource).not.toContain("startTenantAutomationDispatcher");
   });
 
@@ -298,8 +294,4 @@ async function policyRunState(policyId: string): Promise<string | null> {
     [policyId],
   );
   return result.rows[0]?.state ?? null;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

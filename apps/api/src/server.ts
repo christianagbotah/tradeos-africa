@@ -23,8 +23,8 @@ const host = process.env.HOST ?? "0.0.0.0";
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
-  tenantAutomationDispatcher.stop();
-  automationScheduler.stop();
+  await tenantAutomationDispatcher.stop();
+  await automationScheduler.stop();
   await app.close();
   await pool.end();
   process.exit(0);
@@ -36,8 +36,8 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 try {
   await app.listen({ port, host });
 } catch (error) {
-  tenantAutomationDispatcher.stop();
-  automationScheduler.stop();
+  await tenantAutomationDispatcher.stop();
+  await automationScheduler.stop();
   app.log.error(error);
   await pool.end();
   process.exit(1);

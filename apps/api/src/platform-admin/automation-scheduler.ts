@@ -108,33 +108,39 @@ export async function evaluatePlatformEvent(
 export function startPlatformAutomationScheduler(
   pool: DatabasePool,
   options: { intervalMs?: number; now?: () => Date } = {},
-): { stop(): void } {
+): { stop(): Promise<void> } {
   const intervalMs = normalizeInterval(options.intervalMs);
   let stopped = false;
-  let running = false;
+  let currentTick: Promise<void> | null = null;
 
-  const tick = async () => {
-    if (stopped || running) return;
-    running = true;
-    try {
-      const tickOptions = options.now ? { intervalMs, now: options.now } : { intervalMs };
-      await runPlatformAutomationSchedulerTick(pool, tickOptions);
-    } catch (error) {
-      console.error("TradeOS platform automation scheduler tick failed", error);
-    } finally {
-      running = false;
-    }
+  const tick = () => {
+    if (stopped || currentTick) return;
+    const pending = (async () => {
+      try {
+        const tickOptions = options.now ? { intervalMs, now: options.now } : { intervalMs };
+        await runPlatformAutomationSchedulerTick(pool, tickOptions);
+      } catch (error) {
+        console.error("TradeOS platform automation scheduler tick failed", error);
+      }
+    })();
+    const tracked = pending.finally(() => {
+      if (currentTick === tracked) currentTick = null;
+    });
+    currentTick = tracked;
   };
 
-  void tick();
-  const timer = setInterval(() => { void tick(); }, intervalMs);
+  tick();
+  const timer = setInterval(tick, intervalMs);
   timer.unref?.();
 
   return {
-    stop() {
-      if (stopped) return;
-      stopped = true;
-      clearInterval(timer);
+    async stop() {
+      if (!stopped) {
+        stopped = true;
+        clearInterval(timer);
+      }
+      const pending = currentTick;
+      if (pending) await pending;
     },
   };
 }
