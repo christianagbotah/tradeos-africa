@@ -120,19 +120,43 @@ function deploy(fixture, sha, env = {}) {
   });
 }
 
+function addMigrationProbe(fixture, { exitCode = 0 } = {}) {
+  const script = path.join(fixture.workspace, 'apps', 'api', 'dist', 'scripts', 'apply-migrations.js');
+  const migrations = path.join(fixture.workspace, 'packages', 'db', 'migrations');
+  fs.mkdirSync(path.dirname(script), { recursive: true });
+  fs.mkdirSync(migrations, { recursive: true });
+  fs.writeFileSync(path.join(migrations, '0001_probe.sql'), 'BEGIN; SELECT 1; COMMIT;\n');
+  fs.writeFileSync(script, [
+    'import fs from "node:fs";',
+    'const payload = {',
+    '  releaseSha: process.env.TRADEOS_RELEASE_SHA ?? null,',
+    '  migrationDirectory: process.argv[2] ?? null,',
+    '  currentExists: fs.existsSync(process.env.LIGHTWORLD_TEST_CURRENT_LINK),',
+    '};',
+    'fs.writeFileSync(process.env.LIGHTWORLD_TEST_MIGRATION_MARKER, JSON.stringify(payload));',
+    `process.exit(${exitCode});`,
+    '',
+  ].join('\n'));
+  git(fixture.workspace, 'add', 'apps/api/dist/scripts/apply-migrations.js', 'packages/db/migrations/0001_probe.sql');
+  git(fixture.workspace, 'commit', '-m', `migration probe ${exitCode}`);
+  pushCanonical(fixture);
+  return git(fixture.workspace, 'rev-parse', 'HEAD');
+}
+
 function writeWorkspaceContract(fixture, content) {
   const dir = path.join(fixture.workspace, 'ops', 'lightworld-vps', 'apps');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'demo.staging.conf.example'), content);
 }
 
-function checkWorkspaceContract(fixture, processNames, localHealthUrls) {
+function checkWorkspaceContract(fixture, processNames, localHealthUrls, migrationMode = 'manual') {
   return run('bash', ['-c', [
     'source "$1"',
     'PROCESS_NAMES="$2"',
     'LOCAL_HEALTH_URLS="$3"',
-    'assert_workspace_registry_contract "$4" demo staging',
-  ].join('; '), 'bash', commonPath, processNames, localHealthUrls, fixture.workspace]);
+    'MIGRATION_MODE="$4"',
+    'assert_workspace_registry_contract "$5" demo staging',
+  ].join('; '), 'bash', commonPath, processNames, localHealthUrls, migrationMode, fixture.workspace]);
 }
 
 test('workspace registry contract accepts matching process and local-health values', () => {
@@ -179,6 +203,23 @@ test('workspace registry contract fails closed on duplicate or missing required 
       assert.notEqual(result.status, 0);
       assert.match(`${result.stderr}\n${result.stdout}`, /contract|PROCESS_NAMES|LOCAL_HEALTH_URLS/i);
     }
+  } finally { cleanup(fixture); }
+});
+
+test('workspace registry contract rejects migration mode drift when the repository pins it', () => {
+  const fixture = makeFixture();
+  try {
+    writeWorkspaceContract(fixture, [
+      "PROCESS_NAMES='demo-api demo-web'",
+      "LOCAL_HEALTH_URLS='test://local'",
+      "MIGRATION_MODE='postgres-ledger'",
+      '',
+    ].join('\n'));
+    const drift = checkWorkspaceContract(fixture, 'demo-api demo-web', 'test://local', 'manual');
+    assert.notEqual(drift.status, 0);
+    assert.match(`${drift.stderr}\n${drift.stdout}`, /MIGRATION_MODE/);
+    const aligned = checkWorkspaceContract(fixture, 'demo-api demo-web', 'test://local', 'postgres-ledger');
+    assert.equal(aligned.status, 0, aligned.stderr || aligned.stdout);
   } finally { cleanup(fixture); }
 });
 
@@ -301,6 +342,42 @@ function waitForChild(child) {
     child.on('close', (code) => resolve({ status: code, stdout, stderr }));
   });
 }
+
+test('postgres-ledger migration mode runs after build and before release activation', () => {
+  const fixture = makeFixture();
+  try {
+    const migrationMarker = path.join(fixture.root, 'migration.marker');
+    const sha = addMigrationProbe(fixture);
+    writeRegistry(fixture, { MIGRATION_MODE: 'postgres-ledger' });
+    const result = deploy(fixture, sha, {
+      LIGHTWORLD_TEST_MIGRATION_MARKER: migrationMarker,
+      LIGHTWORLD_TEST_CURRENT_LINK: fixture.currentLink,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(fs.readFileSync(migrationMarker, 'utf8'));
+    assert.equal(payload.releaseSha, sha);
+    assert.equal(payload.currentExists, false, 'migration must run before first release activation');
+    assert.match(payload.migrationDirectory, /packages\/db\/migrations$/);
+    assert.equal(path.resolve(fs.readlinkSync(fixture.currentLink)), path.join(fixture.releases, sha));
+  } finally { cleanup(fixture); }
+});
+
+test('postgres-ledger migration failure blocks activation and process restart', () => {
+  const fixture = makeFixture();
+  try {
+    const migrationMarker = path.join(fixture.root, 'migration.marker');
+    const sha = addMigrationProbe(fixture, { exitCode: 17 });
+    writeRegistry(fixture, { MIGRATION_MODE: 'postgres-ledger' });
+    const result = deploy(fixture, sha, {
+      LIGHTWORLD_TEST_MIGRATION_MARKER: migrationMarker,
+      LIGHTWORLD_TEST_CURRENT_LINK: fixture.currentLink,
+    });
+    assert.notEqual(result.status, 0);
+    assert.equal(fs.existsSync(migrationMarker), true, 'migration probe must have run');
+    assert.equal(fs.existsSync(fixture.currentLink), false, 'failed migration must not activate release');
+    assert.equal(fs.existsSync(fixture.restartLog), false, 'failed migration must not restart processes');
+  } finally { cleanup(fixture); }
+});
 
 test('health check retries initial connection refusal during bounded service startup', async () => {
   const probe = await new Promise((resolve, reject) => {
@@ -739,7 +816,7 @@ test('TradeOS staging registry template pins canonical operational metadata with
   assert.match(source, /^PROCESS_INTERPRETER=['"]\/bin\/bash['"]$/m);
   assert.match(source, /^PROCESS_RESTART_DELAY=['"]2000['"]$/m);
   assert.match(source, /^RUNTIME_FAMILY=['"]pnpm-node['"]$/m);
-  assert.match(source, /^MIGRATION_MODE=['"]manual['"]$/m);
+  assert.match(source, /^MIGRATION_MODE=['"]postgres-ledger['"]$/m);
   assert.match(source, /http:\/\/127\.0\.0\.1:4036\/health/);
   assert.match(source, /http:\/\/127\.0\.0\.1:3036\//);
   assert.match(source, /http:\/\/127\.0\.0\.1:3038\//);

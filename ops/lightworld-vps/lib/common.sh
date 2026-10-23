@@ -243,6 +243,13 @@ assert_workspace_registry_contract() {
       fi
     fi
   done
+  if grep -q -E '^MIGRATION_MODE=' -- "$contract"; then
+    expected="$(_workspace_contract_value "$contract" MIGRATION_MODE)" || return 1
+    if [[ "$MIGRATION_MODE" != "$expected" ]]; then
+      lightworld_die "workspace registry contract mismatch for MIGRATION_MODE"
+      return 1
+    fi
+  fi
 }
 
 run_git_as_runner() {
@@ -619,10 +626,33 @@ run_release_build() {
       ;;
   esac
 
+}
+
+run_release_migrations() {
+  local release_dir="$1"
+  local release_sha="$2"
+  local script migration_dir
+
   case "$MIGRATION_MODE" in
-    manual) ;;
+    manual)
+      return 0
+      ;;
+    postgres-ledger)
+      [[ -n "${ENV_FILE:-}" ]] || { lightworld_die "ENV_FILE is required for postgres-ledger migrations"; return 1; }
+      script="${release_dir}/apps/api/dist/scripts/apply-migrations.js"
+      migration_dir="${release_dir}/packages/db/migrations"
+      if [[ ! -f "$script" || -L "$script" ]]; then
+        lightworld_die "compiled migration runner is missing or unsafe"
+        return 1
+      fi
+      if [[ ! -d "$migration_dir" || -L "$migration_dir" ]]; then
+        lightworld_die "migration directory is missing or unsafe"
+        return 1
+      fi
+      run_as_app_user "$release_dir" /usr/bin/env "TRADEOS_RELEASE_SHA=$release_sha" node "--env-file=$ENV_FILE" "$script" "$migration_dir"
+      ;;
     *)
-      lightworld_die "unsupported migration mode; automatic migration is disabled"
+      lightworld_die "unsupported migration mode: $MIGRATION_MODE"
       return 1
       ;;
   esac
