@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import type { BusinessEntityIntelligence, BusinessEntityType, BusinessEvidenceReference } from "@tradeos/contracts";
+import { getOfflineQueue } from "../../../lib/offline-sync";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { Button } from "../ui/button";
 import { StatePanel } from "../ui/state-panel";
 import { useWorkspace } from "../workspace/use-workspace";
 import { contextualWorkflowHref } from "./contextual-intelligence";
+import { createEntityActionItem } from "./entity-action-items";
 
 interface EntityIntelligencePanelProps {
   entityType: BusinessEntityType;
@@ -15,6 +18,8 @@ interface EntityIntelligencePanelProps {
 
 export function EntityIntelligencePanel({ entityType, entityId }: EntityIntelligencePanelProps) {
   const { session, queue } = useWorkspace();
+  const [actionPending, setActionPending] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const entityPath = session && queue.online && entityId
     ? `/v1/intelligence/entity?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`
     : null;
@@ -75,6 +80,35 @@ export function EntityIntelligencePanel({ entityType, entityId }: EntityIntellig
     }));
   };
 
+  const createReviewTask = async () => {
+    if (!queue.online || actionPending || !data.safeAction) return;
+    setActionPending(true);
+    setActionFeedback(null);
+    try {
+      const result = await createEntityActionItem(
+        (input, init) => getOfflineQueue().authenticatedFetch(input, init),
+        {
+          businessId: session.businessId,
+          branchId: session.branchId,
+          context: { entityType, entityId },
+        },
+      );
+      setActionFeedback({
+        kind: "success",
+        text: result.created
+          ? "Review task created and assigned to you."
+          : "An active review task already exists.",
+      });
+    } catch (actionError) {
+      setActionFeedback({
+        kind: "error",
+        text: actionError instanceof Error ? actionError.message : "Review task could not be created.",
+      });
+    } finally {
+      setActionPending(false);
+    }
+  };
+
   return (
     <section className="tos-entity-ai" data-state="live" data-entity-type={entityType}>
       <div className="tos-entity-ai__head">
@@ -127,6 +161,29 @@ export function EntityIntelligencePanel({ entityType, entityId }: EntityIntellig
               </Link>
             </article>
           ))}
+        </div>
+      ) : null}
+
+      {data.safeAction ? (
+        <div className="tos-entity-ai__task-action">
+          <div>
+            <strong>Turn this insight into work</strong>
+            <p>{data.safeAction.label}. TradeOS will create an internal review task only.</p>
+            {actionFeedback ? (
+              <span className="tos-entity-ai__task-feedback" data-kind={actionFeedback.kind} role="status">
+                {actionFeedback.text}
+              </span>
+            ) : null}
+          </div>
+          <Button
+            type="button"
+            variant="gold"
+            size="sm"
+            disabled={!queue.online || actionPending}
+            onClick={() => void createReviewTask()}
+          >
+            {actionPending ? "Creating…" : data.safeAction.label}
+          </Button>
         </div>
       ) : null}
 

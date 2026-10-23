@@ -41,12 +41,25 @@ describe("entity intelligence panel contract", () => {
     expect(panel).toMatch(/disabled=\{!queue\.online/);
   });
 
-  it("keeps recommendations as navigation-only workflow links", () => {
+  it("renders one online-only server-owned review-task action when the entity mapping allows it", () => {
+    const panel = source(panelPath);
+    expect(panel).toContain("data.safeAction");
+    expect(panel).toContain("createEntityActionItem");
+    expect(panel).toMatch(/data\.safeAction\s*\?/);
+    expect(panel).toContain('type="button"');
+    expect(panel).toMatch(/disabled=\{!queue\.online\s*\|\|\s*actionPending\}/);
+    expect(panel).toMatch(/if \(!queue\.online \|\| actionPending \|\| !data\.safeAction\) return/);
+    expect(panel).toContain("Review task created and assigned to you.");
+    expect(panel).toContain("An active review task already exists.");
+  });
+
+  it("keeps recommendations navigation-only and isolates the only POST behind the safe entity-task helper", () => {
     const panel = source(panelPath);
     expect(panel).toContain("contextualWorkflowHref");
     expect(panel).toContain("<Link");
-    expect(panel).not.toMatch(/authenticatedFetch\s*\(/);
+    expect(panel).toContain("getOfflineQueue().authenticatedFetch");
     expect(panel).not.toMatch(/method:\s*["'](?:POST|PATCH|DELETE)["']/);
+    expect(panel).not.toMatch(/\/(?:sales|payments|refunds|returns|purchases|inventory|cashbook|staff|memberships)\b/);
   });
 
   it("formats explicit minor-unit money evidence using its currency metadata", () => {
@@ -59,11 +72,13 @@ describe("entity intelligence panel contract", () => {
     expect(panel).toMatch(/formatEvidenceValue\(item\)/);
   });
 
-  it("ships responsive entity intelligence styling", () => {
+  it("ships responsive entity intelligence and review-task styling", () => {
     const css = source(cssPath);
     expect(css).toContain(".tos-entity-ai");
     expect(css).toContain(".tos-entity-ai__facts");
     expect(css).toContain(".tos-entity-ai__attention");
+    expect(css).toContain(".tos-entity-ai__task-action");
+    expect(css).toContain(".tos-entity-ai__task-feedback");
     expect(css).toMatch(/@media[^]*max-width:\s*720px[^]*\.tos-entity-ai/);
   });
 });
