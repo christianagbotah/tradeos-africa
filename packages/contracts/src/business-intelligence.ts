@@ -1,3 +1,5 @@
+import type { FinancialPeriod } from "./reports.js";
+
 export type BusinessIntelligenceScope = {
   businessId: string;
   branchId: string | null;
@@ -8,7 +10,31 @@ export type BusinessEntityType = "CATALOG_ITEM" | "CUSTOMER" | "SUPPLIER" | "PUR
 export type BusinessEntityContext = {
   entityType: BusinessEntityType;
   entityId: string;
+  metricKey?: never;
+  range?: never;
 };
+
+export type BusinessFinancialMetricKey =
+  | "NET_REVENUE"
+  | "GROSS_PROFIT"
+  | "OPERATING_PROFIT"
+  | "EXPENSES"
+  | "NET_CASH_MOVEMENT"
+  | "CASH_BALANCE"
+  | "RECEIVABLES"
+  | "PAYABLES"
+  | "INVENTORY_VALUE";
+
+export type BusinessFinancialMetricRange = "today" | "week" | "month" | "quarter";
+
+export type BusinessMetricContext = {
+  metricKey: BusinessFinancialMetricKey;
+  range: BusinessFinancialMetricRange;
+  entityType?: never;
+  entityId?: never;
+};
+
+export type BusinessAssistantContext = BusinessEntityContext | BusinessMetricContext;
 
 export type BusinessEntityIdentity = BusinessEntityContext & {
   label: string;
@@ -109,10 +135,32 @@ export type BusinessEntityIntelligence = BusinessIntelligenceScope & {
   askPrompt: string;
 };
 
+export type BusinessFinancialMetricIdentity = {
+  metricKey: BusinessFinancialMetricKey;
+  label: string;
+};
+
+export type BusinessFinancialMetricIntelligence = BusinessIntelligenceScope & {
+  metric: BusinessFinancialMetricIdentity;
+  range: BusinessFinancialMetricRange;
+  period: FinancialPeriod;
+  currencyCode: string;
+  generatedAt: string;
+  currentMinor: number;
+  previousMinor: number | null;
+  deltaMinor: number | null;
+  changePercent: number | null;
+  summary: string;
+  evidence: BusinessEvidenceReference[];
+  attentionItems: BusinessAttentionItem[];
+  recommendations: BusinessRecommendation[];
+  askPrompt: string;
+};
+
 export type BusinessAssistantQueryRequest = BusinessIntelligenceScope & {
   question: string;
   conversationId?: string | null;
-  context?: BusinessEntityContext | null;
+  context?: BusinessAssistantContext | null;
 };
 
 export type BusinessAssistantQueryResponse = BusinessIntelligenceScope & {
