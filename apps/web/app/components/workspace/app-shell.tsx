@@ -12,6 +12,7 @@ import type {
   BusinessMetricContext,
 } from "@tradeos/contracts";
 import { AskTradeOSDrawer } from "../intelligence/ask-tradeos-drawer";
+import { BusinessPulsePanel } from "../intelligence/business-pulse";
 import { useWorkspace } from "./use-workspace";
 import {
   findNavItem,
@@ -233,6 +234,8 @@ export function AppShell({ children }: AppShellProps) {
             />
           </div>
           <div className="tos-topbar__spacer" />
+
+          <BusinessPulsePanel />
 
           <Button
             variant="gold"

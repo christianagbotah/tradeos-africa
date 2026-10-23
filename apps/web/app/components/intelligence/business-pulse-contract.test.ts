@@ -1,0 +1,51 @@
+import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+
+const root=path.resolve(__dirname,"../../../../..");
+const panelPath=path.join(root,"apps/web/app/components/intelligence/business-pulse.tsx");
+const shellPath=path.join(root,"apps/web/app/components/workspace/app-shell.tsx");
+const cssPath=path.join(root,"apps/web/app/intelligence.css");
+const source=(p:string)=>fs.existsSync(p)?fs.readFileSync(p,"utf8"):"";
+
+describe("business pulse contract",()=>{
+  it("mounts one global Pulse in AppShell and scopes its payload to current business and branch",()=>{
+    const shell=source(shellPath), pulse=source(panelPath);
+    expect(shell).toContain('import { BusinessPulsePanel }');
+    expect(shell).toContain('<BusinessPulsePanel />');
+    expect(pulse).toContain('useApiFetch<BusinessPulse>');
+    expect(pulse).toContain('/v1/intelligence/pulse?businessId=');
+    expect(pulse).toContain('pulseMatchesContext');
+    expect(pulse).toMatch(/data\.businessId\s*===\s*session\.businessId/);
+    expect(pulse).toMatch(/data\.branchId\s*===\s*session\.branchId/);
+  });
+
+  it("shows an unseen badge and explicit live loading/error/offline states",()=>{
+    const pulse=source(panelPath);
+    expect(pulse).toContain('unseenCount');
+    expect(pulse).toContain('Business Pulse');
+    expect(pulse).toContain('Fresh Pulse data requires a connection');
+    expect(pulse).toContain('Could not load Business Pulse');
+    expect(pulse).toContain('aria-busy');
+  });
+
+  it("marks seen online with scope-only POST and never calls an economic mutation endpoint",()=>{
+    const pulse=source(panelPath);
+    expect(pulse).toContain('/v1/intelligence/pulse/seen');
+    expect(pulse).toMatch(/method:\s*"POST"/);
+    expect(pulse).toMatch(/JSON\.stringify\(\{\s*businessId:\s*session\.businessId,\s*branchId:\s*session\.branchId\s*\}\)/s);
+    expect(pulse).toMatch(/if \((?:!session \|\| )?!queue\.online/);
+    expect(pulse).toMatch(/useEffect\(\(\) => \{[\s\S]*if \(!open \|\| !pulse \|\| pulse\.unseenCount < 1\) return;[\s\S]*void markSeen\(pulse\);/);
+    expect(pulse).not.toMatch(/\/(?:sales|payments|refunds|returns|purchases|inventory|cashbook|staff|memberships)\b[^"']*["'][^\n]*method:\s*"(?:POST|PATCH|DELETE)"/s);
+  });
+
+  it("keeps feed actions navigation-only and ships responsive drawer styling",()=>{
+    const pulse=source(panelPath), css=source(cssPath);
+    expect(pulse).toContain('<Link');
+    expect(pulse).toContain('pulseAttentionHref');
+    expect(pulse).toContain('pulseActionHref');
+    expect(css).toContain('.tos-pulse-drawer');
+    expect(css).toContain('.tos-pulse-trigger__badge');
+    expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.tos-pulse-trigger__label/);
+  });
+});
