@@ -4,6 +4,7 @@ import type {
   BusinessAssistantQueryRequest,
   BusinessAssistantQueryResponse,
   BusinessAttentionSeverity,
+  BusinessEntityIdentity,
   BusinessEvidenceReference,
   BusinessRecommendation,
 } from "@tradeos/contracts";
@@ -15,6 +16,10 @@ import {
   collectBusinessIntelligenceEvidence,
   toAiGroundingEvidence,
 } from "./intelligence-tools.js";
+import {
+  BusinessEntityIntelligenceError,
+  getBusinessEntityIntelligence,
+} from "./entity-service.js";
 
 const PRIORITIES = new Set<BusinessAttentionSeverity>(["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]);
 const SAFE_ACTION_TYPES = new Set([
@@ -108,14 +113,27 @@ export async function answerBusinessQuestion(
   const conversationId = optionalConversationId(request.conversationId);
 
   let evidence: BusinessEvidenceReference[];
+  let validatedEntity: BusinessEntityIdentity | null = null;
   try {
-    evidence = await collectBusinessIntelligenceEvidence(pool, {
-      businessId: request.businessId,
-      branchId: request.branchId,
-      role: access.role,
-    });
+    if (request.context) {
+      const entity = await getBusinessEntityIntelligence(pool, {
+        businessId: request.businessId,
+        branchId: request.branchId,
+        role: access.role,
+        entityType: request.context.entityType,
+        entityId: request.context.entityId,
+      });
+      evidence = entity.evidence;
+      validatedEntity = entity.entity;
+    } else {
+      evidence = await collectBusinessIntelligenceEvidence(pool, {
+        businessId: request.businessId,
+        branchId: request.branchId,
+        role: access.role,
+      });
+    }
   } catch (error) {
-    if (error instanceof BusinessIntelligenceToolError) {
+    if (error instanceof BusinessIntelligenceToolError || error instanceof BusinessEntityIntelligenceError) {
       throw new BusinessQueryError(error.message, error.statusCode, error.code);
     }
     throw error;
@@ -130,6 +148,9 @@ export async function answerBusinessQuestion(
       systemInstruction: SYSTEM_INSTRUCTION,
       prompt: [
         `Authorized role: ${access.role}.`,
+        ...(validatedEntity
+          ? [`Validated entity: ${validatedEntity.entityType} ${validatedEntity.label} (${validatedEntity.entityId}).`]
+          : []),
         `Business question: ${question}`,
         "Answer only from the supplied evidence. Keep the answer concise and practical.",
       ].join("\n"),
