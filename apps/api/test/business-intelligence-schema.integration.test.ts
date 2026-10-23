@@ -39,7 +39,7 @@ describe("business intelligence and automation persistence", () => {
     const columns = await pool.query<{ table_name: string; is_nullable: string }>(
       `SELECT table_name,is_nullable
        FROM information_schema.columns
-       WHERE table_schema='public'
+       WHERE table_schema=current_schema()
          AND table_name = ANY($1::text[])
          AND column_name='business_id'
        ORDER BY table_name`,
@@ -119,7 +119,7 @@ describe("business intelligence and automation persistence", () => {
     const forbidden = await pool.query<{ column_name: string }>(
       `SELECT column_name
        FROM information_schema.columns
-       WHERE table_schema='public' AND table_name='business_action_items'
+       WHERE table_schema=current_schema() AND table_name='business_action_items'
          AND column_name = ANY($1::text[])
        ORDER BY column_name`,
       [["amount_minor", "cashbook_entry_id", "payment_id", "payment_method", "refund_id", "sale_id", "stock_quantity"]],
