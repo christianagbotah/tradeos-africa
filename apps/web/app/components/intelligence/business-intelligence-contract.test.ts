@@ -83,4 +83,20 @@ describe("tenant intelligence experience contract", () => {
     expect(shell).toMatch(/setAskTradeOSInitialQuestion\(null\)[^]*setAskTradeOSOpen\(true\)/);
   });
 
+  it("carries validated entity context through record-level Ask TradeOS without contaminating normal Ask", () => {
+    const shell = source(paths.shell);
+    const drawer = source(paths.drawer);
+    expect(shell).toContain("askTradeOSInitialContext");
+    expect(shell).toContain("initialContext={askTradeOSInitialContext}");
+    expect(shell).toContain("isBusinessEntityContext");
+    for (const entityType of ["CATALOG_ITEM", "CUSTOMER", "SUPPLIER", "PURCHASE"]) {
+      expect(shell).toContain(entityType);
+    }
+    expect(shell).toMatch(/UUID|[0-9a-f].*\{8\}/i);
+    expect(drawer).toContain("BusinessEntityContext");
+    expect(drawer).toContain("initialContext?: BusinessEntityContext | null");
+    expect(drawer).toMatch(/context:\s*initialContext\s*\?\?\s*null/);
+    expect(shell).toMatch(/setAskTradeOSInitialQuestion\(null\)[^]*setAskTradeOSInitialContext\(null\)[^]*setAskTradeOSOpen\(true\)/);
+  });
+
 });

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type {
   BusinessAssistantQueryResponse,
+  BusinessEntityContext,
   BusinessEvidenceReference,
   BusinessRecommendation,
 } from "@tradeos/contracts";
@@ -17,6 +18,7 @@ interface AskTradeOSDrawerProps {
   open: boolean;
   onClose: () => void;
   initialQuestion?: string | null;
+  initialContext?: BusinessEntityContext | null;
 }
 
 const STARTERS = [
@@ -25,7 +27,7 @@ const STARTERS = [
   "What stock should I review for reorder?",
 ] as const;
 
-export function AskTradeOSDrawer({ open, onClose, initialQuestion }: AskTradeOSDrawerProps) {
+export function AskTradeOSDrawer({ open, onClose, initialQuestion, initialContext }: AskTradeOSDrawerProps) {
   const { session, queue } = useWorkspace();
   const router = useRouter();
   const [question, setQuestion] = useState("");
@@ -38,7 +40,7 @@ export function AskTradeOSDrawer({ open, onClose, initialQuestion }: AskTradeOSD
     setQuestion(initialQuestion ?? "");
     setAnswer(null);
     setError(null);
-  }, [initialQuestion, open]);
+  }, [initialContext, initialQuestion, open]);
 
   if (!open) return null;
 
@@ -61,6 +63,7 @@ export function AskTradeOSDrawer({ open, onClose, initialQuestion }: AskTradeOSD
           branchId: session.branchId,
           question: question.trim(),
           conversationId: answer?.conversationId ?? null,
+          context: initialContext ?? null,
         }),
       });
       if (!response.ok) {

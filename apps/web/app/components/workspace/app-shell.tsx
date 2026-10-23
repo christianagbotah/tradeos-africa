@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import type { BusinessEntityContext, BusinessEntityType } from "@tradeos/contracts";
 import { AskTradeOSDrawer } from "../intelligence/ask-tradeos-drawer";
 import { useWorkspace } from "./use-workspace";
 import {
@@ -54,6 +55,7 @@ export function AppShell({ children }: AppShellProps) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [askTradeOSOpen, setAskTradeOSOpen] = useState(false);
   const [askTradeOSInitialQuestion, setAskTradeOSInitialQuestion] = useState<string | null>(null);
+  const [askTradeOSInitialContext, setAskTradeOSInitialContext] = useState<BusinessEntityContext | null>(null);
   const [shellFeedback, setShellFeedback] = useState<ShellFeedback>(null);
 
   useEffect(() => {
@@ -63,6 +65,7 @@ export function AppShell({ children }: AppShellProps) {
     setAccountOpen(false);
     setAskTradeOSOpen(false);
     setAskTradeOSInitialQuestion(null);
+    setAskTradeOSInitialContext(null);
     setShellFeedback(null);
   }, [pathname]);
 
@@ -77,9 +80,15 @@ export function AppShell({ children }: AppShellProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const openContextualAsk = (event: Event) => {
-      const detail = (event as CustomEvent<{ question?: unknown }>).detail;
+      const detail = (event as CustomEvent<{ question?: unknown; context?: unknown }>).detail;
       if (!detail || typeof detail.question !== "string" || !detail.question.trim()) return;
+      let context: BusinessEntityContext | null = null;
+      if (detail.context !== undefined && detail.context !== null) {
+        if (!isBusinessEntityContext(detail.context)) return;
+        context = detail.context;
+      }
       setAskTradeOSInitialQuestion(detail.question.trim());
+      setAskTradeOSInitialContext(context);
       setAskTradeOSOpen(true);
       setContextOpen(false);
       setAccountOpen(false);
@@ -224,6 +233,7 @@ export function AppShell({ children }: AppShellProps) {
             className="tos-ai-topbar-button"
             onClick={() => {
               setAskTradeOSInitialQuestion(null);
+              setAskTradeOSInitialContext(null);
               setAskTradeOSOpen(true);
               setContextOpen(false);
               setAccountOpen(false);
@@ -417,10 +427,25 @@ export function AppShell({ children }: AppShellProps) {
           </>
         ) : null}
 
-        <AskTradeOSDrawer open={askTradeOSOpen} initialQuestion={askTradeOSInitialQuestion} onClose={() => setAskTradeOSOpen(false)} />
+        <AskTradeOSDrawer open={askTradeOSOpen} initialQuestion={askTradeOSInitialQuestion} initialContext={askTradeOSInitialContext} onClose={() => setAskTradeOSOpen(false)} />
       </div>
     </div>
   );
+}
+
+const BUSINESS_ENTITY_TYPES = new Set<BusinessEntityType>(["CATALOG_ITEM", "CUSTOMER", "SUPPLIER", "PURCHASE"]);
+const ENTITY_CONTEXT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isBusinessEntityContext(value: unknown): value is BusinessEntityContext {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return keys.length === 2
+    && keys.every((key) => key === "entityType" || key === "entityId")
+    && typeof record.entityType === "string"
+    && BUSINESS_ENTITY_TYPES.has(record.entityType as BusinessEntityType)
+    && typeof record.entityId === "string"
+    && ENTITY_CONTEXT_UUID.test(record.entityId);
 }
 
 function deriveActiveSegment(pathname: string): string {
