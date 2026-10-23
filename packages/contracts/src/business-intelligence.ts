@@ -115,6 +115,23 @@ export type BusinessBriefing = BusinessIntelligenceScope & {
   evidence: BusinessEvidenceReference[];
 };
 
+export type BusinessPulseAttentionSummary = {
+  CRITICAL: number;
+  HIGH: number;
+  MEDIUM: number;
+  LOW: number;
+  INFO: number;
+};
+
+export type BusinessPulse = BusinessIntelligenceScope & {
+  generatedAt: string;
+  lastSeenAt: string | null;
+  unseenCount: number;
+  attentionSummary: BusinessPulseAttentionSummary;
+  attentionItems: BusinessAttentionItem[];
+  actionItems: BusinessActionItem[];
+};
+
 export type BusinessEntitySafeAction = {
   actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_FOLLOW_UP";
   label: string;
