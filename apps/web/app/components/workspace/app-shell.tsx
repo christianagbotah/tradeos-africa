@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import type { BusinessEntityContext, BusinessEntityType } from "@tradeos/contracts";
+import type {
+  BusinessAssistantContext,
+  BusinessEntityContext,
+  BusinessEntityType,
+  BusinessFinancialMetricKey,
+  BusinessFinancialMetricRange,
+  BusinessMetricContext,
+} from "@tradeos/contracts";
 import { AskTradeOSDrawer } from "../intelligence/ask-tradeos-drawer";
 import { useWorkspace } from "./use-workspace";
 import {
@@ -55,7 +62,7 @@ export function AppShell({ children }: AppShellProps) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [askTradeOSOpen, setAskTradeOSOpen] = useState(false);
   const [askTradeOSInitialQuestion, setAskTradeOSInitialQuestion] = useState<string | null>(null);
-  const [askTradeOSInitialContext, setAskTradeOSInitialContext] = useState<BusinessEntityContext | null>(null);
+  const [askTradeOSInitialContext, setAskTradeOSInitialContext] = useState<BusinessAssistantContext | null>(null);
   const [shellFeedback, setShellFeedback] = useState<ShellFeedback>(null);
 
   useEffect(() => {
@@ -82,9 +89,9 @@ export function AppShell({ children }: AppShellProps) {
     const openContextualAsk = (event: Event) => {
       const detail = (event as CustomEvent<{ question?: unknown; context?: unknown }>).detail;
       if (!detail || typeof detail.question !== "string" || !detail.question.trim()) return;
-      let context: BusinessEntityContext | null = null;
+      let context: BusinessAssistantContext | null = null;
       if (detail.context !== undefined && detail.context !== null) {
-        if (!isBusinessEntityContext(detail.context)) return;
+        if (!isBusinessAssistantContext(detail.context)) return;
         context = detail.context;
       }
       setAskTradeOSInitialQuestion(detail.question.trim());
@@ -446,6 +453,28 @@ function isBusinessEntityContext(value: unknown): value is BusinessEntityContext
     && BUSINESS_ENTITY_TYPES.has(record.entityType as BusinessEntityType)
     && typeof record.entityId === "string"
     && ENTITY_CONTEXT_UUID.test(record.entityId);
+}
+
+const BUSINESS_METRIC_KEYS = new Set<BusinessFinancialMetricKey>([
+  "NET_REVENUE", "GROSS_PROFIT", "OPERATING_PROFIT", "EXPENSES", "NET_CASH_MOVEMENT",
+  "CASH_BALANCE", "RECEIVABLES", "PAYABLES", "INVENTORY_VALUE",
+]);
+const BUSINESS_METRIC_RANGES = new Set<BusinessFinancialMetricRange>(["today", "week", "month", "quarter"]);
+
+function isBusinessMetricContext(value: unknown): value is BusinessMetricContext {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return keys.length === 2
+    && keys.every((key) => key === "metricKey" || key === "range")
+    && typeof record.metricKey === "string"
+    && BUSINESS_METRIC_KEYS.has(record.metricKey as BusinessFinancialMetricKey)
+    && typeof record.range === "string"
+    && BUSINESS_METRIC_RANGES.has(record.range as BusinessFinancialMetricRange);
+}
+
+function isBusinessAssistantContext(value: unknown): value is BusinessAssistantContext {
+  return isBusinessEntityContext(value) || isBusinessMetricContext(value);
 }
 
 function deriveActiveSegment(pathname: string): string {

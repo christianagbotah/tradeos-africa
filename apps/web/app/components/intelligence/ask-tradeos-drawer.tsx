@@ -3,8 +3,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type {
+  BusinessAssistantContext,
   BusinessAssistantQueryResponse,
-  BusinessEntityContext,
   BusinessEvidenceReference,
   BusinessRecommendation,
 } from "@tradeos/contracts";
@@ -18,7 +18,7 @@ interface AskTradeOSDrawerProps {
   open: boolean;
   onClose: () => void;
   initialQuestion?: string | null;
-  initialContext?: BusinessEntityContext | null;
+  initialContext?: BusinessAssistantContext | null;
 }
 
 const STARTERS = [

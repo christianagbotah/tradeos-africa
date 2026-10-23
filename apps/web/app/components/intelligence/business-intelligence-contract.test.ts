@@ -93,10 +93,26 @@ describe("tenant intelligence experience contract", () => {
       expect(shell).toContain(entityType);
     }
     expect(shell).toMatch(/UUID|[0-9a-f].*\{8\}/i);
-    expect(drawer).toContain("BusinessEntityContext");
-    expect(drawer).toContain("initialContext?: BusinessEntityContext | null");
+    expect(drawer).toContain("BusinessAssistantContext");
+    expect(drawer).toContain("initialContext?: BusinessAssistantContext | null");
     expect(drawer).toMatch(/context:\s*initialContext\s*\?\?\s*null/);
     expect(shell).toMatch(/setAskTradeOSInitialQuestion\(null\)[^]*setAskTradeOSInitialContext\(null\)[^]*setAskTradeOSOpen\(true\)/);
+  });
+
+  it("carries exact allow-listed financial metric context through Ask TradeOS and rejects mixed browser context", () => {
+    const shell = source(paths.shell);
+    const drawer = source(paths.drawer);
+    expect(shell).toContain("BusinessAssistantContext");
+    expect(shell).toContain("isBusinessMetricContext");
+    for (const metricKey of [
+      "NET_REVENUE", "GROSS_PROFIT", "OPERATING_PROFIT", "EXPENSES", "NET_CASH_MOVEMENT",
+      "CASH_BALANCE", "RECEIVABLES", "PAYABLES", "INVENTORY_VALUE",
+    ]) expect(shell).toContain(metricKey);
+    for (const range of ["today", "week", "month", "quarter"]) expect(shell).toContain(`"${range}"`);
+    expect(shell).toContain("isBusinessAssistantContext");
+    expect(drawer).toContain("BusinessAssistantContext");
+    expect(drawer).toContain("initialContext?: BusinessAssistantContext | null");
+    expect(drawer).toMatch(/context:\s*initialContext\s*\?\?\s*null/);
   });
 
 });
