@@ -10,6 +10,7 @@ import {
   getTenantBillingOverview,
   listTenantBillingInvoices,
   listTenantBillingPayments,
+  transitionTenantSubscription,
 } from "../src/billing/tenant-billing-service.js";
 
 const { Pool } = pg;
@@ -31,6 +32,9 @@ const SUB2 = "92000000-0000-4000-8000-000000000020";
 const INV1 = "91000000-0000-4000-8000-000000000030";
 const INV2 = "92000000-0000-4000-8000-000000000030";
 const PAY1 = "91000000-0000-4000-8000-000000000040";
+const OWNER_STAFF = "91000000-0000-4000-8000-000000000050";
+const ADMIN_STAFF = "91000000-0000-4000-8000-000000000051";
+const ACCOUNTANT_STAFF = "91000000-0000-4000-8000-000000000052";
 
 beforeAll(async () => {
   await adminPool.query(`CREATE SCHEMA ${quotedSchema}`);
@@ -94,12 +98,59 @@ describe("tenant billing read service", () => {
     await expect(getTenantBillingInvoiceDetail(pool, { businessId: B1, invoiceId: INV2 }))
       .rejects.toMatchObject<Partial<TenantBillingError>>({ statusCode: 404, code: "TENANT_BILLING_INVOICE_NOT_FOUND" });
   });
+
+  it("lets Owner/Admin schedule cancellation and resume with tenant audit, while Accountant is read-only", async () => {
+    const canceled = await transitionTenantSubscription(pool, { businessId: B1, role: "OWNER", staffId: OWNER_STAFF }, "CANCEL_AT_PERIOD_END");
+    expect(canceled.subscription?.cancelAtPeriodEnd).toBe(true);
+    expect(canceled.subscription?.supportedActions).toEqual(["RESUME"]);
+
+    const canceledAgain = await transitionTenantSubscription(pool, { businessId: B1, role: "ADMIN", staffId: ADMIN_STAFF }, "CANCEL_AT_PERIOD_END");
+    expect(canceledAgain.subscription?.cancelAtPeriodEnd).toBe(true);
+
+    const resumed = await transitionTenantSubscription(pool, { businessId: B1, role: "ADMIN", staffId: ADMIN_STAFF }, "RESUME");
+    expect(resumed.subscription?.cancelAtPeriodEnd).toBe(false);
+
+    await expect(transitionTenantSubscription(pool, { businessId: B1, role: "ACCOUNTANT", staffId: ACCOUNTANT_STAFF }, "CANCEL_AT_PERIOD_END"))
+      .rejects.toMatchObject<Partial<TenantBillingError>>({ statusCode: 403, code: "TENANT_BILLING_ACTION_FORBIDDEN" });
+
+    const audits = await pool.query<{ event_type: string; actor_staff_id: string | null }>(
+      `SELECT event_type,actor_staff_id FROM audit_events WHERE business_id=$1 AND entity_type='BUSINESS_SUBSCRIPTION' ORDER BY occurred_at,id`, [B1],
+    );
+    expect(audits.rows.map((row) => row.event_type)).toEqual([
+      "SUBSCRIPTION_CANCEL_SCHEDULED",
+      "SUBSCRIPTION_CANCEL_RESUMED",
+    ]);
+    expect(audits.rows[0]?.actor_staff_id).toBe(OWNER_STAFF);
+  });
+
+  it("fails closed on invalid resume and leaves billing/economic ledgers and plan assignment unchanged", async () => {
+    const before = await invariantCounts();
+    await expect(transitionTenantSubscription(pool, { businessId: B1, role: "OWNER", staffId: OWNER_STAFF }, "RESUME"))
+      .rejects.toMatchObject<Partial<TenantBillingError>>({ statusCode: 409, code: "TENANT_BILLING_TRANSITION_INVALID" });
+    const after = await invariantCounts();
+    expect(after).toEqual(before);
+    const sub = await pool.query<{ plan_id: string; status: string; cancel_at_period_end: boolean }>(
+      `SELECT plan_id,status,cancel_at_period_end FROM business_subscriptions WHERE id=$1`, [SUB1],
+    );
+    expect(sub.rows[0]).toEqual({ plan_id: PLAN_BASIC, status: "ACTIVE", cancel_at_period_end: false });
+  });
 });
+
+async function invariantCounts() {
+  const result = await pool.query<Record<string, number>>(`SELECT
+    (SELECT count(*)::int FROM subscription_invoices) AS invoices,
+    (SELECT count(*)::int FROM subscription_payments) AS payments,
+    (SELECT count(*)::int FROM subscription_payment_refunds) AS refunds`);
+  return result.rows[0]!;
+}
 
 async function seed() {
   await pool.query(`INSERT INTO businesses(id,name,business_type,country_code,currency_code,timezone,status) VALUES
     ($1,'Tenant One','RETAIL','GH','GHS','Africa/Accra','ACTIVE'),
     ($2,'Tenant Two','RETAIL','GH','GHS','Africa/Accra','ACTIVE')`, [B1, B2]);
+  await pool.query(`INSERT INTO staff(id,business_id,display_name,role,is_active) VALUES
+    ($1,$2,'Owner','OWNER',true),($3,$2,'Admin','ADMIN',true),($4,$2,'Accountant','ACCOUNTANT',true)`,
+    [OWNER_STAFF,B1,ADMIN_STAFF,ACCOUNTANT_STAFF]);
 
   await pool.query(`INSERT INTO subscription_plans(id,code,name,description,currency_code,amount_minor,billing_interval,trial_days,is_public,is_active) VALUES
     ($1,'basic','Basic','Core TradeOS','GHS',5000,'MONTHLY',14,true,true),

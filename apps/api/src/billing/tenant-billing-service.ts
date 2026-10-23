@@ -11,8 +11,9 @@ import type {
 } from "@tradeos/contracts";
 import type { BusinessRole } from "../auth/authorization.js";
 import type { DatabasePool } from "../db.js";
+import { withTransaction } from "../db.js";
+import { isCurrentSubscriptionStatus } from "../subscriptions/subscription-lifecycle.js";
 
-const CURRENT_STATUSES = new Set<TenantBillingSubscriptionStatus>(["TRIALING", "ACTIVE", "PAST_DUE", "PAUSED"]);
 const MUTATION_ROLES = new Set<BusinessRole>(["OWNER", "ADMIN"]);
 
 export class TenantBillingError extends Error {
@@ -117,7 +118,7 @@ export async function getTenantBillingOverview(
   const planEntitlements = (await loadPlanEntitlements(pool, [planRow.id])).get(planRow.id) ?? [];
   const effectiveEntitlements = await loadEffectiveEntitlements(pool, input.businessId, planEntitlements, now);
   const plan = mapPlan(planRow, planEntitlements);
-  const supportedActions = !MUTATION_ROLES.has(input.role) || !CURRENT_STATUSES.has(subscriptionRow.status)
+  const supportedActions = !MUTATION_ROLES.has(input.role) || !isCurrentSubscriptionStatus(subscriptionRow.status)
     ? []
     : subscriptionRow.cancel_at_period_end ? ["RESUME" as const] : ["CANCEL_AT_PERIOD_END" as const];
 
@@ -138,6 +139,63 @@ export async function getTenantBillingOverview(
     publicPlans,
     generatedAt: now.toISOString(),
   };
+}
+
+export async function transitionTenantSubscription(
+  pool: DatabasePool,
+  actor: { businessId: string; role: BusinessRole; staffId: string | null },
+  action: "CANCEL_AT_PERIOD_END" | "RESUME",
+): Promise<TenantBillingOverview> {
+  if (!MUTATION_ROLES.has(actor.role)) {
+    throw new TenantBillingError("Your role cannot change the subscription.", 403, "TENANT_BILLING_ACTION_FORBIDDEN");
+  }
+
+  await withTransaction(pool, async (client) => {
+    const found = await client.query<SubscriptionRow & { plan_code: string }>(
+      `SELECT bs.id,bs.business_id,bs.plan_id,bs.status,bs.trial_ends_at,bs.current_period_starts_at,bs.current_period_ends_at,
+              bs.cancel_at_period_end,bs.canceled_at,sp.code AS plan_code
+       FROM business_subscriptions bs JOIN subscription_plans sp ON sp.id=bs.plan_id
+       WHERE bs.business_id=$1
+       ORDER BY CASE WHEN bs.status IN ('TRIALING','ACTIVE','PAST_DUE','PAUSED') THEN 0 ELSE 1 END,bs.created_at DESC,bs.id DESC
+       LIMIT 1 FOR UPDATE OF bs`,
+      [actor.businessId],
+    );
+    const current = found.rows[0];
+    if (!current) throw new TenantBillingError("Subscription was not found.", 404, "TENANT_BILLING_SUBSCRIPTION_NOT_FOUND");
+    if (!isCurrentSubscriptionStatus(current.status)) {
+      throw new TenantBillingError("This subscription cannot be changed from its current state.", 409, "TENANT_BILLING_TRANSITION_INVALID");
+    }
+
+    const nextCancelAtPeriodEnd = action === "CANCEL_AT_PERIOD_END" ? true : false;
+    if (action === "RESUME" && !current.cancel_at_period_end) {
+      throw new TenantBillingError("This subscription is not scheduled to cancel.", 409, "TENANT_BILLING_TRANSITION_INVALID");
+    }
+    if (current.cancel_at_period_end === nextCancelAtPeriodEnd) return;
+
+    await client.query(
+      `UPDATE business_subscriptions
+       SET cancel_at_period_end=$2,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond')
+       WHERE id=$1`,
+      [current.id, nextCancelAtPeriodEnd],
+    );
+    await client.query(
+      `INSERT INTO audit_events(business_id,actor_staff_id,event_type,entity_type,entity_id,payload)
+       VALUES($1,$2,$3,'BUSINESS_SUBSCRIPTION',$4,$5::jsonb)`,
+      [
+        actor.businessId,
+        actor.staffId,
+        action === "CANCEL_AT_PERIOD_END" ? "SUBSCRIPTION_CANCEL_SCHEDULED" : "SUBSCRIPTION_CANCEL_RESUMED",
+        current.id,
+        JSON.stringify({
+          previous: { status: current.status, cancelAtPeriodEnd: current.cancel_at_period_end, planCode: current.plan_code },
+          next: { status: current.status, cancelAtPeriodEnd: nextCancelAtPeriodEnd, planCode: current.plan_code },
+          currentPeriodEndsAt: iso(current.current_period_ends_at),
+        }),
+      ],
+    );
+  });
+
+  return getTenantBillingOverview(pool, { businessId: actor.businessId, role: actor.role });
 }
 
 export async function listTenantBillingInvoices(
