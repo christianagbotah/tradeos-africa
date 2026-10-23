@@ -53,6 +53,7 @@ export function AppShell({ children }: AppShellProps) {
   const [contextOpen, setContextOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [askTradeOSOpen, setAskTradeOSOpen] = useState(false);
+  const [askTradeOSInitialQuestion, setAskTradeOSInitialQuestion] = useState<string | null>(null);
   const [shellFeedback, setShellFeedback] = useState<ShellFeedback>(null);
 
   useEffect(() => {
@@ -61,6 +62,7 @@ export function AppShell({ children }: AppShellProps) {
     setContextOpen(false);
     setAccountOpen(false);
     setAskTradeOSOpen(false);
+    setAskTradeOSInitialQuestion(null);
     setShellFeedback(null);
   }, [pathname]);
 
@@ -71,6 +73,21 @@ export function AppShell({ children }: AppShellProps) {
       document.body.style.overflow = "";
     };
   }, [drawerOpen, askTradeOSOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const openContextualAsk = (event: Event) => {
+      const detail = (event as CustomEvent<{ question?: unknown }>).detail;
+      if (!detail || typeof detail.question !== "string" || !detail.question.trim()) return;
+      setAskTradeOSInitialQuestion(detail.question.trim());
+      setAskTradeOSOpen(true);
+      setContextOpen(false);
+      setAccountOpen(false);
+      setMoreOpen(false);
+    };
+    window.addEventListener("tradeos:ask", openContextualAsk);
+    return () => window.removeEventListener("tradeos:ask", openContextualAsk);
+  }, []);
 
   const activeSegment = deriveActiveSegment(pathname);
   const activeItem = findNavItem(activeSegment);
@@ -206,6 +223,7 @@ export function AppShell({ children }: AppShellProps) {
             size="sm"
             className="tos-ai-topbar-button"
             onClick={() => {
+              setAskTradeOSInitialQuestion(null);
               setAskTradeOSOpen(true);
               setContextOpen(false);
               setAccountOpen(false);
@@ -399,7 +417,7 @@ export function AppShell({ children }: AppShellProps) {
           </>
         ) : null}
 
-        <AskTradeOSDrawer open={askTradeOSOpen} onClose={() => setAskTradeOSOpen(false)} />
+        <AskTradeOSDrawer open={askTradeOSOpen} initialQuestion={askTradeOSInitialQuestion} onClose={() => setAskTradeOSOpen(false)} />
       </div>
     </div>
   );

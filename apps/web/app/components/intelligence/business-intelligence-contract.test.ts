@@ -71,4 +71,16 @@ describe("tenant intelligence experience contract", () => {
     expect(briefing).toContain("actionQuery.refetch");
     expect(briefing).toMatch(/queue\.online/);
   });
+
+  it("opens Ask TradeOS with a contextual prompt while preserving the normal topbar entry", () => {
+    const shell = source(paths.shell);
+    const drawer = source(paths.drawer);
+    expect(shell).toContain('"tradeos:ask"');
+    expect(shell).toContain("askTradeOSInitialQuestion");
+    expect(shell).toContain("initialQuestion={askTradeOSInitialQuestion}");
+    expect(drawer).toContain("initialQuestion?: string");
+    expect(drawer).toMatch(/setQuestion\(initialQuestion/);
+    expect(shell).toMatch(/setAskTradeOSInitialQuestion\(null\)[^]*setAskTradeOSOpen\(true\)/);
+  });
+
 });

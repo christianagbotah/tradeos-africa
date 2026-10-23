@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type {
   BusinessAssistantQueryResponse,
@@ -16,6 +16,7 @@ import { IconClose, IconSearch } from "../ui/icons";
 interface AskTradeOSDrawerProps {
   open: boolean;
   onClose: () => void;
+  initialQuestion?: string | null;
 }
 
 const STARTERS = [
@@ -24,13 +25,20 @@ const STARTERS = [
   "What stock should I review for reorder?",
 ] as const;
 
-export function AskTradeOSDrawer({ open, onClose }: AskTradeOSDrawerProps) {
+export function AskTradeOSDrawer({ open, onClose, initialQuestion }: AskTradeOSDrawerProps) {
   const { session, queue } = useWorkspace();
   const router = useRouter();
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<BusinessAssistantQueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setQuestion(initialQuestion ?? "");
+    setAnswer(null);
+    setError(null);
+  }, [initialQuestion, open]);
 
   if (!open) return null;
 
