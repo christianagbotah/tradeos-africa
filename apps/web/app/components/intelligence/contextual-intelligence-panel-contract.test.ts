@@ -39,6 +39,8 @@ describe("contextual intelligence panel contract", () => {
     const css = source(cssPath);
     expect(css).toContain(".tos-context-ai");
     expect(css).toContain(".tos-context-ai__grid");
+    expect(css).toContain("var(--tos-surface-soft)");
+    expect(css).not.toContain("var(--tos-surface-muted)");
     expect(css).toMatch(/@media[^]*max-width:\s*720px[^]*\.tos-context-ai/);
   });
 });

@@ -587,7 +587,7 @@
   padding: var(--tos-space-4);
   border: 1px solid var(--tos-border);
   border-radius: var(--tos-radius-lg);
-  background: linear-gradient(145deg, var(--tos-surface), var(--tos-surface-muted));
+  background: linear-gradient(145deg, var(--tos-surface), var(--tos-surface-soft));
   box-shadow: var(--tos-shadow-sm);
 }
 
@@ -629,7 +629,7 @@
 .tos-context-ai__calm {
   padding: var(--tos-space-3);
   border-radius: var(--tos-radius-md);
-  background: var(--tos-surface-muted);
+  background: var(--tos-surface-soft);
 }
 
 .tos-context-ai__signal p,
