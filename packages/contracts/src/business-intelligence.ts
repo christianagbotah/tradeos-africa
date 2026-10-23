@@ -3,6 +3,17 @@ export type BusinessIntelligenceScope = {
   branchId: string | null;
 };
 
+export type BusinessEntityType = "CATALOG_ITEM" | "CUSTOMER" | "SUPPLIER" | "PURCHASE";
+
+export type BusinessEntityContext = {
+  entityType: BusinessEntityType;
+  entityId: string;
+};
+
+export type BusinessEntityIdentity = BusinessEntityContext & {
+  label: string;
+};
+
 export type BusinessEvidenceReference = {
   source: string;
   entityType: string;
@@ -78,9 +89,19 @@ export type BusinessBriefing = BusinessIntelligenceScope & {
   evidence: BusinessEvidenceReference[];
 };
 
+export type BusinessEntityIntelligence = BusinessIntelligenceScope & {
+  entity: BusinessEntityIdentity;
+  generatedAt: string;
+  evidence: BusinessEvidenceReference[];
+  attentionItems: BusinessAttentionItem[];
+  recommendations: BusinessRecommendation[];
+  askPrompt: string;
+};
+
 export type BusinessAssistantQueryRequest = BusinessIntelligenceScope & {
   question: string;
   conversationId?: string | null;
+  context?: BusinessEntityContext | null;
 };
 
 export type BusinessAssistantQueryResponse = BusinessIntelligenceScope & {
