@@ -111,6 +111,24 @@ describe("grounded business intelligence query", () => {
     expect(sources.has("supplier_credit_obligations")).toBe(false);
   });
 
+  it("uses only server-derived financial metric evidence for metric context", async () => {
+    const tenant = await createTenant("query-metric-grounding@tradeos.test", "Query Metric Grounding");
+    const calls: ProviderCall[] = [];
+    globalThis.fetch = fakeProvider(calls, { answer: "Metric answer", evidenceIndexes: [0], recommendations: [] });
+    const response = await app.inject({
+      method: "POST", url: "/v1/intelligence/query", headers: authHeaders(tenant.token),
+      payload: {
+        businessId: tenant.businessId, branchId: tenant.branchId, question: "Explain revenue",
+        context: { metricKey: "NET_REVENUE", range: "month" },
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(calls).toHaveLength(1);
+    const evidence = providerEvidence(calls[0]!);
+    expect(evidence.length).toBeGreaterThan(0);
+    expect(evidence.every((item) => item.sourceId === "NET_REVENUE")).toBe(true);
+  });
+
   it("rejects client requests for arbitrary SQL or unsupported tools", async () => {
     const tenant = await createTenant("query-tools@tradeos.test", "Query Tools");
     const calls: ProviderCall[] = [];

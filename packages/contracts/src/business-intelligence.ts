@@ -160,7 +160,7 @@ export type BusinessFinancialMetricIntelligence = BusinessIntelligenceScope & {
 export type BusinessAssistantQueryRequest = BusinessIntelligenceScope & {
   question: string;
   conversationId?: string | null;
-  context?: BusinessEntityContext | null;
+  context?: BusinessAssistantContext | null;
 };
 
 export type BusinessAssistantQueryResponse = BusinessIntelligenceScope & {

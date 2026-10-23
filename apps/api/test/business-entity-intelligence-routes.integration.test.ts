@@ -226,6 +226,109 @@ describe("entity intelligence routes and contextual query", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("returns deterministic financial metric intelligence with Financial Reports role parity", async () => {
+    const tenant = await createTenant("metric-route@tradeos.test", "Metric Route");
+    const owner = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/metric?businessId=${tenant.businessId}&branchId=${tenant.branchId}&metricKey=NET_REVENUE&range=month`,
+      headers: authHeaders(tenant.token),
+    });
+    expect(owner.statusCode, owner.body).toBe(200);
+    expect(owner.json()).toMatchObject({
+      businessId: tenant.businessId,
+      branchId: tenant.branchId,
+      metric: { metricKey: "NET_REVENUE", label: "Net revenue" },
+      range: "month",
+      currentMinor: 0,
+      previousMinor: 0,
+      changePercent: null,
+    });
+
+    await pool.query(`UPDATE business_memberships SET role='VIEWER' WHERE business_id=$1 AND user_id=$2`, [tenant.businessId, tenant.userId]);
+    const viewer = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/metric?businessId=${tenant.businessId}&branchId=${tenant.branchId}&metricKey=CASH_BALANCE&range=today`,
+      headers: authHeaders(tenant.token),
+    });
+    expect(viewer.statusCode, viewer.body).toBe(200);
+
+    await pool.query(`UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1 AND user_id=$2`, [tenant.businessId, tenant.userId]);
+    const cashier = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/metric?businessId=${tenant.businessId}&branchId=${tenant.branchId}&metricKey=CASH_BALANCE&range=today`,
+      headers: authHeaders(tenant.token),
+    });
+    expect(cashier.statusCode).toBe(403);
+  });
+
+  it("rejects unsupported financial metric keys and ranges", async () => {
+    const tenant = await createTenant("metric-invalid@tradeos.test", "Metric Invalid");
+    for (const suffix of ["metricKey=SQL_TABLE&range=month", "metricKey=NET_REVENUE&range=year"]) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/intelligence/metric?businessId=${tenant.businessId}&branchId=${tenant.branchId}&${suffix}`,
+        headers: authHeaders(tenant.token),
+      });
+      expect(response.statusCode).toBe(400);
+    }
+  });
+
+  it("grounds Ask TradeOS on a server-validated financial metric context", async () => {
+    const tenant = await createTenant("metric-query@tradeos.test", "Metric Query");
+    const calls: ProviderCall[] = [];
+    globalThis.fetch = fakeProvider(calls, { answer: "Metric-grounded answer", evidenceIndexes: [0], recommendations: [] });
+
+    const response = await app.inject({
+      method: "POST", url: "/v1/intelligence/query", headers: authHeaders(tenant.token),
+      payload: {
+        businessId: tenant.businessId, branchId: tenant.branchId, question: "Explain this metric",
+        context: { metricKey: "NET_REVENUE", range: "month" },
+      },
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(calls).toHaveLength(1);
+    const evidence = providerEvidence(calls[0]!);
+    expect(evidence.length).toBeGreaterThan(0);
+    expect(evidence.every((item) => item.sourceId === "NET_REVENUE")).toBe(true);
+    expect(providerPrompt(calls[0]!)).toContain("Validated financial metric: Net revenue (NET_REVENUE), range month.");
+  });
+
+  it("fails closed for mixed or forged metric query context before provider execution", async () => {
+    const tenant = await createTenant("metric-query-invalid@tradeos.test", "Metric Query Invalid");
+    const calls: ProviderCall[] = [];
+    globalThis.fetch = fakeProvider(calls, { answer: "should not run", evidenceIndexes: [0], recommendations: [] });
+    for (const context of [
+      { metricKey: "SQL_TABLE", range: "month" },
+      { metricKey: "NET_REVENUE", range: "year" },
+      { metricKey: "NET_REVENUE", range: "month", entityType: "CUSTOMER", entityId: crypto.randomUUID() },
+      { metricKey: "NET_REVENUE", range: "month", extra: "client-shaped" },
+    ]) {
+      const response = await app.inject({
+        method: "POST", url: "/v1/intelligence/query", headers: authHeaders(tenant.token),
+        payload: { businessId: tenant.businessId, branchId: tenant.branchId, question: "Explain", context },
+      });
+      expect(response.statusCode).toBe(400);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("denies metric-grounded Ask TradeOS to roles without Financial Reports access", async () => {
+    const tenant = await createTenant("metric-query-cashier@tradeos.test", "Metric Query Cashier");
+    await pool.query(`UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1 AND user_id=$2`, [tenant.businessId, tenant.userId]);
+    const calls: ProviderCall[] = [];
+    globalThis.fetch = fakeProvider(calls, { answer: "should not run", evidenceIndexes: [0], recommendations: [] });
+    const response = await app.inject({
+      method: "POST", url: "/v1/intelligence/query", headers: authHeaders(tenant.token),
+      payload: {
+        businessId: tenant.businessId, branchId: tenant.branchId, question: "Explain cash",
+        context: { metricKey: "CASH_BALANCE", range: "today" },
+      },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(calls).toHaveLength(0);
+  });
+
   it("rejects arbitrary query context types before calling the provider", async () => {
     const tenant = await createTenant("entity-query-type@tradeos.test", "Entity Query Type");
     const calls: ProviderCall[] = [];

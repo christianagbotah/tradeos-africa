@@ -1,5 +1,13 @@
 import type { FastifyInstance } from "fastify";
-import type { BusinessEntityContext, BusinessEntityType, BusinessInsightRange } from "@tradeos/contracts";
+import type {
+  BusinessAssistantContext,
+  BusinessEntityContext,
+  BusinessEntityType,
+  BusinessFinancialMetricKey,
+  BusinessFinancialMetricRange,
+  BusinessInsightRange,
+  BusinessMetricContext,
+} from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessRole } from "../auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "../auth/security.js";
 import { AiProviderError } from "../ai/provider.js";
@@ -30,22 +38,33 @@ import {
   BusinessEntityActionError,
   createBusinessEntityActionItem,
 } from "./entity-action-service.js";
+import {
+  BusinessMetricIntelligenceError,
+  getBusinessFinancialMetricIntelligence,
+} from "./metric-service.js";
 import { answerBusinessQuestion, BusinessQueryError } from "./query-service.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "CASHIER", "SALES", "INVENTORY", "STAFF", "VIEWER",
 ];
 const FINANCIAL_ROLES = new Set<BusinessRole>(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
+const REPORT_READ_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "VIEWER"];
 const EVALUATE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const BRIEFING_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const AUTOMATION_CONFIGURE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER"];
 const AUTOMATION_EVALUATE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_TYPES = new Set<BusinessEntityType>(["CATALOG_ITEM", "CUSTOMER", "SUPPLIER", "PURCHASE"]);
+const FINANCIAL_METRIC_KEYS = new Set<BusinessFinancialMetricKey>([
+  "NET_REVENUE", "GROSS_PROFIT", "OPERATING_PROFIT", "EXPENSES", "NET_CASH_MOVEMENT",
+  "CASH_BALANCE", "RECEIVABLES", "PAYABLES", "INVENTORY_VALUE",
+]);
+const FINANCIAL_METRIC_RANGES = new Set<BusinessFinancialMetricRange>(["today", "week", "month", "quarter"]);
 
 type AttentionQuery = { businessId?: string; branchId?: string };
 type BriefingQuery = AttentionQuery & { range?: string };
 type EntityQuery = AttentionQuery & { entityType?: string; entityId?: string };
+type MetricQuery = AttentionQuery & { metricKey?: string; range?: string };
 type EvaluateBody = { businessId?: string; branchId?: string | null; correlationId?: string };
 type QueryBody = {
   businessId?: string;
@@ -111,6 +130,20 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
     }
   });
 
+  app.get<{ Querystring: MetricQuery }>("/v1/intelligence/metric", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = uuid(request.query.businessId, "businessId");
+      const branchId = optionalUuid(request.query.branchId, "branchId");
+      const metricKey = financialMetricKey(request.query.metricKey);
+      const range = financialMetricRange(request.query.range);
+      await requireBusinessRole(pool, auth, businessId, REPORT_READ_ROLES);
+      return await getBusinessFinancialMetricIntelligence(pool, { businessId, branchId, metricKey, range });
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
   app.post<{ Body: Record<string, unknown> }>("/v1/intelligence/entity/action-items", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
@@ -140,8 +173,10 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
       const body = request.body ?? {};
       const businessId = uuid(body.businessId, "businessId");
       const branchId = optionalUuid(body.branchId ?? undefined, "branchId");
-      const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
-      const context = optionalEntityContext(body.context);
+      const context = optionalAssistantContext(body.context);
+      const access = await requireBusinessRole(
+        pool, auth, businessId, isMetricContext(context) ? REPORT_READ_ROLES : READ_ROLES,
+      );
       if (Object.prototype.hasOwnProperty.call(body, "tools")) {
         throw new BusinessQueryError(
           "Client-selected intelligence tools are not supported. TradeOS chooses safe evidence sources server-side.",
@@ -329,6 +364,59 @@ function optionalEntityContext(value: unknown): BusinessEntityContext | null {
   };
 }
 
+
+function financialMetricKey(value: unknown): BusinessFinancialMetricKey {
+  if (typeof value === "string" && FINANCIAL_METRIC_KEYS.has(value as BusinessFinancialMetricKey)) {
+    return value as BusinessFinancialMetricKey;
+  }
+  throw new BusinessMetricIntelligenceError(
+    "metricKey is unsupported.", 400, "BUSINESS_METRIC_UNSUPPORTED",
+  );
+}
+
+function financialMetricRange(value: unknown): BusinessFinancialMetricRange {
+  if (typeof value === "string" && FINANCIAL_METRIC_RANGES.has(value as BusinessFinancialMetricRange)) {
+    return value as BusinessFinancialMetricRange;
+  }
+  throw new BusinessMetricIntelligenceError(
+    "range must be one of today, week, month, quarter.", 400, "BUSINESS_METRIC_RANGE_INVALID",
+  );
+}
+
+function optionalMetricContext(value: Record<string, unknown>): BusinessMetricContext {
+  return {
+    metricKey: financialMetricKey(value.metricKey),
+    range: financialMetricRange(value.range),
+  };
+}
+
+function optionalAssistantContext(value: unknown): BusinessAssistantContext | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new BusinessQueryError("Assistant context is invalid.", 400, "BUSINESS_AI_CONTEXT_INVALID");
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  const entityKeys = keys.filter((key) => key === "entityType" || key === "entityId");
+  const metricKeys = keys.filter((key) => key === "metricKey" || key === "range");
+  const hasOther = keys.some((key) => !["entityType", "entityId", "metricKey", "range"].includes(key));
+  if (hasOther || (entityKeys.length > 0 && metricKeys.length > 0)) {
+    throw new BusinessQueryError("Assistant context contains unsupported or mixed fields.", 400, "BUSINESS_AI_CONTEXT_INVALID");
+  }
+  if (entityKeys.length > 0) return optionalEntityContext(record);
+  if (metricKeys.length > 0) {
+    if (keys.length !== 2 || !keys.includes("metricKey") || !keys.includes("range")) {
+      throw new BusinessQueryError("Financial metric context is incomplete.", 400, "BUSINESS_AI_CONTEXT_INVALID");
+    }
+    return optionalMetricContext(record);
+  }
+  throw new BusinessQueryError("Assistant context is invalid.", 400, "BUSINESS_AI_CONTEXT_INVALID");
+}
+
+function isMetricContext(value: BusinessAssistantContext | null): value is BusinessMetricContext {
+  return value !== null && "metricKey" in value;
+}
+
 function insightRange(value: unknown): BusinessInsightRange {
   if (value === "today" || value === "week" || value === "month") return value;
   throw new BusinessBriefingError("range must be one of today, week, month");
@@ -348,6 +436,7 @@ function sendError(error: unknown, reply: { code(statusCode: number): { send(pay
     || error instanceof BusinessBriefingError
     || error instanceof BusinessEntityActionError
     || error instanceof BusinessEntityIntelligenceError
+    || error instanceof BusinessMetricIntelligenceError
     || error instanceof BusinessQueryError
     || error instanceof AiProviderError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });

@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type {
   AiTextProvider,
+  BusinessAssistantContext,
   BusinessAssistantQueryRequest,
   BusinessAssistantQueryResponse,
   BusinessAttentionSeverity,
   BusinessEntityIdentity,
+  BusinessFinancialMetricIdentity,
+  BusinessFinancialMetricRange,
+  BusinessMetricContext,
   BusinessEvidenceReference,
   BusinessRecommendation,
 } from "@tradeos/contracts";
@@ -20,6 +24,10 @@ import {
   BusinessEntityIntelligenceError,
   getBusinessEntityIntelligence,
 } from "./entity-service.js";
+import {
+  BusinessMetricIntelligenceError,
+  getBusinessFinancialMetricIntelligence,
+} from "./metric-service.js";
 
 const PRIORITIES = new Set<BusinessAttentionSeverity>(["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]);
 const SAFE_ACTION_TYPES = new Set([
@@ -114,8 +122,18 @@ export async function answerBusinessQuestion(
 
   let evidence: BusinessEvidenceReference[];
   let validatedEntity: BusinessEntityIdentity | null = null;
+  let validatedMetric: { metric: BusinessFinancialMetricIdentity; range: BusinessFinancialMetricRange } | null = null;
   try {
-    if (request.context) {
+    if (request.context && isMetricAssistantContext(request.context)) {
+      const metric = await getBusinessFinancialMetricIntelligence(pool, {
+        businessId: request.businessId,
+        branchId: request.branchId,
+        metricKey: request.context.metricKey,
+        range: request.context.range,
+      });
+      evidence = metric.evidence;
+      validatedMetric = { metric: metric.metric, range: metric.range };
+    } else if (request.context) {
       const entity = await getBusinessEntityIntelligence(pool, {
         businessId: request.businessId,
         branchId: request.branchId,
@@ -133,7 +151,9 @@ export async function answerBusinessQuestion(
       });
     }
   } catch (error) {
-    if (error instanceof BusinessIntelligenceToolError || error instanceof BusinessEntityIntelligenceError) {
+    if (error instanceof BusinessIntelligenceToolError
+      || error instanceof BusinessEntityIntelligenceError
+      || error instanceof BusinessMetricIntelligenceError) {
       throw new BusinessQueryError(error.message, error.statusCode, error.code);
     }
     throw error;
@@ -150,6 +170,9 @@ export async function answerBusinessQuestion(
         `Authorized role: ${access.role}.`,
         ...(validatedEntity
           ? [`Validated entity: ${validatedEntity.entityType} ${validatedEntity.label} (${validatedEntity.entityId}).`]
+          : []),
+        ...(validatedMetric
+          ? [`Validated financial metric: ${validatedMetric.metric.label} (${validatedMetric.metric.metricKey}), range ${validatedMetric.range}.`]
           : []),
         `Business question: ${question}`,
         "Answer only from the supplied evidence. Keep the answer concise and practical.",
@@ -173,6 +196,11 @@ export async function answerBusinessQuestion(
     recommendations: parsed.recommendations,
     conversationId,
   };
+}
+
+
+function isMetricAssistantContext(context: BusinessAssistantContext): context is BusinessMetricContext {
+  return typeof context.metricKey === "string" && typeof context.range === "string";
 }
 
 function parseOutput(
