@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { FinancialSummaryReport } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
+import { ContextualIntelligencePanel } from "../intelligence/contextual-intelligence-panel";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyValue } from "../business/money-value";
 import { StatePanel } from "../ui/state-panel";
@@ -197,6 +198,8 @@ export function FinancialReports() {
           <Button variant="outline" icon={<IconPrint className="tos-btn__icon" />} onClick={handlePrint} className="tos-report-print-btn" disabled={!flow}>Print</Button>
         </div>
       </header>
+
+      <ContextualIntelligencePanel surface="reports" />
 
       {/* Date preset chips */}
       <div className="tos-report-presets" role="tablist" aria-label="Report date range">

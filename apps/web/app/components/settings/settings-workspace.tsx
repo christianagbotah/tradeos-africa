@@ -27,6 +27,7 @@ import {
   IconUsers,
 } from "../ui/icons";
 import { useWorkspace } from "../workspace/use-workspace";
+import { ContextualIntelligencePanel } from "../intelligence/contextual-intelligence-panel";
 import type {
   WorkspaceBranch,
   WorkspaceBusinessProfile,
@@ -142,6 +143,8 @@ export function SettingsWorkspace() {
           <span>{activeBranchName(businessContext?.branches ?? [], session.branchId)} · {role}</span>
         </div>
       </header>
+
+      <ContextualIntelligencePanel surface="settings" />
 
       {!queue.online ? (
         <div className="tos-banner tos-banner--warning" role="status">
