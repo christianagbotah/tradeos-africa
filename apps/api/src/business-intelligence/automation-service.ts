@@ -546,11 +546,14 @@ export async function listBusinessActionItems(
   actor: Actor,
   branchId: string | null,
 ): Promise<BusinessActionItem[]> {
+  const canReadFullQueue = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"].includes(actor.role);
   const result = await pool.query<ActionRow>(
     `${ACTION_SELECT}
-     WHERE business_id=$1 AND ($2::uuid IS NULL OR branch_id=$2)
+     WHERE business_id=$1
+       AND ($2::uuid IS NULL OR branch_id=$2)
+       AND ($3::boolean OR assigned_user_id=$4 OR ($5::uuid IS NOT NULL AND assigned_staff_id=$5))
      ORDER BY CASE status WHEN 'OPEN' THEN 0 WHEN 'SNOOZED' THEN 1 ELSE 2 END,due_at NULLS LAST,created_at DESC`,
-    [actor.businessId, branchId],
+    [actor.businessId, branchId, canReadFullQueue, actor.userId, actor.staffId],
   );
   return result.rows.map(mapAction);
 }

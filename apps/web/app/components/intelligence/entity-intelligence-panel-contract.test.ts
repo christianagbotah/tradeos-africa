@@ -46,6 +46,12 @@ describe("entity intelligence panel contract", () => {
     expect(panel).toContain("data.safeAction");
     expect(panel).toContain("createEntityActionItem");
     expect(panel).toMatch(/data\.safeAction\s*\?/);
+    expect(panel).toContain("entityActionKey");
+    expect(panel).toContain("actionPendingByKey");
+    expect(panel).toContain("actionFeedbackByKey");
+    expect(panel).toMatch(/actionPendingByKey\[entityActionKey\]\s*===\s*true/);
+    expect(panel).toMatch(/actionFeedbackByKey\[entityActionKey\]/);
+    expect(panel).toMatch(/setActionPendingByKey\(\(current\)\s*=>\s*\(\{\s*\.\.\.current,\s*\[requestKey\]:\s*false\s*\}\)\)/);
     expect(panel).toContain('type="button"');
     expect(panel).toMatch(/disabled=\{!queue\.online\s*\|\|\s*actionPending\}/);
     expect(panel).toMatch(/if \(!queue\.online \|\| actionPending \|\| !data\.safeAction\) return/);

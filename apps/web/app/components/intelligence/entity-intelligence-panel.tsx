@@ -18,8 +18,11 @@ interface EntityIntelligencePanelProps {
 
 export function EntityIntelligencePanel({ entityType, entityId }: EntityIntelligencePanelProps) {
   const { session, queue } = useWorkspace();
-  const [actionPending, setActionPending] = useState(false);
-  const [actionFeedback, setActionFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const entityActionKey = `${entityType}:${entityId}`;
+  const [actionPendingByKey, setActionPendingByKey] = useState<Record<string, boolean>>({});
+  const [actionFeedbackByKey, setActionFeedbackByKey] = useState<Record<string, { kind: "success" | "error"; text: string }>>({});
+  const actionPending = actionPendingByKey[entityActionKey] === true;
+  const actionFeedback = actionFeedbackByKey[entityActionKey] ?? null;
   const entityPath = session && queue.online && entityId
     ? `/v1/intelligence/entity?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`
     : null;
@@ -82,8 +85,13 @@ export function EntityIntelligencePanel({ entityType, entityId }: EntityIntellig
 
   const createReviewTask = async () => {
     if (!queue.online || actionPending || !data.safeAction) return;
-    setActionPending(true);
-    setActionFeedback(null);
+    const requestKey = entityActionKey;
+    setActionPendingByKey((current) => ({ ...current, [requestKey]: true }));
+    setActionFeedbackByKey((current) => {
+      const next = { ...current };
+      delete next[requestKey];
+      return next;
+    });
     try {
       const result = await createEntityActionItem(
         (input, init) => getOfflineQueue().authenticatedFetch(input, init),
@@ -93,19 +101,25 @@ export function EntityIntelligencePanel({ entityType, entityId }: EntityIntellig
           context: { entityType, entityId },
         },
       );
-      setActionFeedback({
-        kind: "success",
-        text: result.created
-          ? "Review task created and assigned to you."
-          : "An active review task already exists.",
-      });
+      setActionFeedbackByKey((current) => ({
+        ...current,
+        [requestKey]: {
+          kind: "success",
+          text: result.created
+            ? "Review task created and assigned to you."
+            : "An active review task already exists.",
+        },
+      }));
     } catch (actionError) {
-      setActionFeedback({
-        kind: "error",
-        text: actionError instanceof Error ? actionError.message : "Review task could not be created.",
-      });
+      setActionFeedbackByKey((current) => ({
+        ...current,
+        [requestKey]: {
+          kind: "error",
+          text: actionError instanceof Error ? actionError.message : "Review task could not be created.",
+        },
+      }));
     } finally {
-      setActionPending(false);
+      setActionPendingByKey((current) => ({ ...current, [requestKey]: false }));
     }
   };
 

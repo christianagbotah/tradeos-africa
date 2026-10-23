@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { applyMigrations } from "../src/migrations/migration-runner.js";
 import { createBusinessEntityActionItem, BusinessEntityActionError } from "../src/business-intelligence/entity-action-service.js";
+import { listBusinessActionItems } from "../src/business-intelligence/automation-service.js";
 
 const { Pool } = pg;
 const baseDatabaseUrl = process.env.DATABASE_URL ?? "postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci";
@@ -24,6 +25,8 @@ const OWNER = "83000000-0000-4000-8000-000000000010";
 const OWNER_STAFF = "83000000-0000-4000-8000-000000000011";
 const VIEWER = "83000000-0000-4000-8000-000000000012";
 const VIEWER_STAFF = "83000000-0000-4000-8000-000000000013";
+const ACCOUNTANT = "83000000-0000-4000-8000-000000000014";
+const ACCOUNTANT_STAFF = "83000000-0000-4000-8000-000000000015";
 const ITEM1 = "83000000-0000-4000-8000-000000000020";
 const CUSTOMER1 = "83000000-0000-4000-8000-000000000030";
 const SUPPLIER1 = "83000000-0000-4000-8000-000000000040";
@@ -107,6 +110,38 @@ describe("entity intelligence safe action creation", () => {
     })).rejects.toMatchObject({ statusCode: 404, code: "ENTITY_NOT_FOUND" });
   });
 
+  it("keeps lower-role action queues scoped to their assignments so financial evidence cannot leak", async () => {
+    const ownerTask = await createBusinessEntityActionItem(pool, { userId: OWNER, businessId: B1 }, {
+      businessId: B1, branchId: BR1, entityType: "CUSTOMER", entityId: CUSTOMER1, now: NOW,
+    });
+    expect(ownerTask.item.evidence.some((item) => item.label === "creditLimitMinor")).toBe(true);
+
+    const accountantItems = await listBusinessActionItems(pool, {
+      userId: ACCOUNTANT, businessId: B1, role: "ACCOUNTANT", staffId: ACCOUNTANT_STAFF,
+    }, BR1);
+    expect(accountantItems.some((item) => item.id === ownerTask.item.id)).toBe(true);
+
+    const viewerActor = { userId: VIEWER, businessId: B1, role: "VIEWER" as const, staffId: VIEWER_STAFF };
+    const viewerBefore = await listBusinessActionItems(pool, viewerActor, BR1);
+    expect(viewerBefore).toEqual([]);
+
+    await pool.query(
+      `INSERT INTO business_action_items(
+         business_id,branch_id,action_type,title,reason,evidence,assigned_user_id,assigned_staff_id,status
+       ) VALUES($1,$2,'CREATE_FOLLOW_UP','Viewer task','Safe internal review','[]',$3,$4,'OPEN')`,
+      [B1, BR1, VIEWER, VIEWER_STAFF],
+    );
+    const viewerAfter = await listBusinessActionItems(pool, viewerActor, BR1);
+    expect(viewerAfter).toHaveLength(1);
+    expect(viewerAfter[0]?.assignedUserId).toBe(VIEWER);
+    expect(viewerAfter.some((item) => item.id === ownerTask.item.id)).toBe(false);
+
+    const ownerItems = await listBusinessActionItems(pool, {
+      userId: OWNER, businessId: B1, role: "OWNER", staffId: OWNER_STAFF,
+    }, BR1);
+    expect(ownerItems.some((item) => item.id === ownerTask.item.id)).toBe(true);
+  });
+
   it("creates only an internal action item and leaves economic/access ledgers unchanged", async () => {
     const before = await invariantCounts();
     await createBusinessEntityActionItem(pool, { userId: OWNER, businessId: B1 }, {
@@ -140,11 +175,15 @@ async function seedFixture() {
     ($1,$2,'Main','MAIN','Africa/Accra',true),($3,$2,'Second','SECOND','Africa/Accra',true),($4,$5,'Foreign','MAIN','Africa/Accra',true)`,
     [BR1,B1,BR1B,BR2,B2]);
   await pool.query(`INSERT INTO app_users(id,display_name,email,password_hash,status) VALUES
-    ($1,'Owner','entity-owner@test.local','hash','ACTIVE'),($2,'Viewer','entity-viewer@test.local','hash','ACTIVE')`, [OWNER,VIEWER]);
+    ($1,'Owner','entity-owner@test.local','hash','ACTIVE'),
+    ($2,'Viewer','entity-viewer@test.local','hash','ACTIVE'),
+    ($3,'Accountant','entity-accountant@test.local','hash','ACTIVE')`, [OWNER,VIEWER,ACCOUNTANT]);
   await pool.query(`INSERT INTO staff(id,business_id,display_name,role,is_active) VALUES
-    ($1,$2,'Owner','OWNER',true),($3,$2,'Viewer','VIEWER',true)`, [OWNER_STAFF,B1,VIEWER_STAFF]);
+    ($1,$2,'Owner','OWNER',true),($3,$2,'Viewer','VIEWER',true),($4,$2,'Accountant','ACCOUNTANT',true)`, [OWNER_STAFF,B1,VIEWER_STAFF,ACCOUNTANT_STAFF]);
   await pool.query(`INSERT INTO business_memberships(business_id,user_id,staff_id,role,status,created_by_user_id) VALUES
-    ($1,$2,$3,'OWNER','ACTIVE',$2),($1,$4,$5,'VIEWER','ACTIVE',$2)`, [B1,OWNER,OWNER_STAFF,VIEWER,VIEWER_STAFF]);
+    ($1,$2,$3,'OWNER','ACTIVE',$2),
+    ($1,$4,$5,'VIEWER','ACTIVE',$2),
+    ($1,$6,$7,'ACCOUNTANT','ACTIVE',$2)`, [B1,OWNER,OWNER_STAFF,VIEWER,VIEWER_STAFF,ACCOUNTANT,ACCOUNTANT_STAFF]);
   await pool.query(`INSERT INTO catalog_items(id,business_id,sku,name,kind,stock_unit_code,track_stock,is_active) VALUES
     ($1,$2,'W-1','Widget','PRODUCT','EA',true,true)`, [ITEM1,B1]);
   await pool.query(`INSERT INTO customers(id,business_id,name,credit_limit_minor,credit_terms_days,is_active) VALUES
