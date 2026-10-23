@@ -49,6 +49,16 @@ describe("entity intelligence panel contract", () => {
     expect(panel).not.toMatch(/method:\s*["'](?:POST|PATCH|DELETE)["']/);
   });
 
+  it("formats explicit minor-unit money evidence using its currency metadata", () => {
+    const panel = source(panelPath);
+    expect(panel).toContain("BusinessEvidenceReference");
+    expect(panel).toContain('metadata?.kind === "money_minor"');
+    expect(panel).toContain("metadata?.currencyCode");
+    expect(panel).toContain("Intl.NumberFormat");
+    expect(panel).toMatch(/minor[^]*\/\s*100/);
+    expect(panel).toMatch(/formatEvidenceValue\(item\)/);
+  });
+
   it("ships responsive entity intelligence styling", () => {
     const css = source(cssPath);
     expect(css).toContain(".tos-entity-ai");

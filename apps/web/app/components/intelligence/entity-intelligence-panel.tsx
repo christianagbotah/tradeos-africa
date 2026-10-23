@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { BusinessEntityIntelligence, BusinessEntityType } from "@tradeos/contracts";
+import type { BusinessEntityIntelligence, BusinessEntityType, BusinessEvidenceReference } from "@tradeos/contracts";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { Button } from "../ui/button";
 import { StatePanel } from "../ui/state-panel";
@@ -90,7 +90,7 @@ export function EntityIntelligencePanel({ entityType, entityId }: EntityIntellig
         {evidence.map((item, index) => (
           <div className="tos-entity-ai__fact" key={`${item.source}:${item.label ?? item.entityType}:${index}`}>
             <dt>{humanize(item.label ?? item.entityType)}</dt>
-            <dd>{formatEvidenceValue(item.value)}</dd>
+            <dd>{formatEvidenceValue(item)}</dd>
           </div>
         ))}
       </div>
@@ -140,9 +140,23 @@ export function EntityIntelligencePanel({ entityType, entityId }: EntityIntellig
   );
 }
 
-function formatEvidenceValue(value: string | number | boolean | null | undefined): string {
+function formatEvidenceValue(item: BusinessEvidenceReference): string {
+  const value = item.value;
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
+
+  if (item.metadata?.kind === "money_minor" && typeof item.metadata?.currencyCode === "string") {
+    const currencyCode = item.metadata.currencyCode.trim().toUpperCase();
+    const minor = typeof value === "number" ? value : Number(value);
+    if (/^[A-Z]{3}$/.test(currencyCode) && Number.isSafeInteger(minor)) {
+      try {
+        return new Intl.NumberFormat(undefined, { style: "currency", currency: currencyCode }).format(minor / 100);
+      } catch {
+        return `${currencyCode} ${(minor / 100).toFixed(2)}`;
+      }
+    }
+  }
+
   return String(value);
 }
 

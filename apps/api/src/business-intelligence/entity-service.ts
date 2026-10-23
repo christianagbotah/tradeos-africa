@@ -47,11 +47,11 @@ export async function getBusinessEntityIntelligence(
 
   const collected = await withTransaction(pool, async (client) => {
     await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
-    await assertScope(client, input.businessId, input.branchId);
+    const scope = await assertScope(client, input.businessId, input.branchId);
     switch (input.entityType) {
-      case "CATALOG_ITEM": return collectCatalogItem(client, input, financial, generatedAt);
-      case "CUSTOMER": return collectCustomer(client, input, financial, generatedAt);
-      case "SUPPLIER": return collectSupplier(client, input, financial, generatedAt);
+      case "CATALOG_ITEM": return collectCatalogItem(client, input, financial, generatedAt, scope.currencyCode);
+      case "CUSTOMER": return collectCustomer(client, input, financial, generatedAt, scope.currencyCode);
+      case "SUPPLIER": return collectSupplier(client, input, financial, generatedAt, scope.currencyCode);
       case "PURCHASE": return collectPurchase(client, input, financial, generatedAt);
     }
   });
@@ -76,14 +76,17 @@ export async function getBusinessEntityIntelligence(
   };
 }
 
-async function assertScope(client: DatabaseClient, businessId: string, branchId: string | null) {
+async function assertScope(client: DatabaseClient, businessId: string, branchId: string | null): Promise<{ currencyCode: string }> {
   const result = branchId
-    ? await client.query(
-        `SELECT 1 FROM businesses b JOIN branches br ON br.business_id=b.id
+    ? await client.query<{ currency_code: string }>(
+        `SELECT b.currency_code::text AS currency_code FROM businesses b JOIN branches br ON br.business_id=b.id
          WHERE b.id=$1::uuid AND b.status='ACTIVE' AND br.id=$2::uuid AND br.is_active=true`,
         [businessId, branchId],
       )
-    : await client.query(`SELECT 1 FROM businesses WHERE id=$1::uuid AND status='ACTIVE'`, [businessId]);
+    : await client.query<{ currency_code: string }>(
+        `SELECT currency_code::text AS currency_code FROM businesses WHERE id=$1::uuid AND status='ACTIVE'`,
+        [businessId],
+      );
   if (!result.rowCount) {
     throw new BusinessEntityIntelligenceError(
       branchId ? "Branch is unavailable in the authorized business." : "Business is unavailable.",
@@ -91,6 +94,7 @@ async function assertScope(client: DatabaseClient, businessId: string, branchId:
       branchId ? "BRANCH_NOT_FOUND" : "BUSINESS_NOT_FOUND",
     );
   }
+  return { currencyCode: result.rows[0]!.currency_code.trim() };
 }
 
 async function collectCatalogItem(
@@ -98,6 +102,7 @@ async function collectCatalogItem(
   input: EntityInput,
   financial: boolean,
   observedAt: string,
+  currencyCode: string,
 ): Promise<CollectedEntity> {
   const item = (await client.query<{
     id: string; name: string; sku: string | null; kind: string; stock_unit_code: string | null; track_stock: boolean; is_active: boolean;
@@ -156,7 +161,7 @@ async function collectCatalogItem(
   )).rows[0];
   evidence.push(ref("sales", "CATALOG_ITEM", item.id, "completedSales30d", sales?.sale_count ?? 0, observedAt));
   evidence.push(ref("sale_lines", "CATALOG_ITEM", item.id, "soldQuantity30d", sales?.sold_quantity ?? "0", observedAt));
-  if (financial) evidence.push(ref("sale_lines", "CATALOG_ITEM", item.id, "netRevenueMinor30d", sales?.revenue_minor ?? "0", observedAt));
+  if (financial) evidence.push(ref("sale_lines", "CATALOG_ITEM", item.id, "netRevenueMinor30d", sales?.revenue_minor ?? "0", observedAt, moneyMetadata(currencyCode)));
 
   const movements = await client.query<{ reason: string; location_type: string; quantity_delta: string; occurred_at: Date | string }>(
     `SELECT reason,location_type,quantity_delta::text,occurred_at
@@ -181,6 +186,7 @@ async function collectCustomer(
   input: EntityInput,
   financial: boolean,
   observedAt: string,
+  currencyCode: string,
 ): Promise<CollectedEntity> {
   const customer = (await client.query<{
     id: string; name: string; phone: string | null; email: string | null; credit_limit_minor: string | null; credit_terms_days: number; is_active: boolean;
@@ -198,7 +204,7 @@ async function collectCustomer(
     ref("customers", "CUSTOMER", customer.id, "hasEmail", Boolean(customer.email?.trim()), observedAt),
   ];
   if (financial) {
-    evidence.push(ref("customers", "CUSTOMER", customer.id, "creditLimitMinor", customer.credit_limit_minor, observedAt));
+    evidence.push(ref("customers", "CUSTOMER", customer.id, "creditLimitMinor", customer.credit_limit_minor, observedAt, moneyMetadata(currencyCode)));
     evidence.push(ref("customers", "CUSTOMER", customer.id, "creditTermsDays", customer.credit_terms_days, observedAt));
     const obligations = (await client.query<{ open_minor: string; open_count: number; overdue_count: number; oldest_due: Date | string | null }>(
       `SELECT COALESCE(SUM(open_minor),0)::text AS open_minor,
@@ -209,7 +215,7 @@ async function collectCustomer(
        WHERE business_id=$1::uuid AND customer_id=$3::uuid AND ($2::uuid IS NULL OR branch_id=$2::uuid)`,
       [input.businessId, input.branchId, input.entityId, observedAt],
     )).rows[0];
-    evidence.push(ref("customer_credit_obligations", "CUSTOMER", customer.id, "openBalanceMinor", obligations?.open_minor ?? "0", observedAt));
+    evidence.push(ref("customer_credit_obligations", "CUSTOMER", customer.id, "openBalanceMinor", obligations?.open_minor ?? "0", observedAt, moneyMetadata(currencyCode)));
     evidence.push(ref("customer_credit_obligations", "CUSTOMER", customer.id, "openObligationCount", obligations?.open_count ?? 0, observedAt));
     evidence.push(ref("customer_credit_obligations", "CUSTOMER", customer.id, "overdueObligationCount", obligations?.overdue_count ?? 0, observedAt));
     if (obligations?.oldest_due) evidence.push(ref("customer_credit_obligations", "CUSTOMER", customer.id, "oldestDueAt", iso(obligations.oldest_due), observedAt));
@@ -234,6 +240,7 @@ async function collectSupplier(
   input: EntityInput,
   financial: boolean,
   observedAt: string,
+  currencyCode: string,
 ): Promise<CollectedEntity> {
   const supplier = (await client.query<{
     id: string; name: string; phone: string | null; email: string | null; address: string | null; payment_terms_days: number; is_active: boolean;
@@ -276,7 +283,7 @@ async function collectSupplier(
 
   if (financial) {
     evidence.push(ref("suppliers", "SUPPLIER", supplier.id, "paymentTermsDays", supplier.payment_terms_days, observedAt));
-    evidence.push(ref("purchases", "SUPPLIER", supplier.id, "recentPurchaseTotalMinor30d", purchases?.purchase_total_minor ?? "0", observedAt));
+    evidence.push(ref("purchases", "SUPPLIER", supplier.id, "recentPurchaseTotalMinor30d", purchases?.purchase_total_minor ?? "0", observedAt, moneyMetadata(currencyCode)));
     const obligations = (await client.query<{ open_minor: string; open_count: number; overdue_count: number; oldest_due: Date | string | null }>(
       `SELECT COALESCE(SUM(open_minor),0)::text AS open_minor,count(*) FILTER (WHERE open_minor>0)::int AS open_count,
               count(*) FILTER (WHERE open_minor>0 AND due_at<$4::timestamptz)::int AS overdue_count,
@@ -285,7 +292,7 @@ async function collectSupplier(
        WHERE business_id=$1::uuid AND supplier_id=$3::uuid AND ($2::uuid IS NULL OR branch_id=$2::uuid)`,
       [input.businessId, input.branchId, input.entityId, observedAt],
     )).rows[0];
-    evidence.push(ref("supplier_credit_obligations", "SUPPLIER", supplier.id, "openPayableMinor", obligations?.open_minor ?? "0", observedAt));
+    evidence.push(ref("supplier_credit_obligations", "SUPPLIER", supplier.id, "openPayableMinor", obligations?.open_minor ?? "0", observedAt, moneyMetadata(currencyCode)));
     evidence.push(ref("supplier_credit_obligations", "SUPPLIER", supplier.id, "openObligationCount", obligations?.open_count ?? 0, observedAt));
     evidence.push(ref("supplier_credit_obligations", "SUPPLIER", supplier.id, "overdueObligationCount", obligations?.overdue_count ?? 0, observedAt));
     if (obligations?.oldest_due) evidence.push(ref("supplier_credit_obligations", "SUPPLIER", supplier.id, "oldestDueAt", iso(obligations.oldest_due), observedAt));
@@ -320,7 +327,7 @@ async function collectPurchase(
     ref("purchase_return_cases", "PURCHASE", purchase.id, "returnCount", purchase.return_count, observedAt),
     ref("purchase_return_cases", "PURCHASE", purchase.id, "hasReturns", purchase.return_count > 0, observedAt),
   ];
-  if (financial) evidence.push(ref("purchases", "PURCHASE", purchase.id, "totalMinor", purchase.total_minor, observedAt));
+  if (financial) evidence.push(ref("purchases", "PURCHASE", purchase.id, "totalMinor", purchase.total_minor, observedAt, moneyMetadata(purchase.currency_code.trim())));
   return {
     entity: { entityType: "PURCHASE", entityId: purchase.id, label: `Purchase · ${purchase.supplier_name}` },
     evidence,
@@ -371,8 +378,13 @@ function ref(
   label: string,
   value: string | number | boolean | null,
   observedAt: string,
+  metadata?: Record<string, unknown>,
 ): BusinessEvidenceReference {
-  return { source, entityType, entityId, label, value, observedAt };
+  return { source, entityType, entityId, label, value, observedAt, ...(metadata ? { metadata } : {}) };
+}
+
+function moneyMetadata(currencyCode: string): Record<string, unknown> {
+  return { kind: "money_minor", currencyCode };
 }
 
 function notFound(): never {

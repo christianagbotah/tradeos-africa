@@ -60,6 +60,7 @@ describe("business entity intelligence", () => {
     expect(value(owner, "quarantineQuantity")).toBe("2.00000000");
     expect(value(owner, "soldQuantity30d")).toBe("2.00000000");
     expect(value(owner, "netRevenueMinor30d")).toBe("5000");
+    expect(metadata(owner, "netRevenueMinor30d")).toEqual({ kind: "money_minor", currencyCode: "GHS" });
     expect(owner.attentionItems).toHaveLength(1);
     expect(owner.attentionItems[0]?.ruleCode).toBe("STOCKOUT_RISK");
     expect(owner.recommendations.every((item) => !/submit|pay|receive|adjust/i.test(item.suggestedActionType ?? ""))).toBe(true);
@@ -106,6 +107,8 @@ describe("business entity intelligence", () => {
     expect(value(owner, "hasEmail")).toBe(true);
     expect(value(owner, "openBalanceMinor")).toBe("2500");
     expect(value(owner, "creditLimitMinor")).toBe("10000");
+    expect(metadata(owner, "creditLimitMinor")).toEqual({ kind: "money_minor", currencyCode: "GHS" });
+    expect(metadata(owner, "openBalanceMinor")).toEqual({ kind: "money_minor", currencyCode: "GHS" });
     expect(owner.evidence.some((item) => item.value === "0244000000" || item.value === "customer@example.test")).toBe(false);
 
     const sales = await getBusinessEntityIntelligence(pool, {
@@ -120,6 +123,8 @@ describe("business entity intelligence", () => {
       businessId: B1, branchId: BR1, role: "ACCOUNTANT", entityType: "SUPPLIER", entityId: SUPPLIER1, now: NOW,
     });
     expect(value(owner, "openPayableMinor")).toBe("6000");
+    expect(metadata(owner, "openPayableMinor")).toEqual({ kind: "money_minor", currencyCode: "GHS" });
+    expect(metadata(owner, "recentPurchaseTotalMinor30d")).toEqual({ kind: "money_minor", currencyCode: "GHS" });
     expect(value(owner, "recentPurchaseCount30d")).toBe(1);
 
     const inventory = await getBusinessEntityIntelligence(pool, {
@@ -137,6 +142,7 @@ describe("business entity intelligence", () => {
     expect(owner.entity.label).toContain("Supplier One");
     expect(value(owner, "lineCount")).toBe(1);
     expect(value(owner, "totalMinor")).toBe("8000");
+    expect(metadata(owner, "totalMinor")).toEqual({ kind: "money_minor", currencyCode: "GHS" });
 
     const inventory = await getBusinessEntityIntelligence(pool, {
       businessId: B1, branchId: BR1, role: "INVENTORY", entityType: "PURCHASE", entityId: PURCHASE1, now: NOW,
@@ -162,6 +168,9 @@ function labels(result: { evidence: Array<{ label?: string | null }> }) {
 }
 function value(result: { evidence: Array<{ label?: string | null; value?: unknown }> }, label: string) {
   return result.evidence.find((item) => item.label === label)?.value;
+}
+function metadata(result: { evidence: Array<{ label?: string | null; metadata?: Record<string, unknown> }> }, label: string) {
+  return result.evidence.find((item) => item.label === label)?.metadata;
 }
 
 async function seedFixture() {
