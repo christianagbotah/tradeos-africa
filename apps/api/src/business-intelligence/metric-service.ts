@@ -215,7 +215,7 @@ function metricEvidence(
 ): BusinessEvidenceReference[] {
   const base: BusinessEvidenceReference[] = [
     moneyRef(metricKey, "currentMinor", currentMinor, report.currencyCode, observedAt),
-    { source: "financial_summary", entityType: "FINANCIAL_METRIC", entityId: metricKey, label: "range", value: report.period.from, observedAt },
+    { source: "financial_summary", entityType: "FINANCIAL_METRIC", entityId: metricKey, label: "periodFrom", value: report.period.from, observedAt },
     { source: "financial_summary", entityType: "FINANCIAL_METRIC", entityId: metricKey, label: "periodTo", value: report.period.to, observedAt },
   ];
   if (previousMinor !== null) base.push(moneyRef(metricKey, "previousMinor", previousMinor, report.currencyCode, observedAt));

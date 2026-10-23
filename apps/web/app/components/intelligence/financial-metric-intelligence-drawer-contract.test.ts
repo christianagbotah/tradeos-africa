@@ -21,9 +21,11 @@ describe("financial metric intelligence drawer contract", () => {
     expect(drawer).toContain("useApiFetch<BusinessFinancialMetricIntelligence>");
   });
 
-  it("rejects stale response data after a metric or range switch", () => {
+  it("rejects stale response data after a tenant, branch, metric or range switch", () => {
     const drawer = source(drawerPath);
-    expect(drawer).toMatch(/data\?\.metric\.metricKey\s*===\s*metricKey/);
+    expect(drawer).toMatch(/data\?\.businessId\s*===\s*session\.businessId/);
+    expect(drawer).toMatch(/data\.branchId\s*===\s*session\.branchId/);
+    expect(drawer).toMatch(/data\.metric\.metricKey\s*===\s*metricKey/);
     expect(drawer).toMatch(/data\.range\s*===\s*range/);
     expect(drawer).toContain("currentData");
   });

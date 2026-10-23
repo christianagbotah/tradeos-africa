@@ -32,7 +32,13 @@ export function FinancialMetricIntelligenceDrawer({
     ? `/v1/intelligence/metric?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&metricKey=${encodeURIComponent(metricKey)}&range=${encodeURIComponent(range)}`
     : null;
   const { data, loading, error, refetch } = useApiFetch<BusinessFinancialMetricIntelligence>(metricPath);
-  const currentData = data?.metric.metricKey === metricKey && data.range === range ? data : null;
+  const currentData = session
+    && data?.businessId === session.businessId
+    && data.branchId === session.branchId
+    && data.metric.metricKey === metricKey
+    && data.range === range
+    ? data
+    : null;
 
   if (!open || !session) return null;
 

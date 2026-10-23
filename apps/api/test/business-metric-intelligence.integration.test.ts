@@ -75,6 +75,11 @@ describe("financial metric intelligence", () => {
       expect(result.deltaMinor).toBe(values[2]);
       expect(result.changePercent).toBeCloseTo(values[3], 5);
       expect(result.evidence.some((item) => item.label === "currentMinor" && item.metadata?.kind === "money_minor")).toBe(true);
+      expect(result.evidence).toEqual(expect.arrayContaining([
+        expect.objectContaining({ label: "periodFrom", value: result.period.from }),
+        expect.objectContaining({ label: "periodTo", value: result.period.to }),
+      ]));
+      expect(result.evidence.some((item) => item.label === "range")).toBe(false);
       expect(result.recommendations).toHaveLength(1);
       expect(result.askPrompt.length).toBeGreaterThan(10);
     }
