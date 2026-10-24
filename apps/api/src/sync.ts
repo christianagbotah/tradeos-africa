@@ -85,6 +85,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   const serverReceivedAt = new Date().toISOString();
   const client = await pool.connect();
   let insertedNew = false;
+  let mutationToApply = mutation;
 
   try {
     await client.query("BEGIN");
@@ -104,23 +105,41 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
 
     insertedNew = (inserted.rowCount ?? 0) === 1;
     if (!insertedNew) {
-      const existing = await client.query<{ status: StoredStatus; result_payload: unknown | null; received_at: Date }>(
-        `SELECT status,result_payload,received_at FROM sync_mutations
-         WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 FOR SHARE`,
+      const existing = await client.query<{
+        status: StoredStatus;
+        result_payload: unknown | null;
+        request_payload: unknown;
+        mutation_type: string;
+        received_at: Date;
+      }>(
+        `SELECT status,result_payload,request_payload,mutation_type,received_at FROM sync_mutations
+         WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 FOR UPDATE`,
         [mutation.businessId, mutation.clientId, mutation.clientMutationId],
       );
       const prior = existing.rows[0];
       if (!prior) throw new Error("Idempotent mutation record disappeared during transaction");
-      await client.query("COMMIT");
-      return {
-        clientMutationId: mutation.clientMutationId,
-        status: prior.status,
-        serverReceivedAt: prior.received_at.toISOString(),
-        ...(prior.result_payload !== null ? { result: prior.result_payload } : {}),
-        ...(prior.status === "REJECTED" && isErrorPayload(prior.result_payload)
-          ? { errorCode: prior.result_payload.errorCode, errorMessage: prior.result_payload.errorMessage }
-          : {}),
-      };
+
+      if (isLegacyPurchaseSettlementRejection(prior)) {
+        mutationToApply = prior.request_payload as ClientMutation;
+        await client.query(
+          `UPDATE sync_mutations
+           SET status='RECEIVED',result_payload=NULL,applied_at=NULL
+           WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3`,
+          [mutation.businessId, mutation.clientId, mutation.clientMutationId],
+        );
+        insertedNew = true;
+      } else {
+        await client.query("COMMIT");
+        return {
+          clientMutationId: mutation.clientMutationId,
+          status: prior.status,
+          serverReceivedAt: prior.received_at.toISOString(),
+          ...(prior.result_payload !== null ? { result: prior.result_payload } : {}),
+          ...(prior.status === "REJECTED" && isErrorPayload(prior.result_payload)
+            ? { errorCode: prior.result_payload.errorCode, errorMessage: prior.result_payload.errorMessage }
+            : {}),
+        };
+      }
     }
 
     await client.query("COMMIT");
@@ -136,7 +155,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   }
 
   try {
-    const result = await applyMutation(pool, mutation);
+    const result = await applyMutation(pool, mutationToApply);
     await pool.query(
       `UPDATE sync_mutations SET status='APPLIED',result_payload=$4::jsonb,applied_at=now()
        WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3`,
@@ -340,6 +359,24 @@ function requiredCatalogRole(value: unknown): BusinessRole {
     throw new CatalogError("actorRole is invalid", 403, "ROLE_FORBIDDEN");
   }
   return value as BusinessRole;
+}
+
+function isLegacyPurchaseSettlementRejection(value: {
+  status: StoredStatus;
+  result_payload: unknown | null;
+  request_payload: unknown;
+  mutation_type: string;
+}): boolean {
+  if (value.status !== "REJECTED" || value.mutation_type !== "PURCHASE_RECEIVE_CREATE") return false;
+  if (!isErrorPayload(value.result_payload)) return false;
+  if (value.result_payload.errorCode !== "PURCHASE_INVALID" || value.result_payload.errorMessage !== "Invalid settlement method") return false;
+  if (typeof value.request_payload !== "object" || value.request_payload === null || Array.isArray(value.request_payload)) return false;
+  const payload = (value.request_payload as { payload?: unknown }).payload;
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return false;
+  const settlementMethod = (payload as { settlementMethod?: unknown }).settlementMethod;
+  return settlementMethod === undefined
+    || settlementMethod === null
+    || (typeof settlementMethod === "string" && settlementMethod.trim() === "");
 }
 
 function isErrorPayload(value: unknown): value is { errorCode: string; errorMessage: string } {
