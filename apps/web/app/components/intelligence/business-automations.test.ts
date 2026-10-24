@@ -53,6 +53,7 @@ describe("business automation controls", () => {
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "SNOOZE_ATTENTION" }))).toBe(true);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_CASH_REVIEW" }))).toBe(false);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_RECEIVABLE_FOLLOW_UP" }))).toBe(false);
+    expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_PAYABLES_REVIEW" }))).toBe(false);
   });
 
   it("describes attention templates as automatic while keeping cash review non-economic", () => {

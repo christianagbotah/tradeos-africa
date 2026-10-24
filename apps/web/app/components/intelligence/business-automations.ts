@@ -87,6 +87,7 @@ export type GuidedAutomationTemplateId =
   | "margin-performance-review"
   | "slow-stock-review"
   | "wastage-review"
+  | "supplier-payables-review"
   | "general-follow-up";
 
 export type GuidedAutomationSeverityThreshold = "ANY" | "MEDIUM_PLUS" | "HIGH_PLUS" | "CRITICAL_ONLY";
@@ -100,7 +101,7 @@ export interface GuidedAutomationRuleOption {
 export interface GuidedAutomationTemplate {
   id: GuidedAutomationTemplateId;
   label: string;
-  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_CASH_REVIEW" | "CREATE_PERFORMANCE_REVIEW" | "CREATE_INVENTORY_REVIEW" | "CREATE_FOLLOW_UP";
+  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_CASH_REVIEW" | "CREATE_PERFORMANCE_REVIEW" | "CREATE_INVENTORY_REVIEW" | "CREATE_PAYABLES_REVIEW" | "CREATE_FOLLOW_UP";
   triggerType: "ATTENTION" | "MANUAL";
   description: string;
   preview: string;
@@ -194,15 +195,24 @@ const GUIDED_AUTOMATION_TEMPLATES: readonly GuidedAutomationTemplate[] = [
     ruleOptions: [{ value: "WASTAGE_SPIKE", label: "Wastage spike" }],
   },
   {
+    id: "supplier-payables-review",
+    label: "Supplier payables review",
+    actionType: "CREATE_PAYABLES_REVIEW",
+    triggerType: "ATTENTION",
+    description: "Automatically creates an internal supplier-payables review when overdue supplier balances need attention. No supplier payment is posted automatically.",
+    preview: "When overdue supplier balances need attention, TradeOS automatically creates an internal supplier-payables review for a person to act on. It does not pay suppliers or post money automatically.",
+    defaultRuleCode: "PAYABLES_OVERDUE",
+    ruleOptions: [{ value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" }],
+  },
+  {
     id: "general-follow-up",
     label: "General follow-up",
     actionType: "CREATE_FOLLOW_UP",
     triggerType: "ATTENTION",
     description: "Automatically creates an internal follow-up task for an evidence-backed TradeOS attention signal.",
     preview: "When enabled, TradeOS checks the selected signal automatically and creates an internal follow-up task for a person to review and act on.",
-    defaultRuleCode: "PAYABLES_OVERDUE",
+    defaultRuleCode: "LOW_DATA_CONFIDENCE",
     ruleOptions: [
-      { value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" },
       { value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" },
     ],
   },
@@ -356,7 +366,7 @@ export function createGuidedAutomationDraft(input: {
     signalRuleCode: template.defaultRuleCode,
     severityThreshold: template.id === "sales-performance-review" || template.id === "margin-performance-review" || template.id === "wastage-review"
       ? "MEDIUM_PLUS"
-      : template.id === "reorder-review" || template.id === "receivables-follow-up" || template.id === "cash-review"
+      : template.id === "reorder-review" || template.id === "receivables-follow-up" || template.id === "cash-review" || template.id === "supplier-payables-review"
         ? "HIGH_PLUS"
         : "ANY",
     assignToActor: true,

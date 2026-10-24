@@ -20,6 +20,7 @@ describe("guided business automation setup", () => {
       "margin-performance-review",
       "slow-stock-review",
       "wastage-review",
+      "supplier-payables-review",
       "general-follow-up",
     ]);
     expect(managerTemplates.map((item) => item.id)).toEqual([
@@ -38,6 +39,7 @@ describe("guided business automation setup", () => {
       expect.objectContaining({ id: "margin-performance-review", actionType: "CREATE_PERFORMANCE_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "slow-stock-review", actionType: "CREATE_INVENTORY_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "wastage-review", actionType: "CREATE_INVENTORY_REVIEW", triggerType: "ATTENTION" }),
+      expect.objectContaining({ id: "supplier-payables-review", actionType: "CREATE_PAYABLES_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "general-follow-up", actionType: "CREATE_FOLLOW_UP", triggerType: "ATTENTION" }),
     ]));
     expect(ownerTemplates.some((item) => ["POST_PAYMENT", "REFUND", "STOCK_WRITE_OFF", "CHANGE_ROLE", "CREATE_PURCHASE", "CREATE_SALE"].includes(item.actionType))).toBe(false);
@@ -97,6 +99,31 @@ it("builds safe create payloads from guided form choices", () => {
     conditions: { ruleCodes: ["CASH_PRESSURE_FORECAST"], severities: ["HIGH", "CRITICAL"] },
     actionType: "CREATE_CASH_REVIEW",
     actionConfiguration: { dueInHours: 48, assignToActor: false },
+  });
+
+  expect(buildPayload({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "supplier-payables-review",
+    name: "Supplier payables review",
+    scope: "CURRENT_BRANCH",
+    signalRuleCode: "PAYABLES_OVERDUE",
+    severityThreshold: "HIGH_PLUS",
+    assignToActor: true,
+    dueInHours: 24,
+    enabled: true,
+    code: "guided-supplier-payables-abc",
+  })).toEqual({
+    businessId: "business-1",
+    branchId: "branch-1",
+    code: "guided-supplier-payables-abc",
+    name: "Supplier payables review",
+    description: "Automatically creates an internal supplier-payables review when overdue supplier balances need attention. No supplier payment is posted automatically.",
+    enabled: true,
+    triggerType: "ATTENTION",
+    conditions: { ruleCodes: ["PAYABLES_OVERDUE"], severities: ["HIGH", "CRITICAL"] },
+    actionType: "CREATE_PAYABLES_REVIEW",
+    actionConfiguration: { dueInHours: 24, assignToActor: true },
   });
 });
 
@@ -178,6 +205,19 @@ it("reconstructs an editable guided draft from an existing safe policy", () => {
     actionConfiguration: { dueInHours: 24, assignToActor: true },
   }, "branch-1")).toEqual(expect.objectContaining({
     templateId: "wastage-review", signalRuleCode: "WASTAGE_SPIKE", severityThreshold: "MEDIUM_PLUS", dueInHours: 24,
+  }));
+
+  expect(fromPolicy({
+    ...existing,
+    id: "policy-payables-1",
+    code: "guided-payables-1",
+    name: "Supplier payables review",
+    branchId: "branch-1",
+    conditions: { ruleCodes: ["PAYABLES_OVERDUE"], severities: ["HIGH", "CRITICAL"] },
+    actionType: "CREATE_PAYABLES_REVIEW",
+    actionConfiguration: { dueInHours: 24, assignToActor: true },
+  }, "branch-1")).toEqual(expect.objectContaining({
+    templateId: "supplier-payables-review", signalRuleCode: "PAYABLES_OVERDUE", severityThreshold: "HIGH_PLUS", dueInHours: 24,
   }));
 });
 
@@ -298,11 +338,19 @@ it("publishes guided labels, previews and only approved signal choices", () => {
       ruleOptions: [{ value: "WASTAGE_SPIKE", label: "Wastage spike" }],
       preview: expect.stringMatching(/wastage.*internal inventory review/i),
     }),
+    expect.objectContaining({
+      id: "supplier-payables-review",
+      label: "Supplier payables review",
+      actionType: "CREATE_PAYABLES_REVIEW",
+      defaultRuleCode: "PAYABLES_OVERDUE",
+      ruleOptions: [{ value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" }],
+      preview: expect.stringMatching(/overdue supplier balances.*internal supplier-payables review/i),
+    }),
   ]));
 
   const general = templates.find((item) => item.id === "general-follow-up");
+  expect(general?.defaultRuleCode).toBe("LOW_DATA_CONFIDENCE");
   expect(general?.ruleOptions).toEqual([
-    { value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" },
     { value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" },
   ]);
 });
@@ -408,6 +456,25 @@ it("creates a sensible default guided draft for a selected template", () => {
   expect(createDraft({
     businessId: "business-1",
     currentBranchId: "branch-1",
+    templateId: "supplier-payables-review",
+    code: "guided-payables-1",
+  })).toEqual({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "supplier-payables-review",
+    name: "Supplier payables review",
+    scope: "CURRENT_BRANCH",
+    signalRuleCode: "PAYABLES_OVERDUE",
+    severityThreshold: "HIGH_PLUS",
+    assignToActor: true,
+    dueInHours: 24,
+    enabled: true,
+    code: "guided-payables-1",
+  });
+
+  expect(createDraft({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
     templateId: "general-follow-up",
     code: "guided-general-1",
   })).toEqual({
@@ -416,7 +483,7 @@ it("creates a sensible default guided draft for a selected template", () => {
     templateId: "general-follow-up",
     name: "General follow-up",
     scope: "CURRENT_BRANCH",
-    signalRuleCode: "PAYABLES_OVERDUE",
+    signalRuleCode: "LOW_DATA_CONFIDENCE",
     severityThreshold: "ANY",
     assignToActor: true,
     dueInHours: 24,
