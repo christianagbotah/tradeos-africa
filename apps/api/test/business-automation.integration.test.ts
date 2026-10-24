@@ -64,6 +64,24 @@ describe("safe business workflow automation", () => {
     expect(wrongPayablesUpdate.statusCode).toBe(400);
     expect(wrongPayablesUpdate.json().error).toBe("BUSINESS_AUTOMATION_ACTION_SIGNAL_MISMATCH");
 
+    const adminDataReadiness = await createPolicy(tenant, headers, {
+      code: "admin-data-readiness-review",
+      triggerType: "ATTENTION",
+      conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+      actionType: "CREATE_DATA_READINESS_REVIEW",
+    });
+    expect(adminDataReadiness.statusCode).toBe(201);
+    expect(adminDataReadiness.json().policy.actionType).toBe("CREATE_DATA_READINESS_REVIEW");
+
+    const wrongDataReadinessSignal = await createPolicy(tenant, headers, {
+      code: "admin-data-readiness-wrong-signal",
+      triggerType: "ATTENTION",
+      conditions: { ruleCodes: ["PAYABLES_OVERDUE"], severities: ["HIGH"] },
+      actionType: "CREATE_DATA_READINESS_REVIEW",
+    });
+    expect(wrongDataReadinessSignal.statusCode).toBe(400);
+    expect(wrongDataReadinessSignal.json().error).toBe("BUSINESS_AUTOMATION_ACTION_SIGNAL_MISMATCH");
+
     await setRole(tenant, "MANAGER");
     const managerOperational = await createPolicy(tenant, headers, {
       code: "manager-reorder-review",
@@ -96,6 +114,15 @@ describe("safe business workflow automation", () => {
     });
     expect(managerPayables.statusCode).toBe(403);
     expect(managerPayables.json().error).toBe("BUSINESS_AUTOMATION_MANAGER_RESTRICTED");
+
+    const managerDataReadiness = await createPolicy(tenant, headers, {
+      code: "manager-data-readiness-review",
+      triggerType: "ATTENTION",
+      conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+      actionType: "CREATE_DATA_READINESS_REVIEW",
+    });
+    expect(managerDataReadiness.statusCode).toBe(403);
+    expect(managerDataReadiness.json().error).toBe("BUSINESS_AUTOMATION_MANAGER_RESTRICTED");
 
     for (const role of ["CASHIER", "STAFF", "VIEWER"] as const) {
       await setRole(tenant, role);

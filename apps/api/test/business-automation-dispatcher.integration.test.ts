@@ -162,6 +162,32 @@ describe("tenant proactive automation dispatcher", () => {
     expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
   });
 
+  it("dispatches a safe data-readiness review from low-data confidence only", async () => {
+    const tenant = await seedTenant("Data Readiness Review Tenant", [true]);
+    const branchId = tenant.branches[0]!.id;
+    await seedPolicy(tenant, {
+      code: "data-readiness-review",
+      branchId,
+      conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+      actionType: "CREATE_DATA_READINESS_REVIEW",
+    });
+    const beforeSafety = await economicAndAccessCounts(tenant.businessId);
+
+    const result = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
+    expect(result).toMatchObject({ acquired: true, matches: 1, succeeded: 1, failed: 0 });
+    const replay = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
+    expect(replay).toMatchObject({ acquired: true, matches: 1, succeeded: 1, failed: 0 });
+    const actions = await pool.query<{ action_type: string; title: string }>(
+      "SELECT action_type,title FROM business_action_items WHERE business_id=$1 AND branch_id=$2",
+      [tenant.businessId, branchId],
+    );
+    expect(actions.rows).toEqual([expect.objectContaining({
+      action_type: "CREATE_DATA_READINESS_REVIEW",
+      title: expect.stringMatching(/^Review TradeOS data readiness/),
+    })]);
+    expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
+  });
+
   it("dispatches a branch-scoped attention policy only for its active branch", async () => {
     const tenant = await seedTenant("Branch Scoped Tenant", [true, true]);
     const targetBranchId = tenant.branches[0]!.id;

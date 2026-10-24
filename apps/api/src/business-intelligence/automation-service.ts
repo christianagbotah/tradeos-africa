@@ -18,6 +18,7 @@ const SAFE_ACTION_TYPES = new Set([
   "CREATE_PERFORMANCE_REVIEW",
   "CREATE_INVENTORY_REVIEW",
   "CREATE_PAYABLES_REVIEW",
+  "CREATE_DATA_READINESS_REVIEW",
   "SNOOZE_ATTENTION",
 ]);
 const SYSTEM_DISPATCH_ACTION_TYPES = new Set([
@@ -28,6 +29,7 @@ const SYSTEM_DISPATCH_ACTION_TYPES = new Set([
   "CREATE_PERFORMANCE_REVIEW",
   "CREATE_INVENTORY_REVIEW",
   "CREATE_PAYABLES_REVIEW",
+  "CREATE_DATA_READINESS_REVIEW",
 ]);
 const MANAGER_ACTION_TYPES = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "CREATE_PERFORMANCE_REVIEW", "CREATE_INVENTORY_REVIEW", "SNOOZE_ATTENTION"]);
 const TRIGGER_TYPES = new Set(["ATTENTION", "SCHEDULE", "MANUAL", "EVENT"]);
@@ -767,16 +769,22 @@ function assertActionSignalCompatibility(
   triggerType: string,
   conditions: Record<string, unknown>,
 ): void {
-  if (actionType !== "CREATE_PAYABLES_REVIEW") return;
+  const requiredRuleCode = actionType === "CREATE_PAYABLES_REVIEW"
+    ? "PAYABLES_OVERDUE"
+    : actionType === "CREATE_DATA_READINESS_REVIEW"
+      ? "LOW_DATA_CONFIDENCE"
+      : null;
+  if (!requiredRuleCode) return;
   const ruleCodes = strictStringArray(conditions.ruleCodes);
   if (
     triggerType !== "ATTENTION"
     || ruleCodes === null
     || ruleCodes.length !== 1
-    || ruleCodes[0] !== "PAYABLES_OVERDUE"
+    || ruleCodes[0] !== requiredRuleCode
   ) {
+    const label = actionType === "CREATE_PAYABLES_REVIEW" ? "Supplier payables review" : "Data readiness review";
     throw new BusinessAutomationError(
-      "Supplier payables review automation must use the PAYABLES_OVERDUE attention signal",
+      `${label} automation must use the ${requiredRuleCode} attention signal`,
       400,
       "BUSINESS_AUTOMATION_ACTION_SIGNAL_MISMATCH",
     );
@@ -869,6 +877,7 @@ function actionPresentation(actionType: string, attention: AttentionRow | null) 
     case "CREATE_PERFORMANCE_REVIEW": return { title: `Review business performance${suffix}`, reason };
     case "CREATE_INVENTORY_REVIEW": return { title: `Review inventory health${suffix}`, reason };
     case "CREATE_PAYABLES_REVIEW": return { title: `Review supplier payables${suffix}`, reason };
+    case "CREATE_DATA_READINESS_REVIEW": return { title: `Review TradeOS data readiness${suffix}`, reason };
     case "SNOOZE_ATTENTION": return { title: `Review attention timing${suffix}`, reason };
     default: return { title: `Follow up${suffix}`, reason };
   }
