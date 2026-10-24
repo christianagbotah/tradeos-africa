@@ -113,7 +113,7 @@ export function selectContextualIntelligence(
 
 export function contextualWorkflowHref(actionType?: string | null): string {
   const action = (actionType ?? "").toUpperCase();
-  if (action.includes("REORDER") || action.includes("PURCHASE")) return "/purchases";
+  if (action.includes("REORDER") || action.includes("PURCHASE") || action.includes("PAYABLE")) return "/purchases";
   if (action.includes("RECEIVABLE") || action.includes("CUSTOMER") || action.includes("CREDIT")) return "/customers";
   if (action.includes("CASH") || action.includes("EXPENSE")) return "/cashbook";
   if (action.includes("STOCK") || action.includes("INVENTORY")) return "/inventory";
