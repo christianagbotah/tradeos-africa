@@ -30,6 +30,7 @@ import {
   updateBusinessAutomationPolicy,
 } from "./automation-service.js";
 import { buildBusinessBriefing, BusinessBriefingError } from "./briefing-service.js";
+import { explainBusinessActionItem } from "./action-explanation-service.js";
 import {
   BusinessEntityIntelligenceError,
   getBusinessEntityIntelligence,
@@ -314,6 +315,17 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
       const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
       const items = await listBusinessActionItems(pool, automationActor(auth.userId, access), branchId);
       return { items };
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.get<{ Params: IdParams; Querystring: AttentionQuery }>("/v1/intelligence/action-items/:id/explanation", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = uuid(request.query.businessId, "businessId");
+      const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
+      return await explainBusinessActionItem(pool, automationActor(auth.userId, access), request.params.id);
     } catch (error) {
       return sendError(error, reply);
     }

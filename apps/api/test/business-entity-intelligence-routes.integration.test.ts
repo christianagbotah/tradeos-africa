@@ -119,6 +119,30 @@ describe("entity intelligence routes and contextual query", () => {
     expect(retry.json().item.id).toBe(first.json().item.id);
   });
 
+  it("returns a lazy explanation for an authorized entity review task", async () => {
+    const tenant = await createTenant("entity-explain-route@tradeos.test", "Entity Explain Route");
+    const customerId = await seedCustomer(tenant.businessId, "Explain Customer");
+    const created = await app.inject({
+      method: "POST", url: "/v1/intelligence/entity/action-items", headers: authHeaders(tenant.token),
+      payload: { businessId: tenant.businessId, branchId: tenant.branchId, context: { entityType: "CUSTOMER", entityId: customerId } },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/action-items/${created.json().item.id}/explanation?businessId=${tenant.businessId}`,
+      headers: authHeaders(tenant.token),
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({
+      businessId: tenant.businessId,
+      branchId: tenant.branchId,
+      actionItemId: created.json().item.id,
+      sourceKind: "ENTITY_REVIEW",
+      entity: { entityType: "CUSTOMER", entityId: customerId },
+    });
+  });
+
   it("rejects client attempts to shape an entity action", async () => {
     const tenant = await createTenant("entity-action-inject@tradeos.test", "Entity Action Inject");
     const customerId = await seedCustomer(tenant.businessId, "Injection Customer");

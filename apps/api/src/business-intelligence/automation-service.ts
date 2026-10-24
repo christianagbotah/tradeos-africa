@@ -35,12 +35,14 @@ const MANAGER_ACTION_TYPES = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW
 const TRIGGER_TYPES = new Set(["ATTENTION", "SCHEDULE", "MANUAL", "EVENT"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type Actor = {
+export type BusinessAutomationActor = {
   userId: string;
   businessId: string;
   role: BusinessRole;
   staffId: string | null;
 };
+
+type Actor = BusinessAutomationActor;
 
 type PolicyRow = {
   id: string;
@@ -553,6 +555,24 @@ async function resolveSystemAssignment(
   );
   const row = result.rows[0];
   return row ? { userId: row.user_id, staffId: row.staff_id } : { userId: null, staffId: null };
+}
+
+export async function getBusinessActionItemForActor(
+  pool: DatabasePool,
+  actor: BusinessAutomationActor,
+  actionIdInput: string,
+): Promise<BusinessActionItem> {
+  const actionId = parseUuid(actionIdInput, "actionItemId");
+  const result = await pool.query<ActionRow>(
+    `${ACTION_SELECT} WHERE id=$1 AND business_id=$2`,
+    [actionId, actor.businessId],
+  );
+  const item = result.rows[0];
+  if (!item) throw new BusinessAutomationError("Action item was not found", 404, "BUSINESS_ACTION_ITEM_NOT_FOUND");
+  if (!canReadFullActionQueue(actor.role) && !actionItemAllowedForAssignedActor(actor, item)) {
+    throw new BusinessAutomationError("This action item is not assigned or permitted for your current role", 403, "BUSINESS_ACTION_ITEM_FORBIDDEN");
+  }
+  return mapActionForActor(item, actor);
 }
 
 export async function listBusinessActionItems(
