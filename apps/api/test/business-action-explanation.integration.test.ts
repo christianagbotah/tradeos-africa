@@ -6,6 +6,7 @@ import pg from "pg";
 import { applyMigrations } from "../src/migrations/migration-runner.js";
 import { createBusinessEntityActionItem } from "../src/business-intelligence/entity-action-service.js";
 import { explainBusinessActionItem } from "../src/business-intelligence/action-explanation-service.js";
+import { listBusinessActionItems } from "../src/business-intelligence/automation-service.js";
 
 const { Pool } = pg;
 const baseDatabaseUrl = process.env.DATABASE_URL ?? "postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci";
@@ -141,6 +142,13 @@ describe("business action item explanation", () => {
     expect(explanation.evidence).toEqual([]);
     expect(explanation.action.evidence).toEqual([]);
     expect(explanation.attention).toBeUndefined();
+
+    const queue = await listBusinessActionItems(pool, {
+      userId: OWNER, businessId: B1, role: "INVENTORY", staffId: OWNER_STAFF,
+    }, BR1);
+    const visible = queue.find((item) => item.id === actionId);
+    expect(visible).toBeTruthy();
+    expect(visible?.evidence).toEqual([]);
   });
 
   it("classifies provenance-free items as manual and rejects foreign action ids safely", async () => {

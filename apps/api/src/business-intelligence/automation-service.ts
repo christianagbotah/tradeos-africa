@@ -9,6 +9,7 @@ import type { BusinessRole } from "../auth/authorization.js";
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 import { businessEntitySafeAction, filterBusinessEntityEvidenceForRole } from "./entity-service.js";
+import { FINANCIAL_BUSINESS_ATTENTION_RULE_CODES } from "./attention-service.js";
 
 const SAFE_ACTION_TYPES = new Set([
   "CREATE_FOLLOW_UP",
@@ -33,6 +34,13 @@ const SYSTEM_DISPATCH_ACTION_TYPES = new Set([
 ]);
 const MANAGER_ACTION_TYPES = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "CREATE_PERFORMANCE_REVIEW", "CREATE_INVENTORY_REVIEW", "SNOOZE_ATTENTION"]);
 const TRIGGER_TYPES = new Set(["ATTENTION", "SCHEDULE", "MANUAL", "EVENT"]);
+const FINANCIAL_ACTION_ROLES = new Set<BusinessRole>(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
+export const FINANCIAL_BUSINESS_ACTION_TYPES = new Set([
+  "CREATE_CASH_REVIEW",
+  "CREATE_RECEIVABLE_FOLLOW_UP",
+  "CREATE_PAYABLES_REVIEW",
+  "CREATE_PERFORMANCE_REVIEW",
+]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type BusinessAutomationActor = {
@@ -87,6 +95,7 @@ type ActionRow = {
   business_id: string;
   branch_id: string | null;
   source_attention_item_id: string | null;
+  source_attention_rule_code: string | null;
   source_automation_run_id: string | null;
   source_entity_type: BusinessEntityType | null;
   source_entity_id: string | null;
@@ -557,6 +566,32 @@ async function resolveSystemAssignment(
   return row ? { userId: row.user_id, staffId: row.staff_id } : { userId: null, staffId: null };
 }
 
+export function isBusinessActionFinanciallyRestricted(
+  role: BusinessRole,
+  actionType: string | null,
+  sourceAttentionRuleCode: string | null,
+): boolean {
+  if (FINANCIAL_ACTION_ROLES.has(role)) return false;
+  return (actionType !== null && FINANCIAL_BUSINESS_ACTION_TYPES.has(actionType))
+    || (sourceAttentionRuleCode !== null && FINANCIAL_BUSINESS_ATTENTION_RULE_CODES.has(sourceAttentionRuleCode));
+}
+
+export function filterBusinessActionEvidenceForRole(
+  role: BusinessRole,
+  input: {
+    actionType: string | null;
+    sourceEntityType: BusinessEntityType | null;
+    sourceAttentionRuleCode: string | null;
+    evidence: BusinessEvidenceReference[];
+  },
+): BusinessEvidenceReference[] {
+  if (isBusinessActionFinanciallyRestricted(role, input.actionType, input.sourceAttentionRuleCode)) return [];
+  if (input.sourceEntityType !== null) {
+    return filterBusinessEntityEvidenceForRole(role, input.sourceEntityType, input.evidence);
+  }
+  return input.evidence;
+}
+
 export async function getBusinessActionItemForActor(
   pool: DatabasePool,
   actor: BusinessAutomationActor,
@@ -616,7 +651,10 @@ export async function snoozeBusinessActionItem(
        WHERE id=$1 AND business_id=$2 RETURNING *`,
       [actionId, actor.businessId, snoozedUntil],
     );
-    return mapActionForActor(updated.rows[0]!, actor);
+    return mapActionForActor({
+      ...updated.rows[0]!,
+      source_attention_rule_code: current.source_attention_rule_code,
+    }, actor);
   });
 }
 
@@ -642,7 +680,10 @@ export async function completeBusinessActionItem(
        WHERE id=$1 AND business_id=$2 RETURNING *`,
       [actionId, actor.businessId],
     );
-    return mapActionForActor(updated.rows[0]!, actor);
+    return mapActionForActor({
+      ...updated.rows[0]!,
+      source_attention_rule_code: current.source_attention_rule_code,
+    }, actor);
   });
 }
 
@@ -991,10 +1032,15 @@ function mapAction(row: ActionRow): BusinessActionItem {
 
 function mapActionForActor(row: ActionRow, actor: Actor): BusinessActionItem {
   const item = mapAction(row);
-  if (canReadFullActionQueue(actor.role) || row.source_entity_type === null) return item;
+  if (canReadFullActionQueue(actor.role)) return item;
   return {
     ...item,
-    evidence: filterBusinessEntityEvidenceForRole(actor.role, row.source_entity_type, item.evidence),
+    evidence: filterBusinessActionEvidenceForRole(actor.role, {
+      actionType: row.action_type,
+      sourceEntityType: row.source_entity_type,
+      sourceAttentionRuleCode: row.source_attention_rule_code ?? null,
+      evidence: item.evidence,
+    }),
   };
 }
 
@@ -1013,6 +1059,9 @@ const POLICY_SELECT = `SELECT id,business_id,branch_id,code,name,description,ena
 const RUN_SELECT = `SELECT id,business_id,branch_id,policy_id,policy_version,trigger_source,trigger_correlation_id,state,
   structured_input,output_summary,evidence,error_message,started_at,completed_at,created_at,updated_at
   FROM business_automation_runs`;
-const ACTION_SELECT = `SELECT id,business_id,branch_id,source_attention_item_id,source_automation_run_id,source_entity_type,source_entity_id,created_by_user_id,action_type,title,reason,
-  evidence,assigned_user_id,assigned_staff_id,due_at,status,snoozed_until,completed_at,created_at,updated_at
-  FROM business_action_items`;
+const ACTION_SELECT = `SELECT bai.id,bai.business_id,bai.branch_id,bai.source_attention_item_id,
+  (SELECT ai.rule_code FROM business_attention_items ai
+   WHERE ai.id=bai.source_attention_item_id AND ai.business_id=bai.business_id LIMIT 1) AS source_attention_rule_code,
+  bai.source_automation_run_id,bai.source_entity_type,bai.source_entity_id,bai.created_by_user_id,bai.action_type,bai.title,bai.reason,
+  bai.evidence,bai.assigned_user_id,bai.assigned_staff_id,bai.due_at,bai.status,bai.snoozed_until,bai.completed_at,bai.created_at,bai.updated_at
+  FROM business_action_items bai`;
