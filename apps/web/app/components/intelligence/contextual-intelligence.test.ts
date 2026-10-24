@@ -165,6 +165,7 @@ describe("contextual tenant intelligence selector", () => {
     expect(contextualWorkflowHref("CREATE_REORDER_REVIEW")).toBe("/purchases");
     expect(contextualWorkflowHref("CREATE_RECEIVABLE_FOLLOW_UP")).toBe("/customers");
     expect(contextualWorkflowHref("CREATE_CASH_REVIEW")).toBe("/cashbook");
+    expect(contextualWorkflowHref("CREATE_PERFORMANCE_REVIEW")).toBe("/reports");
     expect(contextualWorkflowHref("CREATE_FOLLOW_UP")).toBe("/reports");
   });
 });

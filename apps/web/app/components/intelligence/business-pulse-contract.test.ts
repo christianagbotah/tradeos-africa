@@ -62,6 +62,7 @@ describe("business pulse contract",()=>{
     expect(pulse).toContain('<Link');
     expect(pulse).toContain('pulseAttentionHref');
     expect(pulse).toContain('pulseActionHref');
+    expect(pulse).toContain('if (item.actionType === "CREATE_PERFORMANCE_REVIEW") return "/reports";');
     expect(css).toContain('.tos-pulse-drawer');
     expect(css).toContain('.tos-pulse-trigger__badge');
     expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.tos-pulse-trigger__label/);

@@ -202,6 +202,7 @@ export function pulseActionHref(item: BusinessActionItem): string {
   if (item.actionType === "CREATE_REORDER_REVIEW") return "/purchases";
   if (item.actionType === "CREATE_RECEIVABLE_FOLLOW_UP") return "/customers";
   if (item.actionType === "CREATE_CASH_REVIEW") return "/cashbook";
+  if (item.actionType === "CREATE_PERFORMANCE_REVIEW") return "/reports";
   return "/dashboard";
 }
 
