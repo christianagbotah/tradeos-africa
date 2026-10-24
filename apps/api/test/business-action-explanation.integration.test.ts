@@ -106,6 +106,43 @@ describe("business action item explanation", () => {
     expect(explanation.summary).toContain("Payables review");
   });
 
+  it("does not re-expose financial automation evidence after the assignee is downgraded", async () => {
+    const policyId = crypto.randomUUID();
+    const attentionId = crypto.randomUUID();
+    const runId = crypto.randomUUID();
+    const actionId = crypto.randomUUID();
+    const financialEvidence = [{
+      source: "supplier_credit_obligations", entityType: "SUPPLIER", entityId: SUPPLIER,
+      label: "openPayableMinor", value: "12500", metadata: { kind: "money_minor", currencyCode: "GHS" },
+    }];
+    await pool.query(`INSERT INTO business_attention_items(
+      id,business_id,branch_id,source_key,rule_code,severity,state,title,summary,evidence,first_seen_at,last_seen_at
+    ) VALUES($1,$2,$3,'explain-private-payables','PAYABLES_OVERDUE','HIGH','OPEN','Payables overdue','GHS 125.00 is overdue',$4::jsonb,$5,$5)`,
+    [attentionId,B1,BR1,JSON.stringify(financialEvidence),NOW]);
+    await pool.query(`INSERT INTO business_automation_policies(
+      id,business_id,branch_id,code,name,enabled,trigger_type,conditions,action_type,action_configuration,policy_version,created_by_user_id,updated_by_user_id
+    ) VALUES($1,$2,$3,'private-payables-review','Private payables review',true,'ATTENTION','{}','CREATE_PAYABLES_REVIEW','{}',1,$4,$4)`,
+    [policyId,B1,BR1,OWNER]);
+    await pool.query(`INSERT INTO business_automation_runs(
+      id,business_id,branch_id,policy_id,policy_version,trigger_source,trigger_correlation_id,state,structured_input,output_summary,evidence,started_at,completed_at,created_at,updated_at
+    ) VALUES($1,$2,$3,$4,1,'ATTENTION',$5,'SUCCEEDED','{}','{}',$6::jsonb,$7,$7,$7,$7)`,
+    [runId,B1,BR1,policyId,`attention:${attentionId}`,JSON.stringify(financialEvidence),NOW]);
+    await pool.query(`INSERT INTO business_action_items(
+      id,business_id,branch_id,source_attention_item_id,source_automation_run_id,action_type,title,reason,evidence,assigned_user_id,assigned_staff_id,status
+    ) VALUES($1,$2,$3,$4,$5,'CREATE_PAYABLES_REVIEW','Review supplier payables','A supplier balance is overdue',$6::jsonb,$7,$8,'OPEN')`,
+    [actionId,B1,BR1,attentionId,runId,JSON.stringify(financialEvidence),OWNER,OWNER_STAFF]);
+
+    await pool.query(`UPDATE business_memberships SET role='INVENTORY' WHERE business_id=$1 AND user_id=$2`, [B1,OWNER]);
+    const explanation = await explainBusinessActionItem(pool, {
+      userId: OWNER, businessId: B1, role: "INVENTORY", staffId: OWNER_STAFF,
+    }, actionId, NOW);
+
+    expect(explanation.sourceKind).toBe("AUTOMATION");
+    expect(explanation.evidence).toEqual([]);
+    expect(explanation.action.evidence).toEqual([]);
+    expect(explanation.attention).toBeUndefined();
+  });
+
   it("classifies provenance-free items as manual and rejects foreign action ids safely", async () => {
     const manualId = crypto.randomUUID();
     await pool.query(`INSERT INTO business_action_items(

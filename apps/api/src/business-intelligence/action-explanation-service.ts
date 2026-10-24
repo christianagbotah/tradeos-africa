@@ -3,6 +3,7 @@ import type {
   BusinessAttentionSeverity,
 } from "@tradeos/contracts";
 import type { DatabasePool } from "../db.js";
+import { FINANCIAL_BUSINESS_ATTENTION_RULE_CODES } from "./attention-service.js";
 import {
   getBusinessActionItemForActor,
   type BusinessAutomationActor,
@@ -27,6 +28,14 @@ type AttentionRow = {
   last_seen_at: Date | string;
 };
 
+const FINANCIAL_ROLES = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
+const FINANCIAL_ACTION_TYPES = new Set([
+  "CREATE_CASH_REVIEW",
+  "CREATE_RECEIVABLE_FOLLOW_UP",
+  "CREATE_PAYABLES_REVIEW",
+  "CREATE_PERFORMANCE_REVIEW",
+]);
+
 export async function explainBusinessActionItem(
   pool: DatabasePool,
   actor: BusinessAutomationActor,
@@ -44,6 +53,12 @@ export async function explainBusinessActionItem(
   const entity = action.sourceEntityType && action.sourceEntityId
     ? { entityType: action.sourceEntityType, entityId: action.sourceEntityId }
     : null;
+  const financialRestricted = !FINANCIAL_ROLES.has(actor.role) && (
+    (attention !== null && FINANCIAL_BUSINESS_ATTENTION_RULE_CODES.has(attention.ruleCode))
+    || (action.actionType !== null && FINANCIAL_ACTION_TYPES.has(action.actionType))
+  );
+  const visibleAttention = financialRestricted ? null : attention;
+  const visibleAction = financialRestricted ? { ...action, evidence: [] } : action;
 
   const sourceKind: BusinessActionItemExplanation["sourceKind"] = action.sourceAutomationRunId
     ? "AUTOMATION"
@@ -59,12 +74,12 @@ export async function explainBusinessActionItem(
     actionItemId: action.id,
     generatedAt: now.toISOString(),
     sourceKind,
-    summary: explanationSummary(sourceKind, action.reason, automation?.policyName ?? null, attention?.title ?? null),
-    action,
+    summary: explanationSummary(sourceKind, action.reason, automation?.policyName ?? null, visibleAttention?.title ?? null),
+    action: visibleAction,
     ...(automation ? { automation } : {}),
-    ...(attention ? { attention } : {}),
+    ...(visibleAttention ? { attention: visibleAttention } : {}),
     ...(entity ? { entity } : {}),
-    evidence: action.evidence.slice(0, 12),
+    evidence: visibleAction.evidence.slice(0, 12),
   };
 }
 
