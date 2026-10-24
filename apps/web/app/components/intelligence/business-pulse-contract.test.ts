@@ -65,6 +65,7 @@ describe("business pulse contract",()=>{
     expect(pulse).toContain('if (item.actionType === "CREATE_PERFORMANCE_REVIEW") return "/reports";');
     expect(pulse).toContain('if (item.actionType === "CREATE_INVENTORY_REVIEW") return "/inventory";');
     expect(pulse).toContain('if (item.actionType === "CREATE_PAYABLES_REVIEW") return "/purchases";');
+    expect(pulse).toContain('if (item.actionType === "CREATE_DATA_READINESS_REVIEW") return "/settings?section=business";');
     expect(css).toContain('.tos-pulse-drawer');
     expect(css).toContain('.tos-pulse-trigger__badge');
     expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.tos-pulse-trigger__label/);

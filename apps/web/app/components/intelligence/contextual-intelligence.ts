@@ -113,6 +113,7 @@ export function selectContextualIntelligence(
 
 export function contextualWorkflowHref(actionType?: string | null): string {
   const action = (actionType ?? "").toUpperCase();
+  if (action === "CREATE_DATA_READINESS_REVIEW") return "/settings?section=business";
   if (action.includes("REORDER") || action.includes("PURCHASE") || action.includes("PAYABLE")) return "/purchases";
   if (action.includes("RECEIVABLE") || action.includes("CUSTOMER") || action.includes("CREDIT")) return "/customers";
   if (action.includes("CASH") || action.includes("EXPENSE")) return "/cashbook";

@@ -205,6 +205,7 @@ export function pulseActionHref(item: BusinessActionItem): string {
   if (item.actionType === "CREATE_PERFORMANCE_REVIEW") return "/reports";
   if (item.actionType === "CREATE_INVENTORY_REVIEW") return "/inventory";
   if (item.actionType === "CREATE_PAYABLES_REVIEW") return "/purchases";
+  if (item.actionType === "CREATE_DATA_READINESS_REVIEW") return "/settings?section=business";
   return "/dashboard";
 }
 
