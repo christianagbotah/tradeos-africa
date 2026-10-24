@@ -51,6 +51,12 @@ describe("business pulse contract",()=>{
     expect(pulse).toMatch(/contextKeyRef\.current !== requestKey/);
   });
 
+  it("keeps the mobile unseen badge inside the Pulse trigger so it cannot expand the viewport",()=>{
+    const css=source(cssPath);
+    expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.tos-pulse-trigger__badge\s*\{[^}]*right:\s*0(?:px)?;/);
+    expect(css).not.toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.tos-pulse-trigger__badge\s*\{[^}]*right:\s*-\d/);
+  });
+
   it("keeps feed actions navigation-only and ships responsive drawer styling",()=>{
     const pulse=source(panelPath), css=source(cssPath);
     expect(pulse).toContain('<Link');

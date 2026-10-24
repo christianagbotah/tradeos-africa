@@ -1020,7 +1020,7 @@
 @media (max-width: 720px) {
   .tos-pulse-trigger { width: 38px; min-width: 38px; padding: 0; justify-content: center; }
   .tos-pulse-trigger__label { display: none; }
-  .tos-pulse-trigger__badge { position: absolute; top: -7px; right: -7px; min-width: 18px; height: 18px; padding: 0 5px; }
+  .tos-pulse-trigger__badge { position: absolute; top: -7px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; }
   .tos-pulse-drawer { width: 100vw; }
   .tos-pulse-drawer__head { padding: var(--tos-space-4); }
   .tos-pulse-summary { grid-template-columns: 1fr; }
