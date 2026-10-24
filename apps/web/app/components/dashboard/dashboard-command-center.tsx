@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyValue } from "../business/money-value";
+import { BusinessBriefing } from "../intelligence/business-briefing";
+import { BusinessAutomationsPanel } from "../intelligence/business-automations-panel";
 import { StatePanel } from "../ui/state-panel";
 import {
   IconAlert,
@@ -64,6 +66,9 @@ export function DashboardCommandCenter() {
     return (
       <div className="tos-page">
         <DashboardHeader />
+        {!queue.online ? <OfflineBanner pending={queue.pending} /> : null}
+        <BusinessBriefing />
+        <BusinessAutomationsPanel />
         <div className="tos-dashboard-stats">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="tos-card tos-card--padded">
@@ -83,6 +88,9 @@ export function DashboardCommandCenter() {
     return (
       <div className="tos-page">
         <DashboardHeader />
+        {!queue.online ? <OfflineBanner pending={queue.pending} /> : null}
+        <BusinessBriefing />
+        <BusinessAutomationsPanel />
         <StatePanel
           variant="error"
           title="Could not load dashboard"
@@ -105,8 +113,11 @@ export function DashboardCommandCenter() {
         <OfflineBanner pending={queue.pending} />
       ) : null}
 
-      {/* KPI grid — 4-up on desktop, 2x2 on phone. Order is deliberate:
-          row 1 = revenue + sales count, row 2 = catalog + sync. */}
+      <BusinessBriefing />
+      <BusinessAutomationsPanel />
+
+      {/* KPI grid — 4-up on desktop, 2x2 on phone. Intelligence comes first so
+          owners see what needs action before secondary descriptive metrics. */}
       <div className="tos-dashboard-stats tos-stagger">
         <StatCard
           label="Today's revenue"

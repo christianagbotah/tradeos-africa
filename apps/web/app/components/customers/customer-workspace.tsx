@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
+import { ContextualIntelligencePanel } from "../intelligence/contextual-intelligence-panel";
 import { CustomerSheet, CustomerFormSheet } from "./customer-sheet";
 import { MoneyValue } from "../business/money-value";
 import { StatePanel } from "../ui/state-panel";
@@ -94,6 +95,8 @@ export function CustomerWorkspace() {
           ) : null}
         </div>
       </header>
+
+      <ContextualIntelligencePanel surface="customers" />
 
       {/* KPI strip — 4-up desktop / 2x2 mobile. Mirrors dashboard + sales. */}
       <div className="tos-dashboard-stats tos-stagger">

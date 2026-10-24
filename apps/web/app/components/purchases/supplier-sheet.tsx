@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
+import { EntityIntelligencePanel } from "../intelligence/entity-intelligence-panel";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
 import { Button } from "../ui/button";
@@ -206,6 +207,8 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
               hint={new Date(supplier.updatedAt).toLocaleTimeString()}
             />
           </div>
+
+          <EntityIntelligencePanel entityType="SUPPLIER" entityId={supplier.id} />
 
           {/* Contact info — phone / email rows */}
           <div className="tos-section tos-animate-fade-in-up">
