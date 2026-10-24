@@ -53,7 +53,7 @@ describe("business automation controls", () => {
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_RECEIVABLE_FOLLOW_UP" }))).toBe(false);
   });
 
-  it("describes attention templates as automatic while keeping cash review manual", () => {
+  it("describes attention templates as automatic while keeping cash review non-economic", () => {
     const templates = guidedAutomationTemplates("OWNER");
     const attentionTemplates = templates.filter((template) => template.triggerType === "ATTENTION");
     expect(attentionTemplates.length).toBeGreaterThan(0);
@@ -61,8 +61,10 @@ describe("business automation controls", () => {
       expect(`${template.description} ${template.preview}`).toMatch(/automatic/i);
     }
     const cashReview = templates.find((template) => template.id === "cash-review");
-    expect(cashReview?.triggerType).toBe("MANUAL");
-    expect(`${cashReview?.description} ${cashReview?.preview}`).toMatch(/manual/i);
+    expect(cashReview?.triggerType).toBe("ATTENTION");
+    expect(cashReview?.defaultRuleCode).toBe("CASH_PRESSURE_FORECAST");
+    expect(cashReview?.ruleOptions).toEqual([{ value: "CASH_PRESSURE_FORECAST", label: "Projected negative cash" }]);
+    expect(`${cashReview?.description} ${cashReview?.preview}`).toMatch(/no cash is moved|does not transfer/i);
   });
 
   it("shows business-wide and current-branch policies while hiding other branches", () => {
