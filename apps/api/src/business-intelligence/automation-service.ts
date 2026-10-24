@@ -145,6 +145,7 @@ export async function createBusinessAutomationPolicy(
   const parsed = parsePolicyInput(input);
   assertBusiness(actor, parsed.businessId);
   assertHumanActionAllowed(actor.role, parsed.actionType);
+  assertActionSignalCompatibility(parsed.actionType, parsed.triggerType, parsed.conditions);
   const actionConfiguration = normalizeActionConfiguration(actor, parsed.actionConfiguration);
 
   try {
@@ -212,6 +213,7 @@ export async function updateBusinessAutomationPolicy(
     const enabled = input.enabled === undefined ? current.enabled : input.enabled === true;
     const triggerType = input.triggerType === undefined ? current.trigger_type : parseTriggerType(input.triggerType);
     const conditions = input.conditions === undefined ? current.conditions : objectValue(input.conditions, "conditions");
+    assertActionSignalCompatibility(actionType, triggerType, conditions);
     const actionConfiguration = input.actionConfiguration === undefined
       ? current.action_configuration
       : normalizeActionConfiguration(actor, objectValue(input.actionConfiguration, "actionConfiguration"));
@@ -433,6 +435,7 @@ async function prepareAutomationRun(
     assertSafeActionType(policy.action_type);
     if (input.origin.kind === "HUMAN") assertHumanActionAllowed(input.origin.actor.role, policy.action_type);
     else assertSystemActionAllowed(policy.action_type);
+    assertActionSignalCompatibility(policy.action_type, policy.trigger_type, policy.conditions ?? {});
 
     const existing = await client.query<RunRow>(
       `${RUN_SELECT}
@@ -755,6 +758,27 @@ function assertHumanActionAllowed(role: BusinessRole, actionType: string): void 
       "Managers may configure operational workflow automations only",
       403,
       "BUSINESS_AUTOMATION_MANAGER_RESTRICTED",
+    );
+  }
+}
+
+function assertActionSignalCompatibility(
+  actionType: string,
+  triggerType: string,
+  conditions: Record<string, unknown>,
+): void {
+  if (actionType !== "CREATE_PAYABLES_REVIEW") return;
+  const ruleCodes = strictStringArray(conditions.ruleCodes);
+  if (
+    triggerType !== "ATTENTION"
+    || ruleCodes === null
+    || ruleCodes.length !== 1
+    || ruleCodes[0] !== "PAYABLES_OVERDUE"
+  ) {
+    throw new BusinessAutomationError(
+      "Supplier payables review automation must use the PAYABLES_OVERDUE attention signal",
+      400,
+      "BUSINESS_AUTOMATION_ACTION_SIGNAL_MISMATCH",
     );
   }
 }

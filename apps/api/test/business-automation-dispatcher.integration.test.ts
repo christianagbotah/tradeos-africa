@@ -114,18 +114,22 @@ describe("tenant proactive automation dispatcher", () => {
     expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
   });
 
-  it("dispatches a safe supplier payables review as an internal-only action item", async () => {
+  it("dispatches a safe supplier payables review from the overdue-payables signal only", async () => {
     const tenant = await seedTenant("Supplier Payables Review Tenant", [true]);
     const branchId = tenant.branches[0]!.id;
+    await seedOverduePayable(tenant, branchId);
     await seedPolicy(tenant, {
       code: "supplier-payables-review",
       branchId,
+      conditions: { ruleCodes: ["PAYABLES_OVERDUE"], severities: ["HIGH", "CRITICAL"] },
       actionType: "CREATE_PAYABLES_REVIEW",
     });
     const beforeSafety = await economicAndAccessCounts(tenant.businessId);
 
     const result = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
     expect(result).toMatchObject({ acquired: true, matches: 1, succeeded: 1, failed: 0 });
+    const replay = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
+    expect(replay).toMatchObject({ acquired: true, matches: 1, succeeded: 1, failed: 0 });
     const actions = await pool.query<{ action_type: string; title: string }>(
       "SELECT action_type,title FROM business_action_items WHERE business_id=$1 AND branch_id=$2",
       [tenant.businessId, branchId],
@@ -134,6 +138,27 @@ describe("tenant proactive automation dispatcher", () => {
       action_type: "CREATE_PAYABLES_REVIEW",
       title: expect.stringMatching(/^Review supplier payables/),
     })]);
+    expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
+  });
+
+  it("fails closed when a system payables-review policy is paired with a non-payables signal", async () => {
+    const tenant = await seedTenant("Mismatched Payables Review Tenant", [true]);
+    const branchId = tenant.branches[0]!.id;
+    await seedPolicy(tenant, {
+      code: "mismatched-payables-review",
+      branchId,
+      conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: ["INFO"] },
+      actionType: "CREATE_PAYABLES_REVIEW",
+    });
+    const beforeSafety = await economicAndAccessCounts(tenant.businessId);
+
+    const result = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
+    expect(result).toMatchObject({ acquired: true, matches: 1, succeeded: 0, failed: 1 });
+    const actions = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM business_action_items WHERE business_id=$1 AND branch_id=$2",
+      [tenant.businessId, branchId],
+    );
+    expect(actions.rows[0]!.count).toBe("0");
     expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
   });
 
@@ -293,6 +318,30 @@ async function seedTenant(name: string, branchActivity: boolean[]): Promise<Tena
     branches.push({ id: branch.rows[0]!.id, active });
   }
   return { businessId, userId, staffId, branches };
+}
+
+async function seedOverduePayable(tenant: TenantSeed, branchId: string): Promise<void> {
+  const supplier = await pool.query<{ id: string }>(
+    `INSERT INTO suppliers(business_id,name,payment_terms_days,is_active)
+     VALUES($1,'Overdue Supplier',14,true) RETURNING id`,
+    [tenant.businessId],
+  );
+  const issuedAt = new Date(FIXED_NOW.getTime() - 10 * 86_400_000);
+  const dueAt = new Date(FIXED_NOW.getTime() - 2 * 86_400_000);
+  const purchase = await pool.query<{ id: string }>(
+    `INSERT INTO purchases(
+       business_id,branch_id,supplier_id,received_by_staff_id,status,currency_code,
+       settlement_method,total_minor,client_mutation_id,received_at
+     ) VALUES($1,$2,$3,$4,'RECEIVED','GHS','SUPPLIER_CREDIT',5000,$5,$6)
+     RETURNING id`,
+    [tenant.businessId, branchId, supplier.rows[0]!.id, tenant.staffId, `payables-dispatch-${tenant.businessId}`, issuedAt],
+  );
+  await pool.query(
+    `INSERT INTO supplier_credit_obligations(
+       business_id,branch_id,supplier_id,purchase_id,currency_code,original_minor,open_minor,issued_at,due_at
+     ) VALUES($1,$2,$3,$4,'GHS',5000,5000,$5,$6)`,
+    [tenant.businessId, branchId, supplier.rows[0]!.id, purchase.rows[0]!.id, issuedAt, dueAt],
+  );
 }
 
 async function seedPolicy(

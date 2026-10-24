@@ -34,10 +34,35 @@ describe("safe business workflow automation", () => {
 
     const adminPayables = await createPolicy(tenant, headers, {
       code: "admin-payables-review",
+      triggerType: "ATTENTION",
+      conditions: { ruleCodes: ["PAYABLES_OVERDUE"], severities: ["HIGH", "CRITICAL"] },
       actionType: "CREATE_PAYABLES_REVIEW",
     });
     expect(adminPayables.statusCode).toBe(201);
     expect(adminPayables.json().policy.actionType).toBe("CREATE_PAYABLES_REVIEW");
+
+    const wrongPayablesSignal = await createPolicy(tenant, headers, {
+      code: "admin-payables-wrong-signal",
+      triggerType: "ATTENTION",
+      conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: ["INFO"] },
+      actionType: "CREATE_PAYABLES_REVIEW",
+    });
+    expect(wrongPayablesSignal.statusCode).toBe(400);
+    expect(wrongPayablesSignal.json().error).toBe("BUSINESS_AUTOMATION_ACTION_SIGNAL_MISMATCH");
+
+    const payablesPolicy = adminPayables.json().policy;
+    const wrongPayablesUpdate = await app.inject({
+      method: "PATCH",
+      url: `/v1/intelligence/automations/${payablesPolicy.id}`,
+      headers,
+      payload: {
+        businessId: tenant.businessId,
+        expectedPolicyVersion: payablesPolicy.policyVersion,
+        conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: ["INFO"] },
+      },
+    });
+    expect(wrongPayablesUpdate.statusCode).toBe(400);
+    expect(wrongPayablesUpdate.json().error).toBe("BUSINESS_AUTOMATION_ACTION_SIGNAL_MISMATCH");
 
     await setRole(tenant, "MANAGER");
     const managerOperational = await createPolicy(tenant, headers, {
