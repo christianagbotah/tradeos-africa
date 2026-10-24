@@ -21,7 +21,7 @@ describe("guided business automation setup", () => {
       "slow-stock-review",
       "wastage-review",
       "supplier-payables-review",
-      "general-follow-up",
+      "data-readiness-review",
     ]);
     expect(managerTemplates.map((item) => item.id)).toEqual([
       "reorder-review",
@@ -29,7 +29,6 @@ describe("guided business automation setup", () => {
       "margin-performance-review",
       "slow-stock-review",
       "wastage-review",
-      "general-follow-up",
     ]);
     expect(ownerTemplates).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "reorder-review", actionType: "CREATE_REORDER_REVIEW", triggerType: "ATTENTION" }),
@@ -40,10 +39,29 @@ describe("guided business automation setup", () => {
       expect.objectContaining({ id: "slow-stock-review", actionType: "CREATE_INVENTORY_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "wastage-review", actionType: "CREATE_INVENTORY_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "supplier-payables-review", actionType: "CREATE_PAYABLES_REVIEW", triggerType: "ATTENTION" }),
-      expect.objectContaining({ id: "general-follow-up", actionType: "CREATE_FOLLOW_UP", triggerType: "ATTENTION" }),
+      expect.objectContaining({ id: "data-readiness-review", actionType: "CREATE_DATA_READINESS_REVIEW", triggerType: "ATTENTION" }),
     ]));
     expect(ownerTemplates.some((item) => ["POST_PAYMENT", "REFUND", "STOCK_WRITE_OFF", "CHANGE_ROLE", "CREATE_PURCHASE", "CREATE_SALE"].includes(item.actionType))).toBe(false);
   });
+});
+
+it("defaults data readiness review to an informational 72-hour task", () => {
+  const createDraft = guidance.createGuidedAutomationDraft;
+  expect(typeof createDraft).toBe("function");
+  if (typeof createDraft !== "function") return;
+
+  expect(createDraft({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "data-readiness-review",
+    code: "guided-data-readiness-abc",
+  })).toEqual(expect.objectContaining({
+    templateId: "data-readiness-review",
+    signalRuleCode: "LOW_DATA_CONFIDENCE",
+    severityThreshold: "ANY",
+    dueInHours: 72,
+    assignToActor: true,
+  }));
 });
 
 it("builds safe create payloads from guided form choices", () => {
@@ -124,6 +142,31 @@ it("builds safe create payloads from guided form choices", () => {
     conditions: { ruleCodes: ["PAYABLES_OVERDUE"], severities: ["HIGH", "CRITICAL"] },
     actionType: "CREATE_PAYABLES_REVIEW",
     actionConfiguration: { dueInHours: 24, assignToActor: true },
+  });
+
+  expect(buildPayload({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "data-readiness-review",
+    name: "Data readiness review",
+    scope: "CURRENT_BRANCH",
+    signalRuleCode: "LOW_DATA_CONFIDENCE",
+    severityThreshold: "ANY",
+    assignToActor: true,
+    dueInHours: 72,
+    enabled: true,
+    code: "guided-data-readiness-abc",
+  })).toEqual({
+    businessId: "business-1",
+    branchId: "branch-1",
+    code: "guided-data-readiness-abc",
+    name: "Data readiness review",
+    description: "Automatically creates an internal data-readiness review when TradeOS needs more real operating history. It does not create transactions automatically.",
+    enabled: true,
+    triggerType: "ATTENTION",
+    conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+    actionType: "CREATE_DATA_READINESS_REVIEW",
+    actionConfiguration: { dueInHours: 72, assignToActor: true },
   });
 });
 
@@ -218,6 +261,32 @@ it("reconstructs an editable guided draft from an existing safe policy", () => {
     actionConfiguration: { dueInHours: 24, assignToActor: true },
   }, "branch-1")).toEqual(expect.objectContaining({
     templateId: "supplier-payables-review", signalRuleCode: "PAYABLES_OVERDUE", severityThreshold: "HIGH_PLUS", dueInHours: 24,
+  }));
+
+  expect(fromPolicy({
+    ...existing,
+    id: "policy-data-readiness-1",
+    code: "guided-data-readiness-1",
+    name: "Data readiness review",
+    branchId: "branch-1",
+    conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+    actionType: "CREATE_DATA_READINESS_REVIEW",
+    actionConfiguration: { dueInHours: 72, assignToActor: true },
+  }, "branch-1")).toEqual(expect.objectContaining({
+    templateId: "data-readiness-review", signalRuleCode: "LOW_DATA_CONFIDENCE", severityThreshold: "ANY", dueInHours: 72,
+  }));
+
+  expect(fromPolicy({
+    ...existing,
+    id: "policy-legacy-low-data-1",
+    code: "legacy-low-data-1",
+    name: "Legacy low data follow-up",
+    branchId: "branch-1",
+    conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+    actionType: "CREATE_FOLLOW_UP",
+    actionConfiguration: { dueInHours: 24, assignToActor: true },
+  }, "branch-1")).toEqual(expect.objectContaining({
+    templateId: "data-readiness-review", signalRuleCode: "LOW_DATA_CONFIDENCE", severityThreshold: "ANY", dueInHours: 24,
   }));
 });
 
@@ -348,9 +417,9 @@ it("publishes guided labels, previews and only approved signal choices", () => {
     }),
   ]));
 
-  const general = templates.find((item) => item.id === "general-follow-up");
-  expect(general?.defaultRuleCode).toBe("LOW_DATA_CONFIDENCE");
-  expect(general?.ruleOptions).toEqual([
+  const dataReadiness = templates.find((item) => item.id === "data-readiness-review");
+  expect(dataReadiness?.defaultRuleCode).toBe("LOW_DATA_CONFIDENCE");
+  expect(dataReadiness?.ruleOptions).toEqual([
     { value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" },
   ]);
 });
@@ -475,20 +544,20 @@ it("creates a sensible default guided draft for a selected template", () => {
   expect(createDraft({
     businessId: "business-1",
     currentBranchId: "branch-1",
-    templateId: "general-follow-up",
-    code: "guided-general-1",
+    templateId: "data-readiness-review",
+    code: "guided-data-readiness-1",
   })).toEqual({
     businessId: "business-1",
     currentBranchId: "branch-1",
-    templateId: "general-follow-up",
-    name: "General follow-up",
+    templateId: "data-readiness-review",
+    name: "Data readiness review",
     scope: "CURRENT_BRANCH",
     signalRuleCode: "LOW_DATA_CONFIDENCE",
     severityThreshold: "ANY",
     assignToActor: true,
-    dueInHours: 24,
+    dueInHours: 72,
     enabled: true,
-    code: "guided-general-1",
+    code: "guided-data-readiness-1",
   });
 });
 

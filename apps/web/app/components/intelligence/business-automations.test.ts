@@ -54,6 +54,7 @@ describe("business automation controls", () => {
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_CASH_REVIEW" }))).toBe(false);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_RECEIVABLE_FOLLOW_UP" }))).toBe(false);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_PAYABLES_REVIEW" }))).toBe(false);
+    expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_DATA_READINESS_REVIEW" }))).toBe(false);
   });
 
   it("describes attention templates as automatic while keeping cash review non-economic", () => {
@@ -68,6 +69,10 @@ describe("business automation controls", () => {
     expect(cashReview?.defaultRuleCode).toBe("CASH_PRESSURE_FORECAST");
     expect(cashReview?.ruleOptions).toEqual([{ value: "CASH_PRESSURE_FORECAST", label: "Projected negative cash" }]);
     expect(`${cashReview?.description} ${cashReview?.preview}`).toMatch(/no cash is moved|does not transfer/i);
+    const dataReadiness = templates.find((template) => template.id === "data-readiness-review");
+    expect(dataReadiness?.defaultRuleCode).toBe("LOW_DATA_CONFIDENCE");
+    expect(dataReadiness?.ruleOptions).toEqual([{ value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" }]);
+    expect(`${dataReadiness?.description} ${dataReadiness?.preview}`).toMatch(/does not create transactions|normal real-world activity/i);
   });
 
   it("shows business-wide and current-branch policies while hiding other branches", () => {

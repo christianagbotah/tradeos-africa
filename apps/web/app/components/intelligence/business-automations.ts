@@ -88,7 +88,7 @@ export type GuidedAutomationTemplateId =
   | "slow-stock-review"
   | "wastage-review"
   | "supplier-payables-review"
-  | "general-follow-up";
+  | "data-readiness-review";
 
 export type GuidedAutomationSeverityThreshold = "ANY" | "MEDIUM_PLUS" | "HIGH_PLUS" | "CRITICAL_ONLY";
 export type GuidedAutomationScope = "CURRENT_BRANCH" | "BUSINESS_WIDE";
@@ -101,7 +101,7 @@ export interface GuidedAutomationRuleOption {
 export interface GuidedAutomationTemplate {
   id: GuidedAutomationTemplateId;
   label: string;
-  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_CASH_REVIEW" | "CREATE_PERFORMANCE_REVIEW" | "CREATE_INVENTORY_REVIEW" | "CREATE_PAYABLES_REVIEW" | "CREATE_FOLLOW_UP";
+  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_CASH_REVIEW" | "CREATE_PERFORMANCE_REVIEW" | "CREATE_INVENTORY_REVIEW" | "CREATE_PAYABLES_REVIEW" | "CREATE_DATA_READINESS_REVIEW" | "CREATE_FOLLOW_UP";
   triggerType: "ATTENTION" | "MANUAL";
   description: string;
   preview: string;
@@ -205,12 +205,12 @@ const GUIDED_AUTOMATION_TEMPLATES: readonly GuidedAutomationTemplate[] = [
     ruleOptions: [{ value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" }],
   },
   {
-    id: "general-follow-up",
-    label: "General follow-up",
-    actionType: "CREATE_FOLLOW_UP",
+    id: "data-readiness-review",
+    label: "Data readiness review",
+    actionType: "CREATE_DATA_READINESS_REVIEW",
     triggerType: "ATTENTION",
-    description: "Automatically creates an internal follow-up task for an evidence-backed TradeOS attention signal.",
-    preview: "When enabled, TradeOS checks the selected signal automatically and creates an internal follow-up task for a person to review and act on.",
+    description: "Automatically creates an internal data-readiness review when TradeOS needs more real operating history. It does not create transactions automatically.",
+    preview: "When confidence is low, TradeOS creates an internal review to check business setup and consistent recording from normal real-world activity. It does not create transactions or artificial activity.",
     defaultRuleCode: "LOW_DATA_CONFIDENCE",
     ruleOptions: [
       { value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" },
@@ -278,10 +278,15 @@ export function guidedAutomationDraftFromPolicy(
   const severities = Array.isArray(policy.conditions?.severities)
     ? policy.conditions.severities.filter((value): value is string => typeof value === "string")
     : [];
-  const candidates = GUIDED_AUTOMATION_TEMPLATES.filter(
-    (candidate) => candidate.actionType === policy.actionType && candidate.triggerType === policy.triggerType,
-  );
   const persistedRuleCode = ruleCodes[0] ?? null;
+  const legacyDataReadiness = policy.actionType === "CREATE_FOLLOW_UP"
+    && policy.triggerType === "ATTENTION"
+    && persistedRuleCode === "LOW_DATA_CONFIDENCE";
+  const candidates = legacyDataReadiness
+    ? GUIDED_AUTOMATION_TEMPLATES.filter((candidate) => candidate.id === "data-readiness-review")
+    : GUIDED_AUTOMATION_TEMPLATES.filter(
+        (candidate) => candidate.actionType === policy.actionType && candidate.triggerType === policy.triggerType,
+      );
   const template = persistedRuleCode
     ? candidates.find((candidate) => candidate.ruleOptions.some((option) => option.value === persistedRuleCode))
     : candidates.length === 1 ? candidates[0] : undefined;
@@ -370,7 +375,7 @@ export function createGuidedAutomationDraft(input: {
         ? "HIGH_PLUS"
         : "ANY",
     assignToActor: true,
-    dueInHours: template.id === "slow-stock-review" ? 48 : 24,
+    dueInHours: template.id === "data-readiness-review" ? 72 : template.id === "slow-stock-review" ? 48 : 24,
     enabled: true,
     code: input.code,
   };
