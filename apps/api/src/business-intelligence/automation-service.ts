@@ -17,6 +17,7 @@ const SAFE_ACTION_TYPES = new Set([
   "CREATE_CASH_REVIEW",
   "CREATE_PERFORMANCE_REVIEW",
   "CREATE_INVENTORY_REVIEW",
+  "CREATE_PAYABLES_REVIEW",
   "SNOOZE_ATTENTION",
 ]);
 const SYSTEM_DISPATCH_ACTION_TYPES = new Set([
@@ -26,6 +27,7 @@ const SYSTEM_DISPATCH_ACTION_TYPES = new Set([
   "CREATE_CASH_REVIEW",
   "CREATE_PERFORMANCE_REVIEW",
   "CREATE_INVENTORY_REVIEW",
+  "CREATE_PAYABLES_REVIEW",
 ]);
 const MANAGER_ACTION_TYPES = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "CREATE_PERFORMANCE_REVIEW", "CREATE_INVENTORY_REVIEW", "SNOOZE_ATTENTION"]);
 const TRIGGER_TYPES = new Set(["ATTENTION", "SCHEDULE", "MANUAL", "EVENT"]);
@@ -842,6 +844,7 @@ function actionPresentation(actionType: string, attention: AttentionRow | null) 
     case "CREATE_CASH_REVIEW": return { title: `Review cash position${suffix}`, reason };
     case "CREATE_PERFORMANCE_REVIEW": return { title: `Review business performance${suffix}`, reason };
     case "CREATE_INVENTORY_REVIEW": return { title: `Review inventory health${suffix}`, reason };
+    case "CREATE_PAYABLES_REVIEW": return { title: `Review supplier payables${suffix}`, reason };
     case "SNOOZE_ATTENTION": return { title: `Review attention timing${suffix}`, reason };
     default: return { title: `Follow up${suffix}`, reason };
   }

@@ -32,6 +32,13 @@ describe("safe business workflow automation", () => {
     });
     expect(admin.statusCode).toBe(201);
 
+    const adminPayables = await createPolicy(tenant, headers, {
+      code: "admin-payables-review",
+      actionType: "CREATE_PAYABLES_REVIEW",
+    });
+    expect(adminPayables.statusCode).toBe(201);
+    expect(adminPayables.json().policy.actionType).toBe("CREATE_PAYABLES_REVIEW");
+
     await setRole(tenant, "MANAGER");
     const managerOperational = await createPolicy(tenant, headers, {
       code: "manager-reorder-review",
@@ -57,6 +64,13 @@ describe("safe business workflow automation", () => {
     });
     expect(managerFinancial.statusCode).toBe(403);
     expect(managerFinancial.json().error).toBe("BUSINESS_AUTOMATION_MANAGER_RESTRICTED");
+
+    const managerPayables = await createPolicy(tenant, headers, {
+      code: "manager-payables-review",
+      actionType: "CREATE_PAYABLES_REVIEW",
+    });
+    expect(managerPayables.statusCode).toBe(403);
+    expect(managerPayables.json().error).toBe("BUSINESS_AUTOMATION_MANAGER_RESTRICTED");
 
     for (const role of ["CASHIER", "STAFF", "VIEWER"] as const) {
       await setRole(tenant, role);

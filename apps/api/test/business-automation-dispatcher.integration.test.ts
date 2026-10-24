@@ -114,6 +114,29 @@ describe("tenant proactive automation dispatcher", () => {
     expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
   });
 
+  it("dispatches a safe supplier payables review as an internal-only action item", async () => {
+    const tenant = await seedTenant("Supplier Payables Review Tenant", [true]);
+    const branchId = tenant.branches[0]!.id;
+    await seedPolicy(tenant, {
+      code: "supplier-payables-review",
+      branchId,
+      actionType: "CREATE_PAYABLES_REVIEW",
+    });
+    const beforeSafety = await economicAndAccessCounts(tenant.businessId);
+
+    const result = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
+    expect(result).toMatchObject({ acquired: true, matches: 1, succeeded: 1, failed: 0 });
+    const actions = await pool.query<{ action_type: string; title: string }>(
+      "SELECT action_type,title FROM business_action_items WHERE business_id=$1 AND branch_id=$2",
+      [tenant.businessId, branchId],
+    );
+    expect(actions.rows).toEqual([expect.objectContaining({
+      action_type: "CREATE_PAYABLES_REVIEW",
+      title: expect.stringMatching(/^Review supplier payables/),
+    })]);
+    expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
+  });
+
   it("dispatches a branch-scoped attention policy only for its active branch", async () => {
     const tenant = await seedTenant("Branch Scoped Tenant", [true, true]);
     const targetBranchId = tenant.branches[0]!.id;
