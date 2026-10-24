@@ -15,7 +15,13 @@ export function canControlBusinessAutomationPolicy(
   policy: BusinessAutomationPolicy,
 ): boolean {
   if (role === "OWNER" || role === "ADMIN") return true;
-  if (role === "MANAGER") return MANAGER_AUTOMATION_ACTIONS.has(policy.actionType);
+  if (role === "MANAGER") {
+    const lowDataLegacy = policy.actionType === "CREATE_FOLLOW_UP"
+      && policy.triggerType === "ATTENTION"
+      && Array.isArray(policy.conditions?.ruleCodes)
+      && policy.conditions.ruleCodes.includes("LOW_DATA_CONFIDENCE");
+    return !lowDataLegacy && MANAGER_AUTOMATION_ACTIONS.has(policy.actionType);
+  }
   return false;
 }
 

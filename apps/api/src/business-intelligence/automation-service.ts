@@ -147,6 +147,7 @@ export async function createBusinessAutomationPolicy(
   const parsed = parsePolicyInput(input);
   assertBusiness(actor, parsed.businessId);
   assertHumanActionAllowed(actor.role, parsed.actionType);
+  assertManagerPolicySignalAllowed(actor.role, parsed.actionType, parsed.triggerType, parsed.conditions);
   assertActionSignalCompatibility(parsed.actionType, parsed.triggerType, parsed.conditions);
   const actionConfiguration = normalizeActionConfiguration(actor, parsed.actionConfiguration);
 
@@ -215,6 +216,7 @@ export async function updateBusinessAutomationPolicy(
     const enabled = input.enabled === undefined ? current.enabled : input.enabled === true;
     const triggerType = input.triggerType === undefined ? current.trigger_type : parseTriggerType(input.triggerType);
     const conditions = input.conditions === undefined ? current.conditions : objectValue(input.conditions, "conditions");
+    assertManagerPolicySignalAllowed(actor.role, actionType, triggerType, conditions);
     assertActionSignalCompatibility(actionType, triggerType, conditions);
     const actionConfiguration = input.actionConfiguration === undefined
       ? current.action_configuration
@@ -758,6 +760,23 @@ function assertHumanActionAllowed(role: BusinessRole, actionType: string): void 
   if (role === "MANAGER" && !MANAGER_ACTION_TYPES.has(actionType)) {
     throw new BusinessAutomationError(
       "Managers may configure operational workflow automations only",
+      403,
+      "BUSINESS_AUTOMATION_MANAGER_RESTRICTED",
+    );
+  }
+}
+
+function assertManagerPolicySignalAllowed(
+  role: BusinessRole,
+  actionType: string,
+  triggerType: string,
+  conditions: Record<string, unknown>,
+): void {
+  if (role !== "MANAGER" || actionType !== "CREATE_FOLLOW_UP" || triggerType !== "ATTENTION") return;
+  const ruleCodes = strictStringArray(conditions.ruleCodes);
+  if (ruleCodes?.includes("LOW_DATA_CONFIDENCE")) {
+    throw new BusinessAutomationError(
+      "Managers cannot configure data-readiness review automations",
       403,
       "BUSINESS_AUTOMATION_MANAGER_RESTRICTED",
     );

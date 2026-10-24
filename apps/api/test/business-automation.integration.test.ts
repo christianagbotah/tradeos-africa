@@ -82,6 +82,14 @@ describe("safe business workflow automation", () => {
     expect(wrongDataReadinessSignal.statusCode).toBe(400);
     expect(wrongDataReadinessSignal.json().error).toBe("BUSINESS_AUTOMATION_ACTION_SIGNAL_MISMATCH");
 
+    const legacyLowData = await createPolicy(tenant, headers, {
+      code: "admin-legacy-low-data",
+      triggerType: "ATTENTION",
+      conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+      actionType: "CREATE_FOLLOW_UP",
+    });
+    expect(legacyLowData.statusCode).toBe(201);
+
     await setRole(tenant, "MANAGER");
     const managerOperational = await createPolicy(tenant, headers, {
       code: "manager-reorder-review",
@@ -123,6 +131,29 @@ describe("safe business workflow automation", () => {
     });
     expect(managerDataReadiness.statusCode).toBe(403);
     expect(managerDataReadiness.json().error).toBe("BUSINESS_AUTOMATION_MANAGER_RESTRICTED");
+
+    const managerLegacyLowData = await createPolicy(tenant, headers, {
+      code: "manager-legacy-low-data",
+      triggerType: "ATTENTION",
+      conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+      actionType: "CREATE_FOLLOW_UP",
+    });
+    expect(managerLegacyLowData.statusCode).toBe(403);
+    expect(managerLegacyLowData.json().error).toBe("BUSINESS_AUTOMATION_MANAGER_RESTRICTED");
+
+    const legacyPolicy = legacyLowData.json().policy;
+    const managerLegacyUpdate = await app.inject({
+      method: "PATCH",
+      url: `/v1/intelligence/automations/${legacyPolicy.id}`,
+      headers,
+      payload: {
+        businessId: tenant.businessId,
+        expectedPolicyVersion: legacyPolicy.policyVersion,
+        enabled: false,
+      },
+    });
+    expect(managerLegacyUpdate.statusCode).toBe(403);
+    expect(managerLegacyUpdate.json().error).toBe("BUSINESS_AUTOMATION_MANAGER_RESTRICTED");
 
     for (const role of ["CASHIER", "STAFF", "VIEWER"] as const) {
       await setRole(tenant, role);

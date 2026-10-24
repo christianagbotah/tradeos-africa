@@ -55,6 +55,16 @@ describe("business automation controls", () => {
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_RECEIVABLE_FOLLOW_UP" }))).toBe(false);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_PAYABLES_REVIEW" }))).toBe(false);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_DATA_READINESS_REVIEW" }))).toBe(false);
+    expect(canControlBusinessAutomationPolicy("OWNER", policy({
+      actionType: "CREATE_FOLLOW_UP",
+      triggerType: "ATTENTION",
+      conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+    }))).toBe(true);
+    expect(canControlBusinessAutomationPolicy("MANAGER", policy({
+      actionType: "CREATE_FOLLOW_UP",
+      triggerType: "ATTENTION",
+      conditions: { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: [] },
+    }))).toBe(false);
   });
 
   it("describes attention templates as automatic while keeping cash review non-economic", () => {
