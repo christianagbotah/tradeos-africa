@@ -4,6 +4,8 @@ import type {
   BusinessEvidenceReference,
 } from "@tradeos/contracts";
 import { withTransaction, type DatabaseClient, type DatabasePool } from "../db.js";
+import { CashForecastReportError, getCashForecastReport } from "../cash-forecast.js";
+import type { CashForecastResponse } from "@tradeos/contracts";
 
 export const BUSINESS_ATTENTION_RULE_CODES = [
   "CASH_PRESSURE_FORECAST",
@@ -60,10 +62,24 @@ export async function evaluateBusinessAttention(
   pool: DatabasePool,
   input: { businessId: string; branchId: string | null; now: Date; correlationId: string },
 ): Promise<BusinessAttentionItem[]> {
+  let cashForecast: CashForecastResponse;
+  try {
+    cashForecast = await getCashForecastReport(pool, {
+      businessId: input.businessId,
+      branchId: input.branchId,
+      horizonDays: 30,
+      generatedAt: input.now,
+    });
+  } catch (error) {
+    if (error instanceof CashForecastReportError) {
+      throw new BusinessAttentionError(error.message, error.statusCode, error.code);
+    }
+    throw error;
+  }
   return withTransaction(pool, async client => {
     await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
     await assertScope(client, input.businessId, input.branchId);
-    const signals = await collectSignals(client, input.businessId, input.branchId, input.now);
+    const signals = await collectSignals(client, input.businessId, input.branchId, input.now, cashForecast);
 
     for (const signal of signals) {
       await client.query(
@@ -128,9 +144,11 @@ async function collectSignals(
   businessId: string,
   branchId: string | null,
   now: Date,
+  cashForecast: CashForecastResponse,
 ): Promise<Signal[]> {
   const signals: Signal[] = [];
   const observedAt = now.toISOString();
+  appendCashPressureSignal(signals, cashForecast);
 
   const salesCount = await client.query<{ count: number }>(
     `SELECT count(*)::int AS count
@@ -328,6 +346,39 @@ async function collectSignals(
   }
 
   return signals;
+}
+
+function appendCashPressureSignal(signals: Signal[], forecast: CashForecastResponse): void {
+  const firstNegativeCashDate = forecast.summary.firstNegativeCashDate;
+  if (!firstNegativeCashDate) return;
+  const firstNegativeIndex = forecast.days.findIndex((day) => day.date === firstNegativeCashDate);
+  const severity: BusinessAttentionSeverity = firstNegativeIndex >= 0 && firstNegativeIndex <= 2 ? "CRITICAL" : "HIGH";
+  const entityType = forecast.branchId ? "BRANCH" : "BUSINESS";
+  const entityId = forecast.branchId ?? forecast.businessId;
+  const observedAt = forecast.generatedAt;
+  const money = (label: string, value: number): BusinessEvidenceReference => ({
+    source: "cash_forecast", entityType, entityId, observedAt, label, value,
+    metadata: { kind: "money_minor", currencyCode: forecast.currencyCode },
+  });
+
+  signals.push({
+    sourceKey: `cash-pressure:${forecast.branchId ?? "all"}`,
+    ruleCode: "CASH_PRESSURE_FORECAST",
+    severity,
+    title: "Cash is projected to go negative",
+    summary: `The 30-day cash forecast first falls below zero on ${firstNegativeCashDate}. Review collections, supplier timing and planned cash outflows before then.`,
+    evidence: [
+      money("openingCashMinor", forecast.summary.openingCashMinor),
+      money("projectedClosingCashMinor", forecast.summary.projectedClosingCashMinor),
+      money("lowestProjectedCashMinor", forecast.summary.lowestProjectedCashMinor),
+      { source: "cash_forecast", entityType, entityId, observedAt, label: "lowestProjectedCashDate", value: forecast.summary.lowestProjectedCashDate },
+      { source: "cash_forecast", entityType, entityId, observedAt, label: "firstNegativeCashDate", value: firstNegativeCashDate },
+      money("totalContractualInflowsMinor", forecast.summary.totalContractualInflowsMinor),
+      money("totalContractualOutflowsMinor", forecast.summary.totalContractualOutflowsMinor),
+      { source: "cash_forecast", entityType, entityId, observedAt, label: "confidenceLevel", value: forecast.confidence.level },
+      { source: "cash_forecast", entityType, entityId, observedAt, label: "historyDaysAvailable", value: forecast.confidence.historyDaysAvailable },
+    ],
+  });
 }
 
 async function appendOverdueSignal(

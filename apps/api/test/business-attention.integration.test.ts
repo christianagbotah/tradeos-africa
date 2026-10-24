@@ -5,9 +5,10 @@ import { createPool } from "../src/db.js";
 process.env.DATABASE_URL ??= "postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci";
 const pool = createPool();
 const app = buildApp(pool);
+let cashSequence = 0;
 
 beforeAll(async () => { await app.ready(); });
-beforeEach(async () => { await pool.query("TRUNCATE TABLE app_users,businesses CASCADE"); });
+beforeEach(async () => { await pool.query("TRUNCATE TABLE app_users,businesses CASCADE"); cashSequence = 0; });
 afterAll(async () => { await app.close(); await pool.end(); });
 
 type Tenant = { token: string; userId: string; businessId: string; branchId: string };
@@ -62,6 +63,83 @@ describe("deterministic business attention", () => {
     });
     expect(listed.statusCode).toBe(200);
     expect(listed.json().items.some((item: { id: string }) => item.id === lowData.id)).toBe(true);
+  });
+
+  it("raises CRITICAL cash pressure from the canonical forecast and resolves it when cash recovers", async () => {
+    const tenant = await createTenant("attention-cash-critical@tradeos.test", "Cash Critical");
+    const headers = authHeaders(tenant.token);
+    await insertCash(tenant.businessId, tenant.branchId, -500, "OWNER_WITHDRAWAL");
+
+    const first = await app.inject({
+      method: "POST", url: "/v1/intelligence/attention/evaluate", headers,
+      payload: { businessId: tenant.businessId, branchId: tenant.branchId, correlationId: "cash:critical" },
+    });
+    expect(first.statusCode).toBe(200);
+    const pressure = first.json().items.find((item: { ruleCode: string }) => item.ruleCode === "CASH_PRESSURE_FORECAST");
+    expect(pressure).toMatchObject({ severity: "CRITICAL", state: "OPEN", sourceKey: `cash-pressure:${tenant.branchId}` });
+    expect(pressure.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "openingCashMinor", value: -500, metadata: { kind: "money_minor", currencyCode: "GHS" } }),
+      expect.objectContaining({ label: "firstNegativeCashDate" }),
+      expect.objectContaining({ label: "confidenceLevel", value: "LOW" }),
+      expect.objectContaining({ label: "historyDaysAvailable", value: 0 }),
+    ]));
+
+    await insertCash(tenant.businessId, tenant.branchId, 1000, "OWNER_INJECTION");
+    const recovered = await app.inject({
+      method: "POST", url: "/v1/intelligence/attention/evaluate", headers,
+      payload: { businessId: tenant.businessId, branchId: tenant.branchId, correlationId: "cash:recovered" },
+    });
+    expect(recovered.statusCode).toBe(200);
+    expect(recovered.json().items.some((item: { ruleCode: string }) => item.ruleCode === "CASH_PRESSURE_FORECAST")).toBe(false);
+    const resolved = await pool.query<{ state: string }>(
+      `SELECT state FROM business_attention_items WHERE business_id=$1 AND branch_id=$2 AND rule_code='CASH_PRESSURE_FORECAST' ORDER BY updated_at DESC LIMIT 1`,
+      [tenant.businessId, tenant.branchId],
+    );
+    expect(resolved.rows[0]?.state).toBe("RESOLVED");
+  });
+
+  it("raises HIGH cash pressure when a future supplier obligation turns cash negative after day three", async () => {
+    const tenant = await createTenant("attention-cash-high@tradeos.test", "Cash High");
+    await insertCash(tenant.businessId, tenant.branchId, 1000, "OWNER_INJECTION");
+    await insertFutureSupplierObligation(tenant, 2000, 5);
+
+    const response = await app.inject({
+      method: "POST", url: "/v1/intelligence/attention/evaluate", headers: authHeaders(tenant.token),
+      payload: { businessId: tenant.businessId, branchId: tenant.branchId, correlationId: "cash:future" },
+    });
+    expect(response.statusCode).toBe(200);
+    const pressure = response.json().items.find((item: { ruleCode: string }) => item.ruleCode === "CASH_PRESSURE_FORECAST");
+    expect(pressure).toMatchObject({ severity: "HIGH", state: "OPEN" });
+    expect(pressure.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "lowestProjectedCashMinor", value: -1000 }),
+      expect.objectContaining({ label: "totalContractualOutflowsMinor", value: 2000 }),
+    ]));
+  });
+
+  it("keeps cash pressure branch-scoped", async () => {
+    const tenant = await createTenant("attention-cash-branch@tradeos.test", "Cash Branch");
+    const second = await pool.query<{ id: string }>(
+      `INSERT INTO branches(business_id,name,code,timezone,is_active) VALUES($1,'Second','SECOND','Africa/Accra',true) RETURNING id`,
+      [tenant.businessId],
+    );
+    const secondBranchId = second.rows[0]!.id;
+    await insertCash(tenant.businessId, secondBranchId, -700, "OWNER_WITHDRAWAL");
+
+    const main = await app.inject({
+      method: "POST", url: "/v1/intelligence/attention/evaluate", headers: authHeaders(tenant.token),
+      payload: { businessId: tenant.businessId, branchId: tenant.branchId, correlationId: "cash:main" },
+    });
+    expect(main.statusCode).toBe(200);
+    expect(main.json().items.some((item: { ruleCode: string }) => item.ruleCode === "CASH_PRESSURE_FORECAST")).toBe(false);
+
+    const secondResponse = await app.inject({
+      method: "POST", url: "/v1/intelligence/attention/evaluate", headers: authHeaders(tenant.token),
+      payload: { businessId: tenant.businessId, branchId: secondBranchId, correlationId: "cash:second" },
+    });
+    expect(secondResponse.statusCode).toBe(200);
+    expect(secondResponse.json().items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ruleCode: "CASH_PRESSURE_FORECAST", branchId: secondBranchId, severity: "CRITICAL" }),
+    ]));
   });
 
   it("rejects forged tenant scopes before returning or evaluating attention", async () => {
@@ -170,6 +248,45 @@ async function createTenant(email: string, name: string): Promise<Tenant> {
     businessId: onboard.json().business.id,
     branchId: onboard.json().branch.id,
   };
+}
+
+
+async function insertCash(businessId: string, branchId: string, amountMinor: number, entryType: "OWNER_INJECTION" | "OWNER_WITHDRAWAL") {
+  cashSequence += 1;
+  const account = await pool.query<{ id: string }>(
+    `SELECT id FROM money_accounts WHERE business_id=$1 AND branch_id=$2 AND method='CASH' AND active=true ORDER BY created_at,id LIMIT 1`,
+    [businessId, branchId],
+  );
+  expect(account.rows[0]?.id).toBeTruthy();
+  await pool.query(
+    `INSERT INTO cashbook_entries(
+       business_id,branch_id,amount_delta_minor,currency_code,method,entry_type,source_type,source_id,idempotency_key,occurred_at,money_account_id
+     ) VALUES($1,$2,$3,'GHS','CASH',$4,'ATTENTION_TEST',gen_random_uuid(),$5,now()-interval '1 day',$6)`,
+    [businessId, branchId, amountMinor, entryType, `attention-cash-${cashSequence}`, account.rows[0]!.id],
+  );
+}
+
+async function insertFutureSupplierObligation(tenant: Tenant, amountMinor: number, dueInDays: number) {
+  const access = await pool.query<{ staff_id: string }>(
+    `SELECT staff_id FROM business_memberships WHERE business_id=$1 AND user_id=$2 AND status='ACTIVE'`,
+    [tenant.businessId, tenant.userId],
+  );
+  const supplier = await pool.query<{ id: string }>(
+    `INSERT INTO suppliers(business_id,name,payment_terms_days,is_active) VALUES($1,'Cash Forecast Supplier',$2,true) RETURNING id`,
+    [tenant.businessId, dueInDays],
+  );
+  const purchase = await pool.query<{ id: string }>(
+    `INSERT INTO purchases(
+       business_id,branch_id,supplier_id,received_by_staff_id,status,currency_code,settlement_method,total_minor,client_mutation_id,received_at
+     ) VALUES($1,$2,$3,$4,'RECEIVED','GHS','SUPPLIER_CREDIT',$5,gen_random_uuid()::text,now()) RETURNING id`,
+    [tenant.businessId, tenant.branchId, supplier.rows[0]!.id, access.rows[0]!.staff_id, amountMinor],
+  );
+  await pool.query(
+    `INSERT INTO supplier_credit_obligations(
+       business_id,branch_id,supplier_id,purchase_id,currency_code,original_minor,open_minor,issued_at,due_at
+     ) VALUES($1,$2,$3,$4,'GHS',$5,$5,now(),now()+make_interval(days=>$6))`,
+    [tenant.businessId, tenant.branchId, supplier.rows[0]!.id, purchase.rows[0]!.id, amountMinor, dueInDays],
+  );
 }
 
 function authHeaders(token: string) {

@@ -23,7 +23,7 @@ type Scope = {
 type ObligationRow = { day: string | null; amount: string | null; overdue_amount: string | null; day_count: string | null; total_count: string };
 type ObligationSide = { rows: Array<{ date: string; amountMinor: number; overdueMinor: number; count: number }>; totalCount: number };
 
-class CashForecastReportError extends Error {
+export class CashForecastReportError extends Error {
   constructor(message: string, readonly code = "REPORT_INVALID", readonly statusCode = 400) {
     super(message);
   }
