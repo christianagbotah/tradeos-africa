@@ -7,6 +7,7 @@ import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { useWorkspace } from "../workspace/use-workspace";
+import { BusinessActionExplanation } from "./business-action-explanation";
 
 export function BusinessPulsePanel() {
   const { session, queue } = useWorkspace();
@@ -162,11 +163,14 @@ export function BusinessPulsePanel() {
                     {pulse.actionItems.length ? (
                       <div className="tos-pulse-list">
                         {pulse.actionItems.map((item) => (
-                          <Link key={item.id} href={pulseActionHref(item)} className="tos-pulse-row" onClick={() => setOpen(false)}>
-                            <span className="tos-pulse-row__meta"><b>{item.status === "SNOOZED" ? "SNOOZED" : "OPEN"}</b><time>{item.dueAt ? `Due ${formatTime(item.dueAt)}` : formatTime(item.createdAt)}</time></span>
-                            <strong>{item.title}</strong>
-                            <p>{item.reason}</p>
-                          </Link>
+                          <div key={item.id} className="tos-pulse-row tos-pulse-task">
+                            <Link href={pulseActionHref(item)} className="tos-pulse-task__link" onClick={() => setOpen(false)}>
+                              <span className="tos-pulse-row__meta"><b>{item.status === "SNOOZED" ? "SNOOZED" : "OPEN"}</b><time>{item.dueAt ? `Due ${formatTime(item.dueAt)}` : formatTime(item.createdAt)}</time></span>
+                              <strong>{item.title}</strong>
+                              <p>{item.reason}</p>
+                            </Link>
+                            <BusinessActionExplanation item={item} businessId={session.businessId} online={queue.online} />
+                          </div>
                         ))}
                       </div>
                     ) : <p className="tos-pulse-empty">No active review tasks in your current queue.</p>}

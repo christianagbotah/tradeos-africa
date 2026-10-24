@@ -57,6 +57,15 @@ describe("business pulse contract",()=>{
     expect(css).not.toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.tos-pulse-trigger__badge\s*\{[^}]*right:\s*-\d/);
   });
 
+  it("reuses lazy task explanations in Pulse without nesting the explanation control inside workflow links",()=>{
+    const pulse=source(panelPath);
+    expect(pulse).toContain('import { BusinessActionExplanation }');
+    expect(pulse).toMatch(/<BusinessActionExplanation\s+item=\{item\}\s+businessId=\{session\.businessId\}\s+online=\{queue\.online\}\s*\/>/s);
+    expect(pulse).toMatch(/className="[^"]*tos-pulse-task[^"]*"/);
+    expect(pulse).toContain('className="tos-pulse-task__link"');
+    expect(pulse).not.toMatch(/<Link[^>]*className="tos-pulse-task__link"[^>]*>(?:(?!<\/Link>)[\s\S])*<BusinessActionExplanation/);
+  });
+
   it("keeps feed actions navigation-only and ships responsive drawer styling",()=>{
     const pulse=source(panelPath), css=source(cssPath);
     expect(pulse).toContain('<Link');

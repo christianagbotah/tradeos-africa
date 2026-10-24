@@ -1006,6 +1006,8 @@
 .tos-pulse-section__head span { min-width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--tos-surface); border: 1px solid var(--tos-border); color: var(--tos-text-muted); font-size: 0.7rem; font-weight: 700; }
 .tos-pulse-list { display: grid; gap: var(--tos-space-2); }
 .tos-pulse-row { display: grid; gap: var(--tos-space-2); padding: var(--tos-space-3); border: 1px solid var(--tos-border); border-radius: var(--tos-radius-md); background: var(--tos-surface); color: inherit; text-decoration: none; }
+.tos-pulse-task { min-width: 0; }
+.tos-pulse-task__link { display: grid; gap: var(--tos-space-2); color: inherit; text-decoration: none; }
 .tos-pulse-row:hover { border-color: var(--tos-gold); }
 .tos-pulse-row__meta { display: flex; align-items: center; justify-content: space-between; gap: var(--tos-space-2); color: var(--tos-text-muted); font-size: 0.68rem; }
 .tos-pulse-row__meta b { color: var(--tos-text-muted); font-size: 0.65rem; letter-spacing: .04em; }
