@@ -11,6 +11,8 @@ import type {
   BusinessFinancialMetricKey,
   BusinessFinancialMetricRange,
   BusinessMetricContext,
+  BusinessActionItemExplanation,
+  BusinessActionItemExplanationSourceKind,
 } from "./business-intelligence.js";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -88,6 +90,43 @@ const actionResponse: BusinessEntityActionItemResponse = {
 void safeAction;
 void actionRequest;
 void actionResponse;
+
+type _ExplanationSourceKinds = Assert<Equal<BusinessActionItemExplanationSourceKind, "AUTOMATION" | "ENTITY_REVIEW" | "ATTENTION" | "MANUAL">>;
+
+const explanation: BusinessActionItemExplanation = {
+  businessId: intelligence.businessId,
+  branchId: intelligence.branchId,
+  actionItemId: actionResponse.item.id,
+  generatedAt: "2026-10-24T00:00:00.000Z",
+  sourceKind: "AUTOMATION",
+  summary: "TradeOS created this review from an enabled automation policy.",
+  action: actionResponse.item,
+  automation: {
+    policyId: "70000000-0000-4000-8000-000000000020",
+    policyName: "Receivables follow-up",
+    policyVersion: 2,
+    triggerType: "ATTENTION",
+    triggerSource: "ATTENTION",
+    runId: "70000000-0000-4000-8000-000000000021",
+    runCreatedAt: "2026-10-24T00:00:00.000Z",
+  },
+  attention: {
+    id: "70000000-0000-4000-8000-000000000022",
+    ruleCode: "RECEIVABLES_OVERDUE",
+    severity: "HIGH",
+    title: "Receivables need follow-up",
+    summary: "A customer balance is overdue.",
+    lastSeenAt: "2026-10-24T00:00:00.000Z",
+  },
+  entity: { entityType: "CUSTOMER", entityId: context.entityId },
+  evidence: [],
+};
+
+void explanation;
+
+// @ts-expect-error unsupported explanation source kind
+const badExplanationSource: BusinessActionItemExplanationSourceKind = "MODEL";
+void badExplanationSource;
 
 
 type _SupportedMetricKeys = Assert<Equal<BusinessFinancialMetricKey,

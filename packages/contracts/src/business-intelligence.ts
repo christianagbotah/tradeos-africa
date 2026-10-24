@@ -247,6 +247,35 @@ export type BusinessActionItem = BusinessIntelligenceScope & {
   updatedAt: string;
 };
 
+export type BusinessActionItemExplanationSourceKind = "AUTOMATION" | "ENTITY_REVIEW" | "ATTENTION" | "MANUAL";
+
+export type BusinessActionItemExplanation = BusinessIntelligenceScope & {
+  actionItemId: string;
+  generatedAt: string;
+  sourceKind: BusinessActionItemExplanationSourceKind;
+  summary: string;
+  action: BusinessActionItem;
+  automation?: {
+    policyId: string;
+    policyName: string;
+    policyVersion: number;
+    triggerType: string;
+    triggerSource: string;
+    runId: string;
+    runCreatedAt: string;
+  } | null;
+  attention?: {
+    id: string;
+    ruleCode: string;
+    severity: BusinessAttentionSeverity;
+    title: string;
+    summary: string;
+    lastSeenAt: string;
+  } | null;
+  entity?: BusinessEntityContext | null;
+  evidence: BusinessEvidenceReference[];
+};
+
 export type BusinessEntityActionItemResponse = {
   item: BusinessActionItem;
   created: boolean;
