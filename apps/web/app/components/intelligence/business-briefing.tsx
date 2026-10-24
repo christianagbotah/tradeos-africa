@@ -21,6 +21,7 @@ import {
   type BusinessIntelligenceCacheScope,
 } from "./business-intelligence-cache";
 import { isBusinessActionItemActive, mutateBusinessActionItem } from "./business-action-items";
+import { BusinessActionExplanation } from "./business-action-explanation";
 
 interface ActionItemsResponse {
   items: BusinessActionItem[];
@@ -205,6 +206,7 @@ export function BusinessBriefing() {
                     <strong>{item.title}</strong>
                     <p>{item.reason}</p>
                     <small>{item.dueAt ? `Due ${formatTimestamp(item.dueAt)}` : item.status}</small>
+                    <BusinessActionExplanation item={item} businessId={briefing.businessId} online={queue.online} />
                   </div>
                   {queue.online ? (
                     <div className="tos-ai-action-card__actions">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { BusinessActionItem } from "@tradeos/contracts";
-import { isBusinessActionItemActive, mutateBusinessActionItem } from "./business-action-items";
+import type { BusinessActionItem, BusinessActionItemExplanation } from "@tradeos/contracts";
+import { fetchBusinessActionItemExplanation, isBusinessActionItemActive, mutateBusinessActionItem } from "./business-action-items";
 
 describe("business action item mutations", () => {
   it("marks an action item done with the tenant business id", async () => {
@@ -87,5 +87,42 @@ describe("business action item mutations", () => {
     expect(isBusinessActionItemActive({ ...base, status: "SNOOZED", snoozedUntil: "2026-10-23T12:00:00.000Z" }, now)).toBe(false);
     expect(isBusinessActionItemActive({ ...base, status: "SNOOZED", snoozedUntil: "2026-10-22T11:00:00.000Z" }, now)).toBe(true);
     expect(isBusinessActionItemActive({ ...base, status: "DONE", snoozedUntil: null }, now)).toBe(false);
+  });
+});
+
+
+describe("business action item explanation fetch", () => {
+  it("fetches one encoded read-only explanation only when invoked", async () => {
+    const calls: Array<{ input: RequestInfo | URL; init: RequestInit | undefined }> = [];
+    const explanation = {
+      businessId: "business/one",
+      branchId: null,
+      actionItemId: "action/one",
+      generatedAt: "2026-10-24T12:00:00.000Z",
+      sourceKind: "MANUAL",
+      summary: "Review this task",
+      action: { id: "action/one" },
+      evidence: [],
+    } as unknown as BusinessActionItemExplanation;
+    const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input, init });
+      return new Response(JSON.stringify(explanation), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    expect(calls).toHaveLength(0);
+    const result = await fetchBusinessActionItemExplanation(fetcher, { businessId: "business/one", actionItemId: "action/one" });
+
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0]?.input)).toBe("/v1/intelligence/action-items/action%2Fone/explanation?businessId=business%2Fone");
+    expect(calls[0]?.init?.method).toBeUndefined();
+    expect(result).toEqual(explanation);
+  });
+
+  it("surfaces explanation API errors", async () => {
+    const fetcher = async () => new Response(JSON.stringify({ message: "Explanation unavailable" }), {
+      status: 403, headers: { "content-type": "application/json" },
+    });
+    await expect(fetchBusinessActionItemExplanation(fetcher, { businessId: "business-1", actionItemId: "action-1" }))
+      .rejects.toThrow("Explanation unavailable");
   });
 });

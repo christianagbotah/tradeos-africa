@@ -1,4 +1,4 @@
-import type { BusinessActionItem } from "@tradeos/contracts";
+import type { BusinessActionItem, BusinessActionItemExplanation } from "@tradeos/contracts";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 
 export type BusinessActionMutation =
@@ -43,4 +43,16 @@ export async function mutateBusinessActionItem(
   const payload = await response.json() as { item?: BusinessActionItem };
   if (!payload.item) throw new Error("Server returned an incomplete action item response.");
   return payload.item;
+}
+
+export async function fetchBusinessActionItemExplanation(
+  fetcher: AuthenticatedFetcher,
+  input: { businessId: string; actionItemId: string },
+): Promise<BusinessActionItemExplanation> {
+  const path = `/v1/intelligence/action-items/${encodeURIComponent(input.actionItemId)}/explanation?businessId=${encodeURIComponent(input.businessId)}`;
+  const response = await fetcher(path);
+  if (!response.ok) {
+    throw new Error(await readApiErrorMessage(response, "Task explanation could not be loaded"));
+  }
+  return await response.json() as BusinessActionItemExplanation;
 }

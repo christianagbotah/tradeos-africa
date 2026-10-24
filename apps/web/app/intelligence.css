@@ -1025,3 +1025,51 @@
   .tos-pulse-drawer__head { padding: var(--tos-space-4); }
   .tos-pulse-summary { grid-template-columns: 1fr; }
 }
+
+.tos-ai-action-explanation { margin-top: var(--tos-space-2); }
+.tos-ai-action-explanation__toggle {
+  min-height: 36px;
+  padding: 0 var(--tos-space-3);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface-soft);
+  color: var(--tos-text);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tos-ai-action-explanation__details {
+  display: grid;
+  gap: var(--tos-space-2);
+  margin-top: var(--tos-space-2);
+  padding: var(--tos-space-3);
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-md);
+  background: var(--tos-surface-soft);
+}
+.tos-ai-action-explanation__details p { margin: 0; }
+.tos-ai-action-explanation__reason { color: var(--tos-text-muted); }
+.tos-ai-action-explanation__offline,
+.tos-ai-action-explanation__status,
+.tos-ai-action-explanation__timestamp { color: var(--tos-text-muted); }
+.tos-ai-action-explanation__meta,
+.tos-ai-action-explanation__source { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--tos-space-2); }
+.tos-ai-action-explanation__meta span { font-weight: 800; }
+.tos-ai-action-explanation__meta small,
+.tos-ai-action-explanation__source small { color: var(--tos-text-muted); }
+.tos-ai-action-explanation__source { flex-direction: column; align-items: flex-start; gap: 2px; }
+.tos-ai-action-explanation__evidence { display: grid; gap: var(--tos-space-2); }
+.tos-ai-action-explanation__evidence dl { display: grid; gap: 6px; margin: 0; }
+.tos-ai-action-explanation__evidence dl > div { display: flex; justify-content: space-between; gap: var(--tos-space-3); }
+.tos-ai-action-explanation__evidence dt { color: var(--tos-text-muted); }
+.tos-ai-action-explanation__evidence dd { margin: 0; text-align: right; font-weight: 700; }
+.tos-ai-action-explanation__error { display: flex; align-items: center; justify-content: space-between; gap: var(--tos-space-2); color: var(--tos-danger); }
+.tos-ai-action-explanation__error button { min-height: 34px; padding: 0 var(--tos-space-2); border: 1px solid currentColor; border-radius: var(--tos-radius-sm); background: transparent; color: inherit; cursor: pointer; }
+
+@media (max-width: 720px) {
+  .tos-ai-action-explanation__toggle { min-height: 44px; width: 100%; }
+  .tos-ai-action-explanation__details { padding: var(--tos-space-3); }
+  .tos-ai-action-explanation__evidence dl > div { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .tos-ai-action-explanation__evidence dd { text-align: left; }
+}
