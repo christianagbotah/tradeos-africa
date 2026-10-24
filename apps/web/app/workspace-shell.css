@@ -8353,6 +8353,10 @@
     min-height: 48px;
   }
 
+  .tos-account-menu {
+    flex: 0 0 48px;
+  }
+
   .tos-topbar__profile--button {
     width: 48px;
     height: 48px;
