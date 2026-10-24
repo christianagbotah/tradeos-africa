@@ -2,7 +2,7 @@ import type { BusinessAutomationPolicy, BusinessAutomationRun } from "@tradeos/c
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 
 const AUTOMATION_MANAGEMENT_ROLES = new Set(["OWNER", "ADMIN", "MANAGER"]);
-const MANAGER_AUTOMATION_ACTIONS = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "SNOOZE_ATTENTION"]);
+const MANAGER_AUTOMATION_ACTIONS = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "CREATE_PERFORMANCE_REVIEW", "SNOOZE_ATTENTION"]);
 
 type AuthenticatedFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -83,6 +83,8 @@ export type GuidedAutomationTemplateId =
   | "reorder-review"
   | "receivables-follow-up"
   | "cash-review"
+  | "sales-performance-review"
+  | "margin-performance-review"
   | "general-follow-up";
 
 export type GuidedAutomationSeverityThreshold = "ANY" | "MEDIUM_PLUS" | "HIGH_PLUS" | "CRITICAL_ONLY";
@@ -96,7 +98,7 @@ export interface GuidedAutomationRuleOption {
 export interface GuidedAutomationTemplate {
   id: GuidedAutomationTemplateId;
   label: string;
-  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_CASH_REVIEW" | "CREATE_FOLLOW_UP";
+  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_CASH_REVIEW" | "CREATE_PERFORMANCE_REVIEW" | "CREATE_FOLLOW_UP";
   triggerType: "ATTENTION" | "MANUAL";
   description: string;
   preview: string;
@@ -150,6 +152,26 @@ const GUIDED_AUTOMATION_TEMPLATES: readonly GuidedAutomationTemplate[] = [
     ruleOptions: [{ value: "CASH_PRESSURE_FORECAST", label: "Projected negative cash" }],
   },
   {
+    id: "sales-performance-review",
+    label: "Sales performance review",
+    actionType: "CREATE_PERFORMANCE_REVIEW",
+    triggerType: "ATTENTION",
+    description: "Automatically creates an internal performance review when sales decline needs attention. No price, discount, sale, expense, or cash change is made automatically.",
+    preview: "When sales decline needs attention, TradeOS automatically creates an internal performance review for a person to investigate. It does not change prices, discounts, sales, expenses, or money.",
+    defaultRuleCode: "SALES_DROP",
+    ruleOptions: [{ value: "SALES_DROP", label: "Sales drop" }],
+  },
+  {
+    id: "margin-performance-review",
+    label: "Margin performance review",
+    actionType: "CREATE_PERFORMANCE_REVIEW",
+    triggerType: "ATTENTION",
+    description: "Automatically creates an internal performance review when margin pressure needs attention. No price, discount, sale, expense, or cash change is made automatically.",
+    preview: "When margin pressure needs attention, TradeOS automatically creates an internal performance review for a person to investigate. It does not change prices, discounts, sales, expenses, or money.",
+    defaultRuleCode: "MARGIN_PRESSURE",
+    ruleOptions: [{ value: "MARGIN_PRESSURE", label: "Margin pressure" }],
+  },
+  {
     id: "general-follow-up",
     label: "General follow-up",
     actionType: "CREATE_FOLLOW_UP",
@@ -160,8 +182,6 @@ const GUIDED_AUTOMATION_TEMPLATES: readonly GuidedAutomationTemplate[] = [
     ruleOptions: [
       { value: "SLOW_STOCK", label: "Slow-moving stock" },
       { value: "WASTAGE_SPIKE", label: "Wastage spike" },
-      { value: "SALES_DROP", label: "Sales drop" },
-      { value: "MARGIN_PRESSURE", label: "Margin pressure" },
       { value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" },
       { value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" },
     ],
@@ -308,7 +328,11 @@ export function createGuidedAutomationDraft(input: {
     name: template.label,
     scope: "CURRENT_BRANCH",
     signalRuleCode: template.defaultRuleCode,
-    severityThreshold: template.id === "reorder-review" || template.id === "receivables-follow-up" || template.id === "cash-review" ? "HIGH_PLUS" : "ANY",
+    severityThreshold: template.id === "sales-performance-review" || template.id === "margin-performance-review"
+      ? "MEDIUM_PLUS"
+      : template.id === "reorder-review" || template.id === "receivables-follow-up" || template.id === "cash-review"
+        ? "HIGH_PLUS"
+        : "ANY",
     assignToActor: true,
     dueInHours: 24,
     enabled: true,

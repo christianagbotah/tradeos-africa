@@ -16,13 +16,22 @@ describe("guided business automation setup", () => {
       "reorder-review",
       "receivables-follow-up",
       "cash-review",
+      "sales-performance-review",
+      "margin-performance-review",
       "general-follow-up",
     ]);
-    expect(managerTemplates.map((item) => item.id)).toEqual(["reorder-review", "general-follow-up"]);
+    expect(managerTemplates.map((item) => item.id)).toEqual([
+      "reorder-review",
+      "sales-performance-review",
+      "margin-performance-review",
+      "general-follow-up",
+    ]);
     expect(ownerTemplates).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "reorder-review", actionType: "CREATE_REORDER_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "receivables-follow-up", actionType: "CREATE_RECEIVABLE_FOLLOW_UP", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "cash-review", actionType: "CREATE_CASH_REVIEW", triggerType: "ATTENTION" }),
+      expect.objectContaining({ id: "sales-performance-review", actionType: "CREATE_PERFORMANCE_REVIEW", triggerType: "ATTENTION" }),
+      expect.objectContaining({ id: "margin-performance-review", actionType: "CREATE_PERFORMANCE_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "general-follow-up", actionType: "CREATE_FOLLOW_UP", triggerType: "ATTENTION" }),
     ]));
     expect(ownerTemplates.some((item) => ["POST_PAYMENT", "REFUND", "STOCK_WRITE_OFF", "CHANGE_ROLE", "CREATE_PURCHASE", "CREATE_SALE"].includes(item.actionType))).toBe(false);
@@ -209,17 +218,31 @@ it("publishes guided labels, previews and only approved signal choices", () => {
       ruleOptions: [{ value: "CASH_PRESSURE_FORECAST", label: "Projected negative cash" }],
       preview: expect.stringMatching(/projects negative cash.*internal cash-position review/i),
     }),
+    expect.objectContaining({
+      id: "sales-performance-review",
+      label: "Sales performance review",
+      actionType: "CREATE_PERFORMANCE_REVIEW",
+      defaultRuleCode: "SALES_DROP",
+      ruleOptions: [{ value: "SALES_DROP", label: "Sales drop" }],
+      preview: expect.stringMatching(/sales decline.*internal performance review/i),
+    }),
+    expect.objectContaining({
+      id: "margin-performance-review",
+      label: "Margin performance review",
+      actionType: "CREATE_PERFORMANCE_REVIEW",
+      defaultRuleCode: "MARGIN_PRESSURE",
+      ruleOptions: [{ value: "MARGIN_PRESSURE", label: "Margin pressure" }],
+      preview: expect.stringMatching(/margin pressure.*internal performance review/i),
+    }),
   ]));
 
   const general = templates.find((item) => item.id === "general-follow-up");
-  expect(general?.ruleOptions).toEqual(expect.arrayContaining([
+  expect(general?.ruleOptions).toEqual([
     { value: "SLOW_STOCK", label: "Slow-moving stock" },
     { value: "WASTAGE_SPIKE", label: "Wastage spike" },
-    { value: "SALES_DROP", label: "Sales drop" },
-    { value: "MARGIN_PRESSURE", label: "Margin pressure" },
     { value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" },
     { value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" },
-  ]));
+  ]);
 });
 
 it("rejects invalid guided combinations before they reach the API", () => {
@@ -268,6 +291,25 @@ it("creates a sensible default guided draft for a selected template", () => {
     dueInHours: 24,
     enabled: true,
     code: "guided-cash-1",
+  });
+
+  expect(createDraft({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "sales-performance-review",
+    code: "guided-sales-performance-1",
+  })).toEqual({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "sales-performance-review",
+    name: "Sales performance review",
+    scope: "CURRENT_BRANCH",
+    signalRuleCode: "SALES_DROP",
+    severityThreshold: "MEDIUM_PLUS",
+    assignToActor: true,
+    dueInHours: 24,
+    enabled: true,
+    code: "guided-sales-performance-1",
   });
 
   expect(createDraft({
