@@ -22,7 +22,7 @@ describe("guided business automation setup", () => {
     expect(ownerTemplates).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "reorder-review", actionType: "CREATE_REORDER_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "receivables-follow-up", actionType: "CREATE_RECEIVABLE_FOLLOW_UP", triggerType: "ATTENTION" }),
-      expect.objectContaining({ id: "cash-review", actionType: "CREATE_CASH_REVIEW", triggerType: "MANUAL" }),
+      expect.objectContaining({ id: "cash-review", actionType: "CREATE_CASH_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "general-follow-up", actionType: "CREATE_FOLLOW_UP", triggerType: "ATTENTION" }),
     ]));
     expect(ownerTemplates.some((item) => ["POST_PAYMENT", "REFUND", "STOCK_WRITE_OFF", "CHANGE_ROLE", "CREATE_PURCHASE", "CREATE_SALE"].includes(item.actionType))).toBe(false);
@@ -63,10 +63,10 @@ it("builds safe create payloads from guided form choices", () => {
     businessId: "business-1",
     currentBranchId: "branch-1",
     templateId: "cash-review",
-    name: "Weekly cash review",
+    name: "Projected cash review",
     scope: "BUSINESS_WIDE",
-    signalRuleCode: null,
-    severityThreshold: "ANY",
+    signalRuleCode: "CASH_PRESSURE_FORECAST",
+    severityThreshold: "HIGH_PLUS",
     assignToActor: false,
     dueInHours: 48,
     enabled: false,
@@ -75,11 +75,11 @@ it("builds safe create payloads from guided form choices", () => {
     businessId: "business-1",
     branchId: null,
     code: "guided-cash-review-abc",
-    name: "Weekly cash review",
-    description: "Creates a manual internal cash-position review. No cash is moved automatically.",
+    name: "Projected cash review",
+    description: "Automatically creates an internal cash-position review when the 30-day forecast projects negative cash. No cash is moved automatically.",
     enabled: false,
-    triggerType: "MANUAL",
-    conditions: {},
+    triggerType: "ATTENTION",
+    conditions: { ruleCodes: ["CASH_PRESSURE_FORECAST"], severities: ["HIGH", "CRITICAL"] },
     actionType: "CREATE_CASH_REVIEW",
     actionConfiguration: { dueInHours: 48, assignToActor: false },
   });
@@ -206,8 +206,8 @@ it("publishes guided labels, previews and only approved signal choices", () => {
     expect.objectContaining({
       id: "cash-review",
       label: "Cash position review",
-      ruleOptions: [],
-      preview: expect.stringMatching(/manual/i),
+      ruleOptions: [{ value: "CASH_PRESSURE_FORECAST", label: "Projected negative cash" }],
+      preview: expect.stringMatching(/projects negative cash.*internal cash-position review/i),
     }),
   ]));
 
@@ -250,6 +250,25 @@ it("creates a sensible default guided draft for a selected template", () => {
   const createDraft = guidance.createGuidedAutomationDraft;
   expect(typeof createDraft).toBe("function");
   if (typeof createDraft !== "function") return;
+
+  expect(createDraft({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "cash-review",
+    code: "guided-cash-1",
+  })).toEqual({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "cash-review",
+    name: "Cash position review",
+    scope: "CURRENT_BRANCH",
+    signalRuleCode: "CASH_PRESSURE_FORECAST",
+    severityThreshold: "HIGH_PLUS",
+    assignToActor: true,
+    dueInHours: 24,
+    enabled: true,
+    code: "guided-cash-1",
+  });
 
   expect(createDraft({
     businessId: "business-1",
