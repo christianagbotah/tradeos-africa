@@ -16,6 +16,7 @@ const SAFE_ACTION_TYPES = new Set([
   "CREATE_RECEIVABLE_FOLLOW_UP",
   "CREATE_CASH_REVIEW",
   "CREATE_PERFORMANCE_REVIEW",
+  "CREATE_INVENTORY_REVIEW",
   "SNOOZE_ATTENTION",
 ]);
 const SYSTEM_DISPATCH_ACTION_TYPES = new Set([
@@ -24,8 +25,9 @@ const SYSTEM_DISPATCH_ACTION_TYPES = new Set([
   "CREATE_RECEIVABLE_FOLLOW_UP",
   "CREATE_CASH_REVIEW",
   "CREATE_PERFORMANCE_REVIEW",
+  "CREATE_INVENTORY_REVIEW",
 ]);
-const MANAGER_ACTION_TYPES = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "CREATE_PERFORMANCE_REVIEW", "SNOOZE_ATTENTION"]);
+const MANAGER_ACTION_TYPES = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "CREATE_PERFORMANCE_REVIEW", "CREATE_INVENTORY_REVIEW", "SNOOZE_ATTENTION"]);
 const TRIGGER_TYPES = new Set(["ATTENTION", "SCHEDULE", "MANUAL", "EVENT"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -839,6 +841,7 @@ function actionPresentation(actionType: string, attention: AttentionRow | null) 
     case "CREATE_RECEIVABLE_FOLLOW_UP": return { title: `Follow up receivable${suffix}`, reason };
     case "CREATE_CASH_REVIEW": return { title: `Review cash position${suffix}`, reason };
     case "CREATE_PERFORMANCE_REVIEW": return { title: `Review business performance${suffix}`, reason };
+    case "CREATE_INVENTORY_REVIEW": return { title: `Review inventory health${suffix}`, reason };
     case "SNOOZE_ATTENTION": return { title: `Review attention timing${suffix}`, reason };
     default: return { title: `Follow up${suffix}`, reason };
   }

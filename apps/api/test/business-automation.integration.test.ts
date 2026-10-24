@@ -45,6 +45,12 @@ describe("safe business workflow automation", () => {
     });
     expect(managerPerformance.statusCode).toBe(201);
 
+    const managerInventoryReview = await createPolicy(tenant, headers, {
+      code: "manager-inventory-review",
+      actionType: "CREATE_INVENTORY_REVIEW",
+    });
+    expect(managerInventoryReview.statusCode).toBe(201);
+
     const managerFinancial = await createPolicy(tenant, headers, {
       code: "manager-cash-review",
       actionType: "CREATE_CASH_REVIEW",
