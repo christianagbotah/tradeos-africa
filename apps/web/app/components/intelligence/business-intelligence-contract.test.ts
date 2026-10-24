@@ -72,6 +72,16 @@ describe("tenant intelligence experience contract", () => {
     expect(briefing).toMatch(/queue\.online/);
   });
 
+  it("routes action-queue reviews to their canonical workflow, including data readiness and payables", () => {
+    const briefing = source(paths.briefing);
+    expect(briefing).toContain("actionItemWorkflowHref");
+    expect(briefing).toContain('href={actionItemWorkflowHref(item)}');
+    expect(briefing).toContain('item.actionType === "CREATE_DATA_READINESS_REVIEW"');
+    expect(briefing).toContain('return "/settings?section=business"');
+    expect(briefing).toContain('item.actionType === "CREATE_PAYABLES_REVIEW"');
+    expect(briefing).toContain('item.sourceEntityType === "SUPPLIER" || item.sourceEntityType === "PURCHASE"');
+  });
+
   it("opens Ask TradeOS with a contextual prompt while preserving the normal topbar entry", () => {
     const shell = source(paths.shell);
     const drawer = source(paths.drawer);

@@ -208,7 +208,7 @@ export function BusinessBriefing() {
                   </div>
                   {queue.online ? (
                     <div className="tos-ai-action-card__actions">
-                      <Link className="tos-ai-workflow-link" href={workflowHref(item.actionType)}>Open workflow</Link>
+                      <Link className="tos-ai-workflow-link" href={actionItemWorkflowHref(item)}>Open workflow</Link>
                       <Button
                         size="sm"
                         variant="positive"
@@ -295,6 +295,20 @@ function uniqueRecommendations(items: BusinessRecommendation[]): BusinessRecomme
     seen.add(item.code);
     return true;
   });
+}
+
+function actionItemWorkflowHref(item: BusinessActionItem): string {
+  if (item.sourceEntityType === "CATALOG_ITEM") return "/inventory";
+  if (item.sourceEntityType === "CUSTOMER") return "/customers";
+  if (item.sourceEntityType === "SUPPLIER" || item.sourceEntityType === "PURCHASE") return "/purchases";
+  if (item.actionType === "CREATE_REORDER_REVIEW") return "/purchases";
+  if (item.actionType === "CREATE_RECEIVABLE_FOLLOW_UP") return "/customers";
+  if (item.actionType === "CREATE_CASH_REVIEW") return "/cashbook";
+  if (item.actionType === "CREATE_PERFORMANCE_REVIEW") return "/reports";
+  if (item.actionType === "CREATE_INVENTORY_REVIEW") return "/inventory";
+  if (item.actionType === "CREATE_PAYABLES_REVIEW") return "/purchases";
+  if (item.actionType === "CREATE_DATA_READINESS_REVIEW") return "/settings?section=business";
+  return "/dashboard";
 }
 
 function workflowHref(actionType?: string | null): string {
