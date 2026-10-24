@@ -49,6 +49,7 @@ describe("business automation controls", () => {
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_FOLLOW_UP" }))).toBe(true);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_REORDER_REVIEW" }))).toBe(true);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_PERFORMANCE_REVIEW" }))).toBe(true);
+    expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_INVENTORY_REVIEW" }))).toBe(true);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "SNOOZE_ATTENTION" }))).toBe(true);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_CASH_REVIEW" }))).toBe(false);
     expect(canControlBusinessAutomationPolicy("MANAGER", policy({ actionType: "CREATE_RECEIVABLE_FOLLOW_UP" }))).toBe(false);

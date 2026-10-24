@@ -2,7 +2,7 @@ import type { BusinessAutomationPolicy, BusinessAutomationRun } from "@tradeos/c
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 
 const AUTOMATION_MANAGEMENT_ROLES = new Set(["OWNER", "ADMIN", "MANAGER"]);
-const MANAGER_AUTOMATION_ACTIONS = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "CREATE_PERFORMANCE_REVIEW", "SNOOZE_ATTENTION"]);
+const MANAGER_AUTOMATION_ACTIONS = new Set(["CREATE_FOLLOW_UP", "CREATE_REORDER_REVIEW", "CREATE_PERFORMANCE_REVIEW", "CREATE_INVENTORY_REVIEW", "SNOOZE_ATTENTION"]);
 
 type AuthenticatedFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -85,6 +85,8 @@ export type GuidedAutomationTemplateId =
   | "cash-review"
   | "sales-performance-review"
   | "margin-performance-review"
+  | "slow-stock-review"
+  | "wastage-review"
   | "general-follow-up";
 
 export type GuidedAutomationSeverityThreshold = "ANY" | "MEDIUM_PLUS" | "HIGH_PLUS" | "CRITICAL_ONLY";
@@ -98,7 +100,7 @@ export interface GuidedAutomationRuleOption {
 export interface GuidedAutomationTemplate {
   id: GuidedAutomationTemplateId;
   label: string;
-  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_CASH_REVIEW" | "CREATE_PERFORMANCE_REVIEW" | "CREATE_FOLLOW_UP";
+  actionType: "CREATE_REORDER_REVIEW" | "CREATE_RECEIVABLE_FOLLOW_UP" | "CREATE_CASH_REVIEW" | "CREATE_PERFORMANCE_REVIEW" | "CREATE_INVENTORY_REVIEW" | "CREATE_FOLLOW_UP";
   triggerType: "ATTENTION" | "MANUAL";
   description: string;
   preview: string;
@@ -172,16 +174,34 @@ const GUIDED_AUTOMATION_TEMPLATES: readonly GuidedAutomationTemplate[] = [
     ruleOptions: [{ value: "MARGIN_PRESSURE", label: "Margin pressure" }],
   },
   {
+    id: "slow-stock-review",
+    label: "Slow stock review",
+    actionType: "CREATE_INVENTORY_REVIEW",
+    triggerType: "ATTENTION",
+    description: "Automatically creates an internal inventory review when slow-moving stock needs attention. No stock movement, adjustment, or write-off is made automatically.",
+    preview: "When slow-moving stock needs attention, TradeOS automatically creates an internal inventory review for a person to investigate. It does not adjust, transfer, or write off stock.",
+    defaultRuleCode: "SLOW_STOCK",
+    ruleOptions: [{ value: "SLOW_STOCK", label: "Slow-moving stock" }],
+  },
+  {
+    id: "wastage-review",
+    label: "Wastage review",
+    actionType: "CREATE_INVENTORY_REVIEW",
+    triggerType: "ATTENTION",
+    description: "Automatically creates an internal inventory review when wastage increases materially. No stock movement, adjustment, or write-off is made automatically.",
+    preview: "When wastage spikes, TradeOS automatically creates an internal inventory review for a person to investigate. It does not adjust, transfer, or write off stock.",
+    defaultRuleCode: "WASTAGE_SPIKE",
+    ruleOptions: [{ value: "WASTAGE_SPIKE", label: "Wastage spike" }],
+  },
+  {
     id: "general-follow-up",
     label: "General follow-up",
     actionType: "CREATE_FOLLOW_UP",
     triggerType: "ATTENTION",
     description: "Automatically creates an internal follow-up task for an evidence-backed TradeOS attention signal.",
     preview: "When enabled, TradeOS checks the selected signal automatically and creates an internal follow-up task for a person to review and act on.",
-    defaultRuleCode: "SLOW_STOCK",
+    defaultRuleCode: "PAYABLES_OVERDUE",
     ruleOptions: [
-      { value: "SLOW_STOCK", label: "Slow-moving stock" },
-      { value: "WASTAGE_SPIKE", label: "Wastage spike" },
       { value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" },
       { value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" },
     ],
@@ -334,13 +354,13 @@ export function createGuidedAutomationDraft(input: {
     name: template.label,
     scope: "CURRENT_BRANCH",
     signalRuleCode: template.defaultRuleCode,
-    severityThreshold: template.id === "sales-performance-review" || template.id === "margin-performance-review"
+    severityThreshold: template.id === "sales-performance-review" || template.id === "margin-performance-review" || template.id === "wastage-review"
       ? "MEDIUM_PLUS"
       : template.id === "reorder-review" || template.id === "receivables-follow-up" || template.id === "cash-review"
         ? "HIGH_PLUS"
         : "ANY",
     assignToActor: true,
-    dueInHours: 24,
+    dueInHours: template.id === "slow-stock-review" ? 48 : 24,
     enabled: true,
     code: input.code,
   };

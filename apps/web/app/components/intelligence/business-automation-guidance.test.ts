@@ -18,12 +18,16 @@ describe("guided business automation setup", () => {
       "cash-review",
       "sales-performance-review",
       "margin-performance-review",
+      "slow-stock-review",
+      "wastage-review",
       "general-follow-up",
     ]);
     expect(managerTemplates.map((item) => item.id)).toEqual([
       "reorder-review",
       "sales-performance-review",
       "margin-performance-review",
+      "slow-stock-review",
+      "wastage-review",
       "general-follow-up",
     ]);
     expect(ownerTemplates).toEqual(expect.arrayContaining([
@@ -32,6 +36,8 @@ describe("guided business automation setup", () => {
       expect.objectContaining({ id: "cash-review", actionType: "CREATE_CASH_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "sales-performance-review", actionType: "CREATE_PERFORMANCE_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "margin-performance-review", actionType: "CREATE_PERFORMANCE_REVIEW", triggerType: "ATTENTION" }),
+      expect.objectContaining({ id: "slow-stock-review", actionType: "CREATE_INVENTORY_REVIEW", triggerType: "ATTENTION" }),
+      expect.objectContaining({ id: "wastage-review", actionType: "CREATE_INVENTORY_REVIEW", triggerType: "ATTENTION" }),
       expect.objectContaining({ id: "general-follow-up", actionType: "CREATE_FOLLOW_UP", triggerType: "ATTENTION" }),
     ]));
     expect(ownerTemplates.some((item) => ["POST_PAYMENT", "REFUND", "STOCK_WRITE_OFF", "CHANGE_ROLE", "CREATE_PURCHASE", "CREATE_SALE"].includes(item.actionType))).toBe(false);
@@ -147,6 +153,32 @@ it("reconstructs an editable guided draft from an existing safe policy", () => {
     severityThreshold: "MEDIUM_PLUS",
     dueInHours: 24,
   }));
+
+  expect(fromPolicy({
+    ...existing,
+    id: "policy-slow-stock-1",
+    code: "guided-slow-stock-1",
+    name: "Slow stock review",
+    branchId: "branch-1",
+    conditions: { ruleCodes: ["SLOW_STOCK"], severities: [] },
+    actionType: "CREATE_INVENTORY_REVIEW",
+    actionConfiguration: { dueInHours: 48, assignToActor: true },
+  }, "branch-1")).toEqual(expect.objectContaining({
+    templateId: "slow-stock-review", signalRuleCode: "SLOW_STOCK", severityThreshold: "ANY", dueInHours: 48,
+  }));
+
+  expect(fromPolicy({
+    ...existing,
+    id: "policy-wastage-1",
+    code: "guided-wastage-1",
+    name: "Wastage review",
+    branchId: "branch-1",
+    conditions: { ruleCodes: ["WASTAGE_SPIKE"], severities: ["MEDIUM", "HIGH", "CRITICAL"] },
+    actionType: "CREATE_INVENTORY_REVIEW",
+    actionConfiguration: { dueInHours: 24, assignToActor: true },
+  }, "branch-1")).toEqual(expect.objectContaining({
+    templateId: "wastage-review", signalRuleCode: "WASTAGE_SPIKE", severityThreshold: "MEDIUM_PLUS", dueInHours: 24,
+  }));
 });
 
 it("creates and edits guided policies through the safe automation endpoints", async () => {
@@ -250,12 +282,26 @@ it("publishes guided labels, previews and only approved signal choices", () => {
       ruleOptions: [{ value: "MARGIN_PRESSURE", label: "Margin pressure" }],
       preview: expect.stringMatching(/margin pressure.*internal performance review/i),
     }),
+    expect.objectContaining({
+      id: "slow-stock-review",
+      label: "Slow stock review",
+      actionType: "CREATE_INVENTORY_REVIEW",
+      defaultRuleCode: "SLOW_STOCK",
+      ruleOptions: [{ value: "SLOW_STOCK", label: "Slow-moving stock" }],
+      preview: expect.stringMatching(/slow-moving stock.*internal inventory review/i),
+    }),
+    expect.objectContaining({
+      id: "wastage-review",
+      label: "Wastage review",
+      actionType: "CREATE_INVENTORY_REVIEW",
+      defaultRuleCode: "WASTAGE_SPIKE",
+      ruleOptions: [{ value: "WASTAGE_SPIKE", label: "Wastage spike" }],
+      preview: expect.stringMatching(/wastage.*internal inventory review/i),
+    }),
   ]));
 
   const general = templates.find((item) => item.id === "general-follow-up");
   expect(general?.ruleOptions).toEqual([
-    { value: "SLOW_STOCK", label: "Slow-moving stock" },
-    { value: "WASTAGE_SPIKE", label: "Wastage spike" },
     { value: "PAYABLES_OVERDUE", label: "Overdue supplier balances" },
     { value: "LOW_DATA_CONFIDENCE", label: "Low data confidence" },
   ]);
@@ -331,6 +377,37 @@ it("creates a sensible default guided draft for a selected template", () => {
   expect(createDraft({
     businessId: "business-1",
     currentBranchId: "branch-1",
+    templateId: "slow-stock-review",
+    code: "guided-slow-stock-1",
+  })).toEqual({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "slow-stock-review",
+    name: "Slow stock review",
+    scope: "CURRENT_BRANCH",
+    signalRuleCode: "SLOW_STOCK",
+    severityThreshold: "ANY",
+    assignToActor: true,
+    dueInHours: 48,
+    enabled: true,
+    code: "guided-slow-stock-1",
+  });
+
+  expect(createDraft({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
+    templateId: "wastage-review",
+    code: "guided-wastage-1",
+  })).toEqual(expect.objectContaining({
+    templateId: "wastage-review",
+    signalRuleCode: "WASTAGE_SPIKE",
+    severityThreshold: "MEDIUM_PLUS",
+    dueInHours: 24,
+  }));
+
+  expect(createDraft({
+    businessId: "business-1",
+    currentBranchId: "branch-1",
     templateId: "general-follow-up",
     code: "guided-general-1",
   })).toEqual({
@@ -339,7 +416,7 @@ it("creates a sensible default guided draft for a selected template", () => {
     templateId: "general-follow-up",
     name: "General follow-up",
     scope: "CURRENT_BRANCH",
-    signalRuleCode: "SLOW_STOCK",
+    signalRuleCode: "PAYABLES_OVERDUE",
     severityThreshold: "ANY",
     assignToActor: true,
     dueInHours: 24,
