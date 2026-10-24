@@ -242,16 +242,22 @@ export function guidedAutomationDraftFromPolicy(
   policy: BusinessAutomationPolicy,
   currentBranchId: string,
 ): GuidedAutomationDraft | null {
-  const template = GUIDED_AUTOMATION_TEMPLATES.find((candidate) => candidate.actionType === policy.actionType);
-  if (!template || policy.triggerType !== template.triggerType) return null;
   const ruleCodes = Array.isArray(policy.conditions?.ruleCodes)
     ? policy.conditions.ruleCodes.filter((value): value is string => typeof value === "string")
     : [];
   const severities = Array.isArray(policy.conditions?.severities)
     ? policy.conditions.severities.filter((value): value is string => typeof value === "string")
     : [];
+  const candidates = GUIDED_AUTOMATION_TEMPLATES.filter(
+    (candidate) => candidate.actionType === policy.actionType && candidate.triggerType === policy.triggerType,
+  );
+  const persistedRuleCode = ruleCodes[0] ?? null;
+  const template = persistedRuleCode
+    ? candidates.find((candidate) => candidate.ruleOptions.some((option) => option.value === persistedRuleCode))
+    : candidates.length === 1 ? candidates[0] : undefined;
+  if (!template) return null;
   if (template.triggerType === "ATTENTION") {
-    const ruleCode = ruleCodes[0] ?? template.defaultRuleCode;
+    const ruleCode = persistedRuleCode ?? template.defaultRuleCode;
     if (!ruleCode || !template.ruleOptions.some((option) => option.value === ruleCode)) return null;
   }
   const dueInHours = typeof policy.actionConfiguration?.dueInHours === "number"

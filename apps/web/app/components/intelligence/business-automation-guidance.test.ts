@@ -131,6 +131,22 @@ it("reconstructs an editable guided draft from an existing safe policy", () => {
     enabled: true,
     code: "guided-receivables-9",
   });
+
+  expect(fromPolicy({
+    ...existing,
+    id: "policy-margin-1",
+    code: "guided-margin-performance-1",
+    name: "Margin performance review",
+    branchId: "branch-1",
+    conditions: { ruleCodes: ["MARGIN_PRESSURE"], severities: ["MEDIUM", "HIGH", "CRITICAL"] },
+    actionType: "CREATE_PERFORMANCE_REVIEW",
+    actionConfiguration: { dueInHours: 24, assignToActor: true },
+  }, "branch-1")).toEqual(expect.objectContaining({
+    templateId: "margin-performance-review",
+    signalRuleCode: "MARGIN_PRESSURE",
+    severityThreshold: "MEDIUM_PLUS",
+    dueInHours: 24,
+  }));
 });
 
 it("creates and edits guided policies through the safe automation endpoints", async () => {
