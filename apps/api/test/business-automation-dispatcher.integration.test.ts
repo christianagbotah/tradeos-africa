@@ -68,6 +68,29 @@ describe("tenant proactive automation dispatcher", () => {
     expect(Number(actions.rows[0]!.count)).toBe(1);
   });
 
+  it("dispatches a safe performance review as an internal-only action item", async () => {
+    const tenant = await seedTenant("Performance Review Tenant", [true]);
+    const branchId = tenant.branches[0]!.id;
+    await seedPolicy(tenant, {
+      code: "performance-review",
+      branchId,
+      actionType: "CREATE_PERFORMANCE_REVIEW",
+    });
+    const beforeSafety = await economicAndAccessCounts(tenant.businessId);
+
+    const result = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
+    expect(result).toMatchObject({ acquired: true, matches: 1, succeeded: 1, failed: 0 });
+    const actions = await pool.query<{ action_type: string; title: string }>(
+      "SELECT action_type,title FROM business_action_items WHERE business_id=$1 AND branch_id=$2",
+      [tenant.businessId, branchId],
+    );
+    expect(actions.rows).toEqual([expect.objectContaining({
+      action_type: "CREATE_PERFORMANCE_REVIEW",
+      title: expect.stringMatching(/^Review business performance/),
+    })]);
+    expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
+  });
+
   it("dispatches a branch-scoped attention policy only for its active branch", async () => {
     const tenant = await seedTenant("Branch Scoped Tenant", [true, true]);
     const targetBranchId = tenant.branches[0]!.id;
@@ -235,13 +258,14 @@ async function seedPolicy(
     triggerType?: string;
     conditions?: Record<string, unknown>;
     actionConfiguration?: Record<string, unknown>;
+    actionType?: string;
   },
 ): Promise<string> {
   const result = await pool.query<{ id: string }>(
     `INSERT INTO business_automation_policies(
        business_id,branch_id,code,name,description,enabled,trigger_type,conditions,action_type,
        action_configuration,policy_version,created_by_user_id,updated_by_user_id
-     ) VALUES($1,$2,$3,$3,'Dispatcher integration policy',$4,$5,$6::jsonb,'CREATE_FOLLOW_UP',$7::jsonb,1,$8,$8)
+     ) VALUES($1,$2,$3,$3,'Dispatcher integration policy',$4,$5,$6::jsonb,$7,$8::jsonb,1,$9,$9)
      RETURNING id`,
     [
       tenant.businessId,
@@ -250,6 +274,7 @@ async function seedPolicy(
       input.enabled ?? true,
       input.triggerType ?? "ATTENTION",
       JSON.stringify(input.conditions ?? { ruleCodes: ["LOW_DATA_CONFIDENCE"], severities: ["INFO"] }),
+      input.actionType ?? "CREATE_FOLLOW_UP",
       JSON.stringify(input.actionConfiguration ?? { dueInHours: 24, assignToActor: false }),
       tenant.userId,
     ],
