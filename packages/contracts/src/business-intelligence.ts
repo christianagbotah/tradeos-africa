@@ -188,6 +188,46 @@ export type BusinessAssistantQueryResponse = BusinessIntelligenceScope & {
   conversationId?: string | null;
 };
 
+export type BusinessAutomationEffectivenessPolicyRow = {
+  policyId: string;
+  name: string;
+  enabled: boolean;
+  actionType: string;
+  tasksCreated: number;
+  tasksCompleted: number;
+  tasksOpen: number;
+  tasksSnoozed: number;
+  relevantOutcomes: number;
+  negativeOutcomes: number;
+  completionRate: number;
+  relevantOutcomeRate: number;
+  medianCompletionHours: number | null;
+  lastTaskAt: string | null;
+};
+
+export type BusinessAutomationEffectiveness = BusinessIntelligenceScope & {
+  generatedAt: string;
+  windowDays: 30;
+  summary: {
+    automatedTasksCreated: number;
+    automatedTasksCompleted: number;
+    automatedTasksOpen: number;
+    automatedTasksSnoozed: number;
+    completionRate: number;
+    relevantOutcomeRate: number;
+    negativeOutcomeCount: number;
+    medianCompletionHours: number | null;
+    manualEntityReviewsCreated: number;
+  };
+  outcomes: {
+    resolved: number;
+    alreadyHandled: number;
+    notRelevant: number;
+    noActionNeeded: number;
+  };
+  policies: BusinessAutomationEffectivenessPolicyRow[];
+};
+
 export type BusinessAutomationTriggerType = "ATTENTION" | "SCHEDULE" | "MANUAL" | "EVENT";
 export type BusinessAutomationRunState = "QUEUED" | "EVALUATING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 export type BusinessActionItemStatus = "OPEN" | "DONE" | "SNOOZED" | "CANCELED";
