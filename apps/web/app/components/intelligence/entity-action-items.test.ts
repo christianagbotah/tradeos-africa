@@ -21,6 +21,8 @@ const actionItem: BusinessActionItem = {
   status: "OPEN",
   snoozedUntil: null,
   completedAt: null,
+  completionOutcome: null,
+  completedByUserId: null,
   createdAt: "2026-10-23T12:00:00.000Z",
   updatedAt: "2026-10-23T12:00:00.000Z",
 };
