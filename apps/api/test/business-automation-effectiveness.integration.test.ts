@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { applyMigrations } from "../src/migrations/migration-runner.js";
+import { buildApp } from "../src/app.js";
 import { getBusinessAutomationEffectiveness } from "../src/business-intelligence/automation-effectiveness-service.js";
 
 const { Pool } = pg;
@@ -12,6 +13,7 @@ const schema = `automation_effectiveness_${crypto.randomBytes(8).toString("hex")
 const quotedSchema = `"${schema.replaceAll('"', '""')}"`;
 const adminPool = new Pool({ connectionString: baseDatabaseUrl });
 const pool = new Pool({ connectionString: baseDatabaseUrl, options: `-c search_path=${schema},public` });
+const app = buildApp(pool);
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const migrationDirectory = path.resolve(testDir, "../../../packages/db/migrations");
 
@@ -29,11 +31,12 @@ const NOW = new Date("2026-10-25T16:00:00.000Z");
 beforeAll(async () => {
   await adminPool.query(`CREATE SCHEMA ${quotedSchema}`);
   await applyMigrations(pool, { migrationDirectory });
+  await app.ready();
   await seed();
 });
 
 afterAll(async () => {
-  await pool.end();
+  await app.close();
   await adminPool.query(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`);
   await adminPool.end();
 });
@@ -84,6 +87,60 @@ describe("business automation effectiveness", () => {
       lastTaskAt: null,
     });
     expect(result.policies.some((row) => row.policyId === POTHER)).toBe(false);
+  });
+
+
+  it("exposes management-only branch-scoped effectiveness analytics", async () => {
+    const owner = await createTenant("effectiveness-owner@tradeos.test", "Effectiveness Owner");
+    const foreign = await createTenant("effectiveness-foreign@tradeos.test", "Effectiveness Foreign");
+
+    const ok = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/automation-effectiveness?businessId=${owner.businessId}&branchId=${owner.branchId}`,
+      headers: authHeaders(owner.token),
+    });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json()).toMatchObject({ businessId: owner.businessId, branchId: owner.branchId, windowDays: 30 });
+
+    for (const role of ["ADMIN", "MANAGER"] as const) {
+      await pool.query(`UPDATE business_memberships SET role=$3 WHERE business_id=$1 AND user_id=$2`, [owner.businessId, owner.userId, role]);
+      const allowed = await app.inject({
+        method: "GET",
+        url: `/v1/intelligence/automation-effectiveness?businessId=${owner.businessId}&branchId=${owner.branchId}`,
+        headers: authHeaders(owner.token),
+      });
+      expect(allowed.statusCode, allowed.body).toBe(200);
+    }
+
+    await pool.query(`UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1 AND user_id=$2`, [owner.businessId, owner.userId]);
+    const denied = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/automation-effectiveness?businessId=${owner.businessId}&branchId=${owner.branchId}`,
+      headers: authHeaders(owner.token),
+    });
+    expect(denied.statusCode).toBe(403);
+
+    const foreignBusiness = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/automation-effectiveness?businessId=${foreign.businessId}&branchId=${foreign.branchId}`,
+      headers: authHeaders(owner.token),
+    });
+    expect(foreignBusiness.statusCode).toBe(403);
+
+    await pool.query(`UPDATE business_memberships SET role='OWNER' WHERE business_id=$1 AND user_id=$2`, [owner.businessId, owner.userId]);
+    const wrongBranch = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/automation-effectiveness?businessId=${owner.businessId}&branchId=${foreign.branchId}`,
+      headers: authHeaders(owner.token),
+    });
+    expect(wrongBranch.statusCode).toBe(404);
+
+    const invalid = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/automation-effectiveness?businessId=${owner.businessId}&branchId=not-a-uuid`,
+      headers: authHeaders(owner.token),
+    });
+    expect(invalid.statusCode).toBe(400);
   });
 
   it("does not expose evidence, source keys, contact data, entity labels or money fields", async () => {
@@ -139,3 +196,26 @@ async function seed() {
       id,business_id,branch_id,source_automation_run_id,action_type,title,reason,evidence,status,created_at,updated_at
     ) VALUES('91000000-0000-4000-8000-000000000251',$1,$2,'91000000-0000-4000-8000-000000000150','CREATE_FOLLOW_UP','Other branch','Reason','[]','OPEN',$3,$3)`, [B1,BR2,"2026-10-25T09:00:00Z"]);
 }
+
+
+async function createTenant(email: string, name: string): Promise<{ token: string; userId: string; businessId: string; branchId: string }> {
+  const registration = await app.inject({
+    method: "POST",
+    url: "/v1/auth/register",
+    payload: { displayName: name, email, password: "TradeOS-Test-1234", platform: "WEB", deviceKey: `device-${email}`, appVersion: "test" },
+  });
+  expect(registration.statusCode, registration.body).toBe(201);
+  const registrationBody = registration.json();
+  const token = registrationBody.session.accessToken as string;
+  const userId = registrationBody.user.id as string;
+  const onboard = await app.inject({
+    method: "POST",
+    url: "/v1/onboarding/business",
+    headers: authHeaders(token),
+    payload: { name, businessType: "RETAIL_HARDWARE", branchName: "Main" },
+  });
+  expect(onboard.statusCode, onboard.body).toBe(201);
+  return { token, userId, businessId: onboard.json().business.id, branchId: onboard.json().branch.id };
+}
+
+function authHeaders(token: string) { return { authorization: `Bearer ${token}` }; }

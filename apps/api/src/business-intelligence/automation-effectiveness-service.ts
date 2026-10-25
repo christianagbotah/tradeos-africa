@@ -6,6 +6,17 @@ import type { DatabasePool } from "../db.js";
 
 const WINDOW_DAYS = 30 as const;
 
+export class BusinessAutomationEffectivenessError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode = 400,
+    readonly code = "BUSINESS_AUTOMATION_EFFECTIVENESS_INVALID",
+  ) {
+    super(message);
+    this.name = "BusinessAutomationEffectivenessError";
+  }
+}
+
 type PolicyAggregateRow = {
   policy_id: string;
   name: string;
@@ -29,6 +40,22 @@ export async function getBusinessAutomationEffectiveness(
 ): Promise<BusinessAutomationEffectiveness> {
   const now = input.now ?? new Date();
   const windowStart = new Date(now.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+  const scope = await pool.query<{ ok: number }>(
+    `SELECT 1 AS ok
+     FROM businesses b
+     JOIN branches br ON br.business_id=b.id
+     WHERE b.id=$1::uuid AND b.status='ACTIVE'
+       AND br.id=$2::uuid AND br.is_active=true`,
+    [input.businessId, input.branchId],
+  );
+  if (!scope.rows[0]) {
+    throw new BusinessAutomationEffectivenessError(
+      "Branch is unavailable in the authorized business.",
+      404,
+      "BUSINESS_AUTOMATION_EFFECTIVENESS_BRANCH_NOT_FOUND",
+    );
+  }
 
   const policyResult = await pool.query<PolicyAggregateRow>(
     `WITH automated_tasks AS (

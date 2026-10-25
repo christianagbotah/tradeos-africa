@@ -30,6 +30,10 @@ import {
   updateBusinessAutomationPolicy,
 } from "./automation-service.js";
 import { buildBusinessBriefing, BusinessBriefingError } from "./briefing-service.js";
+import {
+  BusinessAutomationEffectivenessError,
+  getBusinessAutomationEffectiveness,
+} from "./automation-effectiveness-service.js";
 import { explainBusinessActionItem } from "./action-explanation-service.js";
 import {
   BusinessEntityIntelligenceError,
@@ -110,6 +114,18 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
       const branchId = optionalUuid(body.branchId ?? undefined, "branchId");
       const access = await requireBusinessRole(pool, auth, businessId, READ_ROLES);
       return await markBusinessPulseSeen(pool, automationActor(auth.userId, access), { businessId, branchId });
+    } catch (error) {
+      return sendError(error, reply);
+    }
+  });
+
+  app.get<{ Querystring: AttentionQuery }>("/v1/intelligence/automation-effectiveness", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = uuid(request.query.businessId, "businessId");
+      const branchId = uuid(request.query.branchId, "branchId");
+      await requireBusinessRole(pool, auth, businessId, AUTOMATION_CONFIGURE_ROLES);
+      return await getBusinessAutomationEffectiveness(pool, { businessId, branchId });
     } catch (error) {
       return sendError(error, reply);
     }
@@ -500,6 +516,7 @@ function text(value: unknown, label: string, max: number): string {
 function sendError(error: unknown, reply: { code(statusCode: number): { send(payload: unknown): unknown } }) {
   if (error instanceof AuthError
     || error instanceof BusinessAttentionError
+    || error instanceof BusinessAutomationEffectivenessError
     || error instanceof BusinessAutomationError
     || error instanceof BusinessBriefingError
     || error instanceof BusinessEntityActionError
