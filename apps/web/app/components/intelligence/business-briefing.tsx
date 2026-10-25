@@ -215,7 +215,7 @@ export function BusinessBriefing() {
                     <div className="tos-ai-action-card__actions">
                       <Link className="tos-ai-workflow-link" href={actionItemWorkflowHref(item)}>Open workflow</Link>
                       <select
-                        className="tos-select tos-ai-action-outcome"
+                        className="tos-select"
                         aria-label={`Outcome for ${item.title}`}
                         value={completionOutcomeById[item.id] ?? "RESOLVED"}
                         disabled={Boolean(actionBusyKey)}
