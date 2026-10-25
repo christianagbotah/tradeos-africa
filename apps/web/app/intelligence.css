@@ -1156,3 +1156,27 @@
 @media (max-width: 430px) {
   .tos-ai-effectiveness__kpis { grid-template-columns: 1fr; }
 }
+
+.tos-ai-effectiveness-policy__state--healthy {
+  border-color: var(--tos-positive);
+  background: var(--tos-positive-soft);
+  color: var(--tos-positive);
+}
+
+.tos-ai-effectiveness-policy__state--needs-review {
+  border-color: var(--tos-warning);
+  background: var(--tos-warning-soft);
+  color: var(--tos-warning);
+}
+
+.tos-ai-effectiveness-policy__state--learning {
+  border-color: var(--tos-info);
+  background: var(--tos-info-soft);
+  color: var(--tos-info);
+}
+
+.tos-ai-effectiveness-policy__state--no-triggered-work-yet {
+  border-color: var(--tos-border);
+  background: var(--tos-surface-soft);
+  color: var(--tos-text-muted);
+}
