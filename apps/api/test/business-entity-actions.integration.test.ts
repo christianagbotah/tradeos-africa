@@ -83,7 +83,7 @@ describe("entity intelligence safe action creation", () => {
     expect(new Set([a.item.id, b.item.id]).size).toBe(1);
     expect([a.created, b.created].sort()).toEqual([false, true]);
 
-    await pool.query(`UPDATE business_action_items SET status='DONE',completed_at=now() WHERE id=$1`, [a.item.id]);
+    await pool.query(`UPDATE business_action_items SET status='DONE',completed_at=now(),completion_outcome='RESOLVED' WHERE id=$1`, [a.item.id]);
     const reopened = await createBusinessEntityActionItem(pool, { userId: OWNER, businessId: B1 }, input);
     expect(reopened.created).toBe(true);
     expect(reopened.item.id).not.toBe(a.item.id);
