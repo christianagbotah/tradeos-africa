@@ -4,6 +4,7 @@ import {
   businessAutomationConditionsMatch,
   evaluateBusinessAutomationSystem,
 } from "./automation-service.js";
+import { shouldCooldownAttentionAutomation } from "./outcome-feedback-service.js";
 
 export const TENANT_AUTOMATION_DISPATCHER_LOCK_KEY = "8706112026102201";
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
@@ -22,6 +23,7 @@ export type TenantAutomationDispatcherTickResult = {
   scopesEvaluated: number;
   policiesEvaluated: number;
   matches: number;
+  feedbackCooldownSkips: number;
   succeeded: number;
   failed: number;
 };
@@ -43,6 +45,7 @@ export async function runTenantAutomationDispatcherTick(
     scopesEvaluated: 0,
     policiesEvaluated: 0,
     matches: 0,
+    feedbackCooldownSkips: 0,
     succeeded: 0,
     failed: 0,
   };
@@ -96,6 +99,18 @@ export async function runTenantAutomationDispatcherTick(
             })) continue;
             result.matches += 1;
             try {
+              const feedback = await shouldCooldownAttentionAutomation(pool, {
+                businessId: scope.businessId,
+                branchId: scope.branchId,
+                ruleCode: attention.ruleCode,
+                sourceKey: attention.sourceKey,
+                severity: attention.severity,
+                now,
+              });
+              if (feedback.skip) {
+                result.feedbackCooldownSkips += 1;
+                continue;
+              }
               const run = await evaluateBusinessAutomationSystem(pool, {
                 businessId: scope.businessId,
                 branchId: scope.branchId,
@@ -214,6 +229,7 @@ function logDispatcherTick(result: TenantAutomationDispatcherTickResult, duratio
     scopesEvaluated: result.scopesEvaluated,
     policiesEvaluated: result.policiesEvaluated,
     matches: result.matches,
+    feedbackCooldownSkips: result.feedbackCooldownSkips,
     succeeded: result.succeeded,
     failed: result.failed,
     durationMs,

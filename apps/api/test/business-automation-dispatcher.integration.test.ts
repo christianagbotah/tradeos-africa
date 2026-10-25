@@ -36,6 +36,7 @@ describe("tenant proactive automation dispatcher", () => {
         scopesEvaluated: 0,
         policiesEvaluated: 0,
         matches: 0,
+        feedbackCooldownSkips: 0,
         succeeded: 0,
         failed: 0,
       });
@@ -186,6 +187,67 @@ describe("tenant proactive automation dispatcher", () => {
       title: expect.stringMatching(/^Review TradeOS data readiness/),
     })]);
     expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
+  });
+
+  it("skips repeated low-priority automatic reviews after negative feedback while keeping the attention visible", async () => {
+    const tenant = await seedTenant("Feedback Cooldown Tenant", [true]);
+    const branchId = tenant.branches[0]!.id;
+    const policyId = await seedPolicy(tenant, { code: "feedback-low-data", branchId });
+    const sourceKey = `low-data:${branchId}`;
+    await seedNegativeAutomationFeedback(tenant, policyId, branchId, {
+      ruleCode: "LOW_DATA_CONFIDENCE", sourceKey, completedAt: new Date(FIXED_NOW.getTime() - 5 * 86_400_000),
+    });
+    await seedNegativeAutomationFeedback(tenant, policyId, branchId, {
+      ruleCode: "LOW_DATA_CONFIDENCE", sourceKey, outcome: "NO_ACTION_NEEDED", completedAt: new Date(FIXED_NOW.getTime() - 2 * 86_400_000),
+    });
+    const beforeRuns = await runCount(policyId);
+    const beforeSafety = await economicAndAccessCounts(tenant.businessId);
+
+    const result = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
+
+    expect(result).toMatchObject({
+      acquired: true, matches: 1, feedbackCooldownSkips: 1, succeeded: 0, failed: 0,
+    });
+    expect(await runCount(policyId)).toBe(beforeRuns);
+    const activeTasks = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM business_action_items
+       WHERE business_id=$1 AND branch_id=$2 AND status IN ('OPEN','SNOOZED')`,
+      [tenant.businessId, branchId],
+    );
+    expect(activeTasks.rows[0]!.count).toBe("0");
+    const currentAttention = await pool.query<{ state: string }>(
+      `SELECT state FROM business_attention_items
+       WHERE business_id=$1 AND branch_id=$2 AND rule_code='LOW_DATA_CONFIDENCE' AND source_key=$3
+       ORDER BY created_at DESC LIMIT 1`,
+      [tenant.businessId, branchId, sourceKey],
+    );
+    expect(currentAttention.rows[0]?.state).toBe("OPEN");
+    expect(await economicAndAccessCounts(tenant.businessId)).toEqual(beforeSafety);
+  });
+
+  it("never cools a HIGH automatic review even when the same signal received repeated negative feedback", async () => {
+    const tenant = await seedTenant("High Feedback Tenant", [true]);
+    const branchId = tenant.branches[0]!.id;
+    await seedOverduePayable(tenant, branchId);
+    const policyId = await seedPolicy(tenant, {
+      code: "high-payables-feedback",
+      branchId,
+      conditions: { ruleCodes: ["PAYABLES_OVERDUE"], severities: ["HIGH", "CRITICAL"] },
+      actionType: "CREATE_PAYABLES_REVIEW",
+    });
+    const sourceKey = `payables:overdue:${branchId}`;
+    await seedNegativeAutomationFeedback(tenant, policyId, branchId, {
+      ruleCode: "PAYABLES_OVERDUE", sourceKey, severity: "HIGH", completedAt: new Date(FIXED_NOW.getTime() - 5 * 86_400_000),
+    });
+    await seedNegativeAutomationFeedback(tenant, policyId, branchId, {
+      ruleCode: "PAYABLES_OVERDUE", sourceKey, severity: "HIGH", completedAt: new Date(FIXED_NOW.getTime() - 2 * 86_400_000),
+    });
+    const beforeRuns = await runCount(policyId);
+
+    const result = await runTenantAutomationDispatcherTick(pool, { now: () => FIXED_NOW });
+
+    expect(result).toMatchObject({ acquired: true, matches: 1, feedbackCooldownSkips: 0, succeeded: 1, failed: 0 });
+    expect(await runCount(policyId)).toBe(beforeRuns + 1);
   });
 
   it("dispatches a branch-scoped attention policy only for its active branch", async () => {
@@ -401,6 +463,42 @@ async function seedPolicy(
     ],
   );
   return result.rows[0]!.id;
+}
+
+async function seedNegativeAutomationFeedback(
+  tenant: TenantSeed,
+  policyId: string,
+  branchId: string,
+  input: {
+    ruleCode: string;
+    sourceKey: string;
+    completedAt: Date;
+    severity?: string;
+    outcome?: "NOT_RELEVANT" | "NO_ACTION_NEEDED";
+  },
+): Promise<void> {
+  const attention = await pool.query<{ id: string }>(
+    `INSERT INTO business_attention_items(
+       business_id,branch_id,source_key,rule_code,severity,state,title,summary,evidence,
+       first_seen_at,last_seen_at,resolved_at
+     ) VALUES($1,$2,$3,$4,$5,'RESOLVED','Historical feedback','Historical feedback','[]',$6,$6,$6)
+     RETURNING id`,
+    [tenant.businessId, branchId, input.sourceKey, input.ruleCode, input.severity ?? "INFO", input.completedAt],
+  );
+  const run = await pool.query<{ id: string }>(
+    `INSERT INTO business_automation_runs(
+       business_id,branch_id,policy_id,policy_version,trigger_source,trigger_correlation_id,state,
+       structured_input,output_summary,evidence,started_at,completed_at
+     ) VALUES($1,$2,$3,1,'ATTENTION',$4,'SUCCEEDED','{}','{}','[]',$5,$5) RETURNING id`,
+    [tenant.businessId, branchId, policyId, `historical-feedback:${attention.rows[0]!.id}`, input.completedAt],
+  );
+  await pool.query(
+    `INSERT INTO business_action_items(
+       business_id,branch_id,source_attention_item_id,source_automation_run_id,action_type,title,reason,evidence,
+       status,completed_at,completion_outcome,completed_by_user_id
+     ) VALUES($1,$2,$3,$4,'CREATE_FOLLOW_UP','Historical review','Historical review','[]','DONE',$5,$6,$7)`,
+    [tenant.businessId, branchId, attention.rows[0]!.id, run.rows[0]!.id, input.completedAt, input.outcome ?? "NOT_RELEVANT", tenant.userId],
+  );
 }
 
 async function economicAndAccessCounts(businessId: string) {
