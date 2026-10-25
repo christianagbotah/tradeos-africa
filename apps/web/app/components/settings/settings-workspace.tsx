@@ -14,6 +14,7 @@ import { BusinessFields, type BusinessFormState, type BusinessType } from "./bus
 import { BranchFields, type BranchDraft } from "./branch-fields";
 import { ImagePicker } from "./image-picker";
 import { TeamAccess } from "./team-access";
+import { BillingSettings, canReadTenantBilling } from "./billing-settings";
 import {
   IconAlert,
   IconBuilding,
@@ -34,7 +35,7 @@ import type {
 } from "../workspace/workspace-provider";
 import type { WorkspaceRole } from "../workspace/workspace-navigation";
 
-export type SettingsSectionId = "profile" | "security" | "business" | "branches" | "team" | "devices";
+export type SettingsSectionId = "profile" | "security" | "business" | "branches" | "team" | "billing" | "devices";
 
 export const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string; description: string }[] = [
   { id: "profile", label: "My Profile", description: "Personal identity and contact details" },
@@ -42,6 +43,7 @@ export const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string;
   { id: "business", label: "Business", description: "Business identity, location and new businesses" },
   { id: "branches", label: "Branches", description: "Locations, branch status and new branches" },
   { id: "team", label: "Team & access", description: "Role and staff access boundary" },
+  { id: "billing", label: "Billing & subscription", description: "Plan, entitlements, invoices and payments" },
   { id: "devices", label: "Devices & sessions", description: "Signed-in devices and session control" },
 ] as const;
 
@@ -127,6 +129,8 @@ export function SettingsWorkspace() {
 
   if (!session) return null;
 
+  const visibleSettingsSections = SETTINGS_SECTIONS.filter((item) => item.id !== "billing" || canReadTenantBilling(role));
+
   return (
     <div className="tos-settings tos-stagger">
       <header className="tos-settings__hero tos-animate-fade-in-up">
@@ -158,7 +162,7 @@ export function SettingsWorkspace() {
 
       <div className="tos-settings__layout">
         <nav className="tos-settings__nav" aria-label="Settings sections">
-          {SETTINGS_SECTIONS.map((item) => (
+          {visibleSettingsSections.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -203,6 +207,9 @@ export function SettingsWorkspace() {
           ) : null}
           {section === "team" ? (
             <TeamAccess online={queue.online} />
+          ) : null}
+          {section === "billing" ? (
+            <BillingSettings online={queue.online} />
           ) : null}
           {section === "devices" ? (
             <DevicesSection online={queue.online} />
