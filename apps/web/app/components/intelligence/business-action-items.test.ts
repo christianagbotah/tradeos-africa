@@ -17,11 +17,12 @@ describe("business action item mutations", () => {
       action: "complete",
       actionItemId: "action-1",
       businessId: "business-1",
+      outcome: "NOT_RELEVANT",
     });
 
     expect(String(calls[0]?.input)).toBe("/v1/intelligence/action-items/action-1/complete");
     expect(calls[0]?.init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ businessId: "business-1" });
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ businessId: "business-1", outcome: "NOT_RELEVANT" });
     expect(result).toEqual({ id: "action-1", status: "DONE" });
   });
 
@@ -57,6 +58,7 @@ describe("business action item mutations", () => {
       action: "complete",
       actionItemId: "action-3",
       businessId: "business-1",
+      outcome: "RESOLVED",
     })).rejects.toThrow("Action item is already final");
   });
 
@@ -78,6 +80,8 @@ describe("business action item mutations", () => {
       assignedStaffId: null,
       dueAt: null,
       completedAt: null,
+      completionOutcome: null,
+      completedByUserId: null,
       createdAt: "2026-10-22T10:00:00.000Z",
       updatedAt: "2026-10-22T10:00:00.000Z",
     };

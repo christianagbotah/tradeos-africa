@@ -72,6 +72,24 @@ describe("tenant intelligence experience contract", () => {
     expect(briefing).toMatch(/queue\.online/);
   });
 
+  it("captures a compact per-task completion outcome before Mark done", () => {
+    const briefing = source(paths.briefing);
+    expect(briefing).toContain("BusinessActionCompletionOutcome");
+    expect(briefing).toContain("completionOutcomeById");
+    expect(briefing).toContain('?? "RESOLVED"');
+    for (const [value, label] of [
+      ["RESOLVED", "Resolved"],
+      ["ALREADY_HANDLED", "Already handled"],
+      ["NOT_RELEVANT", "Not relevant"],
+      ["NO_ACTION_NEEDED", "No action needed"],
+    ]) {
+      expect(briefing).toContain(`value="${value}"`);
+      expect(briefing).toContain(`>${label}<`);
+    }
+    expect(briefing).toMatch(/outcome:\s*completionOutcomeById\[item\.id\]\s*\?\?\s*"RESOLVED"/);
+    expect(briefing).not.toMatch(/\/v1\/(?:sales|payments|refunds|returns|purchases|inventory|cashbook|staff|memberships)/);
+  });
+
   it("routes action-queue reviews to their canonical workflow, including data readiness and payables", () => {
     const briefing = source(paths.briefing);
     expect(briefing).toContain("actionItemWorkflowHref");

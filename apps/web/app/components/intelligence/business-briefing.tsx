@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type {
+  BusinessActionCompletionOutcome,
   BusinessActionItem,
   BusinessBriefing as BusinessBriefingData,
   BusinessRecommendation,
@@ -39,6 +40,7 @@ export function BusinessBriefing() {
   const [cached, setCached] = useState<BusinessIntelligenceCacheEnvelope<CachedBriefingData> | null>(null);
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [completionOutcomeById, setCompletionOutcomeById] = useState<Record<string, BusinessActionCompletionOutcome>>({});
 
   const scope = useMemo<BusinessIntelligenceCacheScope | null>(() => {
     if (!session || !account) return null;
@@ -104,6 +106,7 @@ export function BusinessBriefing() {
               action: "complete",
               actionItemId: item.id,
               businessId: session.businessId,
+              outcome: completionOutcomeById[item.id] ?? "RESOLVED",
             },
       );
       if (actionQuery.data) {
@@ -211,6 +214,21 @@ export function BusinessBriefing() {
                   {queue.online ? (
                     <div className="tos-ai-action-card__actions">
                       <Link className="tos-ai-workflow-link" href={actionItemWorkflowHref(item)}>Open workflow</Link>
+                      <select
+                        className="tos-select tos-ai-action-outcome"
+                        aria-label={`Outcome for ${item.title}`}
+                        value={completionOutcomeById[item.id] ?? "RESOLVED"}
+                        disabled={Boolean(actionBusyKey)}
+                        onChange={(event) => setCompletionOutcomeById((current) => ({
+                          ...current,
+                          [item.id]: event.target.value as BusinessActionCompletionOutcome,
+                        }))}
+                      >
+                        <option value="RESOLVED">Resolved</option>
+                        <option value="ALREADY_HANDLED">Already handled</option>
+                        <option value="NOT_RELEVANT">Not relevant</option>
+                        <option value="NO_ACTION_NEEDED">No action needed</option>
+                      </select>
                       <Button
                         size="sm"
                         variant="positive"

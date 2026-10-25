@@ -1,4 +1,4 @@
-import type { BusinessActionItem, BusinessActionItemExplanation } from "@tradeos/contracts";
+import type { BusinessActionCompletionOutcome, BusinessActionItem, BusinessActionItemExplanation } from "@tradeos/contracts";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 
 export type BusinessActionMutation =
@@ -6,6 +6,7 @@ export type BusinessActionMutation =
       action: "complete";
       actionItemId: string;
       businessId: string;
+      outcome: BusinessActionCompletionOutcome;
     }
   | {
       action: "snooze";
@@ -31,7 +32,7 @@ export async function mutateBusinessActionItem(
   const path = `/v1/intelligence/action-items/${encodeURIComponent(input.actionItemId)}/${input.action}`;
   const body = input.action === "snooze"
     ? { businessId: input.businessId, snoozedUntil: input.snoozedUntil }
-    : { businessId: input.businessId };
+    : { businessId: input.businessId, outcome: input.outcome };
   const response = await fetcher(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
