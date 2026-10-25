@@ -37,7 +37,8 @@ export function registerTenantBillingRoutes(app: FastifyInstance, pool: Database
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = uuid(request.query.businessId, "businessId");
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
-      const items = await listTenantBillingInvoices(pool, { businessId, limit: parseLimit(request.query.limit) });
+      const limit = parseLimit(request.query.limit);
+      const items = await listTenantBillingInvoices(pool, { businessId, ...(limit === undefined ? {} : { limit }) });
       return { items };
     } catch (error) {
       return sendBillingError(error, reply);
@@ -61,7 +62,8 @@ export function registerTenantBillingRoutes(app: FastifyInstance, pool: Database
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = uuid(request.query.businessId, "businessId");
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
-      const items = await listTenantBillingPayments(pool, { businessId, limit: parseLimit(request.query.limit) });
+      const limit = parseLimit(request.query.limit);
+      const items = await listTenantBillingPayments(pool, { businessId, ...(limit === undefined ? {} : { limit }) });
       return { items };
     } catch (error) {
       return sendBillingError(error, reply);
@@ -85,10 +87,10 @@ async function transitionRoute(
   action: "CANCEL_AT_PERIOD_END" | "RESUME",
 ) {
   try {
+    const auth = await authenticateAccessToken(pool, authorization);
     const input = body ?? {};
     assertBodyShape(input);
     const businessId = uuid(input.businessId, "businessId");
-    const auth = await authenticateAccessToken(pool, authorization);
     const access = await requireBusinessRole(pool, auth, businessId, WRITE_ROLES);
     return await transitionTenantSubscription(pool, {
       businessId,

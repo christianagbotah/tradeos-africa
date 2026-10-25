@@ -69,6 +69,16 @@ describe("tenant billing routes", () => {
     expect(viewerRead.statusCode).toBe(403);
   });
 
+  it("authenticates subscription mutations before validating client-shaped input", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/billing/subscription/cancel-at-period-end",
+      payload: { businessId: "not-a-uuid", planId: crypto.randomUUID() },
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json<{ error: string }>().error).toBe("AUTH_REQUIRED");
+  });
+
   it("allows Owner/Admin cancel and resume but rejects client-shaped lifecycle requests", async () => {
     const owner = await register("billing-actions@tradeos.test", "billing-actions-device");
     const businessId = await createBusiness(owner.accessToken);
