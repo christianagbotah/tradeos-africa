@@ -1,4 +1,5 @@
 import type {
+  BusinessActionCompletionOutcome,
   BusinessActionItem,
   BusinessEntityContext,
   BusinessEntityType,
@@ -52,13 +53,15 @@ type ActionRow = {
   status: "OPEN" | "DONE" | "SNOOZED" | "CANCELED";
   snoozed_until: Date | string | null;
   completed_at: Date | string | null;
+  completion_outcome: BusinessActionCompletionOutcome | null;
+  completed_by_user_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
 
 const ACTION_SELECT = `SELECT id,business_id,branch_id,source_attention_item_id,source_automation_run_id,
   source_entity_type,source_entity_id,created_by_user_id,action_type,title,reason,evidence,
-  assigned_user_id,assigned_staff_id,due_at,status,snoozed_until,completed_at,created_at,updated_at
+  assigned_user_id,assigned_staff_id,due_at,status,snoozed_until,completed_at,completion_outcome,completed_by_user_id,created_at,updated_at
   FROM business_action_items`;
 
 export async function createBusinessEntityActionItem(
@@ -216,6 +219,8 @@ function mapAction(row: ActionRow): BusinessActionItem {
     status: row.status,
     snoozedUntil: iso(row.snoozed_until),
     completedAt: iso(row.completed_at),
+    completionOutcome: row.completion_outcome,
+    completedByUserId: row.completed_by_user_id,
     createdAt: iso(row.created_at)!,
     updatedAt: iso(row.updated_at)!,
   };

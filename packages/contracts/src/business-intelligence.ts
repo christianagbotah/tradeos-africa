@@ -223,8 +223,6 @@ export type BusinessAutomationRun = BusinessIntelligenceScope & {
   errorMessage: string | null;
   startedAt: string | null;
   completedAt: string | null;
-  completionOutcome: BusinessActionCompletionOutcome | null;
-  completedByUserId: string | null;
   createdAt: string;
   updatedAt: string;
 };
