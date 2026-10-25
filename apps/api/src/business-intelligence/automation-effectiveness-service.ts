@@ -88,7 +88,11 @@ export async function getBusinessAutomationEffectiveness(
      FROM business_automation_policies p
      LEFT JOIN automated_tasks t ON t.policy_id=p.id
      WHERE p.business_id=$1::uuid
-       AND (p.branch_id IS NULL OR p.branch_id=$2::uuid)
+       AND (
+         p.branch_id IS NULL
+         OR p.branch_id=$2::uuid
+         OR EXISTS (SELECT 1 FROM automated_tasks historical WHERE historical.policy_id=p.id)
+       )
      GROUP BY p.id,p.name,p.enabled,p.action_type,p.created_at
      ORDER BY p.enabled DESC,p.created_at,p.id`,
     [input.businessId, input.branchId, windowStart, now],

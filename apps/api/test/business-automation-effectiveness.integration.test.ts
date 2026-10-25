@@ -143,6 +143,22 @@ describe("business automation effectiveness", () => {
     expect(invalid.statusCode).toBe(400);
   });
 
+  it("keeps historical branch effectiveness when a policy is later moved to another branch", async () => {
+    await pool.query(`UPDATE business_automation_policies SET branch_id=$2 WHERE id=$1`, [P1, BR2]);
+    try {
+      const result = await getBusinessAutomationEffectiveness(pool, { businessId: B1, branchId: BR1, now: NOW });
+      expect(result.summary.automatedTasksCreated).toBe(4);
+      expect(result.summary.automatedTasksCompleted).toBe(2);
+      expect(result.policies.find((row) => row.policyId === P1)).toMatchObject({
+        tasksCreated: 3,
+        tasksCompleted: 2,
+      });
+      expect(result.policies.some((row) => row.policyId === POTHER)).toBe(false);
+    } finally {
+      await pool.query(`UPDATE business_automation_policies SET branch_id=$2 WHERE id=$1`, [P1, BR1]);
+    }
+  });
+
   it("does not expose evidence, source keys, contact data, entity labels or money fields", async () => {
     const result = await getBusinessAutomationEffectiveness(pool, { businessId: B1, branchId: BR1, now: NOW });
     const serialized = JSON.stringify(result);
