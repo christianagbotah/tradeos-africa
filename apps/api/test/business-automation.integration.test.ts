@@ -679,8 +679,66 @@ describe("safe business workflow automation", () => {
     expect(complete.statusCode).toBe(200);
     expect(complete.json().item.status).toBe("DONE");
     expect(complete.json().item.completedAt).toEqual(expect.any(String));
+    expect(complete.json().item.completionOutcome).toBe("RESOLVED");
+    expect(complete.json().item.completedByUserId).toBe(tenant.userId);
 
     expect(await economicCounts(tenant.businessId)).toEqual(before);
+  });
+
+  it("records explicit completion outcomes, rejects invalid values, and preserves the first outcome on retry", async () => {
+    const tenant = await createTenant("automation-outcomes@tradeos.test", "Automation Outcomes");
+    const headers = authHeaders(tenant.token);
+
+    for (const outcome of ["ALREADY_HANDLED", "NOT_RELEVANT", "NO_ACTION_NEEDED"] as const) {
+      const actionId = await seedActionItem(tenant);
+      const response = await app.inject({
+        method: "POST",
+        url: `/v1/intelligence/action-items/${actionId}/complete`,
+        headers,
+        payload: { businessId: tenant.businessId, outcome },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().item).toMatchObject({
+        status: "DONE",
+        completionOutcome: outcome,
+        completedByUserId: tenant.userId,
+      });
+    }
+
+    const retryId = await seedActionItem(tenant);
+    const first = await app.inject({
+      method: "POST",
+      url: `/v1/intelligence/action-items/${retryId}/complete`,
+      headers,
+      payload: { businessId: tenant.businessId, outcome: "NOT_RELEVANT" },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().item.completionOutcome).toBe("NOT_RELEVANT");
+
+    const retry = await app.inject({
+      method: "POST",
+      url: `/v1/intelligence/action-items/${retryId}/complete`,
+      headers,
+      payload: { businessId: tenant.businessId, outcome: "RESOLVED" },
+    });
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json().item.completionOutcome).toBe("NOT_RELEVANT");
+    expect(retry.json().item.completedByUserId).toBe(tenant.userId);
+
+    const invalidId = await seedActionItem(tenant);
+    const invalid = await app.inject({
+      method: "POST",
+      url: `/v1/intelligence/action-items/${invalidId}/complete`,
+      headers,
+      payload: { businessId: tenant.businessId, outcome: "FALSE_POSITIVE" },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().error).toBe("BUSINESS_ACTION_OUTCOME_INVALID");
+    const unchanged = await pool.query<{ status: string; completion_outcome: string | null }>(
+      `SELECT status,completion_outcome FROM business_action_items WHERE id=$1`,
+      [invalidId],
+    );
+    expect(unchanged.rows[0]).toEqual({ status: "OPEN", completion_outcome: null });
   });
 });
 

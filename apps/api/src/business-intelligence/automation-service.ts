@@ -1,5 +1,6 @@
 import type {
   BusinessActionItem,
+  BusinessActionCompletionOutcome,
   BusinessAutomationPolicy,
   BusinessAutomationRun,
   BusinessEvidenceReference,
@@ -10,6 +11,13 @@ import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 import { businessEntitySafeAction, filterBusinessEntityEvidenceForRole } from "./entity-service.js";
 import { FINANCIAL_BUSINESS_ATTENTION_RULE_CODES } from "./attention-service.js";
+
+const BUSINESS_ACTION_COMPLETION_OUTCOMES = new Set<BusinessActionCompletionOutcome>([
+  "RESOLVED",
+  "ALREADY_HANDLED",
+  "NOT_RELEVANT",
+  "NO_ACTION_NEEDED",
+]);
 
 const SAFE_ACTION_TYPES = new Set([
   "CREATE_FOLLOW_UP",
@@ -110,6 +118,8 @@ type ActionRow = {
   status: "OPEN" | "DONE" | "SNOOZED" | "CANCELED";
   snoozed_until: Date | string | null;
   completed_at: Date | string | null;
+  completion_outcome: BusinessActionCompletionOutcome | null;
+  completed_by_user_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -667,6 +677,7 @@ export async function completeBusinessActionItem(
   const actionId = parseUuid(actionIdInput, "actionItemId");
   const businessId = parseUuid(input.businessId, "businessId");
   assertBusiness(actor, businessId);
+  const outcome = parseCompletionOutcome(input.outcome);
 
   return withTransaction(pool, async (client) => {
     const current = await getActionForUpdate(client, actor, actionId);
@@ -676,9 +687,10 @@ export async function completeBusinessActionItem(
     if (current.status === "DONE") return mapActionForActor(current, actor);
     const updated = await client.query<ActionRow>(
       `UPDATE business_action_items
-       SET status='DONE',completed_at=now(),snoozed_until=NULL,updated_at=now()
+       SET status='DONE',completed_at=now(),completion_outcome=$3,completed_by_user_id=$4,
+           snoozed_until=NULL,updated_at=now()
        WHERE id=$1 AND business_id=$2 RETURNING *`,
-      [actionId, actor.businessId],
+      [actionId, actor.businessId, outcome, actor.userId],
     );
     return mapActionForActor({
       ...updated.rows[0]!,
@@ -923,6 +935,18 @@ function positiveInteger(value: unknown, label: string): number {
   return value;
 }
 
+function parseCompletionOutcome(value: unknown): BusinessActionCompletionOutcome {
+  if (value === undefined || value === null || value === "") return "RESOLVED";
+  if (typeof value === "string" && BUSINESS_ACTION_COMPLETION_OUTCOMES.has(value as BusinessActionCompletionOutcome)) {
+    return value as BusinessActionCompletionOutcome;
+  }
+  throw new BusinessAutomationError(
+    "outcome must be one of RESOLVED, ALREADY_HANDLED, NOT_RELEVANT, NO_ACTION_NEEDED",
+    400,
+    "BUSINESS_ACTION_OUTCOME_INVALID",
+  );
+}
+
 function parseFutureDate(value: unknown, label: string): Date {
   if (typeof value !== "string") throw new BusinessAutomationError(`${label} must be an ISO timestamp`);
   const date = new Date(value);
@@ -1025,6 +1049,8 @@ function mapAction(row: ActionRow): BusinessActionItem {
     status: row.status,
     snoozedUntil: iso(row.snoozed_until),
     completedAt: iso(row.completed_at),
+    completionOutcome: row.completion_outcome,
+    completedByUserId: row.completed_by_user_id,
     createdAt: iso(row.created_at)!,
     updatedAt: iso(row.updated_at)!,
   };
@@ -1063,5 +1089,5 @@ const ACTION_SELECT = `SELECT bai.id,bai.business_id,bai.branch_id,bai.source_at
   (SELECT ai.rule_code FROM business_attention_items ai
    WHERE ai.id=bai.source_attention_item_id AND ai.business_id=bai.business_id LIMIT 1) AS source_attention_rule_code,
   bai.source_automation_run_id,bai.source_entity_type,bai.source_entity_id,bai.created_by_user_id,bai.action_type,bai.title,bai.reason,
-  bai.evidence,bai.assigned_user_id,bai.assigned_staff_id,bai.due_at,bai.status,bai.snoozed_until,bai.completed_at,bai.created_at,bai.updated_at
+  bai.evidence,bai.assigned_user_id,bai.assigned_staff_id,bai.due_at,bai.status,bai.snoozed_until,bai.completed_at,bai.completion_outcome,bai.completed_by_user_id,bai.created_at,bai.updated_at
   FROM business_action_items bai`;
