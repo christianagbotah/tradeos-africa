@@ -263,7 +263,7 @@ function BillingHeader() {
   return (
     <header className="tos-billing-settings__header">
       <div><span className="tos-settings__eyebrow">Commercial account</span><h2>Billing & subscription</h2></div>
-      <p>Review the plan, effective access, invoices and payments for this business. Economic billing records remain server-authoritative.</p>
+      <p>Review the plan, effective access, invoices and payments for this business. Billing records remain protected and managed by TradeOS.</p>
     </header>
   );
 }
