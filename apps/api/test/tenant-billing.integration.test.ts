@@ -123,6 +123,20 @@ describe("tenant billing read service", () => {
     expect(audits.rows[0]?.actor_staff_id).toBe(OWNER_STAFF);
   });
 
+  it("serializes concurrent cancellation retries and writes one audit event", async () => {
+    const [first, second] = await Promise.all([
+      transitionTenantSubscription(pool, { businessId: B1, role: "OWNER", staffId: OWNER_STAFF }, "CANCEL_AT_PERIOD_END"),
+      transitionTenantSubscription(pool, { businessId: B1, role: "OWNER", staffId: OWNER_STAFF }, "CANCEL_AT_PERIOD_END"),
+    ]);
+    expect(first.subscription?.cancelAtPeriodEnd).toBe(true);
+    expect(second.subscription?.cancelAtPeriodEnd).toBe(true);
+    const audits = await pool.query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM audit_events WHERE business_id=$1 AND event_type='SUBSCRIPTION_CANCEL_SCHEDULED'`,
+      [B1],
+    );
+    expect(audits.rows[0]?.count).toBe(1);
+  });
+
   it("fails closed on invalid resume and leaves billing/economic ledgers and plan assignment unchanged", async () => {
     const before = await invariantCounts();
     await expect(transitionTenantSubscription(pool, { businessId: B1, role: "OWNER", staffId: OWNER_STAFF }, "RESUME"))
