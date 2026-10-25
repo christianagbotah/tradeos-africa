@@ -128,10 +128,11 @@ describe("business intelligence and automation persistence", () => {
 
     const businessId = await seedBusiness("Actions Tenant");
     for (const status of ["OPEN", "DONE", "SNOOZED", "CANCELED"]) {
+      const completion = status === "DONE" ? "RESOLVED" : null;
       await expect(pool.query(
-        `INSERT INTO business_action_items(business_id,title,reason,evidence,status)
-         VALUES($1,$2,'Deterministic evidence','[]',$3)`,
-        [businessId, `Action ${status}`, status],
+        `INSERT INTO business_action_items(business_id,title,reason,evidence,status,completion_outcome,completed_at)
+         VALUES($1,$2,'Deterministic evidence','[]',$3,$4,CASE WHEN $3='DONE' THEN now() ELSE NULL END)`,
+        [businessId, `Action ${status}`, status, completion],
       )).resolves.toBeTruthy();
     }
 
@@ -140,6 +141,66 @@ describe("business intelligence and automation persistence", () => {
        VALUES($1,'Invalid','Invalid state','[]','POSTED')`,
       [businessId],
     )).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("tracks structured action completion outcomes and completion actor audit", async () => {
+    const columns = await pool.query<{ column_name: string; is_nullable: string }>(
+      `SELECT column_name,is_nullable
+       FROM information_schema.columns
+       WHERE table_schema=current_schema() AND table_name='business_action_items'
+         AND column_name = ANY($1::text[])
+       ORDER BY column_name`,
+      [["completed_by_user_id", "completion_outcome"]],
+    );
+    expect(columns.rows).toEqual([
+      { column_name: "completed_by_user_id", is_nullable: "YES" },
+      { column_name: "completion_outcome", is_nullable: "YES" },
+    ]);
+
+    const businessId = await seedBusiness("Outcome Tenant");
+    const userId = await seedUser("outcome@test.local");
+    const open = await pool.query<{ id: string }>(
+      `INSERT INTO business_action_items(business_id,title,reason,evidence,status)
+       VALUES($1,'Outcome task','Evidence','[]','OPEN') RETURNING id`,
+      [businessId],
+    );
+
+    await expect(pool.query(
+      `UPDATE business_action_items
+       SET status='DONE',completed_at=now(),completion_outcome='NOT_RELEVANT',completed_by_user_id=$2
+       WHERE id=$1`,
+      [open.rows[0]!.id, userId],
+    )).resolves.toBeTruthy();
+
+    await expect(pool.query(
+      `INSERT INTO business_action_items(business_id,title,reason,evidence,status,completion_outcome)
+       VALUES($1,'Bad outcome','Evidence','[]','DONE','FALSE_POSITIVE')`,
+      [businessId],
+    )).rejects.toMatchObject({ code: "23514" });
+
+    await expect(pool.query(
+      `INSERT INTO business_action_items(business_id,title,reason,evidence,status,completion_outcome)
+       VALUES($1,'Open with outcome','Evidence','[]','OPEN','RESOLVED')`,
+      [businessId],
+    )).rejects.toMatchObject({ code: "23514" });
+
+    await expect(pool.query(
+      `INSERT INTO business_action_items(business_id,title,reason,evidence,status,completion_outcome,completed_at)
+       VALUES($1,'Done default shape','Evidence','[]','DONE','RESOLVED',now())`,
+      [businessId],
+    )).resolves.toBeTruthy();
+
+    await expect(pool.query(
+      `UPDATE business_action_items SET completed_by_user_id='70000000-0000-4000-8000-000000009999' WHERE id=$1`,
+      [open.rows[0]!.id],
+    )).rejects.toMatchObject({ code: "23503" });
+
+    const index = await pool.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes
+       WHERE schemaname=current_schema() AND tablename='business_action_items'
+         AND indexname='idx_business_action_feedback_recent'`,
+    );
+    expect(index.rows).toEqual([{ indexname: "idx_business_action_feedback_recent" }]);
   });
 
   it("tracks entity provenance, creator audit, and active entity-task uniqueness", async () => {
@@ -191,7 +252,7 @@ describe("business intelligence and automation persistence", () => {
     )).rejects.toMatchObject({ code: "23505" });
 
     await pool.query(
-      `UPDATE business_action_items SET status='DONE',completed_at=now()
+      `UPDATE business_action_items SET status='DONE',completed_at=now(),completion_outcome='RESOLVED'
        WHERE business_id=$1 AND source_entity_type='CUSTOMER' AND source_entity_id=$2`,
       [businessId, entityId],
     );

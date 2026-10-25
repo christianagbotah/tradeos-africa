@@ -191,6 +191,7 @@ export type BusinessAssistantQueryResponse = BusinessIntelligenceScope & {
 export type BusinessAutomationTriggerType = "ATTENTION" | "SCHEDULE" | "MANUAL" | "EVENT";
 export type BusinessAutomationRunState = "QUEUED" | "EVALUATING" | "SUCCEEDED" | "FAILED" | "CANCELED";
 export type BusinessActionItemStatus = "OPEN" | "DONE" | "SNOOZED" | "CANCELED";
+export type BusinessActionCompletionOutcome = "RESOLVED" | "ALREADY_HANDLED" | "NOT_RELEVANT" | "NO_ACTION_NEEDED";
 
 export type BusinessAutomationPolicy = BusinessIntelligenceScope & {
   id: string;
@@ -222,6 +223,8 @@ export type BusinessAutomationRun = BusinessIntelligenceScope & {
   errorMessage: string | null;
   startedAt: string | null;
   completedAt: string | null;
+  completionOutcome: BusinessActionCompletionOutcome | null;
+  completedByUserId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -243,6 +246,8 @@ export type BusinessActionItem = BusinessIntelligenceScope & {
   status: BusinessActionItemStatus;
   snoozedUntil: string | null;
   completedAt: string | null;
+  completionOutcome: BusinessActionCompletionOutcome | null;
+  completedByUserId: string | null;
   createdAt: string;
   updatedAt: string;
 };

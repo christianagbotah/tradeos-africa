@@ -13,11 +13,13 @@ import type {
   BusinessMetricContext,
   BusinessActionItemExplanation,
   BusinessActionItemExplanationSourceKind,
+  BusinessActionCompletionOutcome,
 } from "./business-intelligence.js";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 type Assert<T extends true> = T;
 type _SupportedEntityTypes = Assert<Equal<BusinessEntityType, "CATALOG_ITEM" | "CUSTOMER" | "SUPPLIER" | "PURCHASE">>;
+type _CompletionOutcomes = Assert<Equal<BusinessActionCompletionOutcome, "RESOLVED" | "ALREADY_HANDLED" | "NOT_RELEVANT" | "NO_ACTION_NEEDED">>;
 
 const context: BusinessEntityContext = {
   entityType: "CUSTOMER",
@@ -81,6 +83,8 @@ const actionResponse: BusinessEntityActionItemResponse = {
     status: "OPEN",
     snoozedUntil: null,
     completedAt: null,
+    completionOutcome: null,
+    completedByUserId: null,
     createdAt: "2026-10-23T00:00:00.000Z",
     updatedAt: "2026-10-23T00:00:00.000Z",
   },
@@ -123,6 +127,10 @@ const explanation: BusinessActionItemExplanation = {
 };
 
 void explanation;
+
+// @ts-expect-error unsupported completion outcome
+const badCompletionOutcome: BusinessActionCompletionOutcome = "FALSE_POSITIVE";
+void badCompletionOutcome;
 
 // @ts-expect-error unsupported explanation source kind
 const badExplanationSource: BusinessActionItemExplanationSourceKind = "MODEL";
