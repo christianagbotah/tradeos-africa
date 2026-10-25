@@ -6,6 +6,7 @@ import { getOfflineQueue } from "../../../lib/offline-sync";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { Button } from "../ui/button";
 import { StatePanel } from "../ui/state-panel";
+import { BusinessAutomationEffectivenessPanel } from "./business-automation-effectiveness-panel";
 import { useWorkspace } from "../workspace/use-workspace";
 import {
   canControlBusinessAutomationPolicy,
@@ -188,6 +189,8 @@ export function BusinessAutomationsPanel() {
           </Button>
         </div>
       </div>
+
+      <BusinessAutomationEffectivenessPanel />
 
       {!queue.online ? (
         <div className="tos-ai-automation-offline" role="status">
