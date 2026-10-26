@@ -56,6 +56,13 @@ export function BusinessAutomationsPanel() {
       : [],
     [policiesQuery.data, session],
   );
+  const reviewablePolicyIds = useMemo(() => new Set(
+    session
+      ? policies
+        .filter((policy) => canControlBusinessAutomationPolicy(role, policy) && guidedAutomationDraftFromPolicy(policy, session.branchId) !== null)
+        .map((policy) => policy.id)
+      : [],
+  ), [policies, role, session]);
 
   if (!allowed || !session) return null;
 
@@ -84,6 +91,12 @@ export function BusinessAutomationsPanel() {
     setMutationError(null);
     setLastRun(null);
     setEditor({ draft, existingPolicy: policy });
+  };
+
+  const reviewEffectivenessPolicy = (policyId: string) => {
+    const policy = policies.find((policy) => policy.id === policyId);
+    if (!policy || !reviewablePolicyIds.has(policyId)) return;
+    openEdit(policy);
   };
 
   const changeTemplate = (templateId: GuidedAutomationTemplateId) => {
@@ -190,7 +203,7 @@ export function BusinessAutomationsPanel() {
         </div>
       </div>
 
-      <BusinessAutomationEffectivenessPanel />
+      <BusinessAutomationEffectivenessPanel reviewablePolicyIds={reviewablePolicyIds} onReviewPolicy={reviewEffectivenessPolicy} />
 
       {!queue.online ? (
         <div className="tos-ai-automation-offline" role="status">

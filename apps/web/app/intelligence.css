@@ -1180,3 +1180,60 @@
   background: var(--tos-surface-soft);
   color: var(--tos-text-muted);
 }
+
+
+.tos-ai-effectiveness-tuning {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--tos-border-subtle);
+  border-radius: 14px;
+  background: var(--tos-surface-soft);
+}
+
+.tos-ai-effectiveness-tuning__head > div,
+.tos-ai-effectiveness-tuning__copy {
+  display: grid;
+  gap: 4px;
+}
+
+.tos-ai-effectiveness-tuning__head span,
+.tos-ai-effectiveness-tuning__copy p,
+.tos-ai-effectiveness-tuning__copy small {
+  color: var(--tos-text-muted);
+  font-size: var(--tos-text-meta);
+}
+
+.tos-ai-effectiveness-tuning__list {
+  display: grid;
+  gap: 8px;
+}
+
+.tos-ai-effectiveness-tuning__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--tos-border-subtle);
+  border-radius: 12px;
+  background: var(--tos-surface);
+}
+
+.tos-ai-effectiveness-tuning__priority {
+  font-size: var(--tos-text-meta);
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 720px) {
+  .tos-ai-effectiveness-tuning__item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tos-ai-effectiveness-tuning__item .tos-button {
+    width: 100%;
+  }
+}

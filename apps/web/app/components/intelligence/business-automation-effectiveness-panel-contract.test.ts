@@ -29,6 +29,20 @@ describe("automation effectiveness panel contract", () => {
     expect(panel).toContain("automationEffectivenessPolicyState");
   });
 
+
+  it("renders server-owned tuning suggestions and only delegates review for explicitly reviewable policy ids", () => {
+    const panel = source(panelPath);
+    expect(panel).toContain("data.tuningRecommendations");
+    expect(panel).toContain("Tuning suggestions");
+    expect(panel).toContain("Review policy");
+    expect(panel).toContain("reviewablePolicyIds");
+    expect(panel).toContain("onReviewPolicy");
+    expect(panel).toMatch(/reviewablePolicyIds\?\.has\(recommendation\.policyId\)/);
+    expect(panel).toMatch(/onReviewPolicy\?\.\(recommendation\.policyId\)/);
+    expect(panel).not.toMatch(/method:\s*["'](?:POST|PATCH|DELETE)["']/);
+    expect((panel.match(/useApiFetch</g) ?? [])).toHaveLength(1);
+  });
+
   it("is mounted before automation editor/policy controls and has responsive styling", () => {
     const parent = source(automationPanelPath);
     const mount = parent.indexOf("<BusinessAutomationEffectivenessPanel");
@@ -38,6 +52,8 @@ describe("automation effectiveness panel contract", () => {
     const css = source(cssPath);
     expect(css).toContain(".tos-ai-effectiveness");
     expect(css).toContain(".tos-ai-effectiveness__kpis");
+    expect(css).toContain(".tos-ai-effectiveness-tuning");
+    expect(css).toContain(".tos-ai-effectiveness-tuning__item");
     expect(css).toContain("var(--tos-text-meta)");
     expect(css).toContain("var(--tos-text-section)");
     expect(css).not.toContain("var(--tos-text-xs)");

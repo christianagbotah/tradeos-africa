@@ -2,12 +2,18 @@
 
 import type { BusinessAutomationEffectiveness } from "@tradeos/contracts";
 import { useApiFetch } from "../../../lib/use-api-fetch";
+import { Button } from "../ui/button";
 import { StatePanel } from "../ui/state-panel";
 import { useWorkspace } from "../workspace/use-workspace";
 import { canManageBusinessAutomations } from "./business-automations";
 import { automationEffectivenessPolicyState } from "./business-automation-effectiveness";
 
-export function BusinessAutomationEffectivenessPanel() {
+interface BusinessAutomationEffectivenessPanelProps {
+  reviewablePolicyIds?: ReadonlySet<string>;
+  onReviewPolicy?: (policyId: string) => void;
+}
+
+export function BusinessAutomationEffectivenessPanel({ reviewablePolicyIds, onReviewPolicy }: BusinessAutomationEffectivenessPanelProps) {
   const { session, role, queue } = useWorkspace();
   const allowed = canManageBusinessAutomations(role);
   const path = allowed && session && queue.online
@@ -73,6 +79,37 @@ export function BusinessAutomationEffectivenessPanel() {
       <div className="tos-ai-effectiveness__context">
         {data.summary.manualEntityReviewsCreated} manual AI-assisted review task{data.summary.manualEntityReviewsCreated === 1 ? "" : "s"} created in the same period; excluded from automation rates.
       </div>
+
+      {data.tuningRecommendations.length > 0 ? (
+        <div className="tos-ai-effectiveness-tuning" aria-label="Automation tuning suggestions">
+          <div className="tos-ai-effectiveness-tuning__head">
+            <div>
+              <strong>Tuning suggestions</strong>
+              <span>Deterministic guidance from the review outcomes above. TradeOS does not change policy settings automatically.</span>
+            </div>
+          </div>
+          <div className="tos-ai-effectiveness-tuning__list">
+            {data.tuningRecommendations.map((recommendation) => {
+              const canReview = Boolean(onReviewPolicy && reviewablePolicyIds?.has(recommendation.policyId));
+              return (
+                <article key={`${recommendation.policyId}:${recommendation.kind}`} className="tos-ai-effectiveness-tuning__item" data-priority={recommendation.priority.toLowerCase()}>
+                  <div className="tos-ai-effectiveness-tuning__copy">
+                    <span className="tos-ai-effectiveness-tuning__priority">{recommendation.priority} · {recommendation.focus === "TRIGGER" ? "Trigger" : "Workflow"}</span>
+                    <strong>{recommendation.title}</strong>
+                    <p>{recommendation.summary}</p>
+                    <small>{recommendation.rationale}</small>
+                  </div>
+                  {canReview ? (
+                    <Button type="button" size="sm" variant="outline" onClick={() => onReviewPolicy?.(recommendation.policyId)}>
+                      Review policy
+                    </Button>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className="tos-ai-effectiveness__policies">
         {data.policies.map((policy) => {

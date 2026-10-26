@@ -62,3 +62,17 @@ it("has responsive styling for the guided editor and preview", () => {
   expect(css).toMatch(/\.tos-ai-automation-check\s*\{/);
   expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.tos-ai-automation-editor__grid/);
 });
+
+
+it("hands effectiveness tuning back to the existing editor only for loaded editable policies", () => {
+  const panel = source(panelPath);
+  expect(panel).toContain("reviewablePolicyIds");
+  expect(panel).toContain("reviewEffectivenessPolicy");
+  expect(panel).toContain("onReviewPolicy={reviewEffectivenessPolicy}");
+  expect(panel).toContain("reviewablePolicyIds={reviewablePolicyIds}");
+  expect(panel).toContain("canControlBusinessAutomationPolicy");
+  expect(panel).toContain("guidedAutomationDraftFromPolicy");
+  expect(panel).toMatch(/policies\.find\(\(policy\)\s*=>\s*policy\.id\s*===\s*policyId\)/);
+  expect(panel).toMatch(/if \(!policy \|\| !reviewablePolicyIds\.has\(policyId\)\) return/);
+  expect(panel).toContain("openEdit(policy)");
+});
