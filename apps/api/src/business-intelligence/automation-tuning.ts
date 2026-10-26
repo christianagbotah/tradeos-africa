@@ -9,8 +9,9 @@ export function businessAutomationTuningRecommendation(
   row: BusinessAutomationEffectivenessPolicyRow,
 ): BusinessAutomationTuningRecommendation | null {
   if (!row.enabled) return null;
+  const hasAutomaticTrigger = row.triggerType !== "MANUAL";
 
-  if (row.tasksCompleted >= 2 && row.negativeOutcomes >= 2 && row.negativeOutcomes >= row.relevantOutcomes) {
+  if (hasAutomaticTrigger && row.tasksCompleted >= 2 && row.negativeOutcomes >= 2 && row.negativeOutcomes >= row.relevantOutcomes) {
     return {
       policyId: row.policyId,
       kind: "HIGH_NEGATIVE_OUTCOMES",
@@ -34,7 +35,7 @@ export function businessAutomationTuningRecommendation(
     };
   }
 
-  if (row.tasksCreated === 0) {
+  if (hasAutomaticTrigger && row.tasksCreated === 0) {
     return {
       policyId: row.policyId,
       kind: "NO_TRIGGERED_WORK",

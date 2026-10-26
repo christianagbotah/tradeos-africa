@@ -22,6 +22,7 @@ type PolicyAggregateRow = {
   policy_id: string;
   name: string;
   enabled: boolean;
+  trigger_type: string;
   action_type: string;
   tasks_created: number;
   tasks_completed: number;
@@ -74,7 +75,7 @@ export async function getBusinessAutomationEffectiveness(
          AND ai.created_at >= $3::timestamptz
          AND ai.created_at <= $4::timestamptz
      )
-     SELECT p.id AS policy_id,p.name,p.enabled,p.action_type,
+     SELECT p.id AS policy_id,p.name,p.enabled,p.trigger_type,p.action_type,
             count(t.id)::int AS tasks_created,
             count(t.id) FILTER (WHERE t.status='DONE')::int AS tasks_completed,
             count(t.id) FILTER (WHERE t.status='OPEN')::int AS tasks_open,
@@ -94,7 +95,7 @@ export async function getBusinessAutomationEffectiveness(
          OR p.branch_id=$2::uuid
          OR EXISTS (SELECT 1 FROM automated_tasks historical WHERE historical.policy_id=p.id)
        )
-     GROUP BY p.id,p.name,p.enabled,p.action_type,p.created_at
+     GROUP BY p.id,p.name,p.enabled,p.trigger_type,p.action_type,p.created_at
      ORDER BY p.enabled DESC,p.created_at,p.id`,
     [input.businessId, input.branchId, windowStart, now],
   );
@@ -183,6 +184,7 @@ function mapPolicyRow(row: PolicyAggregateRow): BusinessAutomationEffectivenessP
     policyId: row.policy_id,
     name: row.name,
     enabled: row.enabled,
+    triggerType: row.trigger_type,
     actionType: row.action_type,
     tasksCreated: row.tasks_created,
     tasksCompleted: row.tasks_completed,

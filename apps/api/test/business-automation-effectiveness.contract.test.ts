@@ -38,6 +38,7 @@ describe("business automation effectiveness contract", () => {
         policyId: "00000000-0000-4000-8000-000000000003",
         name: "Inventory health review",
         enabled: true,
+        triggerType: "ATTENTION",
         actionType: "CREATE_INVENTORY_REVIEW",
         tasksCreated: 4,
         tasksCompleted: 3,

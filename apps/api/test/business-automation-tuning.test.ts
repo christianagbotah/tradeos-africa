@@ -11,6 +11,7 @@ function row(overrides: Partial<BusinessAutomationEffectivenessPolicyRow> = {}):
     name: "Inventory review",
     enabled: true,
     actionType: "CREATE_FOLLOW_UP",
+    triggerType: "ATTENTION",
     tasksCreated: 4,
     tasksCompleted: 4,
     tasksOpen: 0,
@@ -65,6 +66,22 @@ describe("business automation tuning recommendations", () => {
     expect(businessAutomationTuningRecommendation(row({ enabled: false, tasksCreated: 0, tasksCompleted: 0 }))).toBeNull();
     expect(businessAutomationTuningRecommendation(row())).toBeNull();
     expect(businessAutomationTuningRecommendation(row({ tasksCreated: 2, tasksCompleted: 1, completionRate: 0.5, negativeOutcomes: 1, relevantOutcomes: 0 }))).toBeNull();
+  });
+
+  it("never gives manual policies trigger advice but can still flag their workflow completion", () => {
+    expect(businessAutomationTuningRecommendation(row({
+      triggerType: "MANUAL", tasksCreated: 0, tasksCompleted: 0, completionRate: 0, lastTaskAt: null,
+    } as Partial<BusinessAutomationEffectivenessPolicyRow>))).toBeNull();
+
+    expect(businessAutomationTuningRecommendation(row({
+      triggerType: "MANUAL", tasksCreated: 3, tasksCompleted: 3, completionRate: 1, relevantOutcomes: 0, negativeOutcomes: 3,
+    } as Partial<BusinessAutomationEffectivenessPolicyRow>))).toBeNull();
+
+    expect(businessAutomationTuningRecommendation(row({
+      triggerType: "MANUAL", tasksCreated: 4, tasksCompleted: 1, completionRate: 0.25, relevantOutcomes: 0, negativeOutcomes: 0,
+    } as Partial<BusinessAutomationEffectivenessPolicyRow>))).toMatchObject({
+      kind: "LOW_COMPLETION", focus: "WORKFLOW",
+    });
   });
 
   it("sorts recommendations deterministically by priority then policy name/id and caps the response at ten", () => {

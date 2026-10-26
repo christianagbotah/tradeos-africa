@@ -7,6 +7,7 @@ function policy(overrides: Partial<BusinessAutomationEffectivenessPolicyRow> = {
     policyId: "00000000-0000-4000-8000-000000000001",
     name: "Policy",
     enabled: true,
+    triggerType: "ATTENTION",
     actionType: "CREATE_FOLLOW_UP",
     tasksCreated: 4,
     tasksCompleted: 4,

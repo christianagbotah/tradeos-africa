@@ -192,6 +192,7 @@ export type BusinessAutomationEffectivenessPolicyRow = {
   policyId: string;
   name: string;
   enabled: boolean;
+  triggerType: BusinessAutomationTriggerType | string;
   actionType: string;
   tasksCreated: number;
   tasksCompleted: number;

@@ -66,6 +66,7 @@ describe("business automation effectiveness", () => {
     const inventory = result.policies.find((row) => row.policyId === P1);
     expect(inventory).toMatchObject({
       name: "Inventory health review",
+      triggerType: "ATTENTION",
       tasksCreated: 3,
       tasksCompleted: 2,
       tasksOpen: 1,
