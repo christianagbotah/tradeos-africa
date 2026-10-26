@@ -205,6 +205,23 @@ export type BusinessAutomationEffectivenessPolicyRow = {
   lastTaskAt: string | null;
 };
 
+export type BusinessAutomationTuningRecommendationKind =
+  | "NO_TRIGGERED_WORK"
+  | "LOW_COMPLETION"
+  | "HIGH_NEGATIVE_OUTCOMES";
+
+export type BusinessAutomationTuningFocus = "TRIGGER" | "WORKFLOW";
+
+export type BusinessAutomationTuningRecommendation = {
+  policyId: string;
+  kind: BusinessAutomationTuningRecommendationKind;
+  priority: "INFO" | "MEDIUM" | "HIGH";
+  focus: BusinessAutomationTuningFocus;
+  title: string;
+  summary: string;
+  rationale: string;
+};
+
 export type BusinessAutomationEffectiveness = BusinessIntelligenceScope & {
   generatedAt: string;
   windowDays: 30;
