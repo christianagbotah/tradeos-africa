@@ -194,11 +194,11 @@ Stop the pilot and mark the build **NOT READY** if any of these occur:
 
 ## Pilot sign-off
 
-**Build / commit:**  
-**Environment:**  
-**Tester:**  
-**Date:**  
-**Overall result:** PASS / FAIL / BLOCKED  
-**Blocking issues:**  
-**Observed final reconciliation:**  
-**Notes / evidence references:**
+- **Build / commit:**
+- **Environment:**
+- **Tester:**
+- **Date:**
+- **Overall result:** PASS / FAIL / BLOCKED
+- **Blocking issues:**
+- **Observed final reconciliation:**
+- **Notes / evidence references:**
