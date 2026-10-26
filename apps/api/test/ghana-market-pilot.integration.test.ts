@@ -470,6 +470,123 @@ describe("Ghana market pilot readiness", () => {
     )).status).toBe("APPLIED");
     expect(await pilotLedgerCounts()).toEqual(paymentAfter);
   });
+
+  it("keeps AI decision support grounded and limits safe actions to the internal review queue", async () => {
+    const attention = await app.inject({
+      method: "POST",
+      url: "/v1/intelligence/attention/evaluate",
+      headers: bearer(ownerToken),
+      payload: { businessId, branchId, correlationId: "ghana-pilot-market-readiness" },
+    });
+    expect(attention.statusCode, attention.body).toBe(200);
+    for (const item of attention.json<{ items: Array<{ businessId: string; branchId: string | null }> }>().items) {
+      expect(item.businessId).toBe(businessId);
+      expect(item.branchId).toBe(branchId);
+    }
+
+    const briefing = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/briefing?businessId=${businessId}&branchId=${branchId}&range=today`,
+      headers: bearer(ownerToken),
+    });
+    expect(briefing.statusCode, briefing.body).toBe(200);
+    expect(briefing.json<{ businessId: string; branchId: string | null; dataQuality: { currencyCode: string } }>()).toMatchObject({
+      businessId,
+      branchId,
+      dataQuality: { currencyCode: "GHS" },
+    });
+
+    const ownerEntity = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/entity?businessId=${businessId}&branchId=${branchId}&entityType=CATALOG_ITEM&entityId=${nailsItemId}`,
+      headers: bearer(ownerToken),
+    });
+    expect(ownerEntity.statusCode, ownerEntity.body).toBe(200);
+    const ownerEntityBody = ownerEntity.json<{
+      businessId: string;
+      branchId: string | null;
+      entity: { entityType: string; entityId: string };
+      evidence: Array<{ label?: string | null; value?: string | number | boolean | null }>;
+      safeAction: { actionType: string } | null;
+    }>();
+    expect(ownerEntityBody).toMatchObject({
+      businessId,
+      branchId,
+      entity: { entityType: "CATALOG_ITEM", entityId: nailsItemId },
+      safeAction: { actionType: "CREATE_REORDER_REVIEW" },
+    });
+    const availableQuantity = ownerEntityBody.evidence.find((item) => item.label === "availableQuantity");
+    expect(Number(availableQuantity?.value)).toBe(91);
+    expect(ownerEntityBody.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "netRevenueMinor30d" }),
+    ]));
+
+    const cashierBriefing = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/briefing?businessId=${businessId}&branchId=${branchId}&range=today`,
+      headers: bearer(cashierToken),
+    });
+    expect(cashierBriefing.statusCode, cashierBriefing.body).toBe(403);
+
+    const cashierCustomer = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/entity?businessId=${businessId}&branchId=${branchId}&entityType=CUSTOMER&entityId=${customerId}`,
+      headers: bearer(cashierToken),
+    });
+    expect(cashierCustomer.statusCode, cashierCustomer.body).toBe(200);
+    const cashierCustomerBody = cashierCustomer.json<{
+      evidence: Array<{ label?: string | null }>;
+      safeAction: unknown;
+    }>();
+    expect(cashierCustomerBody.safeAction).toBeNull();
+    expect(cashierCustomerBody.evidence.some((item) => [
+      "creditLimitMinor", "openBalanceMinor", "openObligationCount", "overdueObligationCount",
+    ].includes(item.label ?? ""))).toBe(false);
+
+    const beforeAction = await businessInvariantSnapshot();
+    const createAction = await app.inject({
+      method: "POST",
+      url: "/v1/intelligence/entity/action-items",
+      headers: bearer(ownerToken),
+      payload: { businessId, branchId, context: { entityType: "CATALOG_ITEM", entityId: nailsItemId } },
+    });
+    expect(createAction.statusCode, createAction.body).toBe(201);
+    const created = createAction.json<{ created: boolean; item: { id: string; sourceEntityId: string | null; assignedUserId: string | null } }>();
+    expect(created.created).toBe(true);
+    expect(created.item).toMatchObject({ sourceEntityId: nailsItemId, assignedUserId: ownerUserId });
+
+    const replayAction = await app.inject({
+      method: "POST",
+      url: "/v1/intelligence/entity/action-items",
+      headers: bearer(ownerToken),
+      payload: { businessId, branchId, context: { entityType: "CATALOG_ITEM", entityId: nailsItemId } },
+    });
+    expect(replayAction.statusCode, replayAction.body).toBe(200);
+    expect(replayAction.json<{ created: boolean; item: { id: string } }>()).toMatchObject({
+      created: false,
+      item: { id: created.item.id },
+    });
+
+    const afterAction = await businessInvariantSnapshot();
+    expect(afterAction.action_items).toBe(beforeAction.action_items + 1);
+    expect({ ...afterAction, action_items: beforeAction.action_items }).toEqual(beforeAction);
+
+    const ownerQueue = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/action-items?businessId=${businessId}&branchId=${branchId}`,
+      headers: bearer(ownerToken),
+    });
+    expect(ownerQueue.statusCode, ownerQueue.body).toBe(200);
+    expect(ownerQueue.json<{ items: Array<{ id: string }> }>().items.some((item) => item.id === created.item.id)).toBe(true);
+
+    const cashierQueue = await app.inject({
+      method: "GET",
+      url: `/v1/intelligence/action-items?businessId=${businessId}&branchId=${branchId}`,
+      headers: bearer(cashierToken),
+    });
+    expect(cashierQueue.statusCode, cashierQueue.body).toBe(200);
+    expect(cashierQueue.json<{ items: Array<{ id: string }> }>().items.some((item) => item.id === created.item.id)).toBe(false);
+  });
 });
 
 function bearer(token: string): { authorization: string } {
@@ -548,6 +665,39 @@ async function pilotLedgerCounts() {
        (SELECT count(*)::int FROM customer_account_entries WHERE business_id=$1) AS customer_account_entries,
        (SELECT COALESCE(SUM(open_minor),0)::int FROM customer_credit_obligations WHERE business_id=$1) AS customer_open_minor,
        (SELECT COALESCE(SUM(open_minor),0)::int FROM supplier_credit_obligations WHERE business_id=$1) AS supplier_open_minor`,
+    [businessId],
+  );
+  return result.rows[0]!;
+}
+
+async function businessInvariantSnapshot() {
+  const result = await pool.query<{
+    sales: number;
+    purchases: number;
+    payments: number;
+    returns: number;
+    refunds: number;
+    inventory_movements: number;
+    cashbook_entries: number;
+    customer_open_minor: number;
+    supplier_open_minor: number;
+    staff: number;
+    memberships: number;
+    action_items: number;
+  }>(
+    `SELECT
+       (SELECT count(*)::int FROM sales WHERE business_id=$1) AS sales,
+       (SELECT count(*)::int FROM purchases WHERE business_id=$1) AS purchases,
+       (SELECT count(*)::int FROM payments WHERE business_id=$1) AS payments,
+       (SELECT count(*)::int FROM return_cases WHERE business_id=$1) AS returns,
+       (SELECT count(*)::int FROM refund_transactions WHERE business_id=$1) AS refunds,
+       (SELECT count(*)::int FROM inventory_movements WHERE business_id=$1) AS inventory_movements,
+       (SELECT count(*)::int FROM cashbook_entries WHERE business_id=$1) AS cashbook_entries,
+       (SELECT COALESCE(SUM(open_minor),0)::int FROM customer_credit_obligations WHERE business_id=$1) AS customer_open_minor,
+       (SELECT COALESCE(SUM(open_minor),0)::int FROM supplier_credit_obligations WHERE business_id=$1) AS supplier_open_minor,
+       (SELECT count(*)::int FROM staff WHERE business_id=$1) AS staff,
+       (SELECT count(*)::int FROM business_memberships WHERE business_id=$1) AS memberships,
+       (SELECT count(*)::int FROM business_action_items WHERE business_id=$1) AS action_items`,
     [businessId],
   );
   return result.rows[0]!;
