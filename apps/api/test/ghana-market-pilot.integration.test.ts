@@ -20,9 +20,14 @@ const OWNER_PHONE_INPUT = "+233 (24) 012-3456";
 const OWNER_PHONE_E164 = "+233240123456";
 const OWNER_PASSWORD = "Pilot-Test-Password-1234";
 const OWNER_DEVICE = "ghana-market-owner-device";
+const CASHIER_DEVICE = "ghana-market-cashier-device";
 
 let ownerToken = "";
 let ownerUserId = "";
+let ownerStaffId = "";
+let cashierToken = "";
+let cashierUserId = "";
+let cashierStaffId = "";
 let businessId = "";
 let branchId = "";
 let supplierId = "";
@@ -167,6 +172,7 @@ describe("Ghana market pilot readiness", () => {
     );
     expect(membership.rows[0]).toMatchObject({ role: "OWNER" });
     expect(membership.rows[0]?.staff_id).toBeTruthy();
+    ownerStaffId = membership.rows[0]!.staff_id!;
 
     expect(supplierId).toBeTruthy();
     expect(customerId).toBeTruthy();
@@ -366,6 +372,104 @@ describe("Ghana market pilot readiness", () => {
     );
     expect(rowCounts.rows[0]).toEqual({ sales: 3, purchases: 1, customer_payments: 1, supplier_payments: 1 });
   });
+
+  it("enforces cashier authorization, authoritative actor identity and exactly-once offline replay", async () => {
+    await inviteCashier();
+
+    const beforeDeniedPurchase = await pilotLedgerCounts();
+    const deniedPurchase = await app.inject({
+      method: "POST",
+      url: "/v1/sync",
+      headers: bearer(cashierToken),
+      payload: {
+        mutations: [{
+          clientId: OWNER_DEVICE,
+          clientMutationId: "pilot-cashier-forbidden-purchase",
+          businessId,
+          branchId,
+          mutationType: "PURCHASE_RECEIVE_CREATE",
+          occurredAt: new Date().toISOString(),
+          payload: {
+            supplierId,
+            receivedByStaffId: ownerStaffId,
+            settlementMethod: "CASH",
+            lines: [{ itemId: nailsItemId, purchaseUnitCode: "box", quantity: 1, unitCostMinor: 50000 }],
+          },
+        }],
+      },
+    });
+    expect(deniedPurchase.statusCode, deniedPurchase.body).toBe(403);
+    expect(await pilotLedgerCounts()).toEqual(beforeDeniedPurchase);
+
+    const purchaseBeforeReplay = await pilotLedgerCounts();
+    const originalReceipt = {
+      supplierId,
+      settlementMethod: "SUPPLIER_CREDIT",
+      lines: [{ itemId: nailsItemId, purchaseUnitCode: "box", quantity: 2, unitCostMinor: 50000 }],
+    };
+    expect((await syncOwner(
+      "pilot-purchase-credit", "PURCHASE_RECEIVE_CREATE", originalReceipt, new Date().toISOString(),
+    )).status).toBe("APPLIED");
+    expect(await pilotLedgerCounts()).toEqual(purchaseBeforeReplay);
+
+    const saleBefore = await pilotLedgerCounts();
+    const salePayload = {
+      currencyCode: "GHS",
+      paymentMethod: "CASH",
+      cashierStaffId: ownerStaffId,
+      lines: [{ itemId: nailsItemId, saleUnitCode: "lb", quantity: 1 }],
+    };
+    const cashierSale = await syncActor(
+      cashierToken, OWNER_DEVICE, "pilot-cashier-sale", "SALE_CREATE", salePayload, new Date().toISOString(),
+    );
+    expect(cashierSale.status).toBe("APPLIED");
+    const cashierSaleId = (cashierSale.result as { saleId: string }).saleId;
+    const saleActor = await pool.query<{ cashier_staff_id: string | null }>(
+      `SELECT cashier_staff_id FROM sales WHERE id=$1 AND business_id=$2`,
+      [cashierSaleId, businessId],
+    );
+    expect(saleActor.rows[0]?.cashier_staff_id).toBe(cashierStaffId);
+    const saleSyncActor = await pool.query<{ client_id: string }>(
+      `SELECT client_id FROM sync_mutations WHERE business_id=$1 AND client_mutation_id=$2`,
+      [businessId, "pilot-cashier-sale"],
+    );
+    expect(saleSyncActor.rows[0]?.client_id).toBe(CASHIER_DEVICE);
+    const saleAfter = await pilotLedgerCounts();
+    expect(saleAfter.sales).toBe(saleBefore.sales + 1);
+    expect(saleAfter.payments).toBe(saleBefore.payments + 1);
+    expect(saleAfter.inventory_movements).toBe(saleBefore.inventory_movements + 1);
+    expect(saleAfter.cashbook_entries).toBe(saleBefore.cashbook_entries + 1);
+    expect((await syncActor(
+      cashierToken, OWNER_DEVICE, "pilot-cashier-sale", "SALE_CREATE", salePayload, new Date().toISOString(),
+    )).status).toBe("APPLIED");
+    expect(await pilotLedgerCounts()).toEqual(saleAfter);
+
+    const paymentBefore = await pilotLedgerCounts();
+    const paymentPayload = {
+      customerId,
+      amountMinor: 1000,
+      method: "CASH",
+      receivedByStaffId: ownerStaffId,
+    };
+    const cashierPayment = await syncActor(
+      cashierToken, OWNER_DEVICE, "pilot-cashier-customer-payment", "CUSTOMER_PAYMENT_CREATE", paymentPayload, new Date().toISOString(),
+    );
+    expect(cashierPayment.status).toBe("APPLIED");
+    const paymentActor = await pool.query<{ actor_staff_id: string | null }>(
+      `SELECT actor_staff_id FROM customer_payments WHERE business_id=$1 AND client_mutation_id=$2`,
+      [businessId, "pilot-cashier-customer-payment"],
+    );
+    expect(paymentActor.rows[0]?.actor_staff_id).toBe(cashierStaffId);
+    const paymentAfter = await pilotLedgerCounts();
+    expect(paymentAfter.customer_payments).toBe(paymentBefore.customer_payments + 1);
+    expect(paymentAfter.customer_account_entries).toBe(paymentBefore.customer_account_entries + 1);
+    expect(paymentAfter.cashbook_entries).toBe(paymentBefore.cashbook_entries + 1);
+    expect(paymentAfter.customer_open_minor).toBe(paymentBefore.customer_open_minor - 1000);
+    expect((await syncActor(
+      cashierToken, OWNER_DEVICE, "pilot-cashier-customer-payment", "CUSTOMER_PAYMENT_CREATE", paymentPayload, new Date().toISOString(),
+    )).status).toBe("APPLIED");
+    expect(await pilotLedgerCounts()).toEqual(paymentAfter);
+  });
 });
 
 function bearer(token: string): { authorization: string } {
@@ -402,4 +506,97 @@ async function inventoryItem() {
   expect(response.statusCode, response.body).toBe(200);
   const items = response.json<{ items: Array<{ id: string; available: number; quarantine: number; damaged: number; waste: number; inventoryValueMinor: number }> }>().items;
   return items.find((item) => item.id === nailsItemId)!;
+}
+
+async function syncActor(
+  accessToken: string,
+  clientId: string,
+  clientMutationId: string,
+  mutationType: string,
+  payload: unknown,
+  occurredAt: string,
+) {
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/sync",
+    headers: bearer(accessToken),
+    payload: { mutations: [{ clientId, clientMutationId, businessId, branchId, mutationType, occurredAt, payload }] },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json<{ mutationResults: Array<{ status: string; errorCode?: string; result?: unknown }> }>().mutationResults[0]!;
+}
+
+async function pilotLedgerCounts() {
+  const result = await pool.query<{
+    sales: number;
+    purchases: number;
+    payments: number;
+    customer_payments: number;
+    inventory_movements: number;
+    cashbook_entries: number;
+    customer_account_entries: number;
+    customer_open_minor: number;
+    supplier_open_minor: number;
+  }>(
+    `SELECT
+       (SELECT count(*)::int FROM sales WHERE business_id=$1) AS sales,
+       (SELECT count(*)::int FROM purchases WHERE business_id=$1) AS purchases,
+       (SELECT count(*)::int FROM payments WHERE business_id=$1) AS payments,
+       (SELECT count(*)::int FROM customer_payments WHERE business_id=$1) AS customer_payments,
+       (SELECT count(*)::int FROM inventory_movements WHERE business_id=$1) AS inventory_movements,
+       (SELECT count(*)::int FROM cashbook_entries WHERE business_id=$1) AS cashbook_entries,
+       (SELECT count(*)::int FROM customer_account_entries WHERE business_id=$1) AS customer_account_entries,
+       (SELECT COALESCE(SUM(open_minor),0)::int FROM customer_credit_obligations WHERE business_id=$1) AS customer_open_minor,
+       (SELECT COALESCE(SUM(open_minor),0)::int FROM supplier_credit_obligations WHERE business_id=$1) AS supplier_open_minor`,
+    [businessId],
+  );
+  return result.rows[0]!;
+}
+
+async function inviteCashier() {
+  const staffResponse = await app.inject({
+    method: "POST",
+    url: "/v1/staff",
+    headers: bearer(ownerToken),
+    payload: { businessId, displayName: "Adwoa Owusu", email: "adwoa.cashier@tradeos.test", role: "CASHIER" },
+  });
+  expect(staffResponse.statusCode, staffResponse.body).toBe(201);
+  cashierStaffId = staffResponse.json<{ staff: { id: string } }>().staff.id;
+
+  const invitation = await app.inject({
+    method: "POST",
+    url: `/v1/staff/${cashierStaffId}/invitations`,
+    headers: bearer(ownerToken),
+    payload: { businessId },
+  });
+  expect(invitation.statusCode, invitation.body).toBe(201);
+  const acceptanceToken = invitation.json<{ acceptanceToken: string }>().acceptanceToken;
+
+  const acceptance = await app.inject({
+    method: "POST",
+    url: "/v1/staff/invitations/accept/register",
+    payload: {
+      acceptanceToken,
+      displayName: "Adwoa Owusu",
+      password: OWNER_PASSWORD,
+      platform: "WEB",
+      deviceKey: CASHIER_DEVICE,
+      appVersion: "pilot-1.0.0",
+    },
+  });
+  expect(acceptance.statusCode, acceptance.body).toBe(201);
+  const accepted = acceptance.json<{
+    user: { id: string };
+    session: { accessToken: string };
+    acceptance: { businessId: string; staffId: string; role: string };
+  }>();
+  cashierToken = accepted.session.accessToken;
+  cashierUserId = accepted.user.id;
+  expect(accepted.acceptance).toMatchObject({ businessId, staffId: cashierStaffId, role: "CASHIER" });
+
+  const membership = await pool.query<{ role: string; staff_id: string | null }>(
+    `SELECT role,staff_id FROM business_memberships WHERE business_id=$1 AND user_id=$2`,
+    [businessId, cashierUserId],
+  );
+  expect(membership.rows[0]).toEqual({ role: "CASHIER", staff_id: cashierStaffId });
 }
