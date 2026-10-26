@@ -242,6 +242,7 @@ export type BusinessAutomationEffectiveness = BusinessIntelligenceScope & {
     notRelevant: number;
     noActionNeeded: number;
   };
+  tuningRecommendations: BusinessAutomationTuningRecommendation[];
   policies: BusinessAutomationEffectivenessPolicyRow[];
 };
 

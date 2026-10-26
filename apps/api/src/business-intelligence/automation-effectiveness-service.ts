@@ -3,6 +3,7 @@ import type {
   BusinessAutomationEffectivenessPolicyRow,
 } from "@tradeos/contracts";
 import type { DatabasePool } from "../db.js";
+import { businessAutomationTuningRecommendations } from "./automation-tuning.js";
 
 const WINDOW_DAYS = 30 as const;
 
@@ -169,6 +170,7 @@ export async function getBusinessAutomationEffectiveness(
       notRelevant: totals.notRelevant,
       noActionNeeded: totals.noActionNeeded,
     },
+    tuningRecommendations: businessAutomationTuningRecommendations(policies),
     policies,
   };
 }

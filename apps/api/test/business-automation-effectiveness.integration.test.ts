@@ -54,14 +54,14 @@ describe("business automation effectiveness", () => {
         automatedTasksCompleted: 2,
         automatedTasksOpen: 1,
         automatedTasksSnoozed: 1,
-        negativeOutcomeCount: 1,
+        negativeOutcomeCount: 2,
         medianCompletionHours: 4,
         manualEntityReviewsCreated: 1,
       },
-      outcomes: { resolved: 1, alreadyHandled: 0, notRelevant: 1, noActionNeeded: 0 },
+      outcomes: { resolved: 0, alreadyHandled: 0, notRelevant: 2, noActionNeeded: 0 },
     });
     expect(result.summary.completionRate).toBeCloseTo(0.5, 6);
-    expect(result.summary.relevantOutcomeRate).toBeCloseTo(0.5, 6);
+    expect(result.summary.relevantOutcomeRate).toBe(0);
 
     const inventory = result.policies.find((row) => row.policyId === P1);
     expect(inventory).toMatchObject({
@@ -70,13 +70,16 @@ describe("business automation effectiveness", () => {
       tasksCompleted: 2,
       tasksOpen: 1,
       tasksSnoozed: 0,
-      relevantOutcomes: 1,
-      negativeOutcomes: 1,
+      relevantOutcomes: 0,
+      negativeOutcomes: 2,
       medianCompletionHours: 4,
       lastTaskAt: "2026-10-25T10:00:00.000Z",
     });
     expect(inventory?.completionRate).toBeCloseTo(2 / 3, 6);
-    expect(inventory?.relevantOutcomeRate).toBeCloseTo(0.5, 6);
+    expect(inventory?.relevantOutcomeRate).toBe(0);
+    expect(result.tuningRecommendations).toEqual([expect.objectContaining({
+      policyId: P1, kind: "HIGH_NEGATIVE_OUTCOMES", priority: "HIGH", focus: "TRIGGER",
+    })]);
 
     expect(result.policies.find((row) => row.policyId === PZERO)).toMatchObject({
       tasksCreated: 0,
@@ -154,6 +157,7 @@ describe("business automation effectiveness", () => {
         tasksCompleted: 2,
       });
       expect(result.policies.some((row) => row.policyId === POTHER)).toBe(false);
+      expect(result.tuningRecommendations).toEqual([expect.objectContaining({ policyId: P1, kind: "HIGH_NEGATIVE_OUTCOMES" })]);
     } finally {
       await pool.query(`UPDATE business_automation_policies SET branch_id=$2 WHERE id=$1`, [P1, BR1]);
     }
@@ -162,7 +166,7 @@ describe("business automation effectiveness", () => {
   it("does not expose evidence, source keys, contact data, entity labels or money fields", async () => {
     const result = await getBusinessAutomationEffectiveness(pool, { businessId: B1, branchId: BR1, now: NOW });
     const serialized = JSON.stringify(result);
-    for (const forbidden of ["evidence", "sourceKey", "source_key", "phone", "email", "entityLabel", "Minor", "minor"]) {
+    for (const forbidden of ["evidence", "sourceKey", "source_key", "phone", "email", "entityLabel", "Minor", "minor", "patch", "enabledValue", "newThreshold"]) {
       expect(serialized).not.toContain(forbidden);
     }
   });
@@ -185,7 +189,7 @@ async function seed() {
     [P1,P2,PZERO,POTHER,B1,BR1,USER,BR2]);
 
   const tasks = [
-    { policy: P1, run: "91000000-0000-4000-8000-000000000101", action: "91000000-0000-4000-8000-000000000201", created: "2026-10-25T04:00:00Z", completed: "2026-10-25T06:00:00Z", status: "DONE", outcome: "RESOLVED" },
+    { policy: P1, run: "91000000-0000-4000-8000-000000000101", action: "91000000-0000-4000-8000-000000000201", created: "2026-10-25T04:00:00Z", completed: "2026-10-25T06:00:00Z", status: "DONE", outcome: "NOT_RELEVANT" },
     { policy: P1, run: "91000000-0000-4000-8000-000000000102", action: "91000000-0000-4000-8000-000000000202", created: "2026-10-25T06:00:00Z", completed: "2026-10-25T12:00:00Z", status: "DONE", outcome: "NOT_RELEVANT" },
     { policy: P1, run: "91000000-0000-4000-8000-000000000103", action: "91000000-0000-4000-8000-000000000203", created: "2026-10-25T10:00:00Z", completed: null, status: "OPEN", outcome: null },
     { policy: P2, run: "91000000-0000-4000-8000-000000000104", action: "91000000-0000-4000-8000-000000000204", created: "2026-10-24T10:00:00Z", completed: null, status: "SNOOZED", outcome: null },

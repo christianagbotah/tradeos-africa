@@ -25,6 +25,15 @@ describe("business automation effectiveness contract", () => {
         notRelevant: 1,
         noActionNeeded: 1,
       },
+      tuningRecommendations: [{
+        policyId: "00000000-0000-4000-8000-000000000003",
+        kind: "HIGH_NEGATIVE_OUTCOMES",
+        priority: "HIGH",
+        focus: "TRIGGER",
+        title: "Review Inventory health review trigger quality",
+        summary: "Review the trigger conditions.",
+        rationale: "2 low-value outcomes versus 1 relevant outcome in the last 30 days.",
+      }],
       policies: [{
         policyId: "00000000-0000-4000-8000-000000000003",
         name: "Inventory health review",
@@ -45,5 +54,6 @@ describe("business automation effectiveness contract", () => {
 
     expect(value.windowDays).toBe(30);
     expect(value.policies[0]?.policyId).toBeTruthy();
+    expect(value.tuningRecommendations[0]?.kind).toBe("HIGH_NEGATIVE_OUTCOMES");
   });
 });
