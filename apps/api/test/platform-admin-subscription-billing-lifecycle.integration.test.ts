@@ -101,6 +101,25 @@ describe("subscription billing lifecycle invoice issuance", () => {
     expect(await tenantLedgerCounts()).toEqual(before);
   });
 
+  it("rejects invoice issuance when business scope does not own the subscription", async () => {
+    const fixture = await seedActiveSubscription(12500, "GHS");
+    const foreign = await seedActiveSubscription(12500, "GHS");
+    const module = await import("../src/platform-admin/subscription-billing-lifecycle-service.js");
+    const client = await pool.connect();
+    try {
+      await expect(module.issueSubscriptionPeriodInvoice(client, {
+        businessId: foreign.businessId,
+        subscriptionId: fixture.subscriptionId,
+        currencyCode: "GHS",
+        amountMinor: 12500,
+        periodStart: PERIOD_START,
+        periodEnd: PERIOD_END,
+        now: NOW,
+      })).rejects.toMatchObject({ code: "ADMIN_INVOICE_SCOPE_MISMATCH" });
+    } finally { client.release(); }
+    expect(await invoiceCount(fixture.subscriptionId)).toBe(0);
+  });
+
   it("leaves a future trial untouched and converts an expired trial from its exact trial boundary", async () => {
     const module = await import("../src/platform-admin/subscription-billing-lifecycle-service.js");
     const future = await seedSubscription({ interval: "MONTHLY", status: "TRIALING", trialEndsAt: new Date("2026-10-28T00:00:00.000Z") });
@@ -193,6 +212,27 @@ describe("subscription billing lifecycle invoice issuance", () => {
     expect((await subscriptionState(billable.subscriptionId)).status).toBe("ACTIVE");
   });
 
+  it("evaluates standing at processing time rather than a stale provider event timestamp", async () => {
+    const module = await import("../src/platform-admin/subscription-billing-lifecycle-service.js");
+    const billable = await seedSubscription({ interval: "MONTHLY", status: "ACTIVE", periodStart: PERIOD_START, periodEnd: PERIOD_END });
+    const client = await pool.connect();
+    let invoiceId: string;
+    try {
+      invoiceId = (await module.issueSubscriptionPeriodInvoice(client, {
+        businessId: billable.businessId, subscriptionId: billable.subscriptionId, currencyCode: "GHS", amountMinor: 12500,
+        periodStart: PERIOD_START, periodEnd: PERIOD_END, now: new Date("2026-10-01T08:00:00.000Z"),
+      })).invoiceId;
+      expect(await module.refreshSubscriptionStanding(client, billable.subscriptionId, NOW)).toBe("PAST_DUE");
+    } finally { client.release(); }
+
+    await recordProviderPayment(pool, {
+      businessId: billable.businessId, invoiceId, amountMinor: 1000, currencyCode: "GHS", method: "MOMO", provider: "TESTPAY",
+      providerEventReference: "evt-stale-standing", providerTransactionReference: "txn-stale-standing", status: "SUCCEEDED",
+      receivedAt: "2026-10-02T08:00:00.000Z",
+    });
+    expect((await subscriptionState(billable.subscriptionId)).status).toBe("PAST_DUE");
+  });
+
   it("marks a subscription past due immediately when a successful refund reopens an overdue balance", async () => {
     const module = await import("../src/platform-admin/subscription-billing-lifecycle-service.js");
     const billable = await seedSubscription({ interval: "MONTHLY", status: "ACTIVE", periodStart: PERIOD_START, periodEnd: PERIOD_END });
@@ -215,7 +255,7 @@ describe("subscription billing lifecycle invoice issuance", () => {
     await recordProviderRefund(pool, {
       businessId: billable.businessId, paymentId: payment.id, amountMinor: 2500, currencyCode: "GHS", provider: "TESTPAY",
       providerEventReference: "evt-refund-standing", providerRefundReference: "refund-standing", status: "SUCCEEDED",
-      requestedAt: NOW.toISOString(), completedAt: NOW.toISOString(),
+      requestedAt: "2026-10-02T08:00:00.000Z", completedAt: "2026-10-02T08:00:00.000Z",
     });
     expect((await subscriptionState(billable.subscriptionId)).status).toBe("PAST_DUE");
   });

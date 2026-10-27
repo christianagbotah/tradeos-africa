@@ -123,7 +123,7 @@ export async function recordProviderPayment(pool: DatabasePool, input: ProviderP
     );
     const id = inserted.rows[0]!.id;
     const subscriptionId = await recomputeInvoice(client, invoice.id);
-    await refreshSubscriptionStanding(client, subscriptionId, next.receivedAt);
+    await refreshSubscriptionStanding(client, subscriptionId, await billingStandingNow(client));
     await writeAudit(client, null, next.businessId, "SUBSCRIPTION_PAYMENT_RECORDED", "SUBSCRIPTION_PAYMENT", id,
       "Verified provider payment event recorded", {
         provider: next.provider, providerEventReference: next.providerEventReference,
@@ -168,7 +168,7 @@ export async function recordProviderRefund(pool: DatabasePool, input: ProviderRe
     if (next.status === "SUCCEEDED") {
       await refreshPaymentRefundStatus(client, payment.id);
       const subscriptionId = await recomputeInvoice(client, payment.invoice_id);
-      await refreshSubscriptionStanding(client, subscriptionId, next.completedAt ?? new Date());
+      await refreshSubscriptionStanding(client, subscriptionId, await billingStandingNow(client));
     }
     await writeAudit(client, null, next.businessId, "SUBSCRIPTION_REFUND_RECORDED", "SUBSCRIPTION_PAYMENT_REFUND", id,
       "Verified provider refund event recorded", {
@@ -210,7 +210,7 @@ export async function reconcilePayment(
        WHERE id=$1`, [paymentId,status],
     );
     const subscriptionId = await recomputeInvoice(client, current.invoice_id);
-    await refreshSubscriptionStanding(client, subscriptionId, new Date());
+    await refreshSubscriptionStanding(client, subscriptionId, await billingStandingNow(client));
     await writeAudit(client, actor.id, current.business_id, "SUBSCRIPTION_PAYMENT_RECONCILED", "SUBSCRIPTION_PAYMENT", paymentId, reason, {
       previous: { status: current.status }, next: { status },
     });
@@ -447,6 +447,15 @@ function requireWriteRole(actor: PlatformAdminContext): void {
 function requireUuid(value: unknown,code:string,message:string): string {
   if (typeof value !== "string" || !UUID.test(value)) throw new PlatformAdminError(message,404,code); return value;
 }
+async function billingStandingNow(client: DatabaseClient): Promise<Date> {
+  const result = await client.query<{ evaluated_at: Date }>("SELECT clock_timestamp() AS evaluated_at");
+  const now = result.rows[0]?.evaluated_at;
+  if (!now || !Number.isFinite(now.getTime())) {
+    throw new PlatformAdminError("Billing evaluation time is unavailable", 500, "ADMIN_BILLING_TIME_UNAVAILABLE");
+  }
+  return now;
+}
+
 function safeMinor(value: string | number): number {
   const parsed=typeof value === "number" ? value : Number(value);
   if (!Number.isSafeInteger(parsed)) throw new PlatformAdminError("Billing amount exceeds supported range",500,"ADMIN_BILLING_AMOUNT_OVERFLOW");

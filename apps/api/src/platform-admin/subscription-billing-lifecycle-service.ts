@@ -18,6 +18,17 @@ export async function issueSubscriptionPeriodInvoice(
   input: SubscriptionPeriodInvoiceInput,
 ): Promise<{ invoiceId: string; created: boolean }> {
   assertInvoiceInput(input);
+  const scope = await client.query<{ business_id: string }>(
+    `SELECT business_id FROM business_subscriptions WHERE id=$1`,
+    [input.subscriptionId],
+  );
+  if (scope.rows[0]?.business_id !== input.businessId) {
+    throw new PlatformAdminError(
+      "Subscription invoice scope does not match the authorized business",
+      409,
+      "ADMIN_INVOICE_SCOPE_MISMATCH",
+    );
+  }
   const invoiceId = randomUUID();
   const invoiceNumber = `TOS-${dateStamp(input.now)}-${invoiceId.replaceAll("-", "").slice(0, 8).toUpperCase()}`;
   const dueAt = new Date(input.now.getTime() + (input.dueDays ?? 7) * 86_400_000);

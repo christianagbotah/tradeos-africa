@@ -118,7 +118,7 @@
 
 - [ ] **Step 3: Wire standing refresh after invoice recomputation**
   - Resolve invoice -> subscription id transactionally.
-  - Use the payment/refund/reconcile event timestamp where authoritative; otherwise database/current time.
+  - Evaluate current ACTIVE/PAST_DUE standing with the database processing clock; provider event timestamps remain immutable event history and must not rewind current standing.
   - Never restore PAUSED/CANCELED/TRIALING through this helper.
 
 - [ ] **Step 4: Run billing + lifecycle suites and API typecheck GREEN**
