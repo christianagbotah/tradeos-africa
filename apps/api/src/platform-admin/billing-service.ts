@@ -9,6 +9,7 @@ import type {
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 import { PlatformAdminError, type PlatformAdminContext } from "./security.js";
+import { refreshSubscriptionStanding } from "./subscription-billing-lifecycle-service.js";
 
 const WRITE_ROLES = new Set(["SUPER_ADMIN", "PLATFORM_ADMIN", "BILLING"]);
 const PAYMENT_STATUSES = new Set<AdminSubscriptionPaymentStatus>([
@@ -121,7 +122,8 @@ export async function recordProviderPayment(pool: DatabasePool, input: ProviderP
        next.providerTransactionReference,next.status,next.failureCode,next.failureMessage,next.receivedAt],
     );
     const id = inserted.rows[0]!.id;
-    await recomputeInvoice(client, invoice.id);
+    const subscriptionId = await recomputeInvoice(client, invoice.id);
+    await refreshSubscriptionStanding(client, subscriptionId, next.receivedAt);
     await writeAudit(client, null, next.businessId, "SUBSCRIPTION_PAYMENT_RECORDED", "SUBSCRIPTION_PAYMENT", id,
       "Verified provider payment event recorded", {
         provider: next.provider, providerEventReference: next.providerEventReference,
@@ -165,7 +167,8 @@ export async function recordProviderRefund(pool: DatabasePool, input: ProviderRe
     const id = inserted.rows[0]!.id;
     if (next.status === "SUCCEEDED") {
       await refreshPaymentRefundStatus(client, payment.id);
-      await recomputeInvoice(client, payment.invoice_id);
+      const subscriptionId = await recomputeInvoice(client, payment.invoice_id);
+      await refreshSubscriptionStanding(client, subscriptionId, next.completedAt ?? new Date());
     }
     await writeAudit(client, null, next.businessId, "SUBSCRIPTION_REFUND_RECORDED", "SUBSCRIPTION_PAYMENT_REFUND", id,
       "Verified provider refund event recorded", {
@@ -206,7 +209,8 @@ export async function reconcilePayment(
        SET status=$2,reconciled_at=now(),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond')
        WHERE id=$1`, [paymentId,status],
     );
-    await recomputeInvoice(client, current.invoice_id);
+    const subscriptionId = await recomputeInvoice(client, current.invoice_id);
+    await refreshSubscriptionStanding(client, subscriptionId, new Date());
     await writeAudit(client, actor.id, current.business_id, "SUBSCRIPTION_PAYMENT_RECONCILED", "SUBSCRIPTION_PAYMENT", paymentId, reason, {
       previous: { status: current.status }, next: { status },
     });
@@ -278,9 +282,9 @@ async function refreshPaymentRefundStatus(client: DatabaseClient, paymentId: str
   );
 }
 
-async function recomputeInvoice(client: DatabaseClient, invoiceId: string): Promise<void> {
-  const invoiceResult = await client.query<{ total_minor: string | number; status: AdminSubscriptionInvoiceStatus }>(
-    "SELECT total_minor,status FROM subscription_invoices WHERE id=$1 FOR UPDATE", [invoiceId],
+async function recomputeInvoice(client: DatabaseClient, invoiceId: string): Promise<string> {
+  const invoiceResult = await client.query<{ total_minor: string | number; status: AdminSubscriptionInvoiceStatus; subscription_id: string }>(
+    "SELECT total_minor,status,subscription_id FROM subscription_invoices WHERE id=$1 FOR UPDATE", [invoiceId],
   );
   const invoice = invoiceResult.rows[0];
   if (!invoice) throw new PlatformAdminError("Invoice was not found", 404, "ADMIN_INVOICE_NOT_FOUND");
@@ -313,6 +317,7 @@ async function recomputeInvoice(client: DatabaseClient, invoiceId: string): Prom
          updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond')
      WHERE id=$1`, [invoiceId,net,status],
   );
+  return invoice.subscription_id;
 }
 
 function assertInvoiceMatchesPayment(invoice: LockedInvoice, input: ReturnType<typeof parsePaymentInput>): void {

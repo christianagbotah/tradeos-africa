@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { applyMigrations } from "../src/migrations/migration-runner.js";
+import { recordProviderPayment, recordProviderRefund } from "../src/platform-admin/billing-service.js";
 
 const { Pool } = pg;
 const baseDatabaseUrl = process.env.DATABASE_URL ?? "postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci";
@@ -163,6 +164,60 @@ describe("subscription billing lifecycle invoice issuance", () => {
       await client.query(`UPDATE subscription_invoices SET amount_paid_minor=total_minor,status='PAID' WHERE id=$1`, [issued.invoiceId]);
       expect(await module.refreshSubscriptionStanding(client, billable.subscriptionId, NOW)).toBe("ACTIVE");
     } finally { client.release(); }
+  });
+
+  it("updates overdue subscription standing immediately after successful provider payments while partial payment stays past due", async () => {
+    const module = await import("../src/platform-admin/subscription-billing-lifecycle-service.js");
+    const billable = await seedSubscription({ interval: "MONTHLY", status: "ACTIVE", periodStart: PERIOD_START, periodEnd: PERIOD_END });
+    const client = await pool.connect();
+    let invoiceId: string;
+    try {
+      const issued = await module.issueSubscriptionPeriodInvoice(client, {
+        businessId: billable.businessId, subscriptionId: billable.subscriptionId, currencyCode: "GHS", amountMinor: 12500,
+        periodStart: PERIOD_START, periodEnd: PERIOD_END, now: new Date("2026-10-01T08:00:00.000Z"),
+      });
+      invoiceId = issued.invoiceId;
+      expect(await module.refreshSubscriptionStanding(client, billable.subscriptionId, NOW)).toBe("PAST_DUE");
+    } finally { client.release(); }
+
+    await recordProviderPayment(pool, {
+      businessId: billable.businessId, invoiceId, amountMinor: 5000, currencyCode: "GHS", method: "MOMO", provider: "TESTPAY",
+      providerEventReference: "evt-standing-partial", providerTransactionReference: "txn-standing-partial", status: "SUCCEEDED", receivedAt: NOW.toISOString(),
+    });
+    expect((await subscriptionState(billable.subscriptionId)).status).toBe("PAST_DUE");
+
+    await recordProviderPayment(pool, {
+      businessId: billable.businessId, invoiceId, amountMinor: 7500, currencyCode: "GHS", method: "MOMO", provider: "TESTPAY",
+      providerEventReference: "evt-standing-full", providerTransactionReference: "txn-standing-full", status: "SUCCEEDED", receivedAt: NOW.toISOString(),
+    });
+    expect((await subscriptionState(billable.subscriptionId)).status).toBe("ACTIVE");
+  });
+
+  it("marks a subscription past due immediately when a successful refund reopens an overdue balance", async () => {
+    const module = await import("../src/platform-admin/subscription-billing-lifecycle-service.js");
+    const billable = await seedSubscription({ interval: "MONTHLY", status: "ACTIVE", periodStart: PERIOD_START, periodEnd: PERIOD_END });
+    const client = await pool.connect();
+    let invoiceId: string;
+    try {
+      invoiceId = (await module.issueSubscriptionPeriodInvoice(client, {
+        businessId: billable.businessId, subscriptionId: billable.subscriptionId, currencyCode: "GHS", amountMinor: 12500,
+        periodStart: PERIOD_START, periodEnd: PERIOD_END, now: new Date("2026-10-01T08:00:00.000Z"),
+      })).invoiceId;
+    } finally { client.release(); }
+    const payment = await recordProviderPayment(pool, {
+      businessId: billable.businessId, invoiceId, amountMinor: 12500, currencyCode: "GHS", method: "MOMO", provider: "TESTPAY",
+      providerEventReference: "evt-refund-base", providerTransactionReference: "txn-refund-base", status: "SUCCEEDED", receivedAt: NOW.toISOString(),
+    });
+    const client2 = await pool.connect();
+    try { expect(await module.refreshSubscriptionStanding(client2, billable.subscriptionId, NOW)).toBe("ACTIVE"); }
+    finally { client2.release(); }
+
+    await recordProviderRefund(pool, {
+      businessId: billable.businessId, paymentId: payment.id, amountMinor: 2500, currencyCode: "GHS", provider: "TESTPAY",
+      providerEventReference: "evt-refund-standing", providerRefundReference: "refund-standing", status: "SUCCEEDED",
+      requestedAt: NOW.toISOString(), completedAt: NOW.toISOString(),
+    });
+    expect((await subscriptionState(billable.subscriptionId)).status).toBe("PAST_DUE");
   });
 
   it("caps delayed renewal catch-up and isolates a malformed subscription from other tenants", async () => {

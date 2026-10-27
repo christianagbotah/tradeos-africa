@@ -188,6 +188,25 @@ describe("System Admin SaaS billing ledger", () => {
     ]));
   });
 
+  it("restores a past-due subscription immediately when a pending payment is reconciled successful", async () => {
+    const fixture = await seedInvoice(7500);
+    await pool.query(`UPDATE business_subscriptions SET status='PAST_DUE' WHERE id=$1`, [fixture.subscriptionId]);
+    await pool.query(`UPDATE subscription_invoices SET due_at=now()-interval '1 day' WHERE id=$1`, [fixture.invoiceId]);
+    const payment = await recordProviderPayment(pool, {
+      businessId: fixture.businessId, invoiceId: fixture.invoiceId, amountMinor: 7500, currencyCode: "GHS", method: "MOMO",
+      provider: "TESTPAY", providerEventReference: "evt-reconcile-standing", providerTransactionReference: "txn-reconcile-standing",
+      status: "PENDING", receivedAt: "2026-10-16T04:00:00.000Z",
+    });
+    const billingCookie = await adminCookieFor("billing-standing@tradeos.test", "BILLING");
+    const response = await app.inject({
+      method: "POST", url: `/api/admin/billing/payments/${payment.id}/reconcile`, headers: jsonHeaders(billingCookie),
+      payload: { status: "SUCCEEDED", reason: "Provider settlement confirmed" },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const state = await pool.query<{ status: string }>(`SELECT status FROM business_subscriptions WHERE id=$1`, [fixture.subscriptionId]);
+    expect(state.rows[0]?.status).toBe("ACTIVE");
+  });
+
   it("rejects divergent provider replays instead of silently changing money", async () => {
     const fixture = await seedInvoice(5000);
     await recordProviderPayment(pool, {
