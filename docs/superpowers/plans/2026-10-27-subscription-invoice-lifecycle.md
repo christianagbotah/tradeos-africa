@@ -33,7 +33,7 @@
 ### Task 1: Invoice period uniqueness and base issuance
 
 **Files:**
-- Create: `packages/db/migrations/0025_subscription_invoice_period_uniqueness.sql`
+- Create: `packages/db/migrations/0027_subscription_invoice_period_uniqueness.sql`
 - Create: `apps/api/src/platform-admin/subscription-billing-lifecycle-service.ts`
 - Create: `apps/api/test/platform-admin-subscription-billing-lifecycle.integration.test.ts`
 

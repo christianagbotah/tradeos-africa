@@ -46,7 +46,7 @@ This would mean a tenant has no authoritative bill until someone opens checkout 
 
 ## Data model
 
-Add migration `0025_subscription_invoice_period_uniqueness.sql`:
+Add migration `0027_subscription_invoice_period_uniqueness.sql`:
 
 - unique index on `(subscription_id, period_start, period_end)` for non-VOID invoices;
 - index supporting overdue-standing scans by `subscription_id,status,due_at`.
