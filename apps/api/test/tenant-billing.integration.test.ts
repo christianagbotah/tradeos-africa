@@ -137,6 +137,35 @@ describe("tenant billing read service", () => {
     expect(audits.rows[0]?.count).toBe(1);
   });
 
+  it("drives the automated billing lifecycle from tenant cancellation and resume decisions", async () => {
+    const lifecycle = await import("../src/platform-admin/subscription-billing-lifecycle-service.js");
+    const boundary = new Date("2026-11-01T00:01:00.000Z");
+
+    await transitionTenantSubscription(pool, { businessId: B1, role: "OWNER", staffId: OWNER_STAFF }, "CANCEL_AT_PERIOD_END");
+    const canceledCycle = await lifecycle.processSubscriptionBillingCycle(pool, { now: boundary });
+    expect(canceledCycle.canceled).toBe(1);
+    expect(await invoiceCountForSubscription(SUB1)).toBe(1);
+    expect(await subscriptionLifecycleState(SUB1)).toMatchObject({
+      status: "CANCELED",
+      cancel_at_period_end: false,
+      current_period_ends_at: new Date("2026-11-01T00:00:00.000Z"),
+    });
+
+    await pool.query("TRUNCATE TABLE subscription_plans,businesses CASCADE");
+    await seed();
+    await transitionTenantSubscription(pool, { businessId: B1, role: "OWNER", staffId: OWNER_STAFF }, "CANCEL_AT_PERIOD_END");
+    await transitionTenantSubscription(pool, { businessId: B1, role: "OWNER", staffId: OWNER_STAFF }, "RESUME");
+    const resumedCycle = await lifecycle.processSubscriptionBillingCycle(pool, { now: boundary });
+    expect(resumedCycle.renewed).toBeGreaterThanOrEqual(1);
+    expect(resumedCycle.canceled).toBe(0);
+    expect(await invoiceCountForSubscription(SUB1)).toBe(2);
+    expect(await subscriptionLifecycleState(SUB1)).toMatchObject({
+      cancel_at_period_end: false,
+      current_period_starts_at: new Date("2026-11-01T00:00:00.000Z"),
+      current_period_ends_at: new Date("2026-12-01T00:00:00.000Z"),
+    });
+  });
+
   it("fails closed on invalid resume and leaves billing/economic ledgers and plan assignment unchanged", async () => {
     const before = await invariantCounts();
     await expect(transitionTenantSubscription(pool, { businessId: B1, role: "OWNER", staffId: OWNER_STAFF }, "RESUME"))
@@ -149,6 +178,25 @@ describe("tenant billing read service", () => {
     expect(sub.rows[0]).toEqual({ plan_id: PLAN_BASIC, status: "ACTIVE", cancel_at_period_end: false });
   });
 });
+
+async function invoiceCountForSubscription(subscriptionId: string): Promise<number> {
+  const result = await pool.query<{ count: number }>(
+    `SELECT count(*)::int AS count FROM subscription_invoices WHERE subscription_id=$1`,
+    [subscriptionId],
+  );
+  return result.rows[0]?.count ?? 0;
+}
+
+async function subscriptionLifecycleState(subscriptionId: string) {
+  const result = await pool.query<{
+    status: string; cancel_at_period_end: boolean; current_period_starts_at: Date | null; current_period_ends_at: Date | null;
+  }>(
+    `SELECT status,cancel_at_period_end,current_period_starts_at,current_period_ends_at
+     FROM business_subscriptions WHERE id=$1`,
+    [subscriptionId],
+  );
+  return result.rows[0]!;
+}
 
 async function invariantCounts() {
   const result = await pool.query<Record<string, number>>(`SELECT
