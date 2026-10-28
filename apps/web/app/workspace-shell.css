@@ -8738,3 +8738,182 @@
     flex: 1 1 auto;
   }
 }
+
+/* Tenant billing & subscription settings */
+.tos-billing-settings {
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.tos-billing-settings__header,
+.tos-billing-settings__section-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tos-billing-settings__header h2,
+.tos-billing-settings__section-head h2,
+.tos-billing-settings__section-head h3 {
+  margin: 4px 0 0;
+}
+
+.tos-billing-settings__header p {
+  max-width: 680px;
+  margin: 4px 0 0;
+  color: var(--tos-text-muted);
+  line-height: 1.55;
+}
+
+.tos-billing-settings__status {
+  flex: 0 0 auto;
+  border: 1px solid var(--tos-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--tos-surface-soft);
+}
+
+.tos-billing-settings__summary-grid,
+.tos-billing-settings__plans {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.tos-billing-settings__fact,
+.tos-billing-settings__plan,
+.tos-billing-settings__entitlement {
+  min-width: 0;
+  border: 1px solid var(--tos-border);
+  border-radius: 14px;
+  background: var(--tos-surface-soft);
+}
+
+.tos-billing-settings__fact {
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.tos-billing-settings__fact span,
+.tos-billing-settings__plan span,
+.tos-billing-settings__history-row span,
+.tos-billing-settings__entitlement span {
+  color: var(--tos-text-muted);
+  font-size: 12px;
+}
+
+.tos-billing-settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.tos-billing-settings__entitlements {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.tos-billing-settings__entitlement {
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.tos-billing-settings__plan {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.tos-billing-settings__plan > div {
+  display: grid;
+  gap: 4px;
+}
+
+.tos-billing-settings__plan b small {
+  font-weight: 500;
+  color: var(--tos-text-muted);
+}
+
+.tos-billing-settings__plan em {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  background: var(--tos-surface-raised);
+}
+
+.tos-billing-settings__history {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tos-billing-settings__history-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(100px, .7fr) minmax(130px, .9fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--tos-border);
+  border-radius: 12px;
+  padding: 11px 12px;
+}
+
+.tos-billing-settings__history-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.tos-billing-settings__history-row strong,
+.tos-billing-settings__history-row span {
+  overflow-wrap: break-word;
+}
+
+.tos-billing-settings__amount {
+  text-align: right;
+}
+
+@media (max-width: 768px) {
+  .tos-billing-settings__plans,
+  .tos-billing-settings__summary-grid,
+  .tos-billing-settings__entitlements {
+    grid-template-columns: 1fr;
+  }
+
+  .tos-billing-settings__header,
+  .tos-billing-settings__section-head {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 420px) {
+  .tos-billing-settings__history-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tos-billing-settings__amount {
+    text-align: left;
+  }
+
+  .tos-billing-settings__actions > * {
+    width: 100%;
+  }
+}

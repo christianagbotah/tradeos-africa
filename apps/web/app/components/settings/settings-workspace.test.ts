@@ -28,6 +28,7 @@ describe("settings navigation model", () => {
       "business",
       "branches",
       "team",
+      "billing",
       "devices",
     ]);
     expect(normalizeSettingsSection("security")).toBe("security");
@@ -187,7 +188,7 @@ describe("settings production contract", () => {
   });
 
   it("renders Profile, Security, Business, Branches, Team and Devices as responsive sections", () => {
-    for (const label of ["My Profile", "Security", "Business", "Branches", "Team & access", "Devices & sessions"]) {
+    for (const label of ["My Profile", "Security", "Business", "Branches", "Team & access", "Billing & subscription", "Devices & sessions"]) {
       expect(workspaceSource).toContain(label);
     }
     expect(workspaceSource).toContain("tos-settings");
