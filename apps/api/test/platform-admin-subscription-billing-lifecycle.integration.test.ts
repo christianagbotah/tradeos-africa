@@ -276,6 +276,12 @@ describe("subscription billing lifecycle invoice issuance", () => {
     expect(await invoiceCount(old.subscriptionId)).toBe(13);
   });
 
+  it("rejects catch-up overrides above the hard 12-period safety cap", async () => {
+    const module = await import("../src/platform-admin/subscription-billing-lifecycle-service.js");
+    await expect(module.processSubscriptionBillingCycle(pool, { now: NOW, maxCatchUpPeriods: 13 }))
+      .rejects.toMatchObject({ code: "ADMIN_BILLING_CATCHUP_INVALID" });
+  });
+
 });
 
 

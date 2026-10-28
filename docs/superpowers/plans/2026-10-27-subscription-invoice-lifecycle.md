@@ -175,4 +175,3 @@
   - Keep the larger tenant-AI PR to `main` draft.
 
 - [ ] **Step 5: Require fresh GitHub CI + Visual QA on exact head before integrating the sub-PR**
-

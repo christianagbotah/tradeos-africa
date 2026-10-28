@@ -176,7 +176,7 @@ export async function processSubscriptionBillingCycle(
   if (!Number.isFinite(now.getTime())) {
     throw new PlatformAdminError("Billing cycle time is invalid", 400, "ADMIN_BILLING_CYCLE_TIME_INVALID");
   }
-  if (!Number.isInteger(maxCatchUpPeriods) || maxCatchUpPeriods < 1 || maxCatchUpPeriods > 120) {
+  if (!Number.isInteger(maxCatchUpPeriods) || maxCatchUpPeriods < 1 || maxCatchUpPeriods > 12) {
     throw new PlatformAdminError("Billing catch-up limit is invalid", 400, "ADMIN_BILLING_CATCHUP_INVALID");
   }
 
