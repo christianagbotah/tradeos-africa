@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createPool } from "../src/db.js";
+import { getCashForecastReport } from "../src/cash-forecast.js";
 
 process.env.DATABASE_URL ??= "postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci";
 const pool = createPool();
@@ -12,6 +13,28 @@ beforeEach(async () => { await pool.query("TRUNCATE TABLE app_users,businesses C
 afterAll(async () => { await app.close(); await pool.end(); });
 
 describe("cash forecast report", () => {
+  it("exposes the canonical forecast as a reusable service", async () => {
+    const owner = await register("forecast-service@tradeos.test", "forecast-service-device");
+    const business = await createBusiness(owner.accessToken, "Service Forecast");
+
+    const report = await getCashForecastReport(pool, {
+      businessId: business.businessId,
+      branchId: business.branchId,
+      horizonDays: 2,
+      generatedAt: new Date(),
+    });
+
+    expect(report).toMatchObject({
+      businessId: business.businessId,
+      branchId: business.branchId,
+      currencyCode: "GHS",
+      timezone: "Africa/Accra",
+      horizonDays: 2,
+      summary: { openingCashMinor: 0, projectedClosingCashMinor: 0, firstNegativeCashDate: null },
+      confidence: { level: "LOW", historyDaysAvailable: 0 },
+    });
+    expect(report.days).toHaveLength(2);
+  });
   it("returns a flat LOW-confidence forecast and validates horizon, branch and report roles", async () => {
     const owner = await register("forecast-empty@tradeos.test", "forecast-empty-device");
     const business = await createBusiness(owner.accessToken, "Empty Forecast");

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
+import { ContextualIntelligencePanel } from "../intelligence/contextual-intelligence-panel";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { SupplierSheet, SupplierFormSheet, type Supplier } from "./supplier-sheet";
 import { PurchaseReceiptBuilder } from "./purchase-receipt-builder";
@@ -309,6 +310,8 @@ export function SupplierWorkspace() {
       </header>
 
       {/* KPI strip — 4-up desktop / 2x2 mobile */}
+      <ContextualIntelligencePanel surface="purchases" />
+
       <div className="tos-dashboard-stats tos-stagger">
         <StatCard
           label="Total payable"
