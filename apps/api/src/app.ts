@@ -1,3 +1,4 @@
+import { registerBusinessIntelligenceRoutes } from "./business-intelligence/routes.js";
 import { registerCashForecastRoutes } from "./cash-forecast.js";
 import { registerReportRoutes } from "./reports.js";
 import { registerOperationsRoutes } from "./operations.js";
@@ -67,6 +68,7 @@ export function buildApp(pool: DatabasePool) {
   registerTreasuryRoutes(app,pool);
   registerReportRoutes(app,pool);
   registerCashForecastRoutes(app,pool);
+  registerBusinessIntelligenceRoutes(app, pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
     try {

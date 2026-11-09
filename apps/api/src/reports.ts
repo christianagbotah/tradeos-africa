@@ -22,7 +22,7 @@ const MAX_RANGE_MS = 366 * 24 * 60 * 60 * 1000;
 
 type Query = { businessId?: string; branchId?: string; from?: string; to?: string; range?: string };
 
-class ReportError extends Error {
+export class ReportError extends Error {
   constructor(message: string, readonly code = "REPORT_INVALID", readonly statusCode = 400) { super(message); }
 }
 
@@ -33,48 +33,7 @@ export function registerReportRoutes(app: FastifyInstance, pool: DatabasePool): 
       const businessId = uuid(request.query.businessId, "businessId");
       const branchId = request.query.branchId ? uuid(request.query.branchId, "branchId") : null;
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
-      const report = await withTransaction(pool, async client => {
-        await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
-        const scope = await loadScope(client, businessId, branchId);
-        const { from, to } = await resolveReportRange(client, request.query, scope.timezone);
-        const duration = to.getTime() - from.getTime();
-        if (duration <= 0) throw new ReportError("to must be later than from");
-        if (duration > MAX_RANGE_MS) throw new ReportError("Report range may not exceed 366 days");
-        const previousTo = from;
-        const previousFrom = new Date(from.getTime() - duration);
-        // Keep every report query on the same repeatable-read snapshot. node-postgres clients do not
-        // support concurrent queries; sequential reads are deterministic and avoid pg@9 breakage.
-        const flow = await loadFlow(client, businessId, branchId, from, to);
-        const previousFlow = await loadFlow(client, businessId, branchId, previousFrom, previousTo);
-        const position = await loadPosition(client, businessId, branchId, to, true);
-        const previousPoint = await loadPosition(client, businessId, branchId, previousTo, false);
-        const daily = await loadDaily(client, businessId, branchId, from, to, scope.timezone);
-        const branches = await loadBranches(client, businessId, branchId, from, to);
-        const topItems = await loadTopItems(client, businessId, branchId, from, to);
-        const comparison = compareFlows(flow, previousFlow);
-        const basis: Omit<FinancialSummaryReport, "health"> = {
-          businessId,
-          branchId,
-          currencyCode: scope.currencyCode,
-          period: { from: from.toISOString(), to: to.toISOString(), timezone: scope.timezone },
-          previousPeriod: { from: previousFrom.toISOString(), to: previousTo.toISOString(), timezone: scope.timezone },
-          flow,
-          previousFlow,
-          comparison,
-          position,
-          previousPosition: {
-            cashBalanceMinor: previousPoint.cashBalanceMinor,
-            receivablesMinor: previousPoint.receivablesMinor,
-            customerCreditBalanceMinor: previousPoint.customerCreditBalanceMinor,
-            payablesMinor: previousPoint.payablesMinor,
-            supplierCreditBalanceMinor: previousPoint.supplierCreditBalanceMinor,
-          },
-          daily,
-          branches,
-          topItems,
-        };
-        return { ...basis, health: evaluateBusinessHealth(basis) } satisfies FinancialSummaryReport;
-      });
+      const report = await loadFinancialSummary(pool, businessId, branchId, request.query);
       // Additive compatibility envelope for the current Web preset-range reader.
       // Canonical report fields remain top-level; Z.ai Web can migrate to those without an API break.
       return request.query.range ? { ...report, summary: { flow: report.flow, position: report.position } } : report;
@@ -102,6 +61,57 @@ export function registerReportRoutes(app: FastifyInstance, pool: DatabasePool): 
       if (error instanceof ReportError || error instanceof AuthError) return reply.code(error.statusCode).send({ error: error.code, message: error.message });
       throw error;
     }
+  });
+}
+
+/** Reuse the canonical financial-report engine for business intelligence. No duplicate ledgers or formulas. */
+export async function loadFinancialSummary(
+  pool: DatabasePool,
+  businessId: string,
+  branchId: string | null,
+  query: Pick<Query, "range" | "from" | "to">,
+): Promise<FinancialSummaryReport> {
+  return withTransaction(pool, async client => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const scope = await loadScope(client, businessId, branchId);
+    const { from, to } = await resolveReportRange(client, query, scope.timezone);
+    const duration = to.getTime() - from.getTime();
+    if (duration <= 0) throw new ReportError("to must be later than from");
+    if (duration > MAX_RANGE_MS) throw new ReportError("Report range may not exceed 366 days");
+    const previousTo = from;
+    const previousFrom = new Date(from.getTime() - duration);
+    // Keep every report query on the same repeatable-read snapshot. node-postgres clients do not
+    // support concurrent queries; sequential reads are deterministic and avoid pg@9 breakage.
+    const flow = await loadFlow(client, businessId, branchId, from, to);
+    const previousFlow = await loadFlow(client, businessId, branchId, previousFrom, previousTo);
+    const position = await loadPosition(client, businessId, branchId, to, true);
+    const previousPoint = await loadPosition(client, businessId, branchId, previousTo, false);
+    const daily = await loadDaily(client, businessId, branchId, from, to, scope.timezone);
+    const branches = await loadBranches(client, businessId, branchId, from, to);
+    const topItems = await loadTopItems(client, businessId, branchId, from, to);
+    const comparison = compareFlows(flow, previousFlow);
+    const basis: Omit<FinancialSummaryReport, "health"> = {
+      businessId,
+      branchId,
+      currencyCode: scope.currencyCode,
+      period: { from: from.toISOString(), to: to.toISOString(), timezone: scope.timezone },
+      previousPeriod: { from: previousFrom.toISOString(), to: previousTo.toISOString(), timezone: scope.timezone },
+      flow,
+      previousFlow,
+      comparison,
+      position,
+      previousPosition: {
+        cashBalanceMinor: previousPoint.cashBalanceMinor,
+        receivablesMinor: previousPoint.receivablesMinor,
+        customerCreditBalanceMinor: previousPoint.customerCreditBalanceMinor,
+        payablesMinor: previousPoint.payablesMinor,
+        supplierCreditBalanceMinor: previousPoint.supplierCreditBalanceMinor,
+      },
+      daily,
+      branches,
+      topItems,
+    };
+    return { ...basis, health: evaluateBusinessHealth(basis) } satisfies FinancialSummaryReport;
   });
 }
 
