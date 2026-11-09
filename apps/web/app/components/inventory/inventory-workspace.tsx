@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { formatMoney } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
+import { ContextualIntelligencePanel } from "../intelligence/contextual-intelligence-panel";
 import { InventoryAdjustmentSheet } from "./inventory-adjustment-sheet";
 import { StatePanel } from "../ui/state-panel";
 import { Button } from "../ui/button";
@@ -141,6 +142,8 @@ export function InventoryWorkspace() {
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={handleRefresh}>Refresh</Button>
         </div>
       </header>
+
+      <ContextualIntelligencePanel surface="inventory" />
 
       {/* KPI strip — 4-up desktop / 2x2 mobile. */}
       <div className="tos-dashboard-stats tos-stagger">

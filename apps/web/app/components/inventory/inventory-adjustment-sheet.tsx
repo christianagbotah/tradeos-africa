@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
+import { EntityIntelligencePanel } from "../intelligence/entity-intelligence-panel";
 import { Button } from "../ui/button";
 import { IconClose, IconShield } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
@@ -212,6 +213,8 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
               hint={`${unitCode} · written off`}
             />
           </div>
+
+          <EntityIntelligencePanel entityType="CATALOG_ITEM" entityId={row.item.id} />
 
           {/* Reason — visual chip grid (accessible, aria-pressed) */}
           <div className="tos-field">

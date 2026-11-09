@@ -2,8 +2,10 @@
 
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { FinancialSummaryReport } from "@tradeos/contracts";
+import type { BusinessFinancialMetricKey, BusinessFinancialMetricRange, FinancialSummaryReport } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
+import { ContextualIntelligencePanel } from "../intelligence/contextual-intelligence-panel";
+import { FinancialMetricIntelligenceDrawer } from "../intelligence/financial-metric-intelligence-drawer";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyValue } from "../business/money-value";
 import { StatePanel } from "../ui/state-panel";
@@ -29,7 +31,7 @@ import {
 type FinancialFlow = FinancialSummaryReport["flow"];
 type FinancialPosition = FinancialSummaryReport["position"];
 
-type RangePreset = "today" | "week" | "month" | "quarter";
+type RangePreset = BusinessFinancialMetricRange;
 
 type HealthStatus = "positive" | "warning" | "danger";
 
@@ -153,6 +155,7 @@ function TrendChip({ valueMinor, currencyCode, label }: { valueMinor: number; cu
 export function FinancialReports() {
   const { session } = useWorkspace();
   const [range, setRange] = useState<RangePreset>("month");
+  const [selectedMetric, setSelectedMetric] = useState<BusinessFinancialMetricKey | null>(null);
 
   const path = session
     ? `/v1/reports/financial-summary?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&range=${range}`
@@ -197,6 +200,8 @@ export function FinancialReports() {
           <Button variant="outline" icon={<IconPrint className="tos-btn__icon" />} onClick={handlePrint} className="tos-report-print-btn" disabled={!flow}>Print</Button>
         </div>
       </header>
+
+      <ContextualIntelligencePanel surface="reports" />
 
       {/* Date preset chips */}
       <div className="tos-report-presets" role="tablist" aria-label="Report date range">
@@ -258,6 +263,9 @@ export function FinancialReports() {
                   className={flow.netRevenueMinor >= 0 ? "tos-report-exec__hero-val" : "tos-report-exec__hero-val tos-report-exec__hero-val--negative"}
                 />
                 <span className="tos-report-exec__hero-currency">{currencyCode}</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => setSelectedMetric("NET_REVENUE")}>
+                  Explain net revenue
+                </Button>
               </div>
               <p className="tos-report-exec__sub" style={{ position: "relative", zIndex: 1 }}>
                 {flow.operatingProfitMinor >= 0
@@ -316,6 +324,7 @@ export function FinancialReports() {
                 value={<MoneyValue minor={flow.grossProfitMinor} currencyCode={currencyCode} size="lg" tone={flow.grossProfitMinor >= 0 ? "positive" : "negative"} />}
                 hint={grossMargin !== null ? `Margin ${grossMargin.toFixed(1)}%` : "No revenue"}
                 trend={trendFor(flow.grossProfitMinor)}
+                onExplain={() => setSelectedMetric("GROSS_PROFIT")}
               />
               <ReportKpi
                 label="Operating profit"
@@ -323,12 +332,14 @@ export function FinancialReports() {
                 value={<MoneyValue minor={flow.operatingProfitMinor} currencyCode={currencyCode} size="lg" tone={flow.operatingProfitMinor >= 0 ? "positive" : "negative"} />}
                 hint={operatingMargin !== null ? `Op margin ${operatingMargin.toFixed(1)}%` : "No revenue"}
                 trend={trendFor(flow.operatingProfitMinor)}
+                onExplain={() => setSelectedMetric("OPERATING_PROFIT")}
               />
               <ReportKpi
                 label="Expenses"
                 icon={<IconCashbook style={{ width: 14, height: 14 }} />}
                 value={<MoneyValue minor={flow.expenseMinor} currencyCode={currencyCode} size="lg" tone="muted" />}
                 hint="Recorded in cashbook"
+                onExplain={() => setSelectedMetric("EXPENSES")}
               />
               <ReportKpi
                 label="Avg. net sale"
@@ -447,6 +458,7 @@ export function FinancialReports() {
                     className={flow.netCashMovementMinor >= 0 ? "tos-report-flow__net-val tos-report-flow__net-val--positive" : "tos-report-flow__net-val tos-report-flow__net-val--negative"}
                     signed
                   />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedMetric("NET_CASH_MOVEMENT")}>Explain</Button>
                 </div>
                 <p className="tos-report-flow__sub" style={{ marginTop: "var(--tos-space-2)" }}>
                   {flow.netCashMovementMinor > 0
@@ -473,6 +485,7 @@ export function FinancialReports() {
                       minor={position.cashBalanceMinor}
                       currencyCode={currencyCode}
                       hint="Across all money accounts"
+                      onExplain={() => setSelectedMetric("CASH_BALANCE")}
                     />
                     <PositionCard
                       label="Receivables"
@@ -481,6 +494,7 @@ export function FinancialReports() {
                       currencyCode={currencyCode}
                       hint="Owed by customers"
                       tone={position.receivablesMinor > 0 ? "warning" : "default"}
+                      onExplain={() => setSelectedMetric("RECEIVABLES")}
                     />
                     <PositionCard
                       label="Payables"
@@ -489,6 +503,7 @@ export function FinancialReports() {
                       currencyCode={currencyCode}
                       hint="Owed to suppliers"
                       tone={position.payablesMinor > 0 ? "warning" : "default"}
+                      onExplain={() => setSelectedMetric("PAYABLES")}
                     />
                     <PositionCard
                       label="Inventory value"
@@ -496,6 +511,7 @@ export function FinancialReports() {
                       minor={position.inventoryValueMinor}
                       currencyCode={currencyCode}
                       hint="At weighted-average cost"
+                      onExplain={() => setSelectedMetric("INVENTORY_VALUE")}
                     />
                   </div>
                 </div>
@@ -514,6 +530,15 @@ export function FinancialReports() {
           </>
         )}
       </div>
+
+      {selectedMetric ? (
+        <FinancialMetricIntelligenceDrawer
+          metricKey={selectedMetric}
+          range={range}
+          open={selectedMetric !== null}
+          onClose={() => setSelectedMetric(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -526,9 +551,10 @@ interface ReportKpiProps {
   value: ReactNode;
   hint?: string;
   trend?: "up" | "down" | "flat";
+  onExplain?: () => void;
 }
 
-function ReportKpi({ label, icon, value, hint, trend }: ReportKpiProps) {
+function ReportKpi({ label, icon, value, hint, trend, onExplain }: ReportKpiProps) {
   const trendCls = trend === "up"
     ? "tos-report-trend tos-report-trend--up"
     : trend === "down"
@@ -545,9 +571,10 @@ function ReportKpi({ label, icon, value, hint, trend }: ReportKpiProps) {
     <div className="tos-report-kpi tos-card-hover tos-animate-fade-in-up">
       <div className="tos-report-kpi__head">
         <span className="tos-report-kpi__label">{icon}{label}</span>
-        {trendCls ? (
-          <span className={trendCls}>{trendIcon}{trendLabel}</span>
-        ) : null}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--tos-space-2)" }}>
+          {trendCls ? <span className={trendCls}>{trendIcon}{trendLabel}</span> : null}
+          {onExplain ? <Button type="button" variant="ghost" size="sm" onClick={onExplain}>Explain</Button> : null}
+        </span>
       </div>
       {value}
       {hint ? <span className="tos-report-kpi__hint">{hint}</span> : null}
@@ -564,9 +591,10 @@ interface PositionCardProps {
   currencyCode: string;
   hint: string;
   tone?: "default" | "warning";
+  onExplain?: () => void;
 }
 
-function PositionCard({ label, icon, minor, currencyCode, hint, tone = "default" }: PositionCardProps) {
+function PositionCard({ label, icon, minor, currencyCode, hint, tone = "default", onExplain }: PositionCardProps) {
   return (
     <div className="tos-position-card">
       <span className="tos-position-card__label">{icon}{label}</span>
@@ -576,6 +604,7 @@ function PositionCard({ label, icon, minor, currencyCode, hint, tone = "default"
         className={tone === "warning" && minor > 0 ? "tos-position-card__value tos-position-card__value--negative" : "tos-position-card__value"}
       />
       <span className="tos-position-card__hint">{hint}</span>
+      {onExplain ? <Button type="button" variant="ghost" size="sm" onClick={onExplain}>Explain</Button> : null}
     </div>
   );
 }

@@ -3,6 +3,16 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import type {
+  BusinessAssistantContext,
+  BusinessEntityContext,
+  BusinessEntityType,
+  BusinessFinancialMetricKey,
+  BusinessFinancialMetricRange,
+  BusinessMetricContext,
+} from "@tradeos/contracts";
+import { AskTradeOSDrawer } from "../intelligence/ask-tradeos-drawer";
+import { BusinessPulsePanel } from "../intelligence/business-pulse";
 import { useWorkspace } from "./use-workspace";
 import {
   findNavItem,
@@ -51,6 +61,9 @@ export function AppShell({ children }: AppShellProps) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [askTradeOSOpen, setAskTradeOSOpen] = useState(false);
+  const [askTradeOSInitialQuestion, setAskTradeOSInitialQuestion] = useState<string | null>(null);
+  const [askTradeOSInitialContext, setAskTradeOSInitialContext] = useState<BusinessAssistantContext | null>(null);
   const [shellFeedback, setShellFeedback] = useState<ShellFeedback>(null);
 
   useEffect(() => {
@@ -58,16 +71,40 @@ export function AppShell({ children }: AppShellProps) {
     setMoreOpen(false);
     setContextOpen(false);
     setAccountOpen(false);
+    setAskTradeOSOpen(false);
+    setAskTradeOSInitialQuestion(null);
+    setAskTradeOSInitialContext(null);
     setShellFeedback(null);
   }, [pathname]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    document.body.style.overflow = drawerOpen ? "hidden" : "";
+    document.body.style.overflow = drawerOpen || askTradeOSOpen ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
     };
-  }, [drawerOpen]);
+  }, [drawerOpen, askTradeOSOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const openContextualAsk = (event: Event) => {
+      const detail = (event as CustomEvent<{ question?: unknown; context?: unknown }>).detail;
+      if (!detail || typeof detail.question !== "string" || !detail.question.trim()) return;
+      let context: BusinessAssistantContext | null = null;
+      if (detail.context !== undefined && detail.context !== null) {
+        if (!isBusinessAssistantContext(detail.context)) return;
+        context = detail.context;
+      }
+      setAskTradeOSInitialQuestion(detail.question.trim());
+      setAskTradeOSInitialContext(context);
+      setAskTradeOSOpen(true);
+      setContextOpen(false);
+      setAccountOpen(false);
+      setMoreOpen(false);
+    };
+    window.addEventListener("tradeos:ask", openContextualAsk);
+    return () => window.removeEventListener("tradeos:ask", openContextualAsk);
+  }, []);
 
   const activeSegment = deriveActiveSegment(pathname);
   const activeItem = findNavItem(activeSegment);
@@ -197,6 +234,24 @@ export function AppShell({ children }: AppShellProps) {
             />
           </div>
           <div className="tos-topbar__spacer" />
+
+          <BusinessPulsePanel />
+
+          <Button
+            variant="gold"
+            size="sm"
+            className="tos-ai-topbar-button"
+            onClick={() => {
+              setAskTradeOSInitialQuestion(null);
+              setAskTradeOSInitialContext(null);
+              setAskTradeOSOpen(true);
+              setContextOpen(false);
+              setAccountOpen(false);
+              setMoreOpen(false);
+            }}
+          >
+            Ask TradeOS
+          </Button>
 
           <div className="tos-shell-context">
             <button
@@ -381,9 +436,48 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           </>
         ) : null}
+
+        <AskTradeOSDrawer open={askTradeOSOpen} initialQuestion={askTradeOSInitialQuestion} initialContext={askTradeOSInitialContext} onClose={() => setAskTradeOSOpen(false)} />
       </div>
     </div>
   );
+}
+
+const BUSINESS_ENTITY_TYPES = new Set<BusinessEntityType>(["CATALOG_ITEM", "CUSTOMER", "SUPPLIER", "PURCHASE"]);
+const ENTITY_CONTEXT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isBusinessEntityContext(value: unknown): value is BusinessEntityContext {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return keys.length === 2
+    && keys.every((key) => key === "entityType" || key === "entityId")
+    && typeof record.entityType === "string"
+    && BUSINESS_ENTITY_TYPES.has(record.entityType as BusinessEntityType)
+    && typeof record.entityId === "string"
+    && ENTITY_CONTEXT_UUID.test(record.entityId);
+}
+
+const BUSINESS_METRIC_KEYS = new Set<BusinessFinancialMetricKey>([
+  "NET_REVENUE", "GROSS_PROFIT", "OPERATING_PROFIT", "EXPENSES", "NET_CASH_MOVEMENT",
+  "CASH_BALANCE", "RECEIVABLES", "PAYABLES", "INVENTORY_VALUE",
+]);
+const BUSINESS_METRIC_RANGES = new Set<BusinessFinancialMetricRange>(["today", "week", "month", "quarter"]);
+
+function isBusinessMetricContext(value: unknown): value is BusinessMetricContext {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return keys.length === 2
+    && keys.every((key) => key === "metricKey" || key === "range")
+    && typeof record.metricKey === "string"
+    && BUSINESS_METRIC_KEYS.has(record.metricKey as BusinessFinancialMetricKey)
+    && typeof record.range === "string"
+    && BUSINESS_METRIC_RANGES.has(record.range as BusinessFinancialMetricRange);
+}
+
+function isBusinessAssistantContext(value: unknown): value is BusinessAssistantContext {
+  return isBusinessEntityContext(value) || isBusinessMetricContext(value);
 }
 
 function deriveActiveSegment(pathname: string): string {

@@ -8,10 +8,10 @@ import type {
 import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 import { PlatformAdminError, type PlatformAdminContext } from "./security.js";
+import { isCurrentSubscriptionStatus } from "../subscriptions/subscription-lifecycle.js";
 
 const WRITE_ROLES = new Set(["SUPER_ADMIN", "PLATFORM_ADMIN", "BILLING"]);
 const INTERVALS = new Set<AdminBillingInterval>(["MONTHLY", "ANNUAL", "CUSTOM"]);
-const CURRENT_STATUSES = new Set<AdminSubscriptionStatus>(["TRIALING", "ACTIVE", "PAST_DUE", "PAUSED"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Queryable = Pick<DatabasePool, "query"> | Pick<DatabaseClient, "query">;
@@ -215,7 +215,7 @@ export async function transitionSubscription(
       next.currentPeriodEndsAt = period.end;
       next.cancelAtPeriodEnd = false;
     } else if (action === "CHANGE_PLAN") {
-      if (!CURRENT_STATUSES.has(current.status)) invalidTransition(current.status, action);
+      if (!isCurrentSubscriptionStatus(current.status)) invalidTransition(current.status, action);
       const planId = requireUuid(input.planId, "ADMIN_PLAN_NOT_FOUND", "Plan was not found");
       await requireActivePlan(client, planId);
       next.planId = planId;
@@ -226,13 +226,13 @@ export async function transitionSubscription(
       if (current.status !== "PAUSED") invalidTransition(current.status, action);
       next.status = "ACTIVE";
     } else if (action === "CANCEL_AT_PERIOD_END") {
-      if (!CURRENT_STATUSES.has(current.status)) invalidTransition(current.status, action);
+      if (!isCurrentSubscriptionStatus(current.status)) invalidTransition(current.status, action);
       next.cancelAtPeriodEnd = true;
     } else if (action === "RESUME") {
-      if (!CURRENT_STATUSES.has(current.status) || !current.cancel_at_period_end) invalidTransition(current.status, action);
+      if (!isCurrentSubscriptionStatus(current.status) || !current.cancel_at_period_end) invalidTransition(current.status, action);
       next.cancelAtPeriodEnd = false;
     } else if (action === "CANCEL") {
-      if (!CURRENT_STATUSES.has(current.status)) invalidTransition(current.status, action);
+      if (!isCurrentSubscriptionStatus(current.status)) invalidTransition(current.status, action);
       next.status = "CANCELED";
       next.cancelAtPeriodEnd = false;
       next.canceledAt = new Date();

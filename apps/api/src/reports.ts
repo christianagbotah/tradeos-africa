@@ -20,7 +20,13 @@ const READ_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOU
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_RANGE_MS = 366 * 24 * 60 * 60 * 1000;
 
-type Query = { businessId?: string; branchId?: string; from?: string; to?: string; range?: string };
+type ReportRangeQuery = { from?: string; to?: string; range?: string };
+type Query = ReportRangeQuery & { businessId?: string; branchId?: string };
+
+export type FinancialSummaryReportInput = ReportRangeQuery & {
+  businessId: string;
+  branchId: string | null;
+};
 
 class ReportError extends Error {
   constructor(message: string, readonly code = "REPORT_INVALID", readonly statusCode = 400) { super(message); }
@@ -33,47 +39,10 @@ export function registerReportRoutes(app: FastifyInstance, pool: DatabasePool): 
       const businessId = uuid(request.query.businessId, "businessId");
       const branchId = request.query.branchId ? uuid(request.query.branchId, "branchId") : null;
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
-      const report = await withTransaction(pool, async client => {
-        await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
-        const scope = await loadScope(client, businessId, branchId);
-        const { from, to } = await resolveReportRange(client, request.query, scope.timezone);
-        const duration = to.getTime() - from.getTime();
-        if (duration <= 0) throw new ReportError("to must be later than from");
-        if (duration > MAX_RANGE_MS) throw new ReportError("Report range may not exceed 366 days");
-        const previousTo = from;
-        const previousFrom = new Date(from.getTime() - duration);
-        // Keep every report query on the same repeatable-read snapshot. node-postgres clients do not
-        // support concurrent queries; sequential reads are deterministic and avoid pg@9 breakage.
-        const flow = await loadFlow(client, businessId, branchId, from, to);
-        const previousFlow = await loadFlow(client, businessId, branchId, previousFrom, previousTo);
-        const position = await loadPosition(client, businessId, branchId, to, true);
-        const previousPoint = await loadPosition(client, businessId, branchId, previousTo, false);
-        const daily = await loadDaily(client, businessId, branchId, from, to, scope.timezone);
-        const branches = await loadBranches(client, businessId, branchId, from, to);
-        const topItems = await loadTopItems(client, businessId, branchId, from, to);
-        const comparison = compareFlows(flow, previousFlow);
-        const basis: Omit<FinancialSummaryReport, "health"> = {
-          businessId,
-          branchId,
-          currencyCode: scope.currencyCode,
-          period: { from: from.toISOString(), to: to.toISOString(), timezone: scope.timezone },
-          previousPeriod: { from: previousFrom.toISOString(), to: previousTo.toISOString(), timezone: scope.timezone },
-          flow,
-          previousFlow,
-          comparison,
-          position,
-          previousPosition: {
-            cashBalanceMinor: previousPoint.cashBalanceMinor,
-            receivablesMinor: previousPoint.receivablesMinor,
-            customerCreditBalanceMinor: previousPoint.customerCreditBalanceMinor,
-            payablesMinor: previousPoint.payablesMinor,
-            supplierCreditBalanceMinor: previousPoint.supplierCreditBalanceMinor,
-          },
-          daily,
-          branches,
-          topItems,
-        };
-        return { ...basis, health: evaluateBusinessHealth(basis) } satisfies FinancialSummaryReport;
+      const report = await getFinancialSummaryReport(pool, {
+        ...request.query,
+        businessId,
+        branchId,
       });
       // Additive compatibility envelope for the current Web preset-range reader.
       // Canonical report fields remain top-level; Z.ai Web can migrate to those without an API break.
@@ -105,7 +74,56 @@ export function registerReportRoutes(app: FastifyInstance, pool: DatabasePool): 
   });
 }
 
-async function resolveReportRange(client: DatabaseClient, query: Query, timezone: string): Promise<{ from: Date; to: Date }> {
+
+export async function getFinancialSummaryReport(
+  pool: DatabasePool,
+  input: FinancialSummaryReportInput,
+): Promise<FinancialSummaryReport> {
+  return withTransaction(pool, async client => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const scope = await loadScope(client, input.businessId, input.branchId);
+    const { from, to } = await resolveReportRange(client, input, scope.timezone);
+    const duration = to.getTime() - from.getTime();
+    if (duration <= 0) throw new ReportError("to must be later than from");
+    if (duration > MAX_RANGE_MS) throw new ReportError("Report range may not exceed 366 days");
+    const previousTo = from;
+    const previousFrom = new Date(from.getTime() - duration);
+    // Keep every report query on the same repeatable-read snapshot. node-postgres clients do not
+    // support concurrent queries; sequential reads are deterministic and avoid pg@9 breakage.
+    const flow = await loadFlow(client, input.businessId, input.branchId, from, to);
+    const previousFlow = await loadFlow(client, input.businessId, input.branchId, previousFrom, previousTo);
+    const position = await loadPosition(client, input.businessId, input.branchId, to, true);
+    const previousPoint = await loadPosition(client, input.businessId, input.branchId, previousTo, false);
+    const daily = await loadDaily(client, input.businessId, input.branchId, from, to, scope.timezone);
+    const branches = await loadBranches(client, input.businessId, input.branchId, from, to);
+    const topItems = await loadTopItems(client, input.businessId, input.branchId, from, to);
+    const comparison = compareFlows(flow, previousFlow);
+    const basis: Omit<FinancialSummaryReport, "health"> = {
+      businessId: input.businessId,
+      branchId: input.branchId,
+      currencyCode: scope.currencyCode,
+      period: { from: from.toISOString(), to: to.toISOString(), timezone: scope.timezone },
+      previousPeriod: { from: previousFrom.toISOString(), to: previousTo.toISOString(), timezone: scope.timezone },
+      flow,
+      previousFlow,
+      comparison,
+      position,
+      previousPosition: {
+        cashBalanceMinor: previousPoint.cashBalanceMinor,
+        receivablesMinor: previousPoint.receivablesMinor,
+        customerCreditBalanceMinor: previousPoint.customerCreditBalanceMinor,
+        payablesMinor: previousPoint.payablesMinor,
+        supplierCreditBalanceMinor: previousPoint.supplierCreditBalanceMinor,
+      },
+      daily,
+      branches,
+      topItems,
+    };
+    return { ...basis, health: evaluateBusinessHealth(basis) } satisfies FinancialSummaryReport;
+  });
+}
+
+async function resolveReportRange(client: DatabaseClient, query: ReportRangeQuery, timezone: string): Promise<{ from: Date; to: Date }> {
   if (query.range !== undefined) {
     if (query.from !== undefined || query.to !== undefined) throw new ReportError("Use either range or from/to, not both");
     if (!["today", "week", "month", "quarter"].includes(query.range)) throw new ReportError("range must be one of today, week, month, quarter");

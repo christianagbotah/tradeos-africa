@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createPool } from "../src/db.js";
+import { getFinancialSummaryReport } from "../src/reports.js";
 
 process.env.DATABASE_URL ??= "postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci";
 const pool = createPool();
@@ -207,10 +208,18 @@ it("accepts preset report ranges used by the Web client", async () => {
     const response = await app.inject({ method:"GET", url:`/v1/reports/financial-summary?businessId=${businessId}&branchId=${branchId}&range=${range}`, headers });
     expect(response.statusCode, `${range}: ${response.body}`).toBe(200);
     const report = response.json();
+    const direct = await getFinancialSummaryReport(pool, { businessId, branchId, range });
     expect(report.businessId).toBe(businessId);
     expect(report.branchId).toBe(branchId);
     expect(report.summary?.flow).toEqual(report.flow);
     expect(report.summary?.position).toEqual(report.position);
+    expect(report.flow).toEqual(direct.flow);
+    const { inventorySnapshotAt: routeSnapshotAt, ...routePosition } = report.position;
+    const { inventorySnapshotAt: directSnapshotAt, ...directPosition } = direct.position;
+    expect(routePosition).toEqual(directPosition);
+    expect(Date.parse(routeSnapshotAt)).not.toBeNaN();
+    expect(Date.parse(directSnapshotAt)).not.toBeNaN();
+    expect(report.comparison).toEqual(direct.comparison);
     expect(Date.parse(report.period.from)).not.toBeNaN();
     expect(Date.parse(report.period.to)).not.toBeNaN();
     expect(Date.parse(report.period.to)).toBeGreaterThan(Date.parse(report.period.from));

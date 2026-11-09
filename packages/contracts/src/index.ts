@@ -5,6 +5,7 @@ export * from "./operations.js";
 export * from "./reports.js";
 
 export * from "./insights.js";
+export * from "./business-intelligence.js";
 
 export * from "./master-data.js";
 
@@ -17,3 +18,5 @@ export * from "./staff.js";
 export * from "./platform-admin.js";
 export * from "./platform-admin-metrics.js";
 export * from "./platform-admin-ai.js";
+
+export * from "./tenant-billing.js";

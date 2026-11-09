@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useApiFetch } from "../../../lib/use-api-fetch";
+import { EntityIntelligencePanel } from "../intelligence/entity-intelligence-panel";
 import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
 import { StatePanel } from "../ui/state-panel";
@@ -279,6 +280,8 @@ function PurchaseDetailBody({
           hint={purchase.receiverName ?? "No receiver"}
         />
       </div>
+
+      <EntityIntelligencePanel entityType="PURCHASE" entityId={purchase.id} />
 
       {/* Purchase summary kv */}
       <div className="tos-section tos-animate-fade-in-up">

@@ -20,7 +20,7 @@ type SchedulerModule = {
   startPlatformAutomationScheduler(
     pool: ReturnType<typeof createPool>,
     options?: { intervalMs?: number; now?: () => Date },
-  ): { stop(): void };
+  ): { stop(): Promise<void> };
 };
 
 async function schedulerModule(): Promise<SchedulerModule> {
@@ -77,9 +77,7 @@ describe("platform proactive automation scheduler", () => {
 
     const first = scheduler.startPlatformAutomationScheduler(pool, { intervalMs: 20, now: fixedNow });
     const second = scheduler.startPlatformAutomationScheduler(pool, { intervalMs: 20, now: fixedNow });
-    await sleep(90);
-    first.stop();
-    second.stop();
+    await Promise.all([first.stop(), second.stop()]);
 
     const runs = await pool.query<{ state: string; trigger_correlation_id: string }>(
       "SELECT state,trigger_correlation_id FROM platform_automation_runs WHERE policy_id=$1 ORDER BY created_at",
@@ -128,7 +126,7 @@ describe("platform proactive automation scheduler", () => {
     expect(schedulerSource).not.toContain("AiTextProvider");
     expect(schedulerSource).not.toContain("intelligence-service");
     expect(serverSource).toContain("startPlatformAutomationScheduler");
-    expect(serverSource).toContain("automationScheduler.stop()");
+    expect(serverSource).toContain("await automationScheduler.stop()");
   });
 });
 
@@ -161,8 +159,4 @@ async function seedPolicy(
     [input.code, input.businessId ?? null, input.triggerType, JSON.stringify(input.conditions), creatorId],
   );
   return result.rows[0]!.id;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
