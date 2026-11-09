@@ -22,6 +22,7 @@ import { registerPlatformAdminRoutes } from "./platform-admin/routes.js";
 import { registerPlatformAdminBillingRoutes } from "./platform-admin/billing-routes.js";
 import { registerPlatformAdminAttentionRoutes } from "./platform-admin/attention-routes.js";
 import { registerPlatformAdminAutomationRoutes } from "./platform-admin/automation-routes.js";
+import { registerTenantBillingRoutes } from "./billing/tenant-billing-routes.js";
 import { registerSalesReadRoutes } from "./sales-read.js";
 import { registerStaffRoutes } from "./staff/routes.js";
 import { ingestSyncBatch, SyncRequestError } from "./sync.js";
@@ -55,6 +56,7 @@ export function buildApp(pool: DatabasePool) {
   registerPlatformAdminBillingRoutes(app, pool);
   registerPlatformAdminAttentionRoutes(app, pool);
   registerPlatformAdminAutomationRoutes(app, pool);
+  registerTenantBillingRoutes(app, pool);
   registerOnboardingRoutes(app, pool);
   registerBusinessRoutes(app, pool);
   registerBusinessIntelligenceRoutes(app, pool);
