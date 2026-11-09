@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { BusinessBriefingPanel } from "./business-briefing-panel";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useWorkspace } from "../workspace/use-workspace";
@@ -90,6 +91,7 @@ export function DashboardCommandCenter() {
           actionLabel="Retry"
           onAction={() => refetch()}
         />
+        <BusinessBriefingPanel />
       </div>
     );
   }
@@ -140,6 +142,8 @@ export function DashboardCommandCenter() {
           hintTone={queue.pending > 0 ? "warning" : "default"}
         />
       </div>
+
+      <BusinessBriefingPanel />
 
       <div className="tos-grid-two">
         <section className="tos-section">
