@@ -20,6 +20,7 @@ CREATE TABLE business_attention_items (
   resolved_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_business_attention_item_scope UNIQUE (business_id, id),
   CONSTRAINT fk_business_attention_branch FOREIGN KEY (business_id, branch_id)
     REFERENCES branches(business_id, id)
 );
@@ -91,6 +92,7 @@ CREATE TABLE business_automation_runs (
   error_message text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_business_automation_run_scope UNIQUE (business_id, id),
   CONSTRAINT fk_business_automation_run_policy
     FOREIGN KEY (business_id, policy_id) REFERENCES business_automation_policies(business_id, id),
   CONSTRAINT fk_business_automation_run_branch
@@ -126,9 +128,9 @@ CREATE TABLE business_action_items (
   CONSTRAINT fk_business_action_item_branch
     FOREIGN KEY (business_id, branch_id) REFERENCES branches(business_id, id),
   CONSTRAINT fk_business_action_item_attention
-    FOREIGN KEY (source_attention_id) REFERENCES business_attention_items(id),
+    FOREIGN KEY (business_id, source_attention_id) REFERENCES business_attention_items(business_id, id),
   CONSTRAINT fk_business_action_item_run
-    FOREIGN KEY (source_automation_run_id) REFERENCES business_automation_runs(id)
+    FOREIGN KEY (business_id, source_automation_run_id) REFERENCES business_automation_runs(business_id, id)
 );
 CREATE UNIQUE INDEX uq_business_action_idempotency
   ON business_action_items(business_id, idempotency_key)
