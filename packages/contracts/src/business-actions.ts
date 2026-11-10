@@ -29,3 +29,21 @@ export interface BusinessActionTransition {
   /** Mandatory optimistic concurrency check. */
   expectedState: BusinessActionState;
 }
+
+export interface BusinessActionAuditEvent {
+  id: string;
+  actionId: string;
+  actorUserId: string;
+  actorDisplayName: string;
+  eventType: "CREATED" | "STATE_CHANGED";
+  fromState: BusinessActionState | null;
+  toState: BusinessActionState;
+  occurredAt: string;
+}
+
+export interface BusinessActionHistoryResponse {
+  businessId: string;
+  branchId: string | null;
+  actionId: string;
+  events: BusinessActionAuditEvent[];
+}
