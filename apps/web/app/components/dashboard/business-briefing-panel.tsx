@@ -6,6 +6,7 @@ import type { BusinessBriefing, BusinessBriefingRange } from "@tradeos/contracts
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyValue } from "../business/money-value";
+import { BusinessAttentionPanel } from "./business-attention-panel";
 import styles from "./business-briefing-panel.module.css";
 
 const ALLOWED = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
@@ -75,6 +76,7 @@ export function BusinessBriefingPanel() {
       ) : (
         <p className={styles.notice}>No briefing available yet.</p>
       )}
+      <BusinessAttentionPanel />
     </section>
   );
 }
