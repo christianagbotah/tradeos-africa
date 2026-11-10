@@ -76,6 +76,13 @@ async function readAuthorizedScope(
   const businessId = validUuid(query.businessId, "businessId");
   const branchId = query.branchId === undefined ? null : validUuid(query.branchId, "branchId");
   await requireBusinessRole(pool, auth, businessId, BRIEFING_ROLES);
+  if (branchId !== null) {
+    const branch = await pool.query(
+      "SELECT 1 FROM branches WHERE id=$1 AND business_id=$2 AND is_active=true",
+      [branchId, businessId],
+    );
+    if (!branch.rows[0]) throw new ReportError("Branch not found", "BRANCH_NOT_FOUND", 404);
+  }
   return { businessId, branchId };
 }
 
