@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { BusinessActionItem, BusinessActionListResponse, BusinessActionState } from "@tradeos/contracts";
+import type { BusinessActionItem, BusinessActionListResponse, BusinessActionState, BusinessActionHistoryResponse } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { getOfflineQueue } from "../../../lib/offline-sync";
@@ -14,6 +14,8 @@ export function BusinessActionQueue() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [history, setHistory] = useState<BusinessActionHistoryResponse | null>(null);
+  const [historyLoading, setHistoryLoading] = useState<string | null>(null);
   const allowed = ROLES.has(role);
   const context = session ? `${session.businessId}:${session.branchId}` : "";
   const contextRef = useRef(context);
@@ -89,6 +91,37 @@ export function BusinessActionQueue() {
     }
   }
 
+  async function toggleHistory(actionId: string) {
+    if (history?.actionId === actionId) {
+      setHistory(null);
+      return;
+    }
+    if (!params || !queue.online) return;
+    const priorContext = context;
+    setHistory(null);
+    setHistoryLoading(actionId);
+    setActionError(null);
+    try {
+      const response = await getOfflineQueue().authenticatedFetch(
+        `/v1/intelligence/actions/${encodeURIComponent(actionId)}/history?${params}`,
+        { method: "GET" },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      const result = await response.json() as BusinessActionHistoryResponse;
+      if (contextRef.current === priorContext &&
+          result.businessId === session.businessId && result.branchId === session.branchId &&
+          result.actionId === actionId) {
+        setHistory(result);
+      }
+    } catch (err) {
+      if (contextRef.current === priorContext) {
+        setActionError(err instanceof Error ? err.message : "Could not load task history.");
+      }
+    } finally {
+      setHistoryLoading(null);
+    }
+  }
+
   return (
     <section className={styles.panel} aria-labelledby="merchant-follow-up-title">
       <div className={styles.header}>
@@ -142,7 +175,32 @@ export function BusinessActionQueue() {
                       <button className={styles.taskButton} type="button" disabled={busy !== null}
                         onClick={() => { void changeState(task, "OPEN"); }}>Reopen</button>
                     ) : null}
+                    <button className={styles.taskButton} type="button"
+                      disabled={historyLoading !== null || !queue.online}
+                      aria-expanded={history?.actionId === task.id}
+                      onClick={() => { void toggleHistory(task.id); }}>
+                      {historyLoading === task.id ? "Loading…" : history?.actionId === task.id ? "Hide history" : "History"}
+                    </button>
                   </div>
+                  {history?.actionId === task.id ? (
+                    <div className={styles.history}>
+                      <h4>Task history</h4>
+                      {history.events.length ? (
+                        <ul>
+                          {history.events.map((event) => (
+                            <li key={event.id}>
+                              <strong>{event.actorDisplayName}</strong>{" · "}
+                              {event.eventType === "CREATED"
+                                ? "created this task"
+                                : `changed ${event.fromState} to ${event.toState}`}
+                              {" · "}
+                              {new Date(event.occurredAt).toLocaleString("en-GH", { dateStyle: "medium", timeStyle: "short" })}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : <p>No recorded status changes.</p>}
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
