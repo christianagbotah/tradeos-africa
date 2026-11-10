@@ -1,4 +1,6 @@
 import type {
+  BusinessActionAuditEvent,
+  BusinessActionHistoryResponse,
   BusinessActionItem,
   BusinessActionListResponse,
   BusinessActionState,
@@ -151,6 +153,43 @@ export async function transitionBusinessAction(
     );
     return mapRow(updated.rows[0]!);
   });
+}
+
+/** Read-only, scoped audit history: no history for an action in another business or branch. */
+export async function listBusinessActionHistory(
+  pool: DatabasePool,
+  businessId: string,
+  branchId: string | null,
+  actionId: string,
+): Promise<BusinessActionHistoryResponse> {
+  const present = await pool.query(
+    `SELECT 1 FROM business_action_items
+       WHERE id=$1 AND business_id=$2 AND branch_id IS NOT DISTINCT FROM $3::uuid`,
+    [actionId, businessId, branchId],
+  );
+  if (!present.rows[0]) {
+    throw new BusinessActionError("Follow-up task was not found.", 404, "BUSINESS_ACTION_NOT_FOUND");
+  }
+  const result = await pool.query<{
+    id: string; action_id: string; actor_user_id: string; actor_display_name: string;
+    event_type: "CREATED" | "STATE_CHANGED"; from_state: BusinessActionState | null;
+    to_state: BusinessActionState; occurred_at: Date;
+  }>(
+    `SELECT e.id,e.action_id,e.actor_user_id,COALESCE(u.display_name,'Former user') AS actor_display_name,
+      e.event_type,e.from_state,e.to_state,e.occurred_at
+      FROM business_action_events e
+      LEFT JOIN app_users u ON u.id=e.actor_user_id
+      WHERE e.business_id=$1 AND e.action_id=$2
+      ORDER BY e.occurred_at DESC,e.id DESC LIMIT 100`,
+    [businessId, actionId],
+  );
+  const events: BusinessActionAuditEvent[] = result.rows.map((row) => ({
+    id: row.id, actionId: row.action_id, actorUserId: row.actor_user_id,
+    actorDisplayName: row.actor_display_name, eventType: row.event_type,
+    fromState: row.from_state, toState: row.to_state,
+    occurredAt: row.occurred_at.toISOString(),
+  }));
+  return { businessId, branchId, actionId, events };
 }
 
 function mapRow(row: ActionRow): BusinessActionItem {
