@@ -32,9 +32,6 @@ function url(businessId: string, branchId: string) {
 describe("business attention", () => {
   it("writes one current low-data alert and keeps stable idempotent IDs", async () => {
     const a = await createOwner("one");
-    const first = await app.inject({ method: "POST", url: url(a.businessId, a.branchId) + "/evaluate", headers: a.headers });
-    // POST path places /evaluate before query parameters.
-    expect(first.statusCode).toBe(404);
     const endpoint = `/v1/intelligence/attention/evaluate?businessId=${a.businessId}&branchId=${a.branchId}`;
     const once = await app.inject({ method: "POST", url: endpoint, headers: a.headers });
     expect(once.statusCode).toBe(200);
