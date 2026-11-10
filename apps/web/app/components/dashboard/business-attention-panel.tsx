@@ -8,6 +8,7 @@ import { useApiFetch } from "../../../lib/use-api-fetch";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import styles from "./business-attention-panel.module.css";
+import { BusinessActionQueue } from "./business-action-queue";
 
 const FINANCIAL_ROLES = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
 
@@ -95,6 +96,7 @@ export function BusinessAttentionPanel() {
           <Link href="/reports" className={styles.link}>Review supporting financial reports</Link>
         </>
       )}
+      <BusinessActionQueue />
     </section>
   );
 }
