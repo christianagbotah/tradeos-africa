@@ -126,6 +126,12 @@ describe("Business action queue", () => {
     expect(audit.rows.map((row: { to_state: string }) => row.to_state)).toEqual([
       "OPEN", "DONE", "OPEN",
     ]);
+    const history = await app.inject({ method: "GET",
+      url: `/v1/intelligence/actions/${taskId}/history${params(b)}`, headers: b.headers });
+    expect(history.statusCode).toBe(200);
+    expect(history.json()).toMatchObject({ businessId: b.businessId, actionId: taskId });
+    expect(history.json().events).toHaveLength(3);
+    expect(history.json().events.every((e: { actorDisplayName: string }) => e.actorDisplayName === "Action Owner")).toBe(true);
   });
 
   it("blocks foreign tenants, branches, suspended businesses and unauthorized roles", async () => {
@@ -145,6 +151,8 @@ describe("Business action queue", () => {
     expect((await app.inject({ method: "PATCH",
       url: `/v1/intelligence/actions/${actionId}${params(b)}`, headers: b.headers,
       payload: { state: "DONE", expectedState: "OPEN" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET",
+      url: `/v1/intelligence/actions/${actionId}/history${params(b)}`, headers: b.headers })).statusCode).toBe(404);
     await pool.query("UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1", [a.businessId]);
     expect((await app.inject({ method: "POST", url: `/v1/intelligence/actions/generate${params(a)}`, headers: a.headers })).statusCode).toBe(403);
     await pool.query("UPDATE business_memberships SET role='OWNER' WHERE business_id=$1", [a.businessId]);
