@@ -49,14 +49,7 @@ export function registerReportRoutes(app: FastifyInstance, pool: DatabasePool): 
       const businessId = uuid(request.query.businessId, "businessId");
       const branchId = request.query.branchId ? uuid(request.query.branchId, "branchId") : null;
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
-      return await withTransaction(pool, async client => {
-        await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
-        const scope = await loadScope(client,businessId,branchId);
-        const generatedAt = new Date();
-        const receivables = await loadAgingSide(client,"customer_credit_obligations",businessId,branchId,generatedAt);
-        const payables = await loadAgingSide(client,"supplier_credit_obligations",businessId,branchId,generatedAt);
-        return { businessId,branchId,currencyCode:scope.currencyCode,generatedAt:generatedAt.toISOString(),receivables,payables } satisfies CreditAgingReport;
-      });
+      return await loadCreditAging(pool, businessId, branchId);
     } catch (error) {
       if (error instanceof ReportError || error instanceof AuthError) return reply.code(error.statusCode).send({ error: error.code, message: error.message });
       throw error;
@@ -112,6 +105,22 @@ export async function loadFinancialSummary(
       topItems,
     };
     return { ...basis, health: evaluateBusinessHealth(basis) } satisfies FinancialSummaryReport;
+  });
+}
+
+/** Canonical credit aging reused by tenant alerts, without reimplementing due-date logic. */
+export async function loadCreditAging(
+  pool: DatabasePool,
+  businessId: string,
+  branchId: string | null,
+): Promise<CreditAgingReport> {
+  return withTransaction(pool, async client => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const scope = await loadScope(client,businessId,branchId);
+    const generatedAt = new Date();
+    const receivables = await loadAgingSide(client,"customer_credit_obligations",businessId,branchId,generatedAt);
+    const payables = await loadAgingSide(client,"supplier_credit_obligations",businessId,branchId,generatedAt);
+    return { businessId,branchId,currencyCode:scope.currencyCode,generatedAt:generatedAt.toISOString(),receivables,payables } satisfies CreditAgingReport;
   });
 }
 
