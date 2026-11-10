@@ -25,3 +25,9 @@
   .controls { width: 100%; }
   .controls .taskButton { flex: 1; }
 }
+
+.history { width: 100%; border-top: 1px solid #e2e8f0; padding-top: 9px; font-size: .82rem; color: var(--tos-muted,#58677a); }
+.history h4 { margin: 0 0 7px; font-size: .86rem; color: var(--tos-text,#172333); }
+.history ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.history li { line-height: 1.5; }
+.history p { margin: 0; }
