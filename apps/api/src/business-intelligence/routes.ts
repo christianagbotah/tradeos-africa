@@ -6,7 +6,7 @@ import { authenticateAccessToken, AuthError } from "../auth/security.js";
 import { ReportError } from "../reports.js";
 import { buildBusinessBriefing } from "./briefing-service.js";
 import { listBusinessAttention, evaluateBusinessAttention } from "./attention-service.js";
-import { listBusinessActions, generateBusinessActions, transitionBusinessAction, BusinessActionError } from "./action-service.js";
+import { listBusinessActions, generateBusinessActions, transitionBusinessAction, listBusinessActionHistory, BusinessActionError } from "./action-service.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BRIEFING_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
@@ -31,6 +31,18 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
       return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_ACTION_GENERATION_FAILED");
     }
   });
+
+  app.get<{ Params: { actionId: string }; Querystring: Query }>(
+    "/v1/intelligence/actions/:actionId/history", async (request, reply) => {
+      try {
+        const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
+        const actionId = validUuid(request.params.actionId, "actionId");
+        return await listBusinessActionHistory(pool, businessId, branchId, actionId);
+      } catch (error) {
+        return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_ACTION_HISTORY_FAILED");
+      }
+    },
+  );
 
   app.patch<{ Params: { actionId: string }; Querystring: Query; Body: BusinessActionTransition }>(
     "/v1/intelligence/actions/:actionId", async (request, reply) => {
