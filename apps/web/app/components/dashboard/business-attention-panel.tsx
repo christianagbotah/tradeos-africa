@@ -24,7 +24,7 @@ export function BusinessAttentionPanel() {
   if (!allowed || !session) return null;
 
   const sameScope = !!data && data.businessId === session.businessId && data.branchId === session.branchId;
-  const alerts = queue.online && sameScope && !loading && !error ? data.items : null;
+  const alerts = queue.online && sameScope && !loading && !error ? (data?.items ?? null) : null;
 
   async function checkBusinessAlerts() {
     if (!scope || evaluating || !queue.online) return;
