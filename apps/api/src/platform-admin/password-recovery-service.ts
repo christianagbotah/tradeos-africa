@@ -108,7 +108,7 @@ export async function confirmPlatformPasswordReset(
       "WHERE platform_user_id=$1 AND consumed_at IS NULL",[admin.id]);
     await tx.query("INSERT INTO platform_audit_events"+
       "(platform_user_id,event_type,entity_type,entity_id,reason,payload) "+
-      "VALUES($1,'ADMIN_PASSWORD_RECOVERED','PLATFORM_USER',$1::text,"+
-      "'Password reset with single-use email recovery link','{}'::jsonb)",[admin.id]);
+      "VALUES($1,'ADMIN_PASSWORD_RECOVERED','PLATFORM_USER',$2,"+
+      "'Password reset with single-use email recovery link','{}'::jsonb)",[admin.id,admin.id]);
   });
 }
