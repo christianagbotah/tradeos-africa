@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:
 
+# A newer PR head makes its earlier screenshot capture obsolete.
+concurrency:
+  group: visual-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   pull-requests: write
