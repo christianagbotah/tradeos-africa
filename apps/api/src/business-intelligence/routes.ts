@@ -10,12 +10,43 @@ import { listBusinessActions, generateBusinessActions, transitionBusinessAction,
 import { readMerchantAutomation, configureMerchantAutomation, proposeMerchantAutomation, decideMerchantAutomationRun, MerchantAutomationError } from "./merchant-automation-service.js";
 import { loadInventoryIntelligence, InventoryIntelligenceError, type InventoryPlanningHorizon } from "./inventory-intelligence-service.js";
 import { answerBusinessQuestion, BusinessQuestionError } from "./question-service.js";
+import { listBusinessNotifications, acknowledgeBusinessNotification, BusinessNotificationError } from "./notification-service.js";
+import type { BusinessNotificationKind } from "@tradeos/contracts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BRIEFING_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 type Query = { businessId?: string; branchId?: string; range?: string };
 
 export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: DatabasePool): void {
+
+  app.get<{ Querystring: Query }>("/v1/intelligence/notifications", async (request, reply) => {
+    try {
+      const scope = await notificationScope(pool, request.headers.authorization, request.query);
+      return await listBusinessNotifications(pool, scope);
+    } catch (error) {
+      return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_NOTIFICATIONS_READ_FAILED");
+    }
+  });
+
+  app.post<{ Params: { kind: string; notificationId: string }; Querystring: Query }>(
+    "/v1/intelligence/notifications/:kind/:notificationId/read", async (request, reply) => {
+      try {
+        const scope = await notificationScope(pool, request.headers.authorization, request.query);
+        const notificationId = validUuid(request.params.notificationId, "notificationId");
+        const kind = request.params.kind;
+        if (kind !== "ATTENTION" && kind !== "APPROVAL") {
+          throw new BusinessNotificationError("Unknown notification kind.");
+        }
+        return await acknowledgeBusinessNotification(pool, {
+          ...scope, sourceId: notificationId, kind: kind as BusinessNotificationKind,
+        });
+      } catch (error) {
+        return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_NOTIFICATION_ACK_FAILED");
+      }
+    },
+  );
+
+
 
   app.post<{ Body: BusinessQuestionRequest }>("/v1/intelligence/question", async (request, reply) => {
     try {
@@ -232,12 +263,27 @@ async function ownerAutomationScope(
   return { businessId, branchId, userId: auth.userId };
 }
 
+async function notificationScope(
+  pool: DatabasePool, authorization: string | undefined, query: Query,
+): Promise<{ businessId: string; branchId: string; userId: string; isOwner: boolean }> {
+  const auth = await authenticateAccessToken(pool, authorization);
+  const businessId = validUuid(query.businessId, "businessId");
+  const branchId = validUuid(query.branchId, "branchId");
+  const access = await requireBusinessRole(pool, auth, businessId, BRIEFING_ROLES);
+  const branch = await pool.query(
+    "SELECT 1 FROM branches WHERE id=$1 AND business_id=$2 AND is_active=true",
+    [branchId, businessId],
+  );
+  if (!branch.rows[0]) throw new ReportError("Branch not found", "BRANCH_NOT_FOUND", 404);
+  return { businessId, branchId, userId: auth.userId, isOwner: access.role === "OWNER" };
+}
+
 function sendBusinessIntelligenceError(
   request: { log: { error: (value: unknown) => void } },
   reply: { code: (status: number) => { send: (payload: unknown) => unknown } },
   error: unknown, fallbackCode: string,
 ) {
-  if (error instanceof AuthError || error instanceof ReportError || error instanceof BusinessActionError || error instanceof MerchantAutomationError || error instanceof InventoryIntelligenceError || error instanceof BusinessQuestionError) {
+  if (error instanceof AuthError || error instanceof ReportError || error instanceof BusinessActionError || error instanceof MerchantAutomationError || error instanceof InventoryIntelligenceError || error instanceof BusinessQuestionError || error instanceof BusinessNotificationError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });
   }
   request.log.error(error);
