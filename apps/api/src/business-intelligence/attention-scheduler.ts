@@ -1,5 +1,6 @@
 import type { DatabasePool } from "../db.js";
 import { evaluateBusinessAttention } from "./attention-service.js";
+import { proposeMerchantAutomation } from "./merchant-automation-service.js";
 
 export const BUSINESS_ATTENTION_SCHEDULER_LOCK_KEY = "8706112026111401";
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
@@ -59,6 +60,7 @@ export async function runBusinessAttentionSchedulerTick(
       let passed = false;
       try {
         await evaluate(pool, candidate.business_id, candidate.branch_id);
+        if (!options.evaluate) await proposeMerchantAutomation(pool, candidate.business_id, candidate.branch_id);
         passed = true;
         result.succeeded += 1;
       } catch (error) {
