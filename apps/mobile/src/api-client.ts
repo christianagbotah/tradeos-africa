@@ -1,5 +1,5 @@
 import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
-import type { BusinessNotificationsResponse, BusinessNotificationKind } from "@tradeos/contracts";
+import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse } from "@tradeos/contracts";
 import { type MobileSessionTokens, MobilePersistence } from "./storage";
 
 export type MobilePlatform = "ANDROID" | "IOS";
@@ -163,6 +163,15 @@ export class MobileApiClient {
     const normalized = search.trim();
     if (normalized) query.set("query", normalized);
     return this.authorizedJson<MobileInventoryResponse>(`/v1/inventory?${query.toString()}`, { method: "GET" });
+  }
+
+  askBusinessQuestion(
+    businessId: string, branchId: string, question: string,
+  ): Promise<BusinessQuestionResponse> {
+    return this.authorizedJson<BusinessQuestionResponse>("/v1/intelligence/question", {
+      method: "POST",
+      body: JSON.stringify({ businessId, branchId, question }),
+    });
   }
 
   getBusinessNotifications(businessId: string, branchId: string): Promise<BusinessNotificationsResponse> {

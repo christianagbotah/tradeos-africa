@@ -11,6 +11,7 @@ import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { MoreScreen } from "./src/screens/MoreScreen";
 import { NotificationsScreen } from "./src/screens/NotificationsScreen";
+import { BusinessQuestionsScreen } from "./src/screens/BusinessQuestionsScreen";
 import { PosScreen } from "./src/screens/PosScreen";
 import { SalesScreen } from "./src/screens/SalesScreen";
 import { ErrorScreen, LoadingScreen, NeedsBusinessScreen } from "./src/screens/BootScreens";
@@ -55,7 +56,7 @@ export default function App() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
-  const [screen, setScreen] = useState<BottomNavTab | "notifications">("dashboard");
+  const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions">("dashboard");
 
   useEffect(() => {
     let mounted = true;
@@ -167,11 +168,25 @@ export default function App() {
                   onRefreshCatalog={() => { void refreshCommerce(); }}
                   onLogout={() => { void logout(); }}
                   onGoToNotifications={() => setScreen("notifications")}
+                  onGoToQuestions={() => setScreen("questions")}
+                />
+              ) : null}
+              {screen === "questions" && ready ? (
+                <BusinessQuestionsScreen
+                  key={ready.user.id + ":" + ready.membership.businessId + ":" + ready.branch.id + ":" + ready.membership.role}
+                  api={api}
+                  businessId={ready.membership.businessId}
+                  branchId={ready.branch.id}
+                  role={ready.membership.role}
+                  online={snapshot.online === true}
+                  pendingCount={ready.queue.pending}
+                  failedCount={ready.queue.failed}
+                  onBack={() => setScreen("more")}
                 />
               ) : null}
               {screen === "notifications" && ready ? (
                 <NotificationsScreen
-                  key={ready.user.id + ":" + ready.membership.businessId + ":" + ready.branch.id}
+                  key={ready.user.id + ":" + ready.membership.businessId + ":" + ready.branch.id + ":" + ready.membership.role}
                   api={api}
                   businessId={ready.membership.businessId}
                   branchId={ready.branch.id}
@@ -184,7 +199,7 @@ export default function App() {
               ) : null}
             </View>
             <BottomNav
-              active={screen === "notifications" ? "more" : screen}
+              active={screen === "notifications" || screen === "questions" ? "more" : screen}
               onChange={setScreen}
               pendingCount={queue?.pending ?? 0}
               failedCount={queue?.failed ?? 0}
