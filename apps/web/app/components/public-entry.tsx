@@ -222,6 +222,11 @@ export function PublicEntry() {
       onTabChange={setAuthTab}
       onAuthenticated={async (auth, me) => {
         const lastContext = offlineQueue.sessions.loadLastContext();
+        // A successful sign-in/registration is a new account identity. An older
+        // device session must not enter the workspace while this account has no
+        // business yet, or display stale tenant-scoped data while switching.
+        // Clearing credentials preserves business-scoped offline mutation queues.
+        offlineQueue.sessions.clear();
         const membership = selectMembershipForLogin(me, lastContext?.businessId);
         if (!membership) {
           // No usable active business membership yet → first-business onboarding.
@@ -253,10 +258,17 @@ export function PublicEntry() {
 
 // --- Session validation ---------------------------------------------------
 
-async function validateSession(_session: WebSession): Promise<boolean> {
+async function validateSession(session: WebSession): Promise<boolean> {
   try {
     const res = await getOfflineQueue().authenticatedFetch("/v1/me");
-    return res.ok;
+    if (!res.ok) return false;
+    const me = (await res.json()) as MeResponse;
+    // A valid account token alone is insufficient: a stored business can be
+    // removed or belong to another signed-in account on this device.
+    return Array.isArray(me.memberships) && me.memberships.some((membership) =>
+      membership.businessId === session.businessId &&
+      membership.businessStatus === "ACTIVE" && Boolean(membership.staffId)
+    );
   } catch {
     return false;
   }

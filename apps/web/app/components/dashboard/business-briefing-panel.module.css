@@ -26,13 +26,15 @@
 .notice { margin: 0; padding: 16px; border-radius: 12px; background: #f1f5f9; color: #334155; line-height: 1.5; }
 .retry { margin-left: 10px; }
 .content { display: grid; gap: 16px; }
-.summary { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
-.summaryText { flex: 1; min-width: 250px; }
+/* Use explicit columns: the long timestamp must never squeeze briefing text
+   into a one-word-wide mobile column. */
+.summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px 18px; min-width: 0; }
+.summaryText { min-width: 0; }
 .healthLine { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .dataLabel { padding: 4px 9px; background: #f1f5f9; color: #475569; border-radius: 8px; font-size: .78rem; font-weight: 700; }
 .headline { margin: 0 0 8px; font-size: 1.15rem; line-height: 1.35; color: var(--tos-text, #172333); }
 .explanation { margin: 0; color: var(--tos-muted, #58677a); line-height: 1.5; }
-.timestamp { margin: 0; color: var(--tos-muted, #58677a); font-size: .78rem; }
+.timestamp { margin: 0; max-width: 100%; color: var(--tos-muted, #58677a); font-size: .78rem; text-align: right; overflow-wrap: break-word; }
 .metricGrid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
 .metric { border: 1px solid #e2e8f0; border-radius: 12px; padding: 13px; min-width: 0; }
 .metricLabel { display: block; margin-bottom: 7px; font-size: .83rem; color: var(--tos-muted, #58677a); }
@@ -49,6 +51,8 @@
 .side p, .empty { margin: 0 0 11px; color: #475569; line-height: 1.5; font-size: .9rem; }
 .side .caution { color: #92400e; }
 @media(max-width: 900px) {
+  .summary { grid-template-columns: minmax(0,1fr); }
+  .timestamp { text-align: left; }
   .metricGrid { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .bottom { grid-template-columns: minmax(0,1fr); }
 }
@@ -56,6 +60,9 @@
   .panel { padding: 14px; border-radius: 14px; }
   .metricGrid { gap: 7px; }
   .metric { padding: 10px; }
-  .summaryText { min-width: 0; }
+  .summaryText { min-width: 0; width: 100%; }
+  .healthLine { gap: 6px; }
+  .dataLabel { max-width: 100%; line-height: 1.35; }
+  .headline, .explanation { overflow-wrap: break-word; }
   .refresh { width: 100%; }
 }

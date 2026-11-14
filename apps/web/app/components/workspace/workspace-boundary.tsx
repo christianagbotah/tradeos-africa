@@ -15,7 +15,7 @@ import { IconAlert, IconRefresh } from "../ui/icons";
  * - Otherwise, render the children inside the workspace shell.
  */
 export function WorkspaceBoundary({ children }: { children: React.ReactNode }) {
-  const { booting, session, fatal, refreshCatalog } = useWorkspace();
+  const { booting, session, fatal, contextBusy, refreshWorkspaceContext, signOut } = useWorkspace();
   const router = useRouter();
 
   useEffect(() => {
@@ -59,8 +59,13 @@ export function WorkspaceBoundary({ children }: { children: React.ReactNode }) {
           <h1 className="tos-boundary__title">Workspace unavailable</h1>
           <p className="tos-boundary__text">{fatal}</p>
           <div className="tos-boundary__actions">
-            <Button variant="primary" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => void refreshCatalog()}>
-              Retry
+            <Button variant="primary" icon={<IconRefresh className="tos-btn__icon" />}
+              loading={contextBusy} disabled={contextBusy}
+              onClick={() => void refreshWorkspaceContext()}>
+              Retry access check
+            </Button>
+            <Button variant="outline" onClick={() => { signOut(); router.replace("/"); }}>
+              Sign in again
             </Button>
             <Button variant="outline" onClick={() => window.location.reload()}>
               Reload page
