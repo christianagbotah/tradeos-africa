@@ -56,7 +56,7 @@ export async function requestPlatformPasswordReset(
       [account.id,tokenHash(token),email],
     );
     const link=new URL("/reset-password",options.publicOrigin);
-    link.searchParams.set("token",token);
+    link.hash = "token=" + encodeURIComponent(token);
     return {id:row.rows[0]!.id,to:email,link:link.toString()};
   });
   if(issued){
