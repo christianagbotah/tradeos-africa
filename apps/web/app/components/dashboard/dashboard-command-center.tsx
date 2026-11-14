@@ -24,6 +24,8 @@ import { Button } from "../ui/button";
 import type { SaleSummary } from "../workspace/workspace-provider";
 import type { FinancialSummaryReport } from "@tradeos/contracts";
 import { deriveDashboardRevenue } from "./dashboard-revenue";
+import { dashboardQuickActionSegments, type DashboardActionSegment } from "./dashboard-quick-actions";
+import { visibleNavItems, type WorkspaceRole } from "../workspace/workspace-navigation";
 
 interface SalesResponse {
   sales: SaleSummary[];
@@ -73,52 +75,19 @@ export function DashboardCommandCenter() {
     return { activeCount, lowStockCount };
   }, [catalog, inventory]);
 
-  if (loading) {
-    return (
-      <div className="tos-page">
-        <DashboardHeader />
-        <div className="tos-dashboard-stats">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="tos-card tos-card--padded">
-              <span className="tos-skeleton tos-skeleton--line-short" />
-              <span className="tos-skeleton tos-skeleton--block" />
-            </div>
-          ))}
-        </div>
-        <div className="tos-card tos-card--padded">
-          <span className="tos-skeleton tos-skeleton--block" />
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="tos-page">
-        <DashboardHeader />
-        <StatePanel
-          variant="error"
-          title="Could not load dashboard"
-          text={error}
-          actionLabel="Retry"
-          onAction={() => refetch()}
-        />
-        <BusinessBriefingPanel />
-        <BusinessQuestionPanel />
-      </div>
-    );
-  }
-
-  const currency = session?.currencyCode ?? "GHS";
-  const sales = data?.sales ?? [];
+  const sales = !loading && !error ? data?.sales ?? [] : [];
 
   return (
     <div className="tos-page">
-      <DashboardHeader />
+      <DashboardHeader role={role} />
 
       {!queue.online ? (
         <OfflineBanner pending={queue.pending} />
       ) : null}
+
+      {/* Storefront actions always remain accessible even if the sales query
+          takes time or fails. The sidebar policy determines which are shown. */}
+      <DashboardQuickActions role={role} />
 
       {/* KPI grid — 4-up on desktop, 2x2 on phone. Order is deliberate:
           row 1 = revenue + sales count, row 2 = catalog + sync. */}
@@ -138,8 +107,8 @@ export function DashboardCommandCenter() {
           label="Recent sales"
           icon={<IconReceipt className="tos-stat__icon-tile-svg" />}
           iconTone="midnight"
-          value={<span className="tos-stat__value">{sales.length}</span>}
-          hint="Last 8 transactions"
+          value={<span className="tos-stat__value">{loading || error ? "—" : sales.length}</span>}
+          hint={loading ? "Loading transactions…" : error ? "Sales temporarily unavailable" : "Last 8 transactions"}
         />
         <StatCard
           label="Active catalog"
@@ -162,7 +131,7 @@ export function DashboardCommandCenter() {
       <BusinessBriefingPanel />
         <BusinessQuestionPanel />
 
-      <div className="tos-grid-two">
+      <div className="tos-dashboard-recent-sales">
         <section className="tos-section">
           <div className="tos-section__head">
             <h2 className="tos-section__title">Recent sales</h2>
@@ -172,7 +141,12 @@ export function DashboardCommandCenter() {
             </Link>
           </div>
           <div className="tos-section__body">
-            {sales.length === 0 ? (
+            {loading ? (
+              <p className="tos-dashboard-recent-sales__notice" role="status">Loading recent sales…</p>
+            ) : error ? (
+              <StatePanel inline variant="error" title="Could not load recent sales" text={error}
+                actionLabel="Retry sales" onAction={() => refetch()} />
+            ) : sales.length === 0 ? (
               <StatePanel
                 inline
                 variant="empty"
@@ -204,19 +178,6 @@ export function DashboardCommandCenter() {
           </div>
         </section>
 
-        <section className="tos-section">
-          <div className="tos-section__head">
-            <h2 className="tos-section__title">Quick actions</h2>
-          </div>
-          <div className="tos-section__body--padded">
-            <div className="tos-quick-action-grid">
-              <QuickAction href="/sell" icon={<IconSell className="tos-quick-action__icon-svg" />} label="New sale" desc="Open the POS" />
-              <QuickAction href="/catalog" icon={<IconBox className="tos-quick-action__icon-svg" />} label="Add product" desc="Manage catalog" />
-              <QuickAction href="/customers" icon={<IconCustomers className="tos-quick-action__icon-svg" />} label="Add customer" desc="Track credit" />
-              <QuickAction href="/cashbook" icon={<IconCashbook className="tos-quick-action__icon-svg" />} label="Record expense" desc="Cashbook" />
-            </div>
-          </div>
-        </section>
       </div>
 
       {role === "VIEWER" ? (
@@ -228,21 +189,22 @@ export function DashboardCommandCenter() {
   );
 }
 
-function DashboardHeader() {
+function DashboardHeader({ role }: { role: WorkspaceRole | null }) {
+  const allowed = new Set(visibleNavItems(role).map((item) => item.segment));
   return (
-    <header className="tos-page__head">
+    <header className="tos-page__head tos-dashboard-header">
       <div className="tos-page__heading">
         <span className="tos-page__eyebrow">TradeOS</span>
         <h1 className="tos-page__title">Dashboard</h1>
         <p className="tos-page__subtitle">Your recorded trading, stock and synchronization overview.</p>
       </div>
       <div className="tos-page__actions">
-        <Link href="/sell">
+        {allowed.has("sell") ? <Link href="/sell">
           <Button variant="gold" icon={<IconSell className="tos-btn__icon" />}>New sale</Button>
-        </Link>
-        <Link href="/reports">
+        </Link> : null}
+        {allowed.has("reports") ? <Link href="/reports">
           <Button variant="outline" icon={<IconReceipt className="tos-btn__icon" />}>Reports</Button>
-        </Link>
+        </Link> : null}
       </div>
     </header>
   );
@@ -309,6 +271,42 @@ function StatCard({
       {value}
       {hint ? <span className={hintCls}>{hint}</span> : null}
     </div>
+  );
+}
+
+function DashboardQuickActions({ role }: { role: WorkspaceRole | null }) {
+  const segments = dashboardQuickActionSegments(role);
+  if (segments.length === 0) return null;
+  const icons: Record<DashboardActionSegment, ReactNode> = {
+    sell: <IconSell className="tos-quick-action__icon-svg" />,
+    catalog: <IconBox className="tos-quick-action__icon-svg" />,
+    customers: <IconCustomers className="tos-quick-action__icon-svg" />,
+    cashbook: <IconCashbook className="tos-quick-action__icon-svg" />,
+    sales: <IconReceipt className="tos-quick-action__icon-svg" />,
+    reports: <IconTrending className="tos-quick-action__icon-svg" />,
+    settings: <IconBox className="tos-quick-action__icon-svg" />,
+  };
+  const labels: Record<DashboardActionSegment, [string, string]> = {
+    sell: ["New sale", "Open POS"],
+    catalog: ["Catalog", "Products & services"],
+    customers: ["Customers", "People & credit"],
+    cashbook: ["Record expense", "Cashbook"],
+    sales: ["Sales history", "Review receipts"],
+    reports: ["Reports", "Business insights"],
+    settings: ["Settings", "Manage account"],
+  };
+  return (
+    <section className="tos-section tos-dashboard-actions" aria-label="Quick actions">
+      <div className="tos-section__head"><h2 className="tos-section__title">Quick actions</h2></div>
+      <div className="tos-section__body--padded">
+        <div className="tos-quick-action-grid">
+          {segments.map((segment) => (
+            <QuickAction key={segment} href={`/${segment}`} icon={icons[segment]}
+              label={labels[segment][0]} desc={labels[segment][1]} />
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 

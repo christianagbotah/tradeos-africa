@@ -2036,3 +2036,35 @@
   background: var(--tos-gold);
   animation: tos-pulse-gold 2s infinite;
 }
+
+/* Dashboard-first commerce flow: shortcuts must be in reach before long AI panels. */
+.tos-dashboard-actions .tos-quick-action-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.tos-dashboard-actions .tos-quick-action { min-width: 0; }
+.tos-dashboard-recent-sales { min-width: 0; }
+.tos-dashboard-recent-sales__notice {
+  padding: 16px; color: var(--tos-text-muted); margin: 0;
+}
+@media (max-width: 900px) {
+  .tos-dashboard-actions .tos-quick-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .tos-dashboard-header .tos-page__actions { display: none; }
+  .tos-dashboard-actions .tos-section__body--padded { padding: 10px; }
+  .tos-dashboard-actions .tos-quick-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+  }
+  .tos-dashboard-actions .tos-quick-action {
+    min-height: 54px; padding: 9px; gap: 8px;
+  }
+  .tos-dashboard-actions .tos-quick-action__icon { width: 32px; height: 32px; }
+  .tos-dashboard-actions .tos-quick-action__icon-svg { width: 18px; height: 18px; }
+  .tos-dashboard-actions .tos-quick-action__label {
+    font-size: 13px; line-height: 1.2; white-space: normal; overflow-wrap: break-word;
+  }
+  .tos-dashboard-actions .tos-quick-action__desc,
+  .tos-dashboard-actions .tos-quick-action__chevron { display: none; }
+}
