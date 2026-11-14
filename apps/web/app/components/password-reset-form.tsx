@@ -16,11 +16,11 @@ export function PasswordResetForm() {
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    const supplied = url.searchParams.get("token");
+    const supplied = new URLSearchParams(url.hash.replace(/^#/, "")).get("token");
     setToken(supplied ?? "");
     // Do not leave this secret in the browser address bar or subsequent referrers.
     if (supplied) {
-      url.searchParams.delete("token");
+      url.hash = "";
       window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
     }
   }, []);
