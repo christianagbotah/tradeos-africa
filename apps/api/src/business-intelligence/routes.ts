@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { BusinessBriefingRange, BusinessActionTransition, MerchantAutomationConfigUpdate } from "@tradeos/contracts";
+import type { BusinessBriefingRange, BusinessActionTransition, MerchantAutomationConfigUpdate, BusinessQuestionRequest } from "@tradeos/contracts";
 import type { DatabasePool } from "../db.js";
 import { requireBusinessRole, type BusinessRole } from "../auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "../auth/security.js";
@@ -9,12 +9,26 @@ import { listBusinessAttention, evaluateBusinessAttention } from "./attention-se
 import { listBusinessActions, generateBusinessActions, transitionBusinessAction, listBusinessActionHistory, BusinessActionError } from "./action-service.js";
 import { readMerchantAutomation, configureMerchantAutomation, proposeMerchantAutomation, decideMerchantAutomationRun, MerchantAutomationError } from "./merchant-automation-service.js";
 import { loadInventoryIntelligence, InventoryIntelligenceError, type InventoryPlanningHorizon } from "./inventory-intelligence-service.js";
+import { answerBusinessQuestion, BusinessQuestionError } from "./question-service.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BRIEFING_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 type Query = { businessId?: string; branchId?: string; range?: string };
 
 export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: DatabasePool): void {
+
+  app.post<{ Body: BusinessQuestionRequest }>("/v1/intelligence/question", async (request, reply) => {
+    try {
+      const { businessId, branchId } = await readAuthorizedScope(
+        pool, request.headers.authorization, request.body ?? {},
+      );
+      return await answerBusinessQuestion(pool, businessId, branchId, request.body.question);
+    } catch (error) {
+      return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_QUESTION_FAILED");
+    }
+  });
+
+
 
   app.get<{ Querystring: Query & { horizonDays?: string } }>(
     "/v1/intelligence/inventory", async (request, reply) => {
@@ -223,7 +237,7 @@ function sendBusinessIntelligenceError(
   reply: { code: (status: number) => { send: (payload: unknown) => unknown } },
   error: unknown, fallbackCode: string,
 ) {
-  if (error instanceof AuthError || error instanceof ReportError || error instanceof BusinessActionError || error instanceof MerchantAutomationError || error instanceof InventoryIntelligenceError) {
+  if (error instanceof AuthError || error instanceof ReportError || error instanceof BusinessActionError || error instanceof MerchantAutomationError || error instanceof InventoryIntelligenceError || error instanceof BusinessQuestionError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });
   }
   request.log.error(error);
