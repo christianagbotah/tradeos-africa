@@ -219,7 +219,7 @@ export async function answerBusinessQuestion(
         ...current,
         items: items.map((item)=>({
           id:item.itemId,label:item.itemName,
-          detail:money(item.netRevenueMinor,report.currencyCode)+" net revenue; "+ 
+          detail:money(item.netRevenueMinor,report.currencyCode)+" net revenue; "+
             (item.quantitySold-item.quantityReturned).toLocaleString("en-GH")+" net units",
         })),
         answer: items.length
