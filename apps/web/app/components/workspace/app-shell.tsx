@@ -459,6 +459,10 @@ export function AppShell({ children }: AppShellProps) {
                     </div>
                   </section>
                 ))}
+                <div className="tos-more-sheet__version" role="note">
+                  <span>TradeOS release {process.env.NEXT_PUBLIC_TRADEOS_CLIENT_RELEASE?.slice(0, 7) || "development"}</span>
+                  <button type="button" onClick={() => window.location.reload()}>Reload app</button>
+                </div>
               </div>
             </div>
           </>

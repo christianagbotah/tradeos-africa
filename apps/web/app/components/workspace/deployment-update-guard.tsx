@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "../ui/button";
 
-const BUILD_STORAGE_KEY = "tradeos:workspace-build-id";
+// Built into the loaded page, not learned from the live server on first poll.
+const LOADED_RELEASE_ID = process.env.NEXT_PUBLIC_TRADEOS_CLIENT_RELEASE?.trim() ?? "";
 const POLL_INTERVAL_MS = 60_000;
 
 interface BuildResponse {
@@ -14,7 +15,7 @@ export function DeploymentUpdateGuard() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production") return;
+    if (process.env.NODE_ENV !== "production" || !LOADED_RELEASE_ID) return;
 
     let cancelled = false;
 
@@ -32,13 +33,7 @@ export function DeploymentUpdateGuard() {
         const activeBuildId = typeof payload.buildId === "string" ? payload.buildId.trim() : "";
         if (!activeBuildId) return;
 
-        const loadedBuildId = sessionStorage.getItem(BUILD_STORAGE_KEY);
-        if (!loadedBuildId) {
-          sessionStorage.setItem(BUILD_STORAGE_KEY, activeBuildId);
-          return;
-        }
-
-        if (loadedBuildId !== activeBuildId && !cancelled) {
+        if (LOADED_RELEASE_ID !== activeBuildId && !cancelled) {
           setUpdateAvailable(true);
         }
       } catch {

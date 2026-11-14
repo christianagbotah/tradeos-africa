@@ -1,7 +1,16 @@
 import type { NextConfig } from "next";
+import { basename, resolve } from "node:path";
+
+// The deployed release directory is named after its immutable Git commit.
+// Bake that identity into BOTH the browser bundle and the server endpoint:
+// deriving it from the server on first poll would mistake an old tab for new.
+const releaseFolder = basename(resolve(process.cwd(), "../.."));
+const candidateReleaseId = process.env.TRADEOS_RELEASE_SHA || process.env.GITHUB_SHA || releaseFolder;
+const clientReleaseId = /^[a-f0-9]{40}$/i.test(candidateReleaseId) ? candidateReleaseId : "";
 
 const config: NextConfig = {
   reactStrictMode: true,
+  env: { NEXT_PUBLIC_TRADEOS_CLIENT_RELEASE: clientReleaseId },
   async headers() {
     return [{
       source: "/reset-password",

@@ -8875,3 +8875,31 @@
   .tos-settings__actions > .tos-btn,
   .tos-settings__branch-actions > .tos-btn { width: auto; }
 }
+
+/* Make the served release identifiable on mobile during UAT. */
+.tos-more-sheet__version {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--tos-border);
+  color: var(--tos-text-muted);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.tos-more-sheet__version button {
+  cursor: pointer;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--tos-border);
+  border-radius: 8px;
+  background: var(--tos-surface-soft);
+  color: var(--tos-text);
+  font-size: 13px;
+  font-weight: 650;
+}
+.tos-more-sheet__version button:focus-visible {
+  outline: 2px solid var(--tos-gold);
+  outline-offset: 2px;
+}

@@ -14,6 +14,13 @@ export async function GET() {
     return Response.json({ buildId: "development" }, { headers: NO_STORE_HEADERS });
   }
 
+  // This release ID is embedded at compile time into the JavaScript bundle.
+  // Keep the endpoint and browser guard on the same identifier.
+  const compiledReleaseId = process.env.NEXT_PUBLIC_TRADEOS_CLIENT_RELEASE?.trim();
+  if (compiledReleaseId) {
+    return Response.json({ buildId: compiledReleaseId }, { headers: NO_STORE_HEADERS });
+  }
+
   try {
     const buildId = (await readFile(join(process.cwd(), ".next", "BUILD_ID"), "utf8")).trim();
     if (!buildId) {
