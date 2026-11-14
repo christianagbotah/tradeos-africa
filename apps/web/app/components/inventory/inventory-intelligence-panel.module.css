@@ -30,3 +30,4 @@
 .link { color:#1d4ed8; font-size:.88rem; text-decoration:underline; text-underline-offset:3px; font-weight:700; }
 @media(max-width:880px) { .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:500px) { .panel { padding:13px; } .controls { width:100%; } .controls label { flex:1; } .refresh { flex:1; } .item { padding:11px; } }
+.more { justify-self:start; padding:9px 13px; border:1px solid #cbd5e1; border-radius:10px; background:transparent; color:var(--tos-text,#172333); font:inherit; font-size:.88rem; font-weight:700; cursor:pointer; }
