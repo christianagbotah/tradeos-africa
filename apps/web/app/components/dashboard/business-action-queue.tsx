@@ -109,7 +109,7 @@ export function BusinessActionQueue() {
       if (!response.ok) throw new Error(await readApiErrorMessage(response));
       const result = await response.json() as BusinessActionHistoryResponse;
       if (contextRef.current === priorContext &&
-          result.businessId === session.businessId && result.branchId === session.branchId &&
+          result.businessId === session?.businessId && result.branchId === session?.branchId &&
           result.actionId === actionId) {
         setHistory(result);
       }
