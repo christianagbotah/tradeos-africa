@@ -22,3 +22,5 @@ export * from "./business-intelligence.js";
 export * from "./business-attention.js";
 
 export * from "./business-actions.js";
+
+export * from "./business-automation.js";
