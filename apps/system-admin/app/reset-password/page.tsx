@@ -69,19 +69,19 @@ export default function AdminResetPasswordPage() {
           </p>
         ) : (
           <form className="admin-auth-form" onSubmit={submit}>
-            <label className="admin-auth-field">
-              <span>New password</span>
+            <div className="admin-auth-field">
+              <label htmlFor="admin-new-password">New password</label>
               <AdminPasswordInput id="admin-new-password" autoComplete="new-password"
                 value={password} onChange={(event)=>setPassword(event.target.value)}
                 minLength={12} maxLength={200} required
                 placeholder="At least 12 characters" />
-            </label>
-            <label className="admin-auth-field">
-              <span>Confirm new password</span>
+            </div>
+            <div className="admin-auth-field">
+              <label htmlFor="admin-confirm-password">Confirm new password</label>
               <AdminPasswordInput id="admin-confirm-password" autoComplete="new-password"
                 value={confirm} onChange={(event)=>setConfirm(event.target.value)}
                 minLength={12} maxLength={200} required placeholder="Repeat your new password" />
-            </label>
+            </div>
             {error ? <p className="admin-auth-error" role="alert">{error}</p> : null}
             <button className="admin-auth-submit" type="submit"
               disabled={busy||password.length<12||!confirm}>
