@@ -2,8 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main]
   pull_request:
+
+# Avoid redundant native builds: feature branches validate on pull requests;
+# main continues to validate every landed commit.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
