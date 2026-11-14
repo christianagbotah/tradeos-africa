@@ -272,7 +272,7 @@ export async function decideMerchantAutomationRun(
       }
     }
     const updated = await client.query<RunRow>(
-      "UPDATE business_automation_runs SET state=$3,approved_by_user_id=$4," +
+      "UPDATE business_automation_runs SET state=$3,approved_by_user_id=CASE WHEN $3='SUCCEEDED' THEN $4 ELSE NULL END," +
       "executed_by_user_id=CASE WHEN $3='SUCCEEDED' THEN $4 ELSE NULL END," +
       "rejected_by_user_id=CASE WHEN $3='REJECTED' THEN $4 ELSE NULL END," +
       "approved_at=CASE WHEN $3='SUCCEEDED' THEN now() ELSE NULL END," +
