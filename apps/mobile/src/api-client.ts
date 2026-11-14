@@ -1,4 +1,5 @@
 import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
+import type { BusinessNotificationsResponse, BusinessNotificationKind } from "@tradeos/contracts";
 import { type MobileSessionTokens, MobilePersistence } from "./storage";
 
 export type MobilePlatform = "ANDROID" | "IOS";
@@ -162,6 +163,24 @@ export class MobileApiClient {
     const normalized = search.trim();
     if (normalized) query.set("query", normalized);
     return this.authorizedJson<MobileInventoryResponse>(`/v1/inventory?${query.toString()}`, { method: "GET" });
+  }
+
+  getBusinessNotifications(businessId: string, branchId: string): Promise<BusinessNotificationsResponse> {
+    const query = new URLSearchParams({ businessId, branchId });
+    return this.authorizedJson<BusinessNotificationsResponse>(
+      `/v1/intelligence/notifications?${query.toString()}`, { method: "GET" },
+    );
+  }
+
+  acknowledgeBusinessNotification(
+    businessId: string, branchId: string, kind: BusinessNotificationKind, notificationId: string,
+  ): Promise<{ readAt: string }> {
+    const query = new URLSearchParams({ businessId, branchId });
+    const id = encodeURIComponent(notificationId);
+    return this.authorizedJson<{ readAt: string }>(
+      `/v1/intelligence/notifications/${encodeURIComponent(kind)}/${id}/read?${query.toString()}`,
+      { method: "POST" },
+    );
   }
 
   push(request: SyncPushRequest): Promise<SyncResponse> {
