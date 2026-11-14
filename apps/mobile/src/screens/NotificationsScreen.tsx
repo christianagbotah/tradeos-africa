@@ -77,7 +77,10 @@ export function NotificationsScreen({
     setError(null);
     try {
       await api.acknowledgeBusinessNotification(businessId, branchId, item.kind, item.id);
-      if (sequence.current === current) await reload();
+      if (sequence.current === current) {
+        setSaving(null);
+        await reload();
+      }
     } catch {
       if (sequence.current === current) setError("Could not acknowledge this notification. Try again.");
     } finally {
