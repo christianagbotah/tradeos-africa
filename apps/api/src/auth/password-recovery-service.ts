@@ -58,7 +58,7 @@ export async function requestMerchantPasswordReset(
       [user.id, tokenHash(token), email],
     );
     const url = new URL("/reset-password", options.publicOrigin);
-    url.searchParams.set("token", token);
+    url.hash = "token=" + encodeURIComponent(token);
     return { id: saved.rows[0]!.id, email, link: url.toString() };
   });
   if (issued) {
