@@ -5,7 +5,12 @@ export type BusinessAttentionRule =
   | "RECEIVABLES_OVERDUE"
   | "PAYABLES_OVERDUE"
   | "CASH_PRESSURE_FORECAST"
-  | "BUSINESS_HEALTH_INSIGHT";
+  | "BUSINESS_HEALTH_INSIGHT"
+  | "STOCKOUT_RISK"
+  | "REORDER_REVIEW"
+  | "SLOW_STOCK"
+  | "OVERSTOCK_REVIEW"
+  | "INVENTORY_COVERAGE_LIMITED";
 export type BusinessAttentionSeverity = "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type BusinessAttentionState = "OPEN" | "RESOLVED" | "DISMISSED";
 
