@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { BusinessBriefingPanel } from "./business-briefing-panel";
+import { BusinessQuestionPanel } from "./business-question-panel";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useWorkspace } from "../workspace/use-workspace";
@@ -92,6 +93,7 @@ export function DashboardCommandCenter() {
           onAction={() => refetch()}
         />
         <BusinessBriefingPanel />
+        <BusinessQuestionPanel />
       </div>
     );
   }
@@ -144,6 +146,7 @@ export function DashboardCommandCenter() {
       </div>
 
       <BusinessBriefingPanel />
+        <BusinessQuestionPanel />
 
       <div className="tos-grid-two">
         <section className="tos-section">
