@@ -6,6 +6,7 @@ import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
+import { BusinessAutomationPanel } from "./business-automation-panel";
 import styles from "./business-action-queue.module.css";
 
 const ROLES = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
@@ -207,6 +208,7 @@ export function BusinessActionQueue() {
           )}
         </>
       )}
+      <BusinessAutomationPanel />
     </section>
   );
 }
