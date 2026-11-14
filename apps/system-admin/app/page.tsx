@@ -52,11 +52,11 @@ export default function RootPage() {
             <span>Email</span>
             <input type="email" autoComplete="username" value={identifier} onChange={(event) => setIdentifier(event.target.value)} required />
           </label>
-          <label className="admin-auth-field">
-            <span>Password</span>
+          <div className="admin-auth-field">
+            <label htmlFor="admin-login-password">Password</label>
             <AdminPasswordInput id="admin-login-password" autoComplete="current-password"
               value={password} onChange={(event) => setPassword(event.target.value)} required />
-          </label>
+          </div>
           <div style={{ textAlign: "right" }}>
             <button type="button" className="admin-auth-link"
               onClick={() => setForgotMode(true)}>Forgot password?</button>
