@@ -244,6 +244,70 @@
   box-shadow: var(--tos-focus-ring);
 }
 
+/* --- Compact desktop navigation ---------------------------------------- */
+/* The desktop rail remains navigable at 76px; phones keep the full drawer. */
+.tos-sidebar__collapse {
+  margin-left: auto;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #30445f;
+  border-radius: 9px;
+  background: #17263d;
+  color: #e1e8f3;
+  cursor: pointer;
+}
+.tos-sidebar__collapse:hover { background: #243a58; color: white; }
+.tos-sidebar__collapse:focus-visible { outline: 2px solid var(--tos-gold); outline-offset: 2px; }
+.tos-sidebar__collapse-icon { width: 18px; height: 18px; }
+
+@media (min-width: 1025px) {
+  .tos-shell { transition: grid-template-columns 180ms ease; }
+  .tos-shell[data-sidebar-collapsed="true"] { grid-template-columns: 76px minmax(0, 1fr); }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__brand {
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 8px;
+  }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__collapse { margin: 0; }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__brand-text,
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__ctx,
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__group-label,
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__link-label,
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__signout-label,
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__queue-text { display: none; }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__nav { padding: 12px 8px; gap: 14px; }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__group { gap: 4px; }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__group + .tos-sidebar__group {
+    border-top: 1px solid #263955;
+    padding-top: 10px;
+  }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__link,
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__signout {
+    width: 46px;
+    min-height: 44px;
+    justify-content: center;
+    padding: 10px;
+    margin-inline: auto;
+  }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__link-icon { width: 20px; height: 20px; }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__foot { padding: 8px; }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__queue {
+    padding: 6px 3px;
+    text-align: center;
+  }
+  .tos-sidebar[data-collapsed="true"] .tos-sidebar__queue-title { font-size: 10px; overflow-wrap: anywhere; }
+}
+@media (max-width: 1024px) {
+  .tos-sidebar__collapse { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tos-shell { transition: none; }
+}
+
 /* --- Main column -------------------------------------------------------- */
 .tos-main {
   display: flex;

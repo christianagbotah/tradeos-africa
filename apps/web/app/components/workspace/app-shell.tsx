@@ -18,6 +18,8 @@ import {
   IconClose,
   IconLogout,
   IconMenu,
+  IconPanelCollapse,
+  IconPanelExpand,
   IconMore,
   IconPlus,
   IconSearch,
@@ -48,10 +50,28 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [shellFeedback, setShellFeedback] = useState<ShellFeedback>(null);
+
+  // Keep the desktop preference per device without coupling it to business access.
+  useEffect(() => {
+    try {
+      setSidebarCollapsed(window.localStorage.getItem("tradeos.sidebar.collapsed") === "true");
+    } catch {
+      // Private browsing or restricted storage: default to expanded navigation.
+    }
+  }, []);
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      try { window.localStorage.setItem("tradeos.sidebar.collapsed", String(next)); } catch { /* optional preference */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -132,21 +152,34 @@ export function AppShell({ children }: AppShellProps) {
     .toUpperCase() || "T";
 
   return (
-    <div className="tos-shell">
-      <aside className="tos-sidebar" data-open={drawerOpen} aria-label="Workspace navigation">
+    <div className="tos-shell" data-sidebar-collapsed={sidebarCollapsed}>
+      <aside className="tos-sidebar" data-open={drawerOpen} data-collapsed={sidebarCollapsed} aria-label="Workspace navigation">
         <div className="tos-sidebar__brand">
           <div className="tos-sidebar__mark" aria-hidden="true">T</div>
           <div className="tos-sidebar__brand-text">
             <span className="tos-sidebar__brand-name">TradeOS</span>
             <span className="tos-sidebar__brand-sub">Merchant web</span>
           </div>
+          <button
+            type="button"
+            className="tos-sidebar__collapse"
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
+            aria-expanded={!sidebarCollapsed}
+            aria-controls="tradeos-sidebar-navigation"
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed
+              ? <IconPanelExpand className="tos-sidebar__collapse-icon" />
+              : <IconPanelCollapse className="tos-sidebar__collapse-icon" />}
+          </button>
         </div>
         <div className="tos-sidebar__ctx">
           <span className="tos-sidebar__ctx-label">Business</span>
           <span className="tos-sidebar__ctx-name" title={session.businessName}>{session.businessName}</span>
           <span className="tos-sidebar__ctx-sub">{currentBranch?.name ?? "Branch"} · {session.currencyCode}</span>
         </div>
-        <nav className="tos-sidebar__nav">
+        <nav className="tos-sidebar__nav" id="tradeos-sidebar-navigation">
           {groups.map((group) => (
             <div key={group.group} className="tos-sidebar__group">
               <span className="tos-sidebar__group-label">{group.group}</span>
@@ -158,16 +191,16 @@ export function AppShell({ children }: AppShellProps) {
         </nav>
         <div className="tos-sidebar__foot">
           {queue.pending > 0 || !queue.online ? (
-            <div className="tos-sidebar__queue">
+            <div className="tos-sidebar__queue" title={queue.online ? `${queue.pending} pending offline changes` : "Offline — changes will sync once online"}>
               <span className="tos-sidebar__queue-title">{queue.online ? `${queue.pending} pending` : "Offline"}</span>
               <span className="tos-sidebar__queue-text">
                 {queue.online ? "Queued offline changes will sync automatically." : "Sales will queue locally and sync when you reconnect."}
               </span>
             </div>
           ) : null}
-          <button type="button" className="tos-sidebar__signout" onClick={handleSignOut}>
+          <button type="button" className="tos-sidebar__signout" onClick={handleSignOut} title="Sign out" aria-label="Sign out">
             <IconLogout className="tos-sidebar__link-icon" />
-            Sign out
+            <span className="tos-sidebar__signout-label">Sign out</span>
           </button>
         </div>
       </aside>
@@ -394,9 +427,9 @@ function deriveActiveSegment(pathname: string): string {
 function SidebarLink({ item, active }: { item: WorkspaceNavItem; active: boolean }) {
   const Icon = item.icon;
   return (
-    <Link href={`/${item.segment}`} className="tos-sidebar__link" data-active={active} aria-current={active ? "page" : undefined}>
+    <Link href={`/${item.segment}`} className="tos-sidebar__link" data-active={active} aria-current={active ? "page" : undefined} title={item.label} aria-label={item.label}>
       <Icon className="tos-sidebar__link-icon" />
-      <span>{item.label}</span>
+      <span className="tos-sidebar__link-label">{item.label}</span>
     </Link>
   );
 }

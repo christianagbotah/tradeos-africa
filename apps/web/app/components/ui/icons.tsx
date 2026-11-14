@@ -505,3 +505,25 @@ export function IconPackageOpen(props: IconProps) {
     </svg>
   );
 }
+
+/** Icon for collapsing the desktop workspace navigation rail. */
+export function IconPanelCollapse(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+      <path d="m16 9-3 3 3 3" />
+    </svg>
+  );
+}
+
+/** Icon for expanding a compact desktop workspace navigation rail. */
+export function IconPanelExpand(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+      <path d="m13 9 3 3-3 3" />
+    </svg>
+  );
+}
