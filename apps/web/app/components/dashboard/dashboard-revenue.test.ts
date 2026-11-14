@@ -44,6 +44,21 @@ describe("dashboard money truthfulness", () => {
     }
   });
 
+  it("treats genuine zero posted revenue as zero, not unavailable", () => {
+    const zeroReport = {
+      ...report, flow: { netRevenueMinor: 0, salesCount: 0 },
+    } as FinancialSummaryReport;
+    const result=deriveDashboardRevenue({
+      mayReadFinancialReport: true,
+      report: zeroReport,
+      recentSales: receipts,
+      fallbackCurrencyCode: "GHS",
+      online: true, pendingSync: 0,
+    });
+    expect(result).toMatchObject({ source: "CANONICAL_REPORT", minor: 0 });
+    expect(result.hint).toBe("0 recorded sale(s)");
+  });
+
   it("labels pending offline sync explicitly when canonical report is available", () => {
     const summary=deriveDashboardRevenue({
       mayReadFinancialReport:true,report,recentSales:receipts,
