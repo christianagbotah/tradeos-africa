@@ -10,6 +10,7 @@ import { MobileRuntime } from "./src/runtime";
 import { DashboardScreen } from "./src/screens/DashboardScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { MoreScreen } from "./src/screens/MoreScreen";
+import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import { PosScreen } from "./src/screens/PosScreen";
 import { SalesScreen } from "./src/screens/SalesScreen";
 import { ErrorScreen, LoadingScreen, NeedsBusinessScreen } from "./src/screens/BootScreens";
@@ -31,7 +32,7 @@ const DEFAULT_API_BASE = "https://tradeosafrica.lightworldtech.com/api/mobile";
  * and `src/screens`. This file holds no inline StyleSheet colors or hex values.
  */
 export default function App() {
-  const model = useMemo(() => {
+  const services = useMemo(() => {
     const persistence = createNativeMobilePersistence();
     const api = new MobileApiClient({
       baseUrl: process.env.EXPO_PUBLIC_TRADEOS_API_BASE ?? DEFAULT_API_BASE,
@@ -46,14 +47,15 @@ export default function App() {
       now: () => new Date().toISOString(),
       createMutationId: () => Crypto.randomUUID(),
     });
-    return new MobileAppModel(runtime);
+    return { model: new MobileAppModel(runtime), api };
   }, []);
 
+  const { model, api } = services;
   const [snapshot, setSnapshot] = useState<MobileAppSnapshot>(model.snapshot);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
-  const [screen, setScreen] = useState<BottomNavTab>("dashboard");
+  const [screen, setScreen] = useState<BottomNavTab | "notifications">("dashboard");
 
   useEffect(() => {
     let mounted = true;
@@ -94,6 +96,7 @@ export default function App() {
 
   const queue = snapshot.bootstrap?.status === "READY" ? snapshot.bootstrap.queue : null;
   const isReady = snapshot.phase === "READY";
+  const ready = snapshot.bootstrap?.status === "READY" ? snapshot.bootstrap : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -163,11 +166,23 @@ export default function App() {
                   onSync={() => { void sync(); }}
                   onRefreshCatalog={() => { void refreshCommerce(); }}
                   onLogout={() => { void logout(); }}
+                  onGoToNotifications={() => setScreen("notifications")}
+                />
+              ) : null}
+              {screen === "notifications" && ready ? (
+                <NotificationsScreen
+                  key={ready.user.id + ":" + ready.membership.businessId + ":" + ready.branch.id}
+                  api={api}
+                  businessId={ready.membership.businessId}
+                  branchId={ready.branch.id}
+                  role={ready.membership.role}
+                  online={snapshot.online === true}
+                  onBack={() => setScreen("more")}
                 />
               ) : null}
             </View>
             <BottomNav
-              active={screen}
+              active={screen === "notifications" ? "more" : screen}
               onChange={setScreen}
               pendingCount={queue?.pending ?? 0}
               failedCount={queue?.failed ?? 0}
