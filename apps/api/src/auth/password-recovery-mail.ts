@@ -52,7 +52,9 @@ export async function sendPasswordRecoveryEmail(
     "This link expires in " + mail.expiresInMinutes + " minutes and can be used only once.\r\n" +
     "If you did not request this change, ignore this message. Your password has not changed.\r\n";
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(settings.sendmailPath, ["-i", "-t"], {
+    // Exim uses the envelope sender for routing, SPF alignment and bounce handling.
+    // Without -f the untrusted process user becomes the envelope sender.
+    const child = spawn(settings.sendmailPath, ["-i", "-t", "-f", settings.sender], {
       stdio: ["pipe", "ignore", "ignore"],
       shell: false,
       env: { PATH: "/usr/bin:/bin" },
