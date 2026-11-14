@@ -7,12 +7,7 @@ import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { colors, radius, spacing, typography } from "../theme";
-
-const ALLOWED_ROLES = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
-
-export function canReadMobileNotifications(role: string): boolean {
-  return ALLOWED_ROLES.has(role);
-}
+import { canReadMobileNotifications, notificationResponseMatchesContext } from "../notification-scope";
 
 export type NotificationsScreenProps = {
   api: Pick<MobileApiClient, "getBusinessNotifications" | "acknowledgeBusinessNotification">;
@@ -51,7 +46,7 @@ export function NotificationsScreen({
     try {
       const fresh = await api.getBusinessNotifications(businessId, branchId);
       if (sequence.current !== current) return;
-      if (fresh.businessId !== businessId || fresh.branchId !== branchId) {
+      if (!notificationResponseMatchesContext(fresh, businessId, branchId)) {
         setError("TradeOS returned notifications for a different business context. Nothing was displayed.");
         return;
       }
