@@ -4,6 +4,7 @@ import "./globals.css";
 import "./tradeos-tokens.css";
 import "./ui-primitives.css";
 import "./workspace-shell.css";
+import "./password-controls.css";
 
 export const metadata: Metadata = {
   title: "TradeOS",
