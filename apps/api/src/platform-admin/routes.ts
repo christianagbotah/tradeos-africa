@@ -1,5 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabasePool } from "../db.js";
+import { passwordRecoveryMailSettings, sendPasswordRecoveryEmail } from "../auth/password-recovery-mail.js";
+import { requestPlatformPasswordReset, confirmPlatformPasswordReset } from "./password-recovery-service.js";
 import {
   authenticatePlatformAdmin,
   loginPlatformAdmin,
@@ -40,6 +42,42 @@ import {
 const ADMIN_COOKIE = "__Host-tradeos_admin_session";
 
 export function registerPlatformAdminRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  app.post<{ Body: { email?: unknown } }>("/api/admin/password/forgot", async (request, reply) => {
+    // The administrator link origin is configured separately from merchant UI.
+    const settings = passwordRecoveryMailSettings({
+      ...process.env,
+      TRADEOS_PASSWORD_RESET_PUBLIC_ORIGIN: process.env.TRADEOS_ADMIN_RESET_PUBLIC_ORIGIN,
+    });
+    if (!settings) return reply.code(503).send({
+      error: "ADMIN_RECOVERY_UNAVAILABLE",
+      message: "Administrator email recovery is temporarily unavailable. Contact platform support.",
+    });
+    try {
+      const result = await requestPlatformPasswordReset(pool, request.body?.email, {
+        publicOrigin: settings.publicOrigin,
+        deliver: (mail) => sendPasswordRecoveryEmail(mail, settings),
+        reportDeliveryFailure: () => request.log.error("Administrator recovery mail submission failed"),
+      });
+      reply.header("Cache-Control", "no-store");
+      return reply.code(202).send(result);
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_RECOVERY_FAILED", "Recovery could not be requested.");
+    }
+  });
+
+  app.post<{ Body: { token?: unknown; newPassword?: unknown } }>(
+    "/api/admin/password/reset", async (request, reply) => {
+      try {
+        await confirmPlatformPasswordReset(pool, request.body?.token, request.body?.newPassword);
+        reply.header("Cache-Control","no-store");
+        return { message: "Administrator password reset. Sign in with your new password." };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_RECOVERY_RESET_FAILED", "Password could not be reset.");
+      }
+    },
+  );
+
+
   app.post<{ Body: { identifier?: unknown; password?: unknown; platform?: unknown; deviceKey?: unknown } }>(
     "/api/admin/session/login",
     async (request, reply) => {

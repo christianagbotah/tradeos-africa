@@ -62,6 +62,45 @@ jobs:
                 systemctl --no-pager --plain --type=service --state=running 'actions.runner.*tradeos*' 2>/dev/null || true
               } > "$output_file" 2>&1
               ;;
+            "/vps mail-preflight")
+              {
+                printf 'mailer_path='
+                if [ -x /usr/sbin/sendmail ]; then
+                  printf '/usr/sbin/sendmail available\n'
+                else
+                  printf 'missing or not executable\n'
+                fi
+                printf '\n== mail services ==\n'
+                for unit in exim exim4 postfix sendmail; do
+                  printf '%s=' "$unit"
+                  systemctl is-active "$unit" 2>/dev/null || true
+                done
+                printf '\n== application mail config presence only ==\n'
+                for file in \
+                  /home/lightworld/webapps/tradeos-staging/.env \
+                  /home/lightworld/webapps/tradeos-staging/api/.env \
+                  /home/lightworld/config/tradeos-staging.env; do
+                  if [ ! -r "$file" ]; then
+                    printf 'config_readable=no path=%s\n' "$file"
+                    continue
+                  fi
+                  printf 'config_readable=yes path=%s\n' "$file"
+                  for key in \
+                    TRADEOS_PASSWORD_RESET_FROM \
+                    TRADEOS_PASSWORD_RESET_PUBLIC_ORIGIN \
+                    TRADEOS_ADMIN_RESET_PUBLIC_ORIGIN \
+                    TRADEOS_SENDMAIL_PATH; do
+                    if grep -q -E "^\s*${key}=" "$file"; then
+                      printf '%s=configured\n' "$key"
+                    else
+                      printf '%s=missing\n' "$key"
+                    fi
+                  done
+                done
+                printf '\n== mailer executable metadata ==\n'
+                stat -c 'owner=%U group=%G mode=%a' /usr/sbin/sendmail 2>/dev/null || true
+              } > "$output_file" 2>&1
+              ;;
             "/vps variety-preflight")
               {
                 printf 'runner_user='; whoami
