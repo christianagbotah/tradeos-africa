@@ -7,6 +7,7 @@ import type { BusinessQuestionResponse } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
+import { MoneyValue } from "../business/money-value";
 import styles from "./business-question-panel.module.css";
 
 const ROLES = new Set(["OWNER","ADMIN","MANAGER","ACCOUNTANT"]);
@@ -26,7 +27,7 @@ export function BusinessQuestionPanel() {
   const context = session ? session.businessId + ":" + session.branchId : "";
   const contextRef = useRef(context);
   contextRef.current = context;
-  if (!session || !ROLES.has(role)) return null;
+  if (!session || role === null || !ROLES.has(role)) return null;
 
   const current = answer && answer.businessId === session.businessId &&
     answer.branchId === session.branchId ? answer : null;
@@ -126,7 +127,9 @@ export function BusinessQuestionPanel() {
               {current.evidence.length ? (
                 <ul className={styles.evidence}>
                   {current.evidence.map((item) => (
-                    <li key={item.key}>{item.label}: {item.value.toLocaleString("en-GH")}</li>
+                    <li key={item.key}>{item.label}: {item.unit === "MINOR" ? (
+                      <MoneyValue minor={item.value} currencyCode={current.currencyCode ?? "GHS"} />
+                    ) : item.value.toLocaleString("en-GH", { maximumFractionDigits: 3 })}</li>
                   ))}
                 </ul>
               ) : null}
