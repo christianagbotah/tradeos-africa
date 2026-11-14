@@ -18,10 +18,10 @@ export function classifyBusinessQuestion(question: string): BusinessQuestionInte
   if (/(stock|inventory|reorder|restock|replenish|running out|shortage)/.test(normalized)) return "REPLENISHMENT";
   if (/(supplier|vendor|payables|we owe|owe our)/.test(normalized)) return "SUPPLIERS_OVERDUE";
   if (/(customer|receivable|owed to us|owes us|owes me|debtors|unpaid invoice)/.test(normalized)) return "CUSTOMERS_OVERDUE";
-  if (/(best sell|top sell|most sold|top product|popular product|best product)/.test(normalized)) return "TOP_ITEMS";
+  if (/(best sell|sold best|top sell|top-selling|most sold|top product|popular product|best product)/.test(normalized)) return "TOP_ITEMS";
   if (/(profit|margin|expenses?)/.test(normalized)) return "PROFIT";
   if (/(cash|bank balance|how much money)/.test(normalized)) return "CASH";
-  if (/(sale|sold|revenue|turnover)/.test(normalized)) return "SALES";
+  if (/(sale|sold|sell|revenue|turnover)/.test(normalized)) return "SALES";
   return "UNSUPPORTED";
 }
 function money(amountMinor: number, currencyCode: string): string {
