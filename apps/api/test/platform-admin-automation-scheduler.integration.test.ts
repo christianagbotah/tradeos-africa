@@ -75,11 +75,13 @@ describe("platform proactive automation scheduler", () => {
     });
     const fixedNow = () => new Date("2026-10-16T18:15:00.000Z");
 
-    const first = scheduler.startPlatformAutomationScheduler(pool, { intervalMs: 20, now: fixedNow });
-    const second = scheduler.startPlatformAutomationScheduler(pool, { intervalMs: 20, now: fixedNow });
-    await sleep(90);
-    first.stop();
-    second.stop();
+    // Directly overlap ticks rather than guessing that 90 ms is long enough
+    // for PostgreSQL and Actions runners to complete asynchronous work.
+    const [first, second] = await Promise.all([
+      scheduler.runPlatformAutomationSchedulerTick(pool, { intervalMs: 20, now: fixedNow }),
+      scheduler.runPlatformAutomationSchedulerTick(pool, { intervalMs: 20, now: fixedNow }),
+    ]);
+    expect(first.acquired || second.acquired).toBe(true);
 
     const runs = await pool.query<{ state: string; trigger_correlation_id: string }>(
       "SELECT state,trigger_correlation_id FROM platform_automation_runs WHERE policy_id=$1 ORDER BY created_at",
@@ -161,8 +163,4 @@ async function seedPolicy(
     [input.code, input.businessId ?? null, input.triggerType, JSON.stringify(input.conditions), creatorId],
   );
   return result.rows[0]!.id;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
