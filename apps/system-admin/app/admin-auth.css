@@ -35,3 +35,19 @@
 .admin-auth-state { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: #08111f; color: #aab7c7; }
 .admin-api-state { border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 22px; color: #8fa0b6; background: rgba(255,255,255,.025); }
 .admin-api-state--error { border-color: rgba(225,76,76,.25); color: #ffb4b4; }
+
+.admin-password-control { display:block; position:relative; width:100%; min-width:0; }
+.admin-password-control > input { padding-right:3.65rem; }
+.admin-password-control__toggle {
+  position:absolute; top:50%; right:4px; transform:translateY(-50%);
+  width:44px; height:44px; display:grid; place-items:center;
+  border:0; border-radius:9px; background:transparent;
+  color:#b7c5d8; cursor:pointer;
+}
+.admin-password-control__toggle:hover { background:rgba(255,255,255,.07); color:#fff; }
+.admin-password-control__toggle:focus-visible { outline:2px solid #d6ad3c; outline-offset:1px; }
+.admin-auth-link { border:0; background:transparent; color:#d6ad3c; padding:8px 0;
+  text-decoration:underline; text-underline-offset:3px; font:inherit; cursor:pointer; font-weight:700; }
+.admin-auth-link:focus-visible { outline:2px solid #d6ad3c; border-radius:4px; }
+.admin-auth-success { padding:11px 12px; border-radius:10px; background:rgba(25,151,105,.14);
+  color:#aaf0d3; font-size:13px; line-height:1.5; }
