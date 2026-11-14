@@ -6,6 +6,7 @@ type Row = {
   available: string | number; inventory_value_minor: string | number;
   sold_30: string | number; returned_30: string | number;
   sale_movements_30: string | number; sale_movements_90: string | number;
+  usage_movements_90: string | number;
   first_movement_at: Date | null; last_sale_at: Date | null;
 };
 const DAY_MS = 86_400_000;
@@ -60,6 +61,9 @@ export async function loadInventoryIntelligence(
         "  COUNT(*) FILTER (WHERE im.reason='SALE' AND im.quantity_delta<0",
         "    AND im.occurred_at>$3::timestamptz-interval '90 days'",
         "    AND im.occurred_at<=$3::timestamptz)::integer AS sale_movements_90,",
+        "  COUNT(*) FILTER (WHERE im.reason IN ('RECIPE_CONSUMPTION','SERVICE_CONSUMPTION','TRANSFORMATION_INPUT')",
+        "    AND im.quantity_delta<0 AND im.occurred_at>$3::timestamptz-interval '90 days'",
+        "    AND im.occurred_at<=$3::timestamptz)::integer AS usage_movements_90,",
         "  MIN(im.occurred_at) FILTER (WHERE im.occurred_at<=$3::timestamptz) AS first_movement_at,",
         "  MAX(im.occurred_at) FILTER (WHERE im.reason='SALE' AND im.quantity_delta<0",
         "    AND im.occurred_at<=$3::timestamptz) AS last_sale_at",
@@ -77,6 +81,7 @@ export async function loadInventoryIntelligence(
         "  COALESCE(m.returned_30,0) AS returned_30,",
         "  COALESCE(m.sale_movements_30,0) AS sale_movements_30,",
         "  COALESCE(m.sale_movements_90,0) AS sale_movements_90,",
+        "  COALESCE(m.usage_movements_90,0) AS usage_movements_90,",
         "  m.first_movement_at,m.last_sale_at",
         "FROM catalog_items ci",
         "LEFT JOIN movement m ON m.item_id=ci.id",
@@ -122,6 +127,7 @@ export function evaluateInventoryAdvisory(
   const sold = Math.max(0, Number(row.sold_30) - Number(row.returned_30));
   const sales = Number(row.sale_movements_30);
   const sales90 = Number(row.sale_movements_90);
+  const internalUse90 = Number(row.usage_movements_90);
   const first = row.first_movement_at ? new Date(row.first_movement_at) : null;
   const historyDays = first ? (asOf.getTime() - first.getTime()) / DAY_MS : 0;
   const confidence: InventoryDemandConfidence =
@@ -134,9 +140,9 @@ export function evaluateInventoryAdvisory(
   let explanation = "Not enough recorded stock/sales history for a reliable demand estimate.";
   let suggestedReviewQuantity: number | null = null;
 
-  if (available > 0 && historyDays >= 90 && sales90 === 0) {
+  if (available > 0 && historyDays >= 90 && sales90 === 0 && internalUse90 === 0) {
     status = "SLOW_MOVING";
-    explanation = "No stock-depleting sales recorded during the past 90 days; review whether this stock is needed.";
+    explanation = "No sales or internal recipe/service/stock-conversion use recorded during the past 90 days; review whether this stock is needed.";
   } else if (confidence === "ESTABLISHED" && daily !== null) {
     const required = daily * horizonDays;
     if (available <= 0) {
