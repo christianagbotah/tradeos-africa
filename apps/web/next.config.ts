@@ -2,6 +2,16 @@ import type { NextConfig } from "next";
 
 const config: NextConfig = {
   reactStrictMode: true,
+  async headers() {
+    return [{
+      source: "/reset-password",
+      headers: [
+        { key: "Referrer-Policy", value: "no-referrer" },
+        { key: "Cache-Control", value: "no-store, max-age=0" },
+        { key: "X-Robots-Tag", value: "noindex, nofollow" },
+      ],
+    }];
+  },
   transpilePackages: ["@tradeos/contracts", "@tradeos/client-core"],
   async rewrites() {
     // Dev/proxy mode ONLY: rewrites are installed when API_BASE_URL is
