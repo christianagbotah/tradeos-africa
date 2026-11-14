@@ -115,7 +115,7 @@ export function detectBusinessAttention(
   return signals;
 }
 
-/** 
+/**
  * Inventory signals stay advisory-only. The 14-day review horizon matches the
  * default inventory scenario, not a promised supplier delivery date.
  * A limited scan preserves existing alerts rather than falsely resolving them.
