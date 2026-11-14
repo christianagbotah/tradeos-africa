@@ -1,0 +1,33 @@
+.panel { border-top: 1px solid #e2e8f0; padding-top: 18px; display: grid; gap: 14px; min-width: 0; }
+.header { display: flex; gap: 16px; flex-wrap: wrap; justify-content: space-between; align-items: start; }
+.heading { color: var(--tos-text,#172333); font-size: 1.06rem; font-weight: 750; margin: 0 0 5px; }
+.description { color: var(--tos-muted,#58677a); font-size: .89rem; line-height: 1.5; margin: 0; }
+.primary, .taskButton, .retry { font: inherit; font-weight: 700; cursor: pointer; border-radius: 10px; padding: 9px 13px; }
+.primary { background: #172e50; color: #fff; border: 1px solid #172e50; }
+.primary:disabled, .taskButton:disabled { opacity: .55; cursor: not-allowed; }
+.retry, .taskButton { background: transparent; color: var(--tos-text,#172333); border: 1px solid #cbd5e1; }
+.retry { margin-left: 10px; padding: 5px 10px; }
+.notice, .confirmation { margin: 0; border-radius: 10px; padding: 12px 14px; font-size: .89rem; line-height: 1.5; }
+.notice { background: #f1f5f9; color: #475569; }
+.confirmation { background: #ecfdf5; color: #065f46; }
+.tasks { display: grid; gap: 9px; list-style: none; padding: 0; margin: 0; }
+.task { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 12px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 13px 15px; }
+.taskBody { flex: 1; min-width: 200px; overflow-wrap: anywhere; }
+.taskHeader { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; color: var(--tos-text,#172333); }
+.taskHeader strong { overflow-wrap: anywhere; }
+.state { font-size: .7rem; border-radius: 6px; padding: 4px 7px; color: #475569; background: #f1f5f9; font-weight: 800; }
+.taskBody p { margin: 7px 0; font-size: .88rem; line-height: 1.45; color: var(--tos-muted,#58677a); }
+.taskBody small { font-size: .75rem; color: var(--tos-muted,#58677a); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; }
+@media(max-width:480px) {
+  .primary { width: 100%; }
+  .task { padding: 11px; }
+  .controls { width: 100%; }
+  .controls .taskButton { flex: 1; }
+}
+
+.history { width: 100%; border-top: 1px solid #e2e8f0; padding-top: 9px; font-size: .82rem; color: var(--tos-muted,#58677a); }
+.history h4 { margin: 0 0 7px; font-size: .86rem; color: var(--tos-text,#172333); }
+.history ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.history li { line-height: 1.5; }
+.history p { margin: 0; }

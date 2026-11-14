@@ -1,17 +1,64 @@
 import type { FastifyInstance } from "fastify";
-import type { BusinessBriefingRange } from "@tradeos/contracts";
+import type { BusinessBriefingRange, BusinessActionTransition } from "@tradeos/contracts";
 import type { DatabasePool } from "../db.js";
 import { requireBusinessRole, type BusinessRole } from "../auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "../auth/security.js";
 import { ReportError } from "../reports.js";
 import { buildBusinessBriefing } from "./briefing-service.js";
 import { listBusinessAttention, evaluateBusinessAttention } from "./attention-service.js";
+import { listBusinessActions, generateBusinessActions, transitionBusinessAction, listBusinessActionHistory, BusinessActionError } from "./action-service.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BRIEFING_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 type Query = { businessId?: string; branchId?: string; range?: string };
 
 export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  app.get<{ Querystring: Query }>("/v1/intelligence/actions", async (request, reply) => {
+    try {
+      const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
+      return await listBusinessActions(pool, businessId, branchId);
+    } catch (error) {
+      return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_ACTION_READ_FAILED");
+    }
+  });
+
+  app.post<{ Querystring: Query }>("/v1/intelligence/actions/generate", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
+      return await generateBusinessActions(pool, businessId, branchId, auth.userId);
+    } catch (error) {
+      return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_ACTION_GENERATION_FAILED");
+    }
+  });
+
+  app.get<{ Params: { actionId: string }; Querystring: Query }>(
+    "/v1/intelligence/actions/:actionId/history", async (request, reply) => {
+      try {
+        const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
+        const actionId = validUuid(request.params.actionId, "actionId");
+        return await listBusinessActionHistory(pool, businessId, branchId, actionId);
+      } catch (error) {
+        return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_ACTION_HISTORY_FAILED");
+      }
+    },
+  );
+
+  app.patch<{ Params: { actionId: string }; Querystring: Query; Body: BusinessActionTransition }>(
+    "/v1/intelligence/actions/:actionId", async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
+        const actionId = validUuid(request.params.actionId, "actionId");
+        return await transitionBusinessAction(pool, {
+          businessId, branchId, actionId, actorUserId: auth.userId, transition: request.body,
+        });
+      } catch (error) {
+        return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_ACTION_UPDATE_FAILED");
+      }
+    },
+  );
+
   app.get<{ Querystring: Query }>("/v1/intelligence/attention", async (request, reply) => {
     try {
       const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
@@ -91,7 +138,7 @@ function sendBusinessIntelligenceError(
   reply: { code: (status: number) => { send: (payload: unknown) => unknown } },
   error: unknown, fallbackCode: string,
 ) {
-  if (error instanceof AuthError || error instanceof ReportError) {
+  if (error instanceof AuthError || error instanceof ReportError || error instanceof BusinessActionError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });
   }
   request.log.error(error);
