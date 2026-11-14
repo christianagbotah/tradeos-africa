@@ -56,8 +56,11 @@ export function registerPlatformAdminBillingRoutes(app: FastifyInstance, pool: D
   );
 }
 
-// Provider callback ingress is intentionally not registered here. Provider adapters
-// verify signatures and normalize events before they may call the billing service.
+// Provider callback ingress is intentionally not registered here. Every provider
+// requires its documented authentication and independent settlement verification.
+// Hubtel v1 production does not specify signed callbacks: source-IP restrictions
+// plus verified server-to-server transaction status are required before payment
+// events are allowed to reach the billing service.
 function readAdminCookie(header: string | undefined): string | undefined {
   if (!header) return undefined;
   for (const part of header.split(";")) {
