@@ -2,7 +2,7 @@
  * TradeOS Web — className contract test.
  *
  * Verifies that every `className` literal used in the public-entry + workspace
- * components has a corresponding CSS definition in one of the four canonical
+ * components has a corresponding CSS definition in one of the five canonical
  * TradeOS stylesheets (globals, tokens, ui-primitives, workspace-shell).
  *
  * This catches the common bug of referencing a CSS class that was never
@@ -10,7 +10,7 @@
  *
  * The test scans `.tsx` files under app/components/ for className="..." and
  * className={`...`} string literals, then checks each token appears as a CSS
- * selector (`.token {` or `.token,`) in any of the four CSS files.
+ * selector (`.token {` or `.token,`) in any of the five CSS files.
  */
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
@@ -23,6 +23,7 @@ const CSS_FILES = [
   "app/tradeos-tokens.css",
   "app/ui-primitives.css",
   "app/workspace-shell.css",
+  "app/password-controls.css",
 ] as const;
 
 const COMPONENT_DIRS = [
@@ -87,7 +88,7 @@ function walk(target: string): string[] {
   return out;
 }
 
-/** Collects every CSS class selector defined in the four canonical stylesheets. */
+/** Collects every CSS class selector defined in the five canonical stylesheets. */
 function collectDefinedClasses(): Set<string> {
   const defined = new Set<string>();
   for (const rel of CSS_FILES) {
