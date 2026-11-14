@@ -1,0 +1,31 @@
+.panel { display:grid; gap:20px; min-width:0; color:var(--tos-text,#172333); }
+.panel h2,.panel h3,.panel p { margin:0; }
+.header { display:flex; align-items:flex-start; flex-wrap:wrap; justify-content:space-between; gap:16px; }
+.header > div { display:grid; gap:7px; flex:1 1 280px; }
+.header h2 { font-size:1.5rem; line-height:1.25; }
+.header p:not(.eyebrow) { color:var(--tos-muted,#58677a); font-size:.9rem; line-height:1.55; }
+.eyebrow { font-weight:800; font-size:.72rem; letter-spacing:.09em; color:#a07824; }
+.refresh { padding:10px 15px; border:1px solid #cbd5e1; border-radius:10px; cursor:pointer; background:transparent; font:inherit; font-weight:700; color:inherit; }
+.refresh:disabled { cursor:not-allowed; opacity:.5; }
+.notice,.error,.empty { margin:0; padding:12px 14px; line-height:1.5; font-size:.86rem; border-radius:10px; }
+.notice,.empty { background:var(--tos-muted-soft,#f1f5f9); color:var(--tos-muted,#58677a); }
+.error { background:#fff1f2; color:#9f1239; }
+.plan { display:grid; gap:16px; padding:18px; border:1px solid #d8e1ed; border-radius:14px; min-width:0; }
+.planHeader { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; align-items:flex-start; }
+.planHeader > div { display:grid; gap:5px; }
+.planHeader h3 { font-size:1.22rem; }
+.planHeader p { color:var(--tos-muted,#58677a); text-transform:capitalize; font-size:.84rem; }
+.label { color:var(--tos-muted,#58677a); font-size:.72rem; text-transform:uppercase; font-weight:750; letter-spacing:.04em; }
+.status { padding:7px 10px; border:1px solid #d7dfe8; border-radius:9px; font-size:.79rem; font-weight:800; }
+.planFacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:16px; }
+.planFacts > div { display:grid; gap:6px; min-width:0; }
+.planFacts strong { overflow-wrap:anywhere; font-size:.95rem; }
+.history { display:grid; gap:11px; min-width:0; }
+.history h3 { font-size:1.08rem; }
+.tableScroll { max-width:100%; overflow-x:auto; border:1px solid #e2e8f0; border-radius:11px; }
+.table { border-collapse:collapse; width:100%; white-space:nowrap; font-size:.84rem; min-width:700px; }
+.table th,.table td { padding:12px 11px; text-align:left; border-bottom:1px solid #e2e8f0; }
+.table th { font-weight:800; background:var(--tos-muted-soft,#f1f5f9); }
+.table tr:last-child td { border-bottom:0; }
+.footnote { color:var(--tos-muted,#58677a); font-size:.81rem; line-height:1.6; }
+@media(max-width:540px) { .header h2 { font-size:1.28rem; } .plan { padding:13px; } .refresh { width:100%; } }

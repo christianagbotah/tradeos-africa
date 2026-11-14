@@ -14,6 +14,7 @@ import { BusinessFields, type BusinessFormState, type BusinessType } from "./bus
 import { BranchFields, type BranchDraft } from "./branch-fields";
 import { ImagePicker } from "./image-picker";
 import { TeamAccess } from "./team-access";
+import { MerchantBillingPanel } from "./merchant-billing-panel";
 import {
   IconAlert,
   IconBuilding,
@@ -33,12 +34,13 @@ import type {
 } from "../workspace/workspace-provider";
 import type { WorkspaceRole } from "../workspace/workspace-navigation";
 
-export type SettingsSectionId = "profile" | "security" | "business" | "branches" | "team" | "devices";
+export type SettingsSectionId = "profile" | "security" | "business" | "billing" | "branches" | "team" | "devices";
 
 export const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string; description: string }[] = [
   { id: "profile", label: "My Profile", description: "Personal identity and contact details" },
   { id: "security", label: "Security", description: "Password and sign-in protection" },
   { id: "business", label: "Business", description: "Business identity, location and new businesses" },
+  { id: "billing", label: "Subscription & billing", description: "Plan, invoices and recorded payments" },
   { id: "branches", label: "Branches", description: "Locations, branch status and new branches" },
   { id: "team", label: "Team & access", description: "Role and staff access boundary" },
   { id: "devices", label: "Devices & sessions", description: "Signed-in devices and session control" },
@@ -187,6 +189,9 @@ export function SettingsWorkspace() {
               requestedAction={section === "business" ? requestedAction : null}
               onActionConsumed={consumeRequestedAction}
             />
+          ) : null}
+          {section === "billing" ? (
+            <MerchantBillingPanel />
           ) : null}
           {section === "branches" ? (
             <BranchesSection
