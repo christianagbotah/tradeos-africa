@@ -9,6 +9,7 @@ import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import styles from "./business-attention-panel.module.css";
 import { BusinessActionQueue } from "./business-action-queue";
+import { BusinessNotificationPanel } from "./business-notification-panel";
 
 const FINANCIAL_ROLES = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
 
@@ -97,6 +98,7 @@ export function BusinessAttentionPanel() {
         </>
       )}
       <BusinessActionQueue />
+      <BusinessNotificationPanel />
     </section>
   );
 }
