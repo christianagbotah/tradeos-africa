@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { BusinessBriefingRange, BusinessActionTransition } from "@tradeos/contracts";
+import type { BusinessBriefingRange, BusinessActionTransition, MerchantAutomationConfigUpdate } from "@tradeos/contracts";
 import type { DatabasePool } from "../db.js";
 import { requireBusinessRole, type BusinessRole } from "../auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "../auth/security.js";
@@ -7,12 +7,59 @@ import { ReportError } from "../reports.js";
 import { buildBusinessBriefing } from "./briefing-service.js";
 import { listBusinessAttention, evaluateBusinessAttention } from "./attention-service.js";
 import { listBusinessActions, generateBusinessActions, transitionBusinessAction, listBusinessActionHistory, BusinessActionError } from "./action-service.js";
+import { readMerchantAutomation, configureMerchantAutomation, proposeMerchantAutomation, decideMerchantAutomationRun, MerchantAutomationError } from "./merchant-automation-service.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BRIEFING_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 type Query = { businessId?: string; branchId?: string; range?: string };
 
 export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  app.get<{ Querystring: Query }>("/v1/intelligence/automation", async (request, reply) => {
+    try {
+      const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
+      if (branchId === null) throw new ReportError("branchId is required.");
+      return await readMerchantAutomation(pool, businessId, branchId);
+    } catch (error) {
+      return sendBusinessIntelligenceError(request, reply, error, "MERCHANT_AUTOMATION_READ_FAILED");
+    }
+  });
+
+  app.put<{ Querystring: Query; Body: MerchantAutomationConfigUpdate }>(
+    "/v1/intelligence/automation/config", async (request, reply) => {
+      try {
+        const { businessId, branchId, userId } = await ownerAutomationScope(pool, request.headers.authorization, request.query);
+        return await configureMerchantAutomation(pool, businessId, branchId, userId, request.body);
+      } catch (error) {
+        return sendBusinessIntelligenceError(request, reply, error, "MERCHANT_AUTOMATION_CONFIG_FAILED");
+      }
+    },
+  );
+
+  app.post<{ Querystring: Query }>("/v1/intelligence/automation/propose", async (request, reply) => {
+    try {
+      const { businessId, branchId } = await ownerAutomationScope(pool, request.headers.authorization, request.query);
+      const proposedCount = await proposeMerchantAutomation(pool, businessId, branchId);
+      return { proposedCount, ...(await readMerchantAutomation(pool, businessId, branchId)) };
+    } catch (error) {
+      return sendBusinessIntelligenceError(request, reply, error, "MERCHANT_AUTOMATION_PROPOSAL_FAILED");
+    }
+  });
+
+  app.post<{ Querystring: Query; Params: { runId: string }; Body: { decision?: "APPROVE" | "REJECT" } }>(
+    "/v1/intelligence/automation/runs/:runId/decision", async (request, reply) => {
+      try {
+        const { businessId, branchId, userId } = await ownerAutomationScope(pool, request.headers.authorization, request.query);
+        const runId = validUuid(request.params.runId, "runId");
+        return await decideMerchantAutomationRun(pool, {
+          businessId, branchId, runId, actorUserId: userId,
+          decision: request.body?.decision as "APPROVE" | "REJECT",
+        });
+      } catch (error) {
+        return sendBusinessIntelligenceError(request, reply, error, "MERCHANT_AUTOMATION_DECISION_FAILED");
+      }
+    },
+  );
+
   app.get<{ Querystring: Query }>("/v1/intelligence/actions", async (request, reply) => {
     try {
       const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
@@ -133,12 +180,27 @@ async function readAuthorizedScope(
   return { businessId, branchId };
 }
 
+async function ownerAutomationScope(
+  pool: DatabasePool, authorization: string | undefined, query: Query,
+): Promise<{ businessId: string; branchId: string; userId: string }> {
+  const auth = await authenticateAccessToken(pool, authorization);
+  const businessId = validUuid(query.businessId, "businessId");
+  const branchId = validUuid(query.branchId, "branchId");
+  await requireBusinessRole(pool, auth, businessId, ["OWNER"]);
+  const branch = await pool.query(
+    "SELECT 1 FROM branches WHERE id=$1 AND business_id=$2 AND is_active=true",
+    [branchId, businessId],
+  );
+  if (!branch.rows[0]) throw new ReportError("Branch not found", "BRANCH_NOT_FOUND", 404);
+  return { businessId, branchId, userId: auth.userId };
+}
+
 function sendBusinessIntelligenceError(
   request: { log: { error: (value: unknown) => void } },
   reply: { code: (status: number) => { send: (payload: unknown) => unknown } },
   error: unknown, fallbackCode: string,
 ) {
-  if (error instanceof AuthError || error instanceof ReportError || error instanceof BusinessActionError) {
+  if (error instanceof AuthError || error instanceof ReportError || error instanceof BusinessActionError || error instanceof MerchantAutomationError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });
   }
   request.log.error(error);
