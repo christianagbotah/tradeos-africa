@@ -13,6 +13,7 @@ export type MoreScreenProps = {
   appVersion: string;
   onSync: () => void;
   onRefreshCatalog: () => void;
+  onGoToNotifications: () => void;
   onLogout: () => void;
 };
 
@@ -21,6 +22,7 @@ export function MoreScreen({
   appVersion,
   onSync,
   onRefreshCatalog,
+  onGoToNotifications,
   onLogout,
 }: MoreScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
@@ -128,6 +130,21 @@ export function MoreScreen({
           copy="Server rejected the mutation; evidence is preserved for correction or retry."
         />
       </Card>
+
+      {["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"].includes(ready.membership.role) ? (
+        <Card padding="default" style={styles.section}>
+          <Text style={styles.kicker}>Business intelligence</Text>
+          <Text style={styles.sectionTitle}>Notifications and approvals</Text>
+          <Text style={styles.sectionCopy}>
+            Check recorded business alerts and pending reviews for this branch. Read confirmations
+            synchronize with your TradeOS web dashboard.
+          </Text>
+          <Button variant="secondary" fullWidth accessibilityLabel="Open business notifications"
+            onPress={onGoToNotifications}>
+            Open notifications
+          </Button>
+        </Card>
+      ) : null}
 
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Account</Text>
