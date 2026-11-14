@@ -14,10 +14,10 @@ export default function AdminResetPasswordPage() {
 
   useEffect(()=>{
     const url=new URL(window.location.href);
-    const value=url.searchParams.get("token");
+    const value=new URLSearchParams(url.hash.replace(/^#/,"")).get("token");
     setToken(value??"");
     if(value){
-      url.searchParams.delete("token");
+      url.hash="";
       window.history.replaceState(window.history.state,"",url.pathname+url.search+url.hash);
     }
   },[]);
