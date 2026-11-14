@@ -22,6 +22,8 @@ import {
 } from "../ui/icons";
 import { Button } from "../ui/button";
 import type { SaleSummary } from "../workspace/workspace-provider";
+import type { FinancialSummaryReport } from "@tradeos/contracts";
+import { deriveDashboardRevenue } from "./dashboard-revenue";
 
 interface SalesResponse {
   sales: SaleSummary[];
@@ -37,6 +39,8 @@ const STAT_TILE_CLASS: Record<StatIconTone, string> = {
   neutral: "tos-stat__icon-tile tos-stat__icon-tile--neutral",
 };
 
+const DAILY_REPORT_ROLES = new Set(["OWNER","ADMIN","MANAGER","ACCOUNTANT","VIEWER"]);
+
 export function DashboardCommandCenter() {
   const { session, catalog, inventory, queue, role } = useWorkspace();
   const salesPath = session
@@ -44,23 +48,30 @@ export function DashboardCommandCenter() {
     : null;
   const { data, loading, error, refetch } = useApiFetch<SalesResponse>(salesPath);
 
+  const mayReadFinancialReport = role !== null && DAILY_REPORT_ROLES.has(role);
+  const financialPath = session && mayReadFinancialReport && queue.online
+    ? "/v1/reports/financial-summary?businessId=" + encodeURIComponent(session.businessId) +
+      "&branchId=" + encodeURIComponent(session.branchId) + "&range=today"
+    : null;
+  const { data: financialData, loading: financialLoading, error: financialError } =
+    useApiFetch<FinancialSummaryReport>(financialPath);
+  const verifiedReport = financialData && session && queue.online && !financialLoading && !financialError &&
+    financialData.businessId === session.businessId && financialData.branchId === session.branchId
+    ? financialData : null;
+  const revenueStat = deriveDashboardRevenue({
+    mayReadFinancialReport,
+    report: verifiedReport,
+    recentSales: data?.sales ?? [],
+    fallbackCurrencyCode: session?.currencyCode ?? "GHS",
+    online: queue.online,
+    pendingSync: queue.pending,
+  });
+
   const stats = useMemo(() => {
-    const sales = data?.sales ?? [];
-    const today = new Date();
-    const todaySales = sales.filter((s) => {
-      const d = s.completedAt ? new Date(s.completedAt) : new Date(s.createdAt);
-      return d.toDateString() === today.toDateString();
-    });
-    const todayRevenue = todaySales.reduce((sum, s) => sum + (s.totalMinor - s.refundTotalMinor), 0);
     const activeCount = catalog.filter((c) => c.active).length;
     const lowStockCount = inventory.filter((i) => i.available <= 5).length;
-    return {
-      todayCount: todaySales.length,
-      todayRevenue,
-      activeCount,
-      lowStockCount,
-    };
-  }, [data, catalog, inventory]);
+    return { activeCount, lowStockCount };
+  }, [catalog, inventory]);
 
   if (loading) {
     return (
@@ -113,12 +124,15 @@ export function DashboardCommandCenter() {
           row 1 = revenue + sales count, row 2 = catalog + sync. */}
       <div className="tos-dashboard-stats tos-stagger">
         <StatCard
-          label="Today's revenue"
+          label={revenueStat.label}
           icon={<IconTrending className="tos-stat__icon-tile-svg" />}
           iconTone="gold"
           variant="hero"
-          value={<MoneyValue minor={stats.todayRevenue} currencyCode={currency} className="tos-stat__value--hero" />}
-          hint={`${stats.todayCount} sale(s) today`}
+          value={revenueStat.minor === null
+            ? <span className="tos-stat__value tos-stat__value--hero">—</span>
+            : <MoneyValue minor={revenueStat.minor} currencyCode={revenueStat.currencyCode}
+                className="tos-stat__value--hero" />}
+          hint={revenueStat.hint}
         />
         <StatCard
           label="Recent sales"
@@ -132,7 +146,7 @@ export function DashboardCommandCenter() {
           icon={<IconBox className="tos-stat__icon-tile-svg" />}
           iconTone={stats.lowStockCount > 0 ? "warning" : "positive"}
           value={<span className="tos-stat__value">{stats.activeCount}</span>}
-          hint={stats.lowStockCount > 0 ? `${stats.lowStockCount} low-stock item(s)` : "Stock levels healthy"}
+          hint={stats.lowStockCount > 0 ? `${stats.lowStockCount} item(s) at or below 5 stock units` : "No low-stock items in loaded stock"}
           hintTone={stats.lowStockCount > 0 ? "warning" : "positive"}
         />
         <StatCard
@@ -163,8 +177,8 @@ export function DashboardCommandCenter() {
                 inline
                 variant="empty"
                 icon={<IconReceipt className="tos-state__icon" />}
-                title="No sales yet today"
-                text="Once you make your first sale, it will appear here with the customer, amount, and status. Your dashboard updates automatically."
+                title="No recent sales"
+                text="The most recent synced sales will appear here, including the customer, amount and status."
                 actionLabel="Open POS"
                 onAction={() => { window.location.href = "/sell"; }}
               />
@@ -220,7 +234,7 @@ function DashboardHeader() {
       <div className="tos-page__heading">
         <span className="tos-page__eyebrow">TradeOS</span>
         <h1 className="tos-page__title">Dashboard</h1>
-        <p className="tos-page__subtitle">A live snapshot of today&apos;s trade, inventory, and reconciliation state.</p>
+        <p className="tos-page__subtitle">Your recorded trading, stock and synchronization overview.</p>
       </div>
       <div className="tos-page__actions">
         <Link href="/sell">
