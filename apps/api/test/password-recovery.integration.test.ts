@@ -36,7 +36,7 @@ function capturedMail(origin=ORIGIN){
         links.push(mail.link);
       },
     },
-    token:()=>new URL(links.at(-1)??"https://invalid.example").searchParams.get("token")??"",
+    token:()=>new URLSearchParams(new URL(links.at(-1)??"https://invalid.example").hash.slice(1)).get("token")??"",
   };
 }
 async function merchant(email="forgot-merchant@tradeos.test"){
