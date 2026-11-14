@@ -37,7 +37,7 @@ async function item(owner: Owner, name: string) {
   );
   return row.rows[0]!.id;
 }
-async function move(owner: Owner, itemId: string, reason: "OPENING_BALANCE" | "SALE" | "SALE_RETURN",
+async function move(owner: Owner, itemId: string, reason: "OPENING_BALANCE" | "SALE" | "SALE_RETURN" | "RECIPE_CONSUMPTION",
   quantity: number, daysAgo: number) {
   await pool.query(
     "INSERT INTO inventory_movements " +
@@ -134,6 +134,18 @@ describe("evidence-based inventory intelligence", () => {
     expect((await app.inject({ method: "GET", url: url(a), headers: a.headers })).statusCode).toBe(200);
     await pool.query("UPDATE businesses SET status='SUSPENDED' WHERE id=$1", [a.businessId]);
     expect((await app.inject({ method: "GET", url: url(a), headers: a.headers })).statusCode).toBe(403);
+  });
+
+  it("does not falsely call ingredients slow-moving when they are consumed by recipes", async () => {
+    const owner = await createOwner("recipes");
+    const itemId = await item(owner, "Cooking ingredient");
+    await move(owner,itemId,"OPENING_BALANCE",40,120);
+    await move(owner,itemId,"RECIPE_CONSUMPTION",-10,3);
+    const res = await app.inject({ method: "GET", url: url(owner), headers: owner.headers });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items[0]).toMatchObject({
+      available: 30, status: "INSUFFICIENT_DATA", suggestedReviewQuantity: null,
+    });
   });
 
   it("never recommends reorder quantities from too little stock history", async () => {
