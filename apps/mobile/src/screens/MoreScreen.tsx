@@ -14,6 +14,7 @@ export type MoreScreenProps = {
   onSync: () => void;
   onRefreshCatalog: () => void;
   onGoToNotifications: () => void;
+  onGoToQuestions: () => void;
   onLogout: () => void;
 };
 
@@ -23,6 +24,7 @@ export function MoreScreen({
   onSync,
   onRefreshCatalog,
   onGoToNotifications,
+  onGoToQuestions,
   onLogout,
 }: MoreScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
@@ -139,6 +141,10 @@ export function MoreScreen({
             Check recorded business alerts and pending reviews for this branch. Read confirmations
             synchronize with your TradeOS web dashboard.
           </Text>
+          <Button variant="secondary" fullWidth accessibilityLabel="Open Ask TradeOS business questions"
+            onPress={onGoToQuestions}>
+            Ask TradeOS
+          </Button>
           <Button variant="secondary" fullWidth accessibilityLabel="Open business notifications"
             onPress={onGoToNotifications}>
             Open notifications
