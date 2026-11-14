@@ -90,7 +90,6 @@ export async function confirmMerchantPasswordReset(
   if (typeof newPassword !== "string" || newPassword.length < 8 || newPassword.length > 200) {
     throw new AuthError("Use a password between 8 and 200 characters", 400, "WEAK_PASSWORD");
   }
-  const hash = await hashPassword(newPassword);
   await withTransaction(pool, async (client) => {
     const res = await client.query<TokenRow>(
       "SELECT id,app_user_id,platform_user_id,email_snapshot,expires_at " +
@@ -115,6 +114,7 @@ export async function confirmMerchantPasswordReset(
     if (await verifyPassword(newPassword, user.password_hash)) {
       throw new AuthError("Choose a password different from your current password", 400, "PASSWORD_UNCHANGED");
     }
+    const hash = await hashPassword(newPassword);
     await client.query(
       "UPDATE app_users SET password_hash=$2,updated_at=now() WHERE id=$1",
       [user.id, hash],
