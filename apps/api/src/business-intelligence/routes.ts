@@ -8,12 +8,35 @@ import { buildBusinessBriefing } from "./briefing-service.js";
 import { listBusinessAttention, evaluateBusinessAttention } from "./attention-service.js";
 import { listBusinessActions, generateBusinessActions, transitionBusinessAction, listBusinessActionHistory, BusinessActionError } from "./action-service.js";
 import { readMerchantAutomation, configureMerchantAutomation, proposeMerchantAutomation, decideMerchantAutomationRun, MerchantAutomationError } from "./merchant-automation-service.js";
+import { loadInventoryIntelligence, InventoryIntelligenceError, type InventoryPlanningHorizon } from "./inventory-intelligence-service.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BRIEFING_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 type Query = { businessId?: string; branchId?: string; range?: string };
 
 export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: DatabasePool): void {
+
+  app.get<{ Querystring: Query & { horizonDays?: string } }>(
+    "/v1/intelligence/inventory", async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const businessId = validUuid(request.query.businessId, "businessId");
+        const branchId = validUuid(request.query.branchId, "branchId");
+        await requireBusinessRole(pool, auth, businessId,
+          ["OWNER","ADMIN","MANAGER","INVENTORY","ACCOUNTANT"]);
+        const selected = request.query.horizonDays ?? "14";
+        if (selected !== "7" && selected !== "14" && selected !== "30") {
+          throw new InventoryIntelligenceError("horizonDays must be 7, 14 or 30");
+        }
+        return await loadInventoryIntelligence(pool, businessId, branchId,
+          Number(selected) as InventoryPlanningHorizon);
+      } catch (error) {
+        return sendBusinessIntelligenceError(request, reply, error, "INVENTORY_ADVISORY_FAILED");
+      }
+    },
+  );
+
+
   app.get<{ Querystring: Query }>("/v1/intelligence/automation", async (request, reply) => {
     try {
       const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
@@ -200,7 +223,7 @@ function sendBusinessIntelligenceError(
   reply: { code: (status: number) => { send: (payload: unknown) => unknown } },
   error: unknown, fallbackCode: string,
 ) {
-  if (error instanceof AuthError || error instanceof ReportError || error instanceof BusinessActionError || error instanceof MerchantAutomationError) {
+  if (error instanceof AuthError || error instanceof ReportError || error instanceof BusinessActionError || error instanceof MerchantAutomationError || error instanceof InventoryIntelligenceError) {
     return reply.code(error.statusCode).send({ error: error.code, message: error.message });
   }
   request.log.error(error);
