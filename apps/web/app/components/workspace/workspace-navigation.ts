@@ -9,6 +9,9 @@
 
 import type { ComponentType, SVGProps } from "react";
 import {
+  IconBuilding,
+  IconShield,
+  IconUsers,
   IconCashbook,
   IconCatalog,
   IconCustomers,
@@ -135,4 +138,46 @@ export function groupedNavItems(
     group,
     items: visible.filter((item) => item.group === group),
   })).filter((entry) => entry.items.length > 0);
+}
+
+/** Navigable groups in the mobile More sheet. All destinations exist already;
+ * account sections use the settings page's canonical `section` query. */
+export interface MobileMoreLink {
+  id: string;
+  label: string;
+  href: string;
+  icon: IconComponent;
+}
+
+export interface MobileMoreGroup {
+  id: string;
+  title: string;
+  items: readonly MobileMoreLink[];
+}
+
+export function mobileMoreNavigationGroups(role: WorkspaceRole | null | undefined): readonly MobileMoreGroup[] {
+  if (!role) return [];
+  const secondary = secondaryNavItems(role);
+  const linksFor = (segments: readonly string[]) => secondary
+    .filter((item) => segments.includes(item.segment))
+    .map((item) => ({ id: item.id, label: item.label, href: `/${item.segment}`, icon: item.icon }));
+
+  const canManage = role === "OWNER" || role === "ADMIN";
+  const canReadTeam = canManage || role === "MANAGER";
+  const accountLinks: MobileMoreLink[] = [
+    { id: "business", label: "Business", href: "/settings?section=business", icon: IconBuilding },
+    { id: "branches", label: "Branches", href: "/settings?section=branches", icon: IconBuilding },
+    ...(canReadTeam ? [{ id: "team", label: "Team & access", href: "/settings?section=team", icon: IconUsers }] : []),
+    ...(canManage ? [{ id: "billing", label: "Subscription & billing", href: "/settings?section=billing", icon: IconCashbook }] : []),
+    { id: "devices", label: "Devices & sessions", href: "/settings?section=devices", icon: IconShield },
+    { id: "profile", label: "My profile", href: "/settings?section=profile", icon: IconUser },
+    { id: "security", label: "Security", href: "/settings?section=security", icon: IconShield },
+    ...linksFor(["settings"]),
+  ];
+
+  return [
+    { id: "stock", title: "Sales & stock", items: linksFor(["catalog", "inventory", "returns", "purchases"]) },
+    { id: "insights", title: "Operations & insights", items: linksFor(["cashbook", "operations", "reports"]) },
+    { id: "account", title: "Business & account", items: accountLinks },
+  ].filter((group) => group.items.length > 0);
 }

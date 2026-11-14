@@ -8793,3 +8793,85 @@
     flex: 1 1 auto;
   }
 }
+
+/* Mobile workspace: five genuine bottom-nav tabs, without an overlapping FAB. */
+.tos-bottomnav__more-link {
+  appearance: none;
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0 2px;
+}
+.tos-bottomnav__more-link:focus-visible {
+  outline: 2px solid var(--tos-gold);
+  outline-offset: -3px;
+}
+.tos-sheet--more { max-height: 100dvh; }
+.tos-sheet__body--more { padding: 16px; gap: 24px; }
+.tos-more-group { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.tos-more-group__title {
+  margin: 0;
+  color: var(--tos-text-muted);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.tos-more-group .tos-more-sheet { gap: 9px; }
+.tos-more-group .tos-more-tile {
+  min-width: 0;
+  padding: 12px 6px;
+  gap: 8px;
+}
+.tos-more-group .tos-more-tile__label {
+  overflow-wrap: break-word;
+  line-height: 1.3;
+}
+/* Paired settings actions stay aligned at mobile sizes instead of stacking. */
+@media (max-width: 768px) {
+  .tos-settings__panel-actions { min-width: 0; width: 100%; }
+  .tos-settings__header-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    align-items: stretch;
+  }
+  .tos-settings__header-actions > .tos-btn {
+    min-width: 0;
+    width: 100%;
+    min-height: 48px;
+    height: auto;
+    font-size: clamp(11px, 3.2vw, 14px);
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: break-word;
+    text-align: center;
+    justify-content: center;
+    padding: 8px 6px;
+  }
+  .tos-settings__header-actions > :only-child { grid-column: 1 / -1; }
+  .tos-settings__actions,
+  .tos-settings__branch-actions { flex-direction: row; align-items: stretch; flex-wrap: wrap; }
+  .tos-settings__actions > .tos-btn,
+  .tos-settings__branch-actions > .tos-btn {
+    flex: 1 1 42%;
+    min-width: 0;
+    width: auto;
+    height: auto;
+    white-space: normal;
+    text-align: center;
+    justify-content: center;
+  }
+  .tos-settings__session-main > span { overflow-wrap: anywhere; }
+}
+@media (max-width: 420px) {
+  .tos-settings__header-actions { flex-direction: row; }
+  .tos-settings__actions,
+  .tos-settings__branch-actions { flex-direction: row; align-items: stretch; }
+  .tos-settings__actions > .tos-btn,
+  .tos-settings__branch-actions > .tos-btn { width: auto; }
+}
