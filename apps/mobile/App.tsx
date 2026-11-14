@@ -177,6 +177,8 @@ export default function App() {
                   branchId={ready.branch.id}
                   role={ready.membership.role}
                   online={snapshot.online === true}
+                  pendingCount={ready.queue.pending}
+                  failedCount={ready.queue.failed}
                   onBack={() => setScreen("more")}
                 />
               ) : null}
