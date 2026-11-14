@@ -21,6 +21,7 @@ const STATUS: Record<string, string> = {
 export function InventoryIntelligencePanel() {
   const { session, role, queue } = useWorkspace();
   const [horizonDays, setHorizonDays] = useState<7 | 14 | 30>(14);
+  const [showMore, setShowMore] = useState(false);
   const allowed = ROLES.has(role);
   const path = allowed && session && queue.online
     ? "/v1/intelligence/inventory?businessId=" + encodeURIComponent(session.businessId) +
@@ -94,7 +95,7 @@ export function InventoryIntelligencePanel() {
             <>
               <h3 className={styles.subheading}>Items to review</h3>
               <ul className={styles.items}>
-                {attention.map((item) => (
+                {attention.slice(0, showMore ? 30 : 5).map((item) => (
                   <li className={styles.item} key={item.itemId}>
                     <div className={styles.itemHeading}>
                       <strong>{item.name}</strong>
@@ -115,6 +116,12 @@ export function InventoryIntelligencePanel() {
                   </li>
                 ))}
               </ul>
+              {attention.length > 5 ? (
+                <button className={styles.more} type="button" aria-expanded={showMore}
+                  onClick={() => setShowMore((previous) => !previous)}>
+                  {showMore ? "Show fewer items" : "Show more review items"}
+                </button>
+              ) : null}
               {report.items.filter((item) => IMPORTANT.has(item.status)).length > 30 ? (
                 <p className={styles.timestamp}>Showing the first 30 items requiring review.</p>
               ) : null}
