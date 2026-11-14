@@ -41,6 +41,7 @@ export function NotificationsScreen({
     setInbox(null);
     setError(null);
     if (!online || !allowed) {
+      setSaving(null);
       setLoading(false);
       return;
     }
