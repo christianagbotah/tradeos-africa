@@ -164,4 +164,3 @@ async function seedPolicy(
   );
   return result.rows[0]!.id;
 }
-
