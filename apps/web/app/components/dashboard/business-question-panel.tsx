@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
 import type { BusinessQuestionResponse } from "@tradeos/contracts";
@@ -9,9 +9,11 @@ import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { MoneyValue } from "../business/money-value";
 import styles from "./business-question-panel.module.css";
+import { questionRecognitionConstructor, type QuestionRecognition } from "./question-speech";
 
 const ROLES = new Set(["OWNER","ADMIN","MANAGER","ACCOUNTANT"]);
 const SUGGESTIONS = [
+  "What were my total sales yesterday?",
   "How much did we sell this week?",
   "What is our cash balance?",
   "Who owes us money?",
@@ -24,9 +26,36 @@ export function BusinessQuestionPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<BusinessQuestionResponse | null>(null);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [speechOutputSupported, setSpeechOutputSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const recognizerRef = useRef<QuestionRecognition | null>(null);
+  const answerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setVoiceSupported(Boolean(questionRecognitionConstructor(window)));
+    setSpeechOutputSupported("speechSynthesis" in window);
+    return () => {
+      recognizerRef.current?.abort();
+      recognizerRef.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    if (!answer) return;
+    window.requestAnimationFrame(() => answerRef.current?.scrollIntoView({
+      behavior: "smooth", block: "nearest",
+    }));
+  }, [answer]);
   const context = session ? session.businessId + ":" + session.branchId : "";
   const contextRef = useRef(context);
   contextRef.current = context;
+  useEffect(() => {
+    if (recognizerRef.current) {
+      recognizerRef.current.abort();
+      recognizerRef.current = null;
+      setListening(false);
+    }
+  }, [context]);
   if (!session || role === null || !ROLES.has(role)) return null;
 
   const current = answer && answer.businessId === session.businessId &&
@@ -61,15 +90,81 @@ export function BusinessQuestionPanel() {
     }
   }
 
+  function toggleListening() {
+    if (recognizerRef.current) {
+      recognizerRef.current.stop();
+      recognizerRef.current = null;
+      setListening(false);
+      return;
+    }
+    if (!voiceSupported || busy || !queue.online) return;
+    const Recognition = questionRecognitionConstructor(window);
+    if (!Recognition) {
+      setVoiceNotice("Voice recognition is unavailable in this browser. You can type your question.");
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = "en-GB";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      if (recognizerRef.current !== recognition) return;
+      const transcript = event.results[event.resultIndex]?.[0]?.transcript?.trim();
+      recognizerRef.current = null;
+      setListening(false);
+      if (!transcript) {
+        setVoiceNotice("No question was recognized. Try again or type it.");
+        return;
+      }
+      setQuestion(transcript);
+      setVoiceNotice(null);
+      void submit(undefined, transcript);
+    };
+    recognition.onerror = (event) => {
+      if (recognizerRef.current !== recognition) return;
+      recognizerRef.current = null;
+      setListening(false);
+      if (event.error === "aborted") return;
+      setVoiceNotice(event.error === "not-allowed" || event.error === "service-not-allowed"
+        ? "Microphone access was blocked. Allow microphone permission or type your question."
+        : event.error === "no-speech"
+        ? "No speech was heard. Tap Speak and try again."
+        : "Speech recognition failed. Try again or type your question.");
+    };
+    recognition.onend = () => {
+      if (recognizerRef.current === recognition) {
+        recognizerRef.current = null;
+        setListening(false);
+      }
+    };
+    setVoiceNotice(null);
+    try {
+      recognition.start();
+      recognizerRef.current = recognition;
+      setListening(true);
+    } catch {
+      setListening(false);
+      setVoiceNotice("Could not start microphone recognition. Try typing your question.");
+    }
+  }
+
+  function readAnswerAloud() {
+    if (!current || !("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(current.answer);
+    utterance.lang = "en-GB";
+    window.speechSynthesis.speak(utterance);
+  }
+
   return (
     <section className={styles.panel} aria-labelledby="business-questions-heading">
-      <details>
+      <details open>
         <summary className={styles.summary}>
           <span>
             <strong id="business-questions-heading">Ask TradeOS</strong>
             <small>Ask about recorded sales, cash, debts, best-selling items or stock.</small>
           </span>
-          <span className={styles.summaryAction}>Open questions</span>
+          <span className={styles.summaryAction}>Speak or type</span>
         </summary>
         <div className={styles.body}>
           <p className={styles.hint}>
@@ -93,11 +188,28 @@ export function BusinessQuestionPanel() {
                 maxLength={400} minLength={4}
                 disabled={busy || !queue.online}
                 onChange={(event) => setQuestion(event.target.value)} />
+              <button type="button" className={styles.micButton}
+                aria-label={listening ? "Stop listening" : "Speak a business question"}
+                aria-pressed={listening}
+                title={listening ? "Stop listening" : "Ask TradeOS by voice"}
+                disabled={busy || !queue.online || !voiceSupported} onClick={toggleListening}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  aria-hidden="true">
+                  <rect x="9" y="2" width="6" height="12" rx="3" />
+                  <path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8" />
+                </svg>
+                <span>{listening ? "Stop" : "Speak"}</span>
+              </button>
               <button type="submit" disabled={busy || !queue.online || question.trim().length < 4}>
                 {busy ? "Checking…" : "Ask"}
               </button>
             </div>
           </form>
+          {listening ? <p className={styles.listening} role="status">Listening… Ask your business question now.</p> : null}
+          {voiceNotice ? <p role="alert" className={styles.notice}>{voiceNotice}</p> : null}
+          {!voiceSupported ? <p className={styles.voiceHint}>Your browser does not support voice recognition here. You can still type any supported question.</p>
+            : <p className={styles.voiceHint}>Voice is optional. Your browser may use an online speech service; only the recognized question is submitted to TradeOS.</p>}
           {!queue.online ? (
             <p role="status" className={styles.notice}>
               Connect to refresh answers. Offline sales and inventory recording are unaffected.
@@ -107,9 +219,11 @@ export function BusinessQuestionPanel() {
           ) : busy ? (
             <p role="status" className={styles.notice}>Checking your recorded business figures…</p>
           ) : current ? (
-            <div className={styles.answer} aria-live="polite">
+            <div ref={answerRef} className={styles.answer} aria-live="polite">
               <div className={styles.answerHeader}>
                 <strong>Answer from TradeOS records</strong>
+                {speechOutputSupported ? <button type="button" className={styles.readAloud}
+                  onClick={readAnswerAloud}>Read aloud</button> : null}
                 <span>{new Date(current.generatedAt).toLocaleString("en-GH",
                   { dateStyle: "medium", timeStyle: "short" })}</span>
               </div>

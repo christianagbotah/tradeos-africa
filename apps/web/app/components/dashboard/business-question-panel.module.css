@@ -34,3 +34,55 @@
 .limitations { font-size:.78rem !important; color:var(--tos-muted,#58677a) !important; }
 .link { font-size:.85rem; font-weight:700; color:#1d4ed8; text-decoration:underline; text-underline-offset:3px; }
 @media(max-width:540px) { .summary { padding:13px; } .body { padding:0 13px 14px; } .formRow button { flex:1; } }
+
+/* Push-to-talk controls: never require voice support to submit by keyboard. */
+.formRow .micButton {
+  min-width: 98px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #0b1527;
+  border: 1px solid #0b1527;
+  color: #fff;
+}
+.formRow .micButton[aria-pressed="true"] {
+  background: #b32637;
+  border-color: #b32637;
+}
+.formRow .micButton:focus-visible,
+.readAloud:focus-visible {
+  outline: 2px solid #c59b42;
+  outline-offset: 3px;
+}
+.voiceHint {
+  margin: 0;
+  font-size: .78rem;
+  line-height: 1.45;
+  color: var(--tos-muted,#58677a);
+}
+.listening {
+  margin: 0;
+  padding: 10px 13px;
+  border-radius: 9px;
+  background: #fff0f0;
+  color: #9d2033;
+  font-weight: 700;
+}
+.readAloud {
+  cursor: pointer;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: transparent;
+  color: #1e4471;
+  min-height: 40px;
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 750;
+}
+@media (max-width: 540px) {
+  .formRow input { flex: 1 1 100%; }
+  .formRow button { flex: 1 1 0; }
+  .formRow .micButton { flex: 1 1 0; }
+}

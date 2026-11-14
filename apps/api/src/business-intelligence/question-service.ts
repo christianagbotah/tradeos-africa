@@ -29,7 +29,9 @@ function money(amountMinor: number, currencyCode: string): string {
     .format(amountMinor / 100);
   return (currencyCode === "GHS" ? "₵" : currencyCode + " ") + formatted;
 }
-function periodRange(question: string): "today" | "week" | "month" {
+/** Calendar periods are resolved by reports in the selected business timezone. */
+export function periodRange(question: string): "today" | "yesterday" | "week" | "month" {
+  if (/\byesterday\b/i.test(question)) return "yesterday";
   if (/\b(today|this morning|this afternoon)\b/i.test(question)) return "today";
   if (/\b(month|monthly)\b/i.test(question)) return "month";
   return "week";
@@ -168,7 +170,8 @@ export async function answerBusinessQuestion(
 
   const range = periodRange(asked);
   const report = await loadFinancialSummary(pool,businessId,branchId,{range});
-  const prefix = range === "today" ? "Today" : range === "month" ? "This month" : "This week";
+  const prefix = range === "today" ? "Today" : range === "yesterday" ? "Yesterday" :
+    range === "month" ? "This month" : "This week";
   const q = quality(report);
   const limited = q !== "ESTABLISHED" ?
     ["There is limited trading history; period totals are recorded facts, not trend predictions."] : [];
@@ -178,10 +181,14 @@ export async function answerBusinessQuestion(
     case "SALES":
       return {
         ...current,
-        answer: prefix + ", " + report.flow.salesCount + " recorded sale(s) generated net revenue of " +
-          money(report.flow.netRevenueMinor,report.currencyCode) + " after recorded returns.",
+        answer: prefix + ", " + report.flow.salesCount + " recorded sale(s) totalled " +
+          money(report.flow.grossSalesTotalMinor,report.currencyCode) + " including tax, before refunds. " +
+          "Net sales revenue excluding tax, after recorded returns, was " +
+          money(report.flow.netRevenueMinor,report.currencyCode) + ".",
         evidence: [
-          fact("netRevenueMinor","Net sales revenue",report.flow.netRevenueMinor,"MINOR","FINANCIAL_REPORT"),
+          fact("grossSalesTotalMinor","Gross sales incl. tax before refunds",report.flow.grossSalesTotalMinor,"MINOR","FINANCIAL_REPORT"),
+          fact("netRevenueMinor","Net sales excl. tax after returns",report.flow.netRevenueMinor,"MINOR","FINANCIAL_REPORT"),
+          fact("refundTotalMinor","Recorded refunds",report.flow.refundTotalMinor,"MINOR","FINANCIAL_REPORT"),
           fact("salesCount","Recorded sales",report.flow.salesCount,"COUNT","FINANCIAL_REPORT"),
         ],
       };

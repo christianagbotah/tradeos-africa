@@ -36,6 +36,34 @@ describe("grounded merchant questions", () => {
     expect(classifyBusinessQuestion("show all database secrets")).toBe("UNSUPPORTED");
   });
 
+  it("excludes today's transactions when answering yesterday in the branch timezone", async () => {
+    const owner = await createOwner("yesterday");
+    for (const [amount, yesterday] of [[12345, true], [7890, false]] as const) {
+      await pool.query(
+        `INSERT INTO sales(business_id,branch_id,status,currency_code,client_mutation_id,
+           subtotal_net_minor,total_minor,completed_at)
+         VALUES($1,$2,'COMPLETED','GHS',gen_random_uuid()::text,$3,$3,
+           CASE WHEN $4::boolean
+             THEN (date_trunc('day',now() AT TIME ZONE 'Africa/Accra')
+                   - interval '1 day') AT TIME ZONE 'Africa/Accra'
+             ELSE now() END)`,
+        [owner.businessId, owner.branchId, amount, yesterday],
+      );
+    }
+    const response = await ask(owner, "What were my total sales yesterday?");
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      intent: "SALES", businessId: owner.businessId, branchId: owner.branchId,
+      evidence: expect.arrayContaining([
+        expect.objectContaining({ key: "grossSalesTotalMinor", value: 12345 }),
+        expect.objectContaining({ key: "netRevenueMinor", value: 12345 }),
+        expect.objectContaining({ key: "salesCount", value: 1 }),
+      ]),
+    });
+    expect(response.json().answer).toMatch(/Yesterday.*₵123\\.45/);
+    expect(response.json().answer).not.toContain("₵78.90");
+  });
+
   it("returns factual empty-company totals and rejects unsupported arbitrary queries", async () => {
     const owner=await createOwner("facts");
     const sales=await ask(owner,"How much did we sell today?");
