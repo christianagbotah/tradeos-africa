@@ -8167,6 +8167,34 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* Shared Add/Edit Branch form: pair fields on desktop, keep phones readable. */
+.tos-settings__grid--branch {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.tos-settings__grid--branch > .tos-field {
+  min-width: 0;
+}
+
+.tos-settings__grid--branch :is(.tos-input, .tos-select) {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (min-width: 960px) {
+  .tos-settings__grid--branch {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--tos-space-4);
+    row-gap: var(--tos-space-3);
+  }
+
+  /* Editing has no branch-code field; show the name across both columns. */
+  .tos-settings__grid--branch[data-has-code="false"] > .tos-field:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
 .tos-settings__subpanel {
   margin-top: var(--tos-space-5);
   padding: var(--tos-space-4);
