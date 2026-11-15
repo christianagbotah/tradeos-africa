@@ -200,6 +200,74 @@ describe("grounded merchant questions", () => {
     expect((await ask(a,"What is our cash balance?")).statusCode).toBe(200);
   });
 
+  it("ranks active branches by recorded sales without losing the selected workspace context", async () => {
+    const owner = await createOwner("branch-ranking");
+    const second = await pool.query<{id:string}>(
+      "INSERT INTO branches(business_id,name,code,timezone) VALUES($1,'Market Branch','MARKET','Africa/Accra') RETURNING id",
+      [owner.businessId],
+    );
+    const marketId = second.rows[0]!.id;
+    for (const [branchId, amount] of [[owner.branchId, 10000], [marketId, 27000]] as const) {
+      await pool.query(
+        `INSERT INTO sales(business_id,branch_id,status,currency_code,client_mutation_id,
+            subtotal_net_minor,total_minor,completed_at)
+          VALUES($1,$2,'COMPLETED','GHS',gen_random_uuid()::text,$3,$3,now())`,
+        [owner.businessId, branchId, amount],
+      );
+    }
+    const answer = await ask(owner,"Which branch sold the most today?");
+    expect(answer.statusCode).toBe(200);
+    expect(answer.json()).toMatchObject({
+      intent:"SALES",businessId:owner.businessId,branchId:owner.branchId,sourcePage:"/reports",
+      items: [
+        expect.objectContaining({id:marketId,label:"Market Branch"}),
+        expect.objectContaining({id:owner.branchId}),
+      ],
+      evidence: expect.arrayContaining([
+        expect.objectContaining({key:"activeBranches",value:2}),
+        expect.objectContaining({key:"branchesWithActivity",value:2}),
+        expect.objectContaining({key:"leadingValueMinor",value:27000}),
+      ]),
+    });
+    expect(answer.json().answer).toContain("Market Branch");
+    expect(answer.json().answer).toContain("₵270.00");
+
+    // A valid business manager can ask for their own branch figures, but is
+    // not entitled to the owner/admin cross-branch ranking.
+    await pool.query("UPDATE business_memberships SET role='MANAGER' WHERE business_id=$1",[owner.businessId]);
+    expect((await ask(owner,"Which branch sold the most today?")).statusCode).toBe(403);
+    expect((await ask(owner,"What were our sales today?")).statusCode).toBe(200);
+
+    await pool.query("UPDATE business_memberships SET role='OWNER' WHERE business_id=$1",[owner.businessId]);
+    const unauthorized = await createOwner("branch-foreign");
+    expect((await app.inject({method:"POST",url:"/v1/intelligence/question",headers:unauthorized.headers,
+      payload:{businessId:owner.businessId,branchId:owner.branchId,
+        question:"Which branch sold the most today?"}})).statusCode).toBe(403);
+  });
+
+  it("does not invent a best branch where no business activity was recorded", async () => {
+    const owner = await createOwner("empty-ranking");
+    await pool.query(
+      "INSERT INTO branches(business_id,name,code) VALUES($1,'Unused Branch','EMPTY')",
+      [owner.businessId],
+    );
+    const answer = await ask(owner,"Which branch made the most profit yesterday?");
+    expect(answer.statusCode).toBe(200);
+    expect(answer.json()).toMatchObject({
+      intent:"PROFIT",dataQuality:"INSUFFICIENT",items:[],
+      evidence:expect.arrayContaining([expect.objectContaining({key:"branchesWithActivity",value:0})]),
+    });
+    expect(answer.json().answer).toMatch(/no recorded transactions/i);
+  });
+
+  it("requires a reporting metric instead of inventing a branch performance score", async () => {
+    const owner = await createOwner("ranking-metric");
+    const answer = await ask(owner,"Which branch performed best?");
+    expect(answer.statusCode).toBe(200);
+    expect(answer.json().intent).toBe("UNSUPPORTED");
+    expect(answer.json().answer).toMatch(/sales or operating profit/i);
+  });
+
   it("returns conservative inventory guidance without a paid AI provider", async () => {
     const owner=await createOwner("reorder");
     const item=await pool.query(

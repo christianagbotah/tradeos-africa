@@ -10,6 +10,7 @@ import { listBusinessActions, generateBusinessActions, transitionBusinessAction,
 import { readMerchantAutomation, configureMerchantAutomation, proposeMerchantAutomation, decideMerchantAutomationRun, MerchantAutomationError } from "./merchant-automation-service.js";
 import { loadInventoryIntelligence, InventoryIntelligenceError, type InventoryPlanningHorizon } from "./inventory-intelligence-service.js";
 import { answerBusinessQuestion, BusinessQuestionError } from "./question-service.js";
+import { unsupportedBranchRanking } from "./question-periods.js";
 import { listBusinessNotifications, acknowledgeBusinessNotification, BusinessNotificationError } from "./notification-service.js";
 import type { BusinessNotificationKind } from "@tradeos/contracts";
 
@@ -53,7 +54,17 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
       const { businessId, branchId } = await readAuthorizedScope(
         pool, request.headers.authorization, request.body ?? {},
       );
-      return await answerBusinessQuestion(pool, businessId, branchId, request.body.question);
+      const question = request.body?.question;
+      if (typeof question !== "string") throw new BusinessQuestionError("Question must be text.");
+      let allowCrossBranchRanking = false;
+      if (unsupportedBranchRanking(question)) {
+        // Cross-branch intelligence cannot be inferred from branch-scoped access.
+        // Only owners and business administrators can request it.
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        await requireBusinessRole(pool, auth, businessId, ["OWNER", "ADMIN"]);
+        allowCrossBranchRanking = true;
+      }
+      return await answerBusinessQuestion(pool, businessId, branchId, question, allowCrossBranchRanking);
     } catch (error) {
       return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_QUESTION_FAILED");
     }

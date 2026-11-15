@@ -6,6 +6,7 @@ import type { DatabasePool } from "../db.js";
 import { loadFinancialSummary, loadCreditAging } from "../reports.js";
 import { loadInventoryIntelligence } from "./inventory-intelligence-service.js";
 import { answerFinancialComparison } from "./question-comparisons.js";
+import { answerBranchRanking } from "./branch-ranking-service.js";
 import { isComparisonQuestion, PERIOD_NAMES, questionPeriod, unsupportedBranchRanking, unsupportedCalendarQuestion } from "./question-periods.js";
 
 export class BusinessQuestionError extends Error {
@@ -58,6 +59,7 @@ export async function answerBusinessQuestion(
   businessId: string,
   branchId: string | null,
   question: string,
+  allowCrossBranchRanking = false,
 ): Promise<BusinessQuestionResponse> {
   if (typeof question !== "string" || question.trim().length < 4 || question.length > 400) {
     throw new BusinessQuestionError("Question must contain 4 to 400 characters.");
@@ -71,11 +73,11 @@ export async function answerBusinessQuestion(
     dataQuality: "NOT_APPLICABLE", evidence: [], items: [], sourcePage: null,
     limitations: [], answer: "",
   };
-  if (unsupportedBranchRanking(asked)) {
+  if (unsupportedBranchRanking(asked) && !allowCrossBranchRanking) {
     return {
       ...base, intent: "UNSUPPORTED",
-      answer: "Branch rankings and comparisons are not yet supported in Ask TradeOS. Select a branch to review its figures, or open Reports for a branch breakdown.",
-      limitations: ["I won't use the selected branch as though it represents every branch."],
+      answer: "Branch-wide figures are only available to authorized business owners and administrators.",
+      limitations: ["Cross-branch reports require an additional access check."],
     };
   }
   if (unsupportedCalendarQuestion(asked)) {
@@ -84,6 +86,9 @@ export async function answerBusinessQuestion(
       answer: "I can currently report today, yesterday, the day before yesterday, this week, last week, this month or last month. Please use one of those periods.",
       limitations: ["The requested date cannot be reliably interpreted yet; no alternate period was substituted."],
     };
+  }
+  if (unsupportedBranchRanking(asked)) {
+    return answerBranchRanking(pool, businessId, branchId, asked, intent, base);
   }
   if (intent === "UNSUPPORTED") {
     return {

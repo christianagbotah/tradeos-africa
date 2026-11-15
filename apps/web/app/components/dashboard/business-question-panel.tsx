@@ -20,6 +20,7 @@ const SUGGESTIONS = [
   "Who owes us money?",
   "Which stock needs replenishment?",
 ] as const;
+const OWNER_SUGGESTIONS = ["Which branch sold the most this week?"] as const;
 
 export function BusinessQuestionPanel() {
   const { session, role, queue } = useWorkspace();
@@ -173,7 +174,7 @@ export function BusinessQuestionPanel() {
             No paid AI service is required, and asking a question cannot change business records.
           </p>
           <div className={styles.suggestions} aria-label="Suggested questions">
-            {SUGGESTIONS.map((suggestion) => (
+            {[...SUGGESTIONS, ...(role === "OWNER" || role === "ADMIN" ? OWNER_SUGGESTIONS : [])].map((suggestion) => (
               <button type="button" className={styles.suggestion} key={suggestion}
                 disabled={busy || !queue.online}
                 onClick={() => { setQuestion(suggestion); void submit(undefined, suggestion); }}>
