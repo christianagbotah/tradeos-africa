@@ -15,6 +15,7 @@ const ROLES = new Set(["OWNER","ADMIN","MANAGER","ACCOUNTANT"]);
 const SUGGESTIONS = [
   "What were my total sales yesterday?",
   "How do sales this week compare with last week?",
+  "Why were sales lower this week compared with last week?",
   "What were our total sales last month?",
   "What is our cash balance?",
   "Who owes us money?",

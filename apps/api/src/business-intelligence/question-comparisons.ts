@@ -6,6 +6,7 @@ import type {
 import type { DatabasePool } from "../db.js";
 import { loadFinancialSummary } from "../reports.js";
 import { PERIOD_NAMES, questionComparisonPlan } from "./question-periods.js";
+import { recordedChangeDrivers } from "./question-drivers.js";
 
 type ComparableIntent = Extract<BusinessQuestionIntent, "SALES" | "PROFIT">;
 
@@ -69,7 +70,8 @@ export async function answerFinancialComparison(
   const percentText = !unfinished && b > 0
     ? " That is a " + (Math.abs(difference / b) * 100).toFixed(1) +
       "% " + (difference > 0 ? "increase" : difference < 0 ? "decrease" : "change") + " from the previous period." : "";
-  const asksWhy = /\b(why|reason|cause|explain)\b/i.test(asked);
+  const asksWhy = /\b(why|reason|cause|explain|drivers?|factors?|breakdown)\b/i.test(asked);
+  const drivers = asksWhy ? recordedChangeDrivers(current.flow, previous.flow, intent, current.currencyCode) : null;
   const limitations = [
     "Only completed and refunded transactions recorded in TradeOS are included.",
     ...(unfinished ? [
@@ -80,6 +82,7 @@ export async function answerFinancialComparison(
     ] : []),
     ...(reportQuality(current, previous) !== "ESTABLISHED"
       ? ["Trading history is limited; these are recorded amounts, not predictions."] : []),
+    ...(drivers?.limitations ?? []),
   ];
 
   return {
@@ -98,6 +101,7 @@ export async function answerFinancialComparison(
         value: aCount, unit: "COUNT", source: "FINANCIAL_REPORT" },
       { key: "previousSalesCount", label: previousLabel + " recorded sales",
         value: bCount, unit: "COUNT", source: "FINANCIAL_REPORT" },
+      ...(drivers?.evidence ?? []),
     ],
     items: [
       { id: "current", label: currentLabel,
@@ -106,13 +110,14 @@ export async function answerFinancialComparison(
       { id: "previous", label: previousLabel,
         detail: periodLabel(previous) + ": " + amount(b, previous.currencyCode) +
           " " + metric + " from " + bCount + " sale(s)" },
+      ...(drivers?.items ?? []),
     ],
     answer: currentLabel + " recorded " + amount(a, current.currencyCode) +
       " in " + metric + " from " + aCount + " sale(s). " +
       previousLabel + " recorded " + amount(b, previous.currencyCode) +
       " from " + bCount + " sale(s). " + differenceText + percentText +
       (unfinished ? " The current period is still in progress; these periods cover different lengths." : "") +
-      (asksWhy ? " The figures do not establish why the change occurred." : ""),
+      (asksWhy ? " The figures do not establish why the change occurred. " + (drivers?.text ?? "") : ""),
     limitations,
   };
 }

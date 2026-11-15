@@ -94,6 +94,8 @@ describe("grounded merchant questions", () => {
         expect.objectContaining({ key:"differenceMinor", value:-11000 }),
         expect.objectContaining({ key:"currentSalesCount", value:1 }),
         expect.objectContaining({ key:"previousSalesCount", value:1 }),
+        expect.objectContaining({ key:"driver_grossRevenue", value:-11000 }),
+        expect.objectContaining({ key:"driver_returnsReversal", value:0 }),
       ]),
     });
     expect(result.json().answer).toContain("This week so far");
