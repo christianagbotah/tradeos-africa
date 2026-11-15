@@ -127,18 +127,24 @@ export async function loadCreditAging(
 async function resolveReportRange(client: DatabaseClient, query: Query, timezone: string): Promise<{ from: Date; to: Date }> {
   if (query.range !== undefined) {
     if (query.from !== undefined || query.to !== undefined) throw new ReportError("Use either range or from/to, not both");
-    if (!["today", "yesterday", "week", "month", "quarter"].includes(query.range)) throw new ReportError("range must be one of today, yesterday, week, month, quarter");
+    if (!["today", "yesterday", "day_before_yesterday", "week", "last_week", "month", "last_month", "quarter"].includes(query.range)) throw new ReportError("Unknown reporting period.");
     const result = await client.query<{ from_at: Date; to_at: Date }>(
       `SELECT
          CASE $2
            WHEN 'today' THEN date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1
            WHEN 'yesterday' THEN (date_trunc('day', now() AT TIME ZONE $1) - interval '1 day') AT TIME ZONE $1
+           WHEN 'day_before_yesterday' THEN (date_trunc('day', now() AT TIME ZONE $1) - interval '2 days') AT TIME ZONE $1
            WHEN 'week' THEN date_trunc('week', now() AT TIME ZONE $1) AT TIME ZONE $1
+           WHEN 'last_week' THEN (date_trunc('week', now() AT TIME ZONE $1) - interval '1 week') AT TIME ZONE $1
            WHEN 'month' THEN date_trunc('month', now() AT TIME ZONE $1) AT TIME ZONE $1
+           WHEN 'last_month' THEN (date_trunc('month', now() AT TIME ZONE $1) - interval '1 month') AT TIME ZONE $1
            WHEN 'quarter' THEN date_trunc('quarter', now() AT TIME ZONE $1) AT TIME ZONE $1
          END AS from_at,
          CASE $2
            WHEN 'yesterday' THEN date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1
+           WHEN 'day_before_yesterday' THEN (date_trunc('day', now() AT TIME ZONE $1) - interval '1 day') AT TIME ZONE $1
+           WHEN 'last_week' THEN date_trunc('week', now() AT TIME ZONE $1) AT TIME ZONE $1
+           WHEN 'last_month' THEN date_trunc('month', now() AT TIME ZONE $1) AT TIME ZONE $1
            ELSE now()
          END AS to_at`,
       [timezone, query.range],

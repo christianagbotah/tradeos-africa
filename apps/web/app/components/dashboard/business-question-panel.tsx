@@ -14,7 +14,8 @@ import { questionRecognitionConstructor, type QuestionRecognition } from "./ques
 const ROLES = new Set(["OWNER","ADMIN","MANAGER","ACCOUNTANT"]);
 const SUGGESTIONS = [
   "What were my total sales yesterday?",
-  "How much did we sell this week?",
+  "How do sales this week compare with last week?",
+  "What were our total sales last month?",
   "What is our cash balance?",
   "Who owes us money?",
   "Which stock needs replenishment?",
@@ -162,14 +163,14 @@ export function BusinessQuestionPanel() {
         <summary className={styles.summary}>
           <span>
             <strong id="business-questions-heading">Ask TradeOS</strong>
-            <small>Ask about recorded sales, cash, debts, best-selling items or stock.</small>
+            <small>Ask by voice or text about sales comparisons, profits, cash, debts and stock.</small>
           </span>
           <span className={styles.summaryAction}>Speak or type</span>
         </summary>
         <div className={styles.body}>
           <p className={styles.hint}>
-            Answers are based on recorded TradeOS reports, with their sources shown.
-            This question service runs without a paid AI provider and does not change business records.
+            Answers and comparisons come from your recorded TradeOS reports, with their sources shown.
+            No paid AI service is required, and asking a question cannot change business records.
           </p>
           <div className={styles.suggestions} aria-label="Suggested questions">
             {SUGGESTIONS.map((suggestion) => (

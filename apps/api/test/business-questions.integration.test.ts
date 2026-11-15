@@ -65,6 +65,72 @@ describe("grounded merchant questions", () => {
     expect(response.json().answer).not.toContain("₵78.90");
   });
 
+  it("compares week and last week with branch-scoped evidence, not invented causes", async () => {
+    const a = await createOwner("comparison-a");
+    const b = await createOwner("comparison-b");
+    const samples = [
+      { owner: a, amount: 11000, expression: "now()" },
+      { owner: a, amount: 22000,
+        expression: "(date_trunc('week',now() AT TIME ZONE 'Africa/Accra') - interval '3 days') AT TIME ZONE 'Africa/Accra'" },
+      { owner: b, amount: 99999, expression: "now()" },
+    ];
+    for (const row of samples) {
+      // Fixed, test-only expressions (never derived from user input).
+      await pool.query(
+        `INSERT INTO sales(business_id,branch_id,status,currency_code,client_mutation_id,
+          subtotal_net_minor,total_minor,completed_at)
+         VALUES($1,$2,'COMPLETED','GHS',gen_random_uuid()::text,$3,$3,${row.expression})`,
+        [row.owner.businessId,row.owner.branchId,row.amount],
+      );
+    }
+    const result = await ask(a, "Why were sales lower this week compared with last week?");
+    expect(result.statusCode).toBe(200);
+    expect(result.json()).toMatchObject({
+      businessId: a.businessId, branchId: a.branchId, intent: "SALES", sourcePage: "/reports",
+      evidence: expect.arrayContaining([
+        expect.objectContaining({ key:"currentValueMinor", value:11000 }),
+        expect.objectContaining({ key:"previousValueMinor", value:22000 }),
+        expect.objectContaining({ key:"differenceMinor", value:-11000 }),
+        expect.objectContaining({ key:"currentSalesCount", value:1 }),
+        expect.objectContaining({ key:"previousSalesCount", value:1 }),
+      ]),
+    });
+    expect(result.json().answer).toContain("This week so far");
+    expect(result.json().answer).toContain("Last week");
+    expect(result.json().limitations.join(" ")).toMatch(/not an equal-duration/i);
+    expect(result.json().limitations.join(" ")).toMatch(/does not identify its cause/i);
+    expect(result.json().answer).not.toContain("₵999.99");
+  });
+
+  it("selects last month correctly and refuses unsupported calendar and branch rankings", async () => {
+    const owner = await createOwner("previous-month");
+    await pool.query(
+      `INSERT INTO sales(business_id,branch_id,status,currency_code,client_mutation_id,
+         subtotal_net_minor,total_minor,completed_at)
+       VALUES($1,$2,'COMPLETED','GHS',gen_random_uuid()::text,33000,33000,
+         (date_trunc('month',now() AT TIME ZONE 'Africa/Accra') - interval '10 days')
+            AT TIME ZONE 'Africa/Accra')`,
+      [owner.businessId,owner.branchId],
+    );
+    const lastMonth = await ask(owner,"How much did we sell last month?");
+    expect(lastMonth.statusCode).toBe(200);
+    expect(lastMonth.json()).toMatchObject({
+      intent:"SALES", evidence:expect.arrayContaining([
+        expect.objectContaining({ key:"grossSalesTotalMinor", value:33000 }),
+        expect.objectContaining({ key:"salesCount", value:1 }),
+      ]),
+    });
+    expect(lastMonth.json().answer).toContain("Last month");
+    const unrecognized = await ask(owner,"How much did we sell last Friday?");
+    expect(unrecognized.json()).toMatchObject({
+      intent:"UNSUPPORTED",evidence:[],sourcePage:null,
+    });
+    const ranking = await ask(owner,"Which branch sold the most this month?");
+    expect(ranking.json()).toMatchObject({
+      intent:"UNSUPPORTED",evidence:[],sourcePage:null,
+    });
+  });
+
   it("returns factual empty-company totals and rejects unsupported arbitrary queries", async () => {
     const owner=await createOwner("facts");
     const sales=await ask(owner,"How much did we sell today?");

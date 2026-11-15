@@ -5,6 +5,8 @@ import type {
 import type { DatabasePool } from "../db.js";
 import { loadFinancialSummary, loadCreditAging } from "../reports.js";
 import { loadInventoryIntelligence } from "./inventory-intelligence-service.js";
+import { answerFinancialComparison } from "./question-comparisons.js";
+import { isComparisonQuestion, PERIOD_NAMES, questionPeriod, unsupportedBranchRanking, unsupportedCalendarQuestion } from "./question-periods.js";
 
 export class BusinessQuestionError extends Error {
   constructor(message: string, readonly statusCode = 400, readonly code = "BUSINESS_QUESTION_INVALID") {
@@ -18,7 +20,7 @@ export function classifyBusinessQuestion(question: string): BusinessQuestionInte
   if (/(stock|inventory|reorder|restock|replenish|running out|shortage)/.test(normalized)) return "REPLENISHMENT";
   if (/(supplier|vendor|payables|we owe|owe our)/.test(normalized)) return "SUPPLIERS_OVERDUE";
   if (/(customer|receivable|owed to us|owes us|owes me|debtors|unpaid invoice)/.test(normalized)) return "CUSTOMERS_OVERDUE";
-  if (/(best sell|sold best|top sell|top-selling|most sold|top product|popular product|best product)/.test(normalized)) return "TOP_ITEMS";
+  if (/(best sell|sold best|top sell|top-selling|most sold|sold most|top product|popular product|best product|most popular)/.test(normalized)) return "TOP_ITEMS";
   if (/(profit|margin|expenses?)/.test(normalized)) return "PROFIT";
   if (/(cash|bank balance|how much money)/.test(normalized)) return "CASH";
   if (/(sale|sold|sell|revenue|turnover)/.test(normalized)) return "SALES";
@@ -29,13 +31,8 @@ function money(amountMinor: number, currencyCode: string): string {
     .format(amountMinor / 100);
   return (currencyCode === "GHS" ? "₵" : currencyCode + " ") + formatted;
 }
-/** Calendar periods are resolved by reports in the selected business timezone. */
-export function periodRange(question: string): "today" | "yesterday" | "week" | "month" {
-  if (/\byesterday\b/i.test(question)) return "yesterday";
-  if (/\b(today|this morning|this afternoon)\b/i.test(question)) return "today";
-  if (/\b(month|monthly)\b/i.test(question)) return "month";
-  return "week";
-}
+/** Backward-compatible public parser, now shared with comparisons. */
+export const periodRange = questionPeriod;
 function fact(key: string, label: string, value: number, unit: BusinessQuestionFact["unit"],
   source: BusinessQuestionFact["source"]): BusinessQuestionFact {
   return { key, label, value, unit, source };
@@ -74,6 +71,20 @@ export async function answerBusinessQuestion(
     dataQuality: "NOT_APPLICABLE", evidence: [], items: [], sourcePage: null,
     limitations: [], answer: "",
   };
+  if (unsupportedBranchRanking(asked)) {
+    return {
+      ...base, intent: "UNSUPPORTED",
+      answer: "Branch rankings and comparisons are not yet supported in Ask TradeOS. Select a branch to review its figures, or open Reports for a branch breakdown.",
+      limitations: ["I won't use the selected branch as though it represents every branch."],
+    };
+  }
+  if (unsupportedCalendarQuestion(asked)) {
+    return {
+      ...base, intent: "UNSUPPORTED",
+      answer: "I can currently report today, yesterday, the day before yesterday, this week, last week, this month or last month. Please use one of those periods.",
+      limitations: ["The requested date cannot be reliably interpreted yet; no alternate period was substituted."],
+    };
+  }
   if (intent === "UNSUPPORTED") {
     return {
       ...base,
@@ -168,10 +179,20 @@ export async function answerBusinessQuestion(
     };
   }
 
+  if (isComparisonQuestion(asked)) {
+    if (intent === "SALES" || intent === "PROFIT") {
+      return answerFinancialComparison(pool, businessId, branchId, asked, intent, base);
+    }
+    return {
+      ...base, intent: "UNSUPPORTED",
+      answer: "Period-to-period comparisons currently support sales and operating profit. Ask about either, or view the other reports directly.",
+      limitations: ["No comparison was inferred for an unsupported financial measure."],
+    };
+  }
+
   const range = periodRange(asked);
   const report = await loadFinancialSummary(pool,businessId,branchId,{range});
-  const prefix = range === "today" ? "Today" : range === "yesterday" ? "Yesterday" :
-    range === "month" ? "This month" : "This week";
+  const prefix = PERIOD_NAMES[range];
   const q = quality(report);
   const limited = q !== "ESTABLISHED" ?
     ["There is limited trading history; period totals are recorded facts, not trend predictions."] : [];
