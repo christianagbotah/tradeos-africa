@@ -289,6 +289,10 @@ async function normalizePurchaseLines(
     normalized.push({
       itemId: line.itemId,
       purchaseUnitCode,
+      // Preserve PO linkage through the legacy-unit normalization step.
+      // Dropping it would cause the DB tenant-scope trigger to reject the
+      // entire linked receipt instead of recording the actual delivery.
+      ...(line.purchaseOrderLineId ? {purchaseOrderLineId:line.purchaseOrderLineId}:{}),
       quantity: line.quantity,
       unitCostMinor: unitCostMinor!,
     });

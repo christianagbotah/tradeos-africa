@@ -103,6 +103,12 @@ describe("supplier PO linked stock receipts",()=>{
     const first=await receive(m,"po-partial-a",payload(m,[4,1]));
     expect(first.status).toBe("APPLIED");
     expect(first.result?.totalMinor).toBe(16_000);
+    const linked=(await pool.query<{purchase_order_line_id:string|null}>(
+      `SELECT purchase_order_line_id FROM purchase_lines
+       WHERE business_id=$1 AND purchase_id=$2`,
+      [m.businessId,first.result!.purchaseId])).rows;
+    expect(linked.map(l=>l.purchase_order_line_id).sort())
+      .toEqual(m.lines.map(l=>l.id).sort());
     expect((await receive(m,"po-partial-a",payload(m,[4,1]))).status).toBe("APPLIED");
     const replayChange=await receive(m,"po-partial-a",payload(m,[5,1]));
     expect(replayChange).toMatchObject({status:"REJECTED",
