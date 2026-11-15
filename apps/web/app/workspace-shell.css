@@ -8931,3 +8931,116 @@
   outline: 2px solid var(--tos-gold);
   outline-offset: 2px;
 }
+
+/* --- Purchase receipt desktop composition and legible preview totals ---
+ * The nested MoneyValue sets its own dark foreground, so a dark receipt
+ * hero needs a scoped contrast override rather than relying on inheritance.
+ */
+.tos-purchase-hero .tos-purchase-hero__total .tos-money-value {
+  color: #fff;
+  font-size: inherit;
+  font-weight: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The receipt editor needs the width for separate item and purchasing-unit
+ * controls. On small devices, scroll sideways instead of wrapping a row.
+ */
+.tos-sheet--purchase {
+  width: min(1040px, 100vw);
+}
+
+.tos-sheet--purchase .tos-receipt-lines-viewport {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tos-border-strong) transparent;
+  padding-bottom: 5px;
+}
+
+.tos-sheet--purchase .tos-receipt-lines-viewport:focus-visible {
+  outline: 2px solid var(--tos-focus);
+  outline-offset: 2px;
+}
+
+.tos-sheet--purchase .tos-receipt-lines-grid {
+  display: grid;
+  gap: var(--tos-space-2);
+  min-width: 854px;
+  width: 100%;
+}
+
+.tos-sheet--purchase .tos-receipt-line {
+  width: 100%;
+  min-width: 854px;
+  box-sizing: border-box;
+  grid-template-columns: 22px minmax(205px, 1fr) 140px 82px 145px 125px 32px;
+  grid-template-areas: "num item unit qty cost total remove";
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.tos-sheet--purchase .tos-receipt-line__item,
+.tos-sheet--purchase .tos-receipt-line__unit,
+.tos-sheet--purchase .tos-receipt-line__cost {
+  min-width: 0;
+}
+
+.tos-sheet--purchase .tos-receipt-line__unit {
+  grid-area: unit;
+}
+
+.tos-sheet--purchase .tos-receipt-line__item .tos-select,
+.tos-sheet--purchase .tos-receipt-line__unit .tos-select,
+.tos-sheet--purchase .tos-receipt-line__cost .tos-money__input,
+.tos-sheet--purchase .tos-receipt-line__qty {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.tos-sheet--purchase .tos-receipt-line__total {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.tos-sheet--purchase .tos-receipt-line__total-sub {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Override the generic narrow-screen six-column grid with our permanent
+ * seven-column layout. Keep all controls on a single row, never a card wrap.
+ */
+@media (max-width: 640px) {
+  .tos-sheet--purchase .tos-receipt-line {
+    grid-template-columns: 22px minmax(205px, 1fr) 140px 82px 145px 125px 32px;
+    grid-template-areas: "num item unit qty cost total remove";
+    gap: 8px;
+  }
+}
+
+@media print {
+  .tos-purchase-hero .tos-purchase-hero__total .tos-money-value {
+    color: #14243a;
+  }
+}
+
+.tos-sheet--purchase .tos-receipt-scroll-hint {
+  display: none;
+  margin: 0;
+  font-size: var(--tos-text-meta);
+  color: var(--tos-text-muted);
+}
+
+@media (max-width: 900px) {
+  .tos-sheet--purchase .tos-receipt-scroll-hint {
+    display: block;
+  }
+}
