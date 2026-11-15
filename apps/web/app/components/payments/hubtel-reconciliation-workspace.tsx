@@ -114,8 +114,8 @@ export function HubtelReconciliationWorkspace() {
 
     <div className={styles.notice}>
       <strong>{readiness?.enabled ? "Merchant payments configured" : "Live merchant collection is not enabled"}</strong>
-      <p>Payments become sales only after server-side Hubtel confirmation. Missing status or an
-        “Unpaid” result never automatically returns stock or generates a receipt.</p>
+      <p>TradeOS records payment only after independently confirming it with Hubtel.
+        Missing status or an “Unpaid” result never automatically returns stock or generates a receipt.</p>
     </div>
     <div className={styles.stats}>
       <div><span>Awaiting checks</span><strong>{data?.summary.awaiting ?? "—"}</strong></div>
