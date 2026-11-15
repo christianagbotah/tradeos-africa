@@ -22,6 +22,7 @@ import {
   IconReports,
   IconReturns,
   IconSales,
+  IconReceipt,
   IconSell,
   IconUser,
 } from "../ui/icons";
@@ -92,6 +93,7 @@ export const WORKSPACE_NAV_ITEMS: readonly WorkspaceNavItem[] = [
   { id: "dashboard", segment: "dashboard", label: "Dashboard", shortLabel: "Home", group: "Trade", icon: IconDashboard, primary: true },
   { id: "sell", segment: "sell", label: "Sell (POS)", shortLabel: "Sell", group: "Trade", icon: IconSell, visibleTo: WRITE_ROLES, primary: true },
   { id: "sales", segment: "sales", label: "Sales", shortLabel: "Sales", group: "Trade", icon: IconSales, primary: true },
+  { id: "documents", segment: "documents", label: "Quotes & proformas", shortLabel: "Quotes", group: "Trade", icon: IconReceipt },
   { id: "customers", segment: "customers", label: "Customers", shortLabel: "Customers", group: "Master data", icon: IconCustomers, primary: true },
   { id: "catalog", segment: "catalog", label: "Catalog", shortLabel: "Catalog", group: "Master data", icon: IconCatalog },
   { id: "inventory", segment: "inventory", label: "Inventory", shortLabel: "Stock", group: "Inventory", icon: IconInventory, visibleTo: WRITE_ROLES },
@@ -176,7 +178,7 @@ export function mobileMoreNavigationGroups(role: WorkspaceRole | null | undefine
   ];
 
   return [
-    { id: "stock", title: "Sales & stock", items: linksFor(["catalog", "inventory", "returns", "purchases"]) },
+    { id: "stock", title: "Sales & stock", items: linksFor(["documents", "catalog", "inventory", "returns", "purchases"]) },
     { id: "insights", title: "Operations & insights", items: linksFor(["cashbook", "operations", "reports"]) },
     { id: "account", title: "Business & account", items: accountLinks },
   ].filter((group) => group.items.length > 0);
