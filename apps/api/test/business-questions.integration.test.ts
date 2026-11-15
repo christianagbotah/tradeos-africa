@@ -60,7 +60,8 @@ describe("grounded merchant questions", () => {
         expect.objectContaining({ key: "salesCount", value: 1 }),
       ]),
     });
-    expect(response.json().answer).toMatch(/Yesterday.*₵123\\.45/);
+    expect(response.json().answer).toContain("Yesterday");
+    expect(response.json().answer).toContain("₵123.45");
     expect(response.json().answer).not.toContain("₵78.90");
   });
 
