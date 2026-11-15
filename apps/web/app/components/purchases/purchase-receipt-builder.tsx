@@ -206,7 +206,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
   return (
     <>
       <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
-      <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label="Record purchase receipt">
+      <div className="tos-sheet tos-sheet--wide tos-sheet--purchase" role="dialog" aria-label="Record purchase receipt">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Purchases</span>
@@ -337,6 +337,9 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
               <span className="tos-section__sub">{validLineCount} of {lines.length} valid</span>
             </div>
             <div className="tos-section__body tos-stack">
+              <p className="tos-receipt-scroll-hint">Scroll sideways to view all purchase fields. Each item stays on one row.</p>
+              <div className="tos-receipt-lines-viewport" tabIndex={0} role="region" aria-label="Purchase items — scroll sideways to see all columns">
+              <div className="tos-receipt-lines-grid">
               {lines.map((line, idx) => {
                 const selected = activeCatalog.find((item) => item.id === line.itemId);
                 const purchaseUnits = selected ? purchasableUnits(selected) : [];
@@ -345,7 +348,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                 return (
                   <div key={idx} className="tos-receipt-line">
                     <span className="tos-receipt-line__num" aria-hidden="true">{idx + 1}</span>
-                    <div className="tos-receipt-line__item tos-stack">
+                    <div className="tos-receipt-line__item">
                       <select
                         id={`pr-item-${idx}`}
                         className="tos-select"
@@ -359,20 +362,21 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                           <option key={item.id} value={item.id}>{item.name}</option>
                         ))}
                       </select>
-                      {selected ? (
-                        <select
-                          id={`pr-unit-${idx}`}
-                          className="tos-select"
-                          value={line.purchaseUnitCode}
-                          onChange={(event) => setLine(idx, { purchaseUnitCode: event.target.value })}
-                          disabled={!canWrite}
-                          aria-label={`Line ${idx + 1} purchase unit`}
-                        >
-                          {purchasableUnits(selected).map((unit) => (
-                            <option key={unit.code} value={unit.code}>{unit.label || unit.code}</option>
-                          ))}
-                        </select>
-                      ) : null}
+                    </div>
+                    <div className="tos-receipt-line__unit">
+                      <select
+                        id={`pr-unit-${idx}`}
+                        className="tos-select"
+                        value={selected ? line.purchaseUnitCode : ""}
+                        onChange={(event) => setLine(idx, { purchaseUnitCode: event.target.value })}
+                        disabled={!canWrite || !selected}
+                        aria-label={`Line ${idx + 1} purchase unit`}
+                      >
+                        {!selected ? <option value="">Select item first</option> : null}
+                        {purchaseUnits.map((unit) => (
+                          <option key={unit.code} value={unit.code}>{unit.label || unit.code}</option>
+                        ))}
+                      </select>
                     </div>
                     <input
                       id={`pr-qty-${idx}`}
@@ -419,6 +423,8 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                   </div>
                 );
               })}
+              </div>
+              </div>
               <div className="tos-receipt-add">
                 <Button
                   variant="outline"
