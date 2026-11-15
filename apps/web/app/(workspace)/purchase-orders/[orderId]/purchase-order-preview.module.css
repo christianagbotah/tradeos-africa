@@ -56,3 +56,33 @@
   .totals{margin-right:0}
   .notes,.footer{margin-left:0;margin-right:0}
 }
+
+/* Actual goods received are distinct from the supplier's order commitment. */
+.fulfillment{margin:14px 40px 4px;padding:14px 18px;border:1px solid #b8d2e8;
+  border-radius:10px;background:#edf6fe;display:flex;align-items:center;
+  justify-content:space-between;gap:18px;flex-wrap:wrap}
+.fulfillment strong{color:#183a5d}
+.fulfillment p{font-size:12px;color:#3b526c;margin:5px 0 0}
+.fulfillment button{background:#173b63;color:#fff;border:0;border-radius:8px;
+  padding:10px 16px;font-weight:750;cursor:pointer}
+.fulfillment button:disabled,.actions button:disabled{opacity:.55;cursor:not-allowed}
+.receipts{margin:16px 40px 25px;padding:18px;border:1px solid #d5dfe9;border-radius:10px}
+.receipts h2{font-size:15px;margin:0 0 5px;font-weight:800}
+.receipts p{color:#617188;font-size:12px;margin:0 0 12px}
+.receipt{display:grid;grid-template-columns:120px minmax(0,1fr) auto;
+  gap:12px;align-items:center;border-top:1px solid #e1e6ee;padding:11px 0;
+  font-size:12px;overflow-wrap:anywhere}
+.receipt strong{font-variant-numeric:tabular-nums;white-space:nowrap}
+.receipts a{color:#235a93;text-decoration:underline;font-weight:700}
+@media(max-width:680px){
+  .fulfillment{margin:12px 17px;padding:12px}
+  .receipts{margin:12px 17px;padding:14px}
+  .receipt{grid-template-columns:1fr auto}
+  .receipt span:first-child{grid-column:1/-1}
+}
+@media print{
+  .fulfillment{margin-left:0;margin-right:0;background:#fff!important;
+    border-color:#bcc9d5}
+  .fulfillment button{display:none!important}
+  .receipts{margin-left:0;margin-right:0}
+}

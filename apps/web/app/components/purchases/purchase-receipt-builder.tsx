@@ -21,6 +21,8 @@ import type { Supplier } from "./supplier-sheet";
 interface PurchaseReceiptBuilderProps {
   open: boolean;
   suppliers: readonly Supplier[];
+  /** When supplied, receive only outstanding lines against this issued PO. */
+  purchaseOrderId?: string;
   onClose: () => void;
   onComplete: () => void;
 }
@@ -39,6 +41,8 @@ const SETTLEMENT_METHODS: ReadonlyArray<{ value: SettlementMethod; label: string
 interface ReceiptLine {
   itemId: string;
   purchaseUnitCode: string;
+  purchaseOrderLineId?: string;
+  remainingQuantity?: number;
   quantity: number;
   unitCostMinor: number;
 }
@@ -50,7 +54,14 @@ const EMPTY_LINE: ReceiptLine = {
   unitCostMinor: 0,
 };
 
-export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }: PurchaseReceiptBuilderProps) {
+interface PurchaseOrderReadModel {
+  order: {
+    id:string;supplierId:string;orderNumber:string;status:string;canReceive:boolean;
+    lines:Array<{id:string;itemId:string;purchaseUnitCode:string;
+      unitCostMinor:number;remainingQuantity:number}>;
+  };
+}
+export function PurchaseReceiptBuilder({ open, suppliers, purchaseOrderId, onClose, onComplete }: PurchaseReceiptBuilderProps) {
   const { session, role, catalog, bump } = useWorkspace();
   const [supplierId, setSupplierId] = useState<string>("");
   const [settlementMethod, setSettlementMethod] = useState<SettlementMethod>("SUPPLIER_CREDIT");
@@ -72,6 +83,12 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
     : null;
   const { data: accountsData, loading: accountsLoading } = useApiFetch<{ accounts: PaymentAccount[] }>(accountsPath);
   const { data: defaultsData } = useApiFetch<{ defaults: MoneyAccountDefault[] }>(defaultsPath);
+  const poPath=open && session && purchaseOrderId
+    ? `/v1/purchase-orders/${encodeURIComponent(purchaseOrderId)}?businessId=${encodeURIComponent(session.businessId)}`
+    : null;
+  const {data:poData,loading:poLoading,error:poError}=
+    useApiFetch<PurchaseOrderReadModel>(poPath);
+  const linkedOrder=poData?.order;
 
   const allAccounts = accountsData?.accounts ?? [];
   const defaults = defaultsData?.defaults ?? [];
@@ -91,6 +108,19 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
     setBusy(false);
     setError(null);
   }, [open, suppliers]);
+
+  useEffect(() => {
+    if (!open || !purchaseOrderId || !linkedOrder) return;
+    setSupplierId(linkedOrder.supplierId);
+    setLines(linkedOrder.lines.filter(line=>line.remainingQuantity>0).map(line=>({
+      itemId:line.itemId,
+      purchaseUnitCode:line.purchaseUnitCode,
+      purchaseOrderLineId:line.id,
+      remainingQuantity:line.remainingQuantity,
+      quantity:0, // Explicit actual goods entry, never auto-post ordered quantity
+      unitCostMinor:line.unitCostMinor,
+    })));
+  },[open,purchaseOrderId,linkedOrder]);
 
   useEffect(() => {
     if (!open) return;
@@ -128,6 +158,12 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
 
   const selectedSupplier = suppliers.find((supplier) => supplier.id === supplierId) ?? null;
   const noMatchingAccount = immediatePayment && !accountsLoading && eligibleAccounts.length === 0;
+  const poUnavailable=Boolean(purchaseOrderId)&&(poLoading || !linkedOrder ||
+    !linkedOrder.canReceive || poError!==null);
+  const poVariance=Boolean(purchaseOrderId)&&lines.some(line=>{
+    const original=linkedOrder?.lines.find(l=>l.id===line.purchaseOrderLineId);
+    return original&&line.quantity>0&&line.unitCostMinor!==original.unitCostMinor;
+  });
   const totalMinor = lines.reduce((sum, line) => sum + (line.unitCostMinor * line.quantity), 0);
   const validLineCount = lines.filter((line) => (
     line.itemId
@@ -150,13 +186,19 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
   const removeLine = (idx: number) => setLines((prev) => prev.filter((_, i) => i !== idx));
 
   const handleSubmit = async () => {
-    if (!supplierId || busy || !canWrite) return;
+    if (!supplierId || busy || !canWrite || poUnavailable) return;
     const validLines = lines.filter((line) => (
       line.itemId
       && line.purchaseUnitCode
       && line.quantity > 0
       && line.unitCostMinor >= 0
+      && (!purchaseOrderId || (Boolean(line.purchaseOrderLineId) &&
+          line.quantity <= (line.remainingQuantity??0)))
     ));
+    if (purchaseOrderId && lines.some(line=>line.quantity>(line.remainingQuantity??0))) {
+      setError("Received quantity exceeds the outstanding amount on this purchase order.");
+      return;
+    }
     if (validLines.length === 0) {
       setError("Add at least one line with an item, purchase unit, quantity, and unit cost.");
       return;
@@ -176,12 +218,15 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
         mutationType: "PURCHASE_RECEIVE_CREATE",
         payload: {
           supplierId,
+          ...(purchaseOrderId ? {purchaseOrderId}:{}),
           settlementMethod,
           ...(immediatePayment && moneyAccountId ? { moneyAccountId } : {}),
           ...(supplierReference.trim() ? { supplierReference: supplierReference.trim() } : {}),
           lines: validLines.map((line) => ({
             itemId: line.itemId,
             purchaseUnitCode: line.purchaseUnitCode,
+            ...(purchaseOrderId && line.purchaseOrderLineId?
+              {purchaseOrderLineId:line.purchaseOrderLineId}:{}),
             quantity: line.quantity,
             unitCostMinor: line.unitCostMinor,
           })),
@@ -210,8 +255,10 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Purchases</span>
-            <h2 className="tos-sheet__title">Record purchase receipt</h2>
-            <p className="tos-sheet__sub">Receive stock and record either supplier credit or the money account used to pay.</p>
+            <h2 className="tos-sheet__title">{purchaseOrderId?"Receive purchase order":"Record purchase receipt"}</h2>
+            <p className="tos-sheet__sub">{purchaseOrderId
+              ? `Record quantities actually delivered against ${linkedOrder?.orderNumber??"this purchase order"}.`
+              : "Receive stock and record either supplier credit or the money account used to pay."}</p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
             <IconClose style={{ width: 18, height: 18 }} />
@@ -229,6 +276,16 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
             </span>
           </div>
 
+          {purchaseOrderId ? <div className="tos-callout tos-callout--info">
+            <span className="tos-callout__body">
+              {linkedOrder?.orderNumber??"Purchase order"}: enter only goods physically received.
+              Leave quantity 0 for undelivered lines. Any later delivery can be received separately.
+              Expected order prices are prefilled; changes are reported as a variance.
+            </span>
+          </div> : null}
+          {poError ? <div className="tos-banner tos-banner--danger" role="alert">
+            <span className="tos-banner__title">{poError}</span>
+          </div> : null}
           <div className="tos-field">
             <label className="tos-field__label" htmlFor="pr-supplier">
               Supplier<span className="tos-field__label-required">*</span>
@@ -244,7 +301,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                 className="tos-select"
                 value={supplierId}
                 onChange={(event) => setSupplierId(event.target.value)}
-                disabled={!canWrite}
+                disabled={!canWrite || Boolean(purchaseOrderId)}
               >
                 <option value="">Select supplier…</option>
                 {suppliers.map((supplier) => (
@@ -354,7 +411,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                         className="tos-select"
                         value={line.itemId}
                         onChange={(event) => selectItem(idx, event.target.value)}
-                        disabled={!canWrite}
+                        disabled={!canWrite || Boolean(purchaseOrderId)}
                         aria-label={`Line ${idx + 1} item`}
                       >
                         <option value="">Select item…</option>
@@ -369,7 +426,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                         className="tos-select"
                         value={selected ? line.purchaseUnitCode : ""}
                         onChange={(event) => setLine(idx, { purchaseUnitCode: event.target.value })}
-                        disabled={!canWrite || !selected}
+                        disabled={!canWrite || !selected || Boolean(purchaseOrderId)}
                         aria-label={`Line ${idx + 1} purchase unit`}
                       >
                         {!selected ? <option value="">Select item first</option> : null}
@@ -386,7 +443,9 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                       step="any"
                       inputMode="decimal"
                       value={line.quantity}
-                      onChange={(event) => setLine(idx, { quantity: Math.max(0, Number(event.target.value)) })}
+                      max={purchaseOrderId ? line.remainingQuantity : undefined}
+                      onChange={(event) => setLine(idx, {
+                        quantity: Math.max(0, Number(event.target.value)) })}
                       disabled={!canWrite}
                       aria-label={`Line ${idx + 1} quantity`}
                     />
@@ -416,7 +475,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                       className="tos-receipt-line__remove"
                       onClick={() => removeLine(idx)}
                       aria-label={`Remove line ${idx + 1}`}
-                      disabled={lines.length === 1 || !canWrite}
+                      disabled={lines.length === 1 || !canWrite || Boolean(purchaseOrderId)}
                     >
                       <IconTrash style={{ width: 14, height: 14 }} />
                     </button>
@@ -425,7 +484,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
               })}
               </div>
               </div>
-              <div className="tos-receipt-add">
+              {!purchaseOrderId ? <div className="tos-receipt-add">
                 <Button
                   variant="outline"
                   size="sm"
@@ -435,7 +494,7 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
                 >
                   Add line
                 </Button>
-              </div>
+              </div> : null}
             </div>
           </div>
 
@@ -446,6 +505,11 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
             </span>
           </div>
 
+          {poVariance ? <div className="tos-banner tos-banner--warning" role="status">
+            <span className="tos-banner__title">A delivered item's unit cost differs
+              from the issued purchase order. Confirm the supplier's invoice and record
+              its reference; the difference will appear in the PO's receiving summary.</span>
+          </div> : null}
           {noMatchingAccount ? (
             <div className="tos-banner tos-banner--warning" role="status">
               <span className="tos-banner__title">Configure a matching money account before posting an immediate-payment receipt.</span>
@@ -467,6 +531,9 @@ export function PurchaseReceiptBuilder({ open, suppliers, onClose, onComplete }:
             disabled={
               !canWrite
               || !supplierId
+              || poUnavailable
+              || validLineCount===0
+              || lines.some(line=>Boolean(purchaseOrderId)&&line.quantity>(line.remainingQuantity??0))
               || noSuppliers
               || (immediatePayment && (accountsLoading || !moneyAccountId))
             }

@@ -1,23 +1,32 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { formatMoney } from "@tradeos/contracts";
 import { useWorkspace } from "../../../components/workspace/use-workspace";
 import { useApiFetch } from "../../../../lib/use-api-fetch";
+import { PurchaseReceiptBuilder } from "../../../components/purchases/purchase-receipt-builder";
+import type { Supplier } from "../../../components/purchases/supplier-sheet";
 import styles from "./purchase-order-preview.module.css";
 
 type Status="DRAFT"|"ISSUED"|"CANCELLED";
 interface PurchaseOrder {
-  id:string;orderNumber:string;businessId:string;branchId:string;
+  id:string;orderNumber:string;businessId:string;branchId:string;supplierId:string;
   status:Status;currencyCode:string;businessName:string;branchName:string;
   supplierName:string;supplierPhone:string|null;supplierEmail:string|null;
   supplierAddress:string|null;notes:string;expectedDeliveryDate:string|null;
   subtotalMinor:number;taxMinor:number;totalMinor:number;
+  fulfillmentStatus:"NOT_RECEIVED"|"PARTIAL"|"RECEIVED";canReceive:boolean;
+  receiptCount:number;receivedTotalMinor:number;priceVarianceMinor:number;
+  receipts:Array<{id:string;receivedAt:string;totalMinor:number;
+    supplierReference:string|null;settlementMethod:string}>;
   issuedAt:string|null;cancelledAt:string|null;createdAt:string;
   lines:Array<{id:string;itemName:string;itemSku:string|null;
     purchaseUnitCode:string;purchaseUnitLabel:string;quantity:number;
-    unitCostMinor:number;lineTotalMinor:number}>;
+    unitCostMinor:number;lineTotalMinor:number;
+    receivedQuantity:number;remainingQuantity:number;
+    receivedCostMinor:number;priceVarianceMinor:number}>;
 }
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function date(value:string|null){
@@ -28,12 +37,20 @@ function date(value:string|null){
 }
 export default function SupplierPurchaseOrderPreview(){
   const params=useParams<{orderId:string}>();
-  const {session}=useWorkspace();
+  const {session,role,queue}=useWorkspace();
+  const [receiveOpen,setReceiveOpen]=useState(false);
   const valid=UUID.test(params.orderId);
   const url=session&&valid?
     `/v1/purchase-orders/${encodeURIComponent(params.orderId)}?businessId=${encodeURIComponent(session.businessId)}`:null;
-  const {data,loading,error}=useApiFetch<{order:PurchaseOrder}>(url);
+  const {data,loading,error,refetch}=useApiFetch<{order:PurchaseOrder}>(url);
   const order=data?.order;
+  const receiveRoles=["OWNER","ADMIN","MANAGER","INVENTORY","ACCOUNTANT"];
+  const mayReceive=receiveRoles.includes(role)&&queue.online;
+  const suppliers=useMemo<readonly Supplier[]>(()=>order?[{
+    id:order.supplierId,name:order.supplierName,phone:order.supplierPhone,
+    email:order.supplierEmail,address:order.supplierAddress,
+    paymentTermsDays:null,active:true,balanceMinor:0,updatedAt:order.createdAt,
+  }]:[],[order]);
   if(!valid)return <main className={styles.failure}>Invalid purchase order identifier.</main>;
   if(loading)return <main className={styles.failure}>Loading purchase order…</main>;
   if(error||!order)return <main className={styles.failure} role="alert">
@@ -42,6 +59,10 @@ export default function SupplierPurchaseOrderPreview(){
   return <main className={styles.wrapper}>
     <div className={styles.actions}>
       <Link href="/purchase-orders">Back to purchase orders</Link>
+      {order.canReceive&&receiveRoles.includes(role)?
+        <button type="button" disabled={!mayReceive}
+          title={!queue.online?"Connect to receive against current outstanding quantities":undefined}
+          onClick={()=>setReceiveOpen(true)}>Receive delivery</button>:null}
       {order.status==="ISSUED"?<button type="button" onClick={()=>window.print()}>
         Print / Save as PDF</button>:null}
     </div>
@@ -63,6 +84,19 @@ export default function SupplierPurchaseOrderPreview(){
           order.status==="CANCELLED"?"CANCELLED — do not fulfil":
           "Issued supplier purchase order"}</span>
       </div>
+      <section className={styles.fulfillment}>
+        <div><strong>Receiving status: {order.fulfillmentStatus==="NOT_RECEIVED"?"Not received":
+          order.fulfillmentStatus==="PARTIAL"?"Partially received":"Fully received"}</strong>
+          <p>{order.receiptCount} posted delivery receipt{order.receiptCount===1?"":"s"}
+            {" · "}Goods received are recorded separately from the order.</p>
+          {order.priceVarianceMinor!==0?
+            <p role="status">Supplier cost difference on goods received:
+              {" "}{money(order.priceVarianceMinor)} (actual minus ordered cost).</p>:null}
+        </div>
+        {order.canReceive&&receiveRoles.includes(role)?
+          <button type="button" disabled={!mayReceive} onClick={()=>setReceiveOpen(true)}>
+            Receive outstanding goods</button>:null}
+      </section>
       <section className={styles.overview}>
         <div><h2>From</h2><strong>{order.businessName}</strong>
           <p>{order.branchName} branch</p></div>
@@ -81,12 +115,15 @@ export default function SupplierPurchaseOrderPreview(){
       <div className={styles.itemsScroll}>
         <table className={styles.items}>
           <thead><tr><th>No.</th><th>Product / purchase unit</th>
-            <th>Quantity</th><th>Unit cost</th><th>Line total</th></tr></thead>
+            <th>Ordered</th><th>Received</th><th>Outstanding</th>
+            <th>Unit cost</th><th>Line total</th></tr></thead>
           <tbody>{order.lines.map((line,index)=><tr key={line.id}>
             <td>{index+1}</td>
             <td><strong>{line.itemName}</strong>
               <small>{line.itemSku?line.itemSku+" · ":""}{line.purchaseUnitLabel}</small></td>
             <td>{line.quantity.toLocaleString("en-GH",{maximumFractionDigits:8})}</td>
+            <td>{line.receivedQuantity.toLocaleString("en-GH",{maximumFractionDigits:8})}</td>
+            <td><strong>{line.remainingQuantity.toLocaleString("en-GH",{maximumFractionDigits:8})}</strong></td>
             <td>{money(line.unitCostMinor)}</td>
             <td><strong>{money(line.lineTotalMinor)}</strong></td>
           </tr>)}</tbody>
@@ -98,6 +135,16 @@ export default function SupplierPurchaseOrderPreview(){
         <div className={styles.grand}><span>Order total</span>
           <strong>{money(order.totalMinor)}</strong></div>
       </section>
+      {order.receipts.length>0?<section className={styles.receipts}>
+        <h2>Posted deliveries</h2>
+        <p>Receipt amounts are actual receiving costs, not the original PO commitment.</p>
+        {order.receipts.map(receipt=><div key={receipt.id} className={styles.receipt}>
+          <span>{date(receipt.receivedAt)}</span>
+          <span>{receipt.supplierReference??`Receipt #${receipt.id.slice(0,8)}`}</span>
+          <strong>{money(receipt.totalMinor)}</strong>
+        </div>)}
+        <Link href="/purchases">View purchases and supplier receipts</Link>
+      </section>:null}
       {order.notes?<section className={styles.notes}><h2>Terms & instructions</h2>
         <p>{order.notes}</p></section>:null}
       <footer className={styles.footer}>
@@ -106,5 +153,8 @@ export default function SupplierPurchaseOrderPreview(){
         <p>{order.orderNumber} · {order.businessName}</p>
       </footer>
     </article>
+    <PurchaseReceiptBuilder open={receiveOpen} suppliers={suppliers}
+      purchaseOrderId={order.id} onClose={()=>setReceiveOpen(false)}
+      onComplete={()=>{setReceiveOpen(false);refetch();}} />
   </main>;
 }

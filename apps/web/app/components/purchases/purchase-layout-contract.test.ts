@@ -16,7 +16,7 @@ describe("purchase receiving and preview presentation", () => {
     expect(builder).toContain('className="tos-receipt-line__item"');
     expect(builder).toContain('className="tos-receipt-line__unit"');
     expect(builder).not.toContain('className="tos-receipt-line__item tos-stack"');
-    expect(builder).toContain('disabled={!canWrite || !selected}');
+    expect(builder).toContain('disabled={!canWrite || !selected || Boolean(purchaseOrderId)}');
     expect(builder).toContain('aria-label={`Line ${idx + 1} purchase unit`}');
     const rowStyle = css.slice(css.lastIndexOf(".tos-sheet--purchase .tos-receipt-line {"));
     expect(rowStyle).toContain('grid-template-areas: "num item unit qty cost total remove"');
