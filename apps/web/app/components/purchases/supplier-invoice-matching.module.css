@@ -1,0 +1,71 @@
+.workspace{max-width:1030px;margin:30px auto;padding:0 12px 60px}
+.heading{display:flex;justify-content:space-between;gap:15px;align-items:flex-start;
+  flex-wrap:wrap;margin-bottom:16px}
+.heading h2{font-size:23px;font-weight:800;color:var(--tos-text,#182c45);
+  margin:4px 0 8px}
+.heading p{max-width:720px;margin:0;color:var(--tos-text-muted,#67748a);
+  line-height:1.6;font-size:13px}
+.eyebrow{font-size:11px!important;font-weight:800;letter-spacing:.09em;
+  text-transform:uppercase}
+.columns{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:18px}
+.panel{background:var(--tos-surface,#fff);border:1px solid var(--tos-border,#dbe3ef);
+  border-radius:13px;padding:22px;display:grid;gap:14px;align-content:start;min-width:0}
+.panel h3{font-weight:800;font-size:18px}
+.small{margin:0;font-size:12px;line-height:1.65;color:var(--tos-text-muted,#68768b)}
+.receiptList{max-height:290px;overflow:auto;border:1px solid var(--tos-border,#e0e7ef);
+  border-radius:9px;display:grid;align-content:start}
+.receipt{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:11px;
+  align-items:center;padding:12px 14px;border-bottom:1px solid #e5ebf2;cursor:pointer}
+.receipt:last-child{border-bottom:0}
+.receipt span{display:grid;gap:3px;min-width:0}
+.receipt strong{font-size:13px;overflow-wrap:anywhere}
+.receipt span small{font-size:11px;color:var(--tos-text-muted,#66758b)}
+.receipt input{width:18px;height:18px;cursor:pointer;accent-color:#184b84}
+.fields{display:grid;grid-template-columns:minmax(0,1fr) 145px;gap:10px}
+.field{display:grid;gap:7px;font-size:12px;font-weight:750;min-width:0}
+.field input,.field textarea{width:100%;min-height:41px;border:1px solid #afbfce;
+  border-radius:8px;padding:9px 11px;box-sizing:border-box;font:inherit;
+  color:var(--tos-text,#17314c);background:var(--tos-surface,#fff)}
+.field textarea{resize:vertical}
+.inputMoney{display:grid;gap:9px}
+.inputMoney .secondary{justify-self:start}
+.primary,.secondary,.danger{display:inline-flex;align-items:center;justify-content:center;
+  min-height:39px;padding:9px 13px;border-radius:8px;border:1px solid #9eafc0;
+  text-decoration:none;font-size:12px;font-weight:800;cursor:pointer}
+.primary{background:#183c64;border-color:#183c64;color:#fff}
+.secondary{background:transparent;color:var(--tos-text,#182b44)}
+.danger{background:transparent;color:#a12c36;border-color:#dfb5bd}
+.primary:disabled,.secondary:disabled,.danger:disabled{opacity:.48;cursor:not-allowed}
+.comparison{display:grid;grid-template-columns:minmax(0,1fr) auto;
+  align-items:baseline;gap:10px 15px;background:var(--tos-surface-secondary,#f5f8fc);
+  border:1px solid var(--tos-border,#e1e7f0);border-radius:9px;
+  padding:12px 13px;font-size:12px;font-variant-numeric:tabular-nums}
+.comparison span{color:var(--tos-text-muted,#64738a)}
+.comparison strong{text-align:right;white-space:nowrap}
+.warning{color:#b25311!important}
+.matches{display:grid;gap:15px;max-height:970px;overflow-y:auto}
+.match{border:1px solid var(--tos-border,#dce5ee);border-radius:10px;
+  padding:15px;display:grid;gap:12px;min-width:0}
+.matchHeader{display:flex;align-items:center;justify-content:space-between;
+  gap:10px;flex-wrap:wrap}
+.matchHeader div{display:grid;gap:3px}
+.matchHeader strong{font-size:15px}
+.matchHeader small{color:var(--tos-text-muted,#63748a);font-size:11px}
+.status{border:1px solid #9db0c3;border-radius:7px;
+  padding:4px 8px;font-size:10px;font-weight:800;letter-spacing:.05em}
+.exception{padding:11px;border-radius:8px;background:#fff4e8;
+  color:#784017;font-size:12px;line-height:1.6;margin:0}
+.lineDetails{display:grid;gap:9px;border-top:1px solid #dde6ef;
+  padding-top:10px;font-size:11px}
+.lineDetails>strong{font-size:12px}
+.lineDetails>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.lineDetails>div span:last-child{font-variant-numeric:tabular-nums;text-align:right}
+.matchActions{display:flex;flex-wrap:wrap;gap:8px}
+.error,.success{padding:12px 13px;border-radius:8px;font-size:13px;line-height:1.6}
+.error{background:#fff0f1;color:#a72f3e}
+.success{background:#e9f7ee;color:#22633c}
+@media(max-width:880px){.columns{grid-template-columns:minmax(0,1fr)}.matches{max-height:none}}
+@media(max-width:520px){.workspace{padding:0 6px 50px}.panel{padding:15px}
+  .fields{grid-template-columns:1fr}.receipt{padding:10px 9px;gap:8px}
+  .lineDetails>div{grid-template-columns:1fr}}
+@media print{.workspace{display:none!important}}

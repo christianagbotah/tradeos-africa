@@ -7,6 +7,7 @@ import { formatMoney } from "@tradeos/contracts";
 import { useWorkspace } from "../../../components/workspace/use-workspace";
 import { useApiFetch } from "../../../../lib/use-api-fetch";
 import { PurchaseReceiptBuilder } from "../../../components/purchases/purchase-receipt-builder";
+import { SupplierInvoiceMatching } from "../../../components/purchases/supplier-invoice-matching";
 import type { Supplier } from "../../../components/purchases/supplier-sheet";
 import styles from "./purchase-order-preview.module.css";
 
@@ -153,6 +154,12 @@ export default function SupplierPurchaseOrderPreview(){
         <p>{order.orderNumber} · {order.businessName}</p>
       </footer>
     </article>
+    {order.receiptCount>0 && order.status!=="DRAFT" ?
+      <SupplierInvoiceMatching
+        purchaseOrderId={order.id} orderNumber={order.orderNumber}
+        currencyCode={order.currencyCode} receipts={order.receipts}
+        receiptCount={order.receiptCount} onUpdated={refetch}
+      /> : null}
     <PurchaseReceiptBuilder open={receiveOpen} suppliers={suppliers}
       purchaseOrderId={order.id} onClose={()=>setReceiveOpen(false)}
       onComplete={()=>{setReceiveOpen(false);refetch();}} />
