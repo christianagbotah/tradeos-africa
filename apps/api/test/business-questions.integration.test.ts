@@ -22,9 +22,10 @@ async function createOwner(tag: string) {
   return {businessId:setup.json().business.id as string,branchId:setup.json().branch.id as string,headers};
 }
 type Owner = Awaited<ReturnType<typeof createOwner>>;
-async function ask(owner: Owner, question: string) {
+async function ask(owner: Owner, question: string, previousQuestion?: string) {
   return app.inject({method:"POST",url:"/v1/intelligence/question",headers:owner.headers,
-    payload:{businessId:owner.businessId,branchId:owner.branchId,question}});
+    payload:{businessId:owner.businessId,branchId:owner.branchId,question,
+      ...(previousQuestion ? {previousQuestion} : {})}});
 }
 
 describe("grounded merchant questions", () => {
@@ -144,6 +145,75 @@ describe("grounded merchant questions", () => {
         expect.objectContaining({key:"leadingValueMinor",value:33000}),
       ]),
     });
+  });
+
+  it("answers contextual follow-ups using current tenant and branch records only", async () => {
+    const a = await createOwner("followup-a"), b = await createOwner("followup-b");
+    for (const row of [
+      {owner:a, amount:12000, yesterday:true},
+      {owner:a, amount:34000, yesterday:false},
+      {owner:b, amount:99999, yesterday:true},
+    ]) {
+      await pool.query(
+        `INSERT INTO sales(business_id,branch_id,status,currency_code,client_mutation_id,
+          subtotal_net_minor,total_minor,completed_at)
+         VALUES($1,$2,'COMPLETED','GHS',gen_random_uuid()::text,$3,$3,
+          CASE WHEN $4::boolean THEN (date_trunc('day',now() AT TIME ZONE 'Africa/Accra')
+            - interval '1 day') AT TIME ZONE 'Africa/Accra' ELSE now() END)`,
+        [row.owner.businessId,row.owner.branchId,row.amount,row.yesterday],
+      );
+    }
+    const first = await ask(a,"What were our sales today?");
+    expect(first.statusCode).toBe(200);
+    const next = await ask(a,"And yesterday?",first.json().question);
+    expect(next.statusCode).toBe(200);
+    expect(next.json()).toMatchObject({
+      businessId:a.businessId,branchId:a.branchId,question:"And yesterday?",
+      interpretedQuestion:"What were our sales yesterday?",intent:"SALES",
+      evidence:expect.arrayContaining([
+        expect.objectContaining({key:"grossSalesTotalMinor",value:12000}),
+        expect.objectContaining({key:"salesCount",value:1}),
+      ]),
+    });
+    expect(next.json().answer).not.toContain("₵999.99");
+    const profit = await ask(a,"And profit?",next.json().interpretedQuestion);
+    expect(profit.statusCode).toBe(200);
+    expect(profit.json()).toMatchObject({
+      intent:"PROFIT",interpretedQuestion:"What was our operating profit yesterday?",
+    });
+    const noContext = await ask(a,"And yesterday?");
+    expect(noContext.statusCode).toBe(200);
+    expect(noContext.json().intent).toBe("UNSUPPORTED");
+    const scoped = await ask(b,"And yesterday?","What were our sales today?");
+    expect(scoped.statusCode).toBe(200);
+    expect(scoped.json().businessId).toBe(b.businessId);
+    expect(scoped.json().branchId).toBe(b.branchId);
+    expect(scoped.json().answer).toContain("₵999.99");
+  });
+
+  it("never bypasses owner-only branch rankings using an elliptical follow-up", async () => {
+    const owner = await createOwner("followup-rbac");
+    const context = "Which branch sold the most this week?";
+    await pool.query("UPDATE business_memberships SET role='MANAGER' WHERE business_id=$1",[owner.businessId]);
+    expect((await ask(owner,"And yesterday?",context)).statusCode).toBe(403);
+    const standard = await ask(owner,"And yesterday?","What were our sales this week?");
+    expect(standard.statusCode).toBe(200);
+    expect(standard.json().intent).toBe("SALES");
+    await pool.query("UPDATE business_memberships SET role='OWNER' WHERE business_id=$1",[owner.businessId]);
+    const ranked = await ask(owner,"And yesterday?",context);
+    expect(ranked.statusCode).toBe(200);
+    expect(ranked.json()).toMatchObject({
+      intent:"SALES",branchId:owner.branchId,sourcePage:"/reports",
+      interpretedQuestion:"Which branch recorded the highest sales yesterday?",
+      dataQuality:"INSUFFICIENT",items:[],
+    });
+  });
+
+  it("rejects excessive previous question context without bypassing input limits", async () => {
+    const owner = await createOwner("followup-limits");
+    const bad = await ask(owner,"And yesterday?","x".repeat(401));
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toBe("BUSINESS_QUESTION_INVALID");
   });
 
   it("returns factual empty-company totals and rejects unsupported arbitrary queries", async () => {

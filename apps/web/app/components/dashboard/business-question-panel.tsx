@@ -34,6 +34,7 @@ export function BusinessQuestionPanel() {
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const recognizerRef = useRef<QuestionRecognition | null>(null);
   const answerRef = useRef<HTMLDivElement>(null);
+  const lastAnsweredRef = useRef<{ scope: string; question: string } | null>(null);
   useEffect(() => {
     setVoiceSupported(Boolean(questionRecognitionConstructor(window)));
     setSpeechOutputSupported("speechSynthesis" in window);
@@ -52,6 +53,10 @@ export function BusinessQuestionPanel() {
   const contextRef = useRef(context);
   contextRef.current = context;
   useEffect(() => {
+    // Follow-ups never survive a business/branch change, even in the same tab.
+    lastAnsweredRef.current = null;
+    setAnswer(null);
+    setQuestion("");
     if (recognizerRef.current) {
       recognizerRef.current.abort();
       recognizerRef.current = null;
@@ -68,6 +73,8 @@ export function BusinessQuestionPanel() {
     const text = (textOverride ?? question).trim();
     if (busy || !queue.online || text.length < 4 || text.length > 400 || !session) return;
     const before = context;
+    const previousQuestion = lastAnsweredRef.current?.scope === before
+      ? lastAnsweredRef.current.question : undefined;
     setBusy(true);
     setError(null);
     setAnswer(null);
@@ -75,13 +82,17 @@ export function BusinessQuestionPanel() {
       const response = await getOfflineQueue().authenticatedFetch("/v1/intelligence/question", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId: session.businessId, branchId: session.branchId, question: text }),
+        body: JSON.stringify({ businessId: session.businessId, branchId: session.branchId, question: text,
+          ...(previousQuestion ? { previousQuestion } : {}) }),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response));
       const result = await response.json() as BusinessQuestionResponse;
       if (contextRef.current === before && result.businessId === session?.businessId &&
           result.branchId === session?.branchId) {
         setAnswer(result);
+        lastAnsweredRef.current = result.intent === "UNSUPPORTED" ? null : {
+          scope: before, question: result.interpretedQuestion ?? result.question,
+        };
       }
     } catch (err) {
       if (contextRef.current === before) {
@@ -229,6 +240,9 @@ export function BusinessQuestionPanel() {
                 <span>{new Date(current.generatedAt).toLocaleString("en-GH",
                   { dateStyle: "medium", timeStyle: "short" })}</span>
               </div>
+              {current.interpretedQuestion ? (
+                <p className={styles.interpretation}>Understood as: <strong>{current.interpretedQuestion}</strong></p>
+              ) : null}
               <p>{current.answer}</p>
               {current.items.length ? (
                 <ul className={styles.results}>
@@ -251,6 +265,21 @@ export function BusinessQuestionPanel() {
               ) : null}
               {current.limitations.length ? (
                 <p className={styles.limitations}>{current.limitations.join(" ")}</p>
+              ) : null}
+              {(current.intent === "SALES" || current.intent === "PROFIT" || current.intent === "TOP_ITEMS") ? (
+                <div className={styles.followups} aria-label="Continue asking about your business">
+                  <strong>Continue the conversation</strong>
+                  <div className={styles.suggestions}>
+                    {["And yesterday?", "And last month?",
+                      current.intent === "PROFIT" ? "And sales?" : "And profit?"].map((followUp) => (
+                        <button type="button" key={followUp} className={styles.suggestion}
+                          disabled={busy || !queue.online}
+                          onClick={() => { setQuestion(followUp); void submit(undefined, followUp); }}>
+                          {followUp}
+                        </button>
+                      ))}
+                  </div>
+                </div>
               ) : null}
               {current.sourcePage ? <Link className={styles.link} href={current.sourcePage}>
                 Review the underlying records

@@ -11,6 +11,8 @@ import { readMerchantAutomation, configureMerchantAutomation, proposeMerchantAut
 import { loadInventoryIntelligence, InventoryIntelligenceError, type InventoryPlanningHorizon } from "./inventory-intelligence-service.js";
 import { answerBusinessQuestion, BusinessQuestionError } from "./question-service.js";
 import { unsupportedBranchRanking } from "./question-periods.js";
+import { resolveBusinessFollowUp } from "./question-followups.js";
+import { classifyBusinessQuestion } from "./question-service.js";
 import { listBusinessNotifications, acknowledgeBusinessNotification, BusinessNotificationError } from "./notification-service.js";
 import type { BusinessNotificationKind } from "@tradeos/contracts";
 
@@ -55,16 +57,35 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
         pool, request.headers.authorization, request.body ?? {},
       );
       const question = request.body?.question;
-      if (typeof question !== "string") throw new BusinessQuestionError("Question must be text.");
+      const previousQuestion = request.body?.previousQuestion;
+      if (typeof question !== "string" || question.trim().length < 4 || question.length > 400) {
+        throw new BusinessQuestionError("Question must contain 4 to 400 characters.");
+      }
+      if (previousQuestion !== undefined &&
+          (typeof previousQuestion !== "string" || previousQuestion.length > 400)) {
+        throw new BusinessQuestionError("Previous question must be 400 characters or fewer.");
+      }
+      // Resolve an allow-listed follow-up using only the previous topic, not its
+      // answer or tenant ID. Authorization is applied to the EFFECTIVE question.
+      const resolved = resolveBusinessFollowUp(
+        question, previousQuestion,
+        previousQuestion ? classifyBusinessQuestion(previousQuestion) : "UNSUPPORTED",
+      );
       let allowCrossBranchRanking = false;
-      if (unsupportedBranchRanking(question)) {
-        // Cross-branch intelligence cannot be inferred from branch-scoped access.
-        // Only owners and business administrators can request it.
+      if (unsupportedBranchRanking(resolved.effectiveQuestion)) {
+        // A follow-up must not bypass the OWNER/ADMIN-only branch ranking gate.
         const auth = await authenticateAccessToken(pool, request.headers.authorization);
         await requireBusinessRole(pool, auth, businessId, ["OWNER", "ADMIN"]);
         allowCrossBranchRanking = true;
       }
-      return await answerBusinessQuestion(pool, businessId, branchId, question, allowCrossBranchRanking);
+      const answer = await answerBusinessQuestion(
+        pool, businessId, branchId, resolved.effectiveQuestion, allowCrossBranchRanking,
+      );
+      return {
+        ...answer,
+        question: question.trim(),
+        ...(resolved.usedContext ? { interpretedQuestion: resolved.effectiveQuestion } : {}),
+      };
     } catch (error) {
       return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_QUESTION_FAILED");
     }

@@ -86,3 +86,18 @@
   .formRow button { flex: 1 1 0; }
   .formRow .micButton { flex: 1 1 0; }
 }
+
+/* Session-only, scope-aware follow-up questions. */
+.answer .interpretation {
+  padding: 8px 11px;
+  border-left: 3px solid #b58b39;
+  background: #f9f6ed;
+  color: #3e4859;
+  font-size: .79rem;
+  line-height: 1.5;
+}
+.interpretation strong { font-weight: 750; overflow-wrap: anywhere; }
+.followups { display: grid; gap: 9px; padding: 12px 0 4px; border-top: 1px solid #e2e8f0; }
+.followups > strong { color: var(--tos-text,#172333); font-size: .82rem; }
+.followups .suggestions { gap: 8px; }
+.followups .suggestion { min-height: 42px; }

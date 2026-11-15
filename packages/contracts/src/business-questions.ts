@@ -7,6 +7,8 @@ export interface BusinessQuestionRequest {
   businessId: string;
   branchId?: string;
   question: string;
+  /** Optional last resolved question from the SAME browser workspace; only a topic hint. */
+  previousQuestion?: string;
 }
 export interface BusinessQuestionFact {
   key: string;
@@ -24,6 +26,8 @@ export interface BusinessQuestionResponse {
   businessId: string;
   branchId: string | null;
   question: string;
+  /** Server's interpretation of a supported contextual follow-up, when applicable. */
+  interpretedQuestion?: string;
   intent: BusinessQuestionIntent;
   answer: string;
   currencyCode: string | null;
