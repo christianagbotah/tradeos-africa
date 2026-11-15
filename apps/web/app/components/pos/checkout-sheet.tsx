@@ -5,6 +5,7 @@ import { formatMoney, majorToMinor, minorToMajor, getCurrencyMeta } from "@trade
 import type { SyncResponse } from "@tradeos/contracts";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
+import { receiptUrl } from "../../../lib/receipt-document";
 import { buildSaleCreatePayload, type PaymentMethod } from "../../../lib/mutation-builders";
 import type { CartLine } from "./cart-panel";
 import { CustomerPicker } from "./customer-picker";
@@ -54,6 +55,7 @@ interface SaleResult {
   totalMinor: number | null;
   message?: string;
   paymentPending?: boolean;
+  receiptAvailable?: boolean;
 }
 
 export function CheckoutSheet({
@@ -207,6 +209,7 @@ export function CheckoutSheet({
           changeMinor: paymentMethod === "CASH" ? changeMinor : null,
           totalMinor: resultData?.totalMinor ?? totalMinor,
           message: "Sale complete.",
+          receiptAvailable: Boolean(resultData?.saleId),
         });
       } else {
         // Offline — enqueue and surface the queued reference.
@@ -227,7 +230,9 @@ export function CheckoutSheet({
   };
 
   const handlePrint = () => {
-    if (typeof window !== "undefined") window.print();
+    if (result?.status !== "completed" || !result.receiptAvailable) return;
+    const path = receiptUrl(result.reference);
+    if (path) window.open(path, "_blank", "noopener,noreferrer");
   };
 
   const handleShare = async () => {
@@ -475,8 +480,8 @@ function SuccessPanel({
       </div>
 
       <div className="tos-success__actions">
-        {!result.paymentPending?<Button variant="outline" icon={<IconPrint className="tos-btn__icon" />} onClick={onPrint}>Print</Button>:null}
-        {!result.paymentPending?<Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={onShare}>Share</Button>:null}
+        {result.status==="completed" && result.receiptAvailable?<Button variant="outline" icon={<IconPrint className="tos-btn__icon" />} onClick={onPrint}>Print receipt</Button>:null}
+        {result.status==="completed" && result.receiptAvailable?<Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={onShare}>Share</Button>:null}
         <Button variant="gold" className="tos-btn--block" onClick={onNewSale}>New sale</Button>
       </div>
     </div>
