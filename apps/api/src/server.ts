@@ -2,11 +2,13 @@ import { buildApp } from "./app.js";
 import { createPool } from "./db.js";
 import { startPlatformAutomationScheduler } from "./platform-admin/automation-scheduler.js";
 import { startBusinessAttentionScheduler } from "./business-intelligence/attention-scheduler.js";
+import { startHubtelPosReconciliationScheduler } from "./commerce/hubtel-pos-reconciliation-scheduler.js";
 
 const pool = createPool();
 const app = buildApp(pool);
 const automationScheduler = startPlatformAutomationScheduler(pool);
 const businessAttentionScheduler = startBusinessAttentionScheduler(pool);
+const hubtelPosReconciliationScheduler = startHubtelPosReconciliationScheduler(pool);
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -15,6 +17,7 @@ const shutdown = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
   automationScheduler.stop();
   businessAttentionScheduler.stop();
+  hubtelPosReconciliationScheduler.stop();
   await app.close();
   await pool.end();
   process.exit(0);
@@ -28,6 +31,7 @@ try {
 } catch (error) {
   automationScheduler.stop();
   businessAttentionScheduler.stop();
+  hubtelPosReconciliationScheduler.stop();
   app.log.error(error);
   await pool.end();
   process.exit(1);

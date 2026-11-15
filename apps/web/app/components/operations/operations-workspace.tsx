@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
@@ -163,6 +164,7 @@ export function OperationsWorkspace() {
           <p className="tos-page__subtitle">Open and close operating days and shifts. Reconcile cash drawers against expected balances.</p>
         </div>
         <div className="tos-page__actions">
+          {["OWNER","ADMIN","MANAGER","ACCOUNTANT"].includes(role) ? <Link href="/payments/hubtel" className="tos-btn tos-btn--outline">Hubtel payments</Link> : null}
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => setNonce((n) => n + 1)}>Refresh</Button>
         </div>
       </header>

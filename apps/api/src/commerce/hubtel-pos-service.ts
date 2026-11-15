@@ -58,8 +58,10 @@ function assertSaleReady(s:SaleRow,payments:PaymentRow[]){
   }
 }
 function asCheckout(r:AttemptRow):SaleHubtelCheckout {
+  const openForPayment = r.state==="READY" || r.state==="PENDING_VERIFICATION";
   return {attemptId:r.id,saleId:r.sale_id,state:r.state,
-    checkoutUrl:r.checkout_url,checkoutDirectUrl:r.checkout_direct_url,
+    checkoutUrl:openForPayment?r.checkout_url:null,
+    checkoutDirectUrl:openForPayment?r.checkout_direct_url:null,
     amountMinor:Number(r.expected_amount_minor)};
 }
 async function findAttempt(pool:Pick<DatabasePool,"query">|Pick<DatabaseClient,"query">,
@@ -150,7 +152,7 @@ export async function verifySaleHubtelCheckout(
   if(!attempt)posFail("Hubtel checkout was not found.","HUBTEL_POS_CHECKOUT_NOT_FOUND",404);
   if(attempt.merchant_collection_account!==config.collectionAccount)
     posFail("Hubtel checkout account mismatch.","HUBTEL_POS_ACCOUNT_MISMATCH",409);
-  if(!["READY","PENDING_VERIFICATION","RECONCILED"].includes(attempt.state))
+  if(!["READY","PENDING_VERIFICATION","RECONCILED","REVIEW_REQUIRED"].includes(attempt.state))
     posFail("Checkout needs manual review.","HUBTEL_POS_REVIEW_REQUIRED",409);
 
   const verified=await new HubtelStatusClient({
@@ -206,7 +208,7 @@ export async function verifySaleHubtelCheckout(
       return {state:"PAID",saleId:sale.id,verifiedAt:verified.verifiedAt};
     }
     if(sale.status!=="OPEN"||payment.status!=="PENDING"||
-       !["READY","PENDING_VERIFICATION"].includes(current.state)){
+       !["READY","PENDING_VERIFICATION","REVIEW_REQUIRED"].includes(current.state)){
       posFail("Payment cannot be reconciled in its current state.",
         "HUBTEL_POS_STATE_MISMATCH",409);
     }
