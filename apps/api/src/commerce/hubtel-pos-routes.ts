@@ -9,15 +9,18 @@ import {
 } from "./hubtel-pos-service.js";
 import { HubtelCheckoutError } from "../platform-admin/hubtel-checkout-client.js";
 import { HubtelStatusError } from "../platform-admin/hubtel-status-client.js";
+import { getBusinessHubtelPosMonitor } from "./hubtel-pos-monitor.js";
 
 const ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","CASHIER","SALES","STAFF"];
+const MONITOR_ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","ACCOUNTANT"];
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-async function authorize(pool:DatabasePool,authHeader:string|undefined,businessId:unknown){
+async function authorize(pool:DatabasePool,authHeader:string|undefined,businessId:unknown,
+  roles:readonly BusinessRole[]=ROLES){
   const auth=await authenticateAccessToken(pool,authHeader);
   if(typeof businessId!=="string"||!UUID.test(businessId)){
     throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
   }
-  await requireBusinessRole(pool,auth,businessId,ROLES);
+  await requireBusinessRole(pool,auth,businessId,roles);
   return businessId;
 }
 function errorResponse(
@@ -43,11 +46,28 @@ export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):v
   app.get<{Querystring:{businessId?:string}}>(
     "/v1/payments/hubtel/readiness",async(request,reply)=>{
       try{
-        const businessId=await authorize(pool,request.headers.authorization,request.query.businessId);
+        const businessId=await authorize(pool,request.headers.authorization,request.query.businessId,
+          [...ROLES,"ACCOUNTANT"]);
         return await getHubtelPosReadiness(pool,businessId);
       }catch(error){return errorResponse(request,reply,error);}
     },
   );
+  app.get<{Querystring:{businessId?:string;branchId?:string;limit?:string}}>(
+    "/v1/payments/hubtel/reconciliation",async(request,reply)=>{
+      try{
+        const businessId=request.query.businessId;
+        const branchId=request.query.branchId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        if(branchId && !UUID.test(branchId))
+          throw new AuthError("Valid branchId is required",400,"BRANCH_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return await getBusinessHubtelPosMonitor(pool,{
+          businessId,...(branchId?{branchId}:{}),limit:Number(request.query.limit??50),
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    });
   app.get<{Params:{saleId:string};Querystring:{businessId?:string}}>(
     "/v1/sales/:saleId/hubtel/checkout",async(request,reply)=>{
       try{
