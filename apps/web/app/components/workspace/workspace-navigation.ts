@@ -178,7 +178,7 @@ export function mobileMoreNavigationGroups(role: WorkspaceRole | null | undefine
   ];
 
   return [
-    { id: "stock", title: "Sales & stock", items: linksFor(["catalog", "inventory", "returns", "purchases"]) },
+    { id: "stock", title: "Sales & stock", items: linksFor(["documents", "catalog", "inventory", "returns", "purchases"]) },
     { id: "insights", title: "Operations & insights", items: linksFor(["cashbook", "operations", "reports"]) },
     { id: "account", title: "Business & account", items: accountLinks },
   ].filter((group) => group.items.length > 0);
