@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useApiFetch } from "../../../lib/use-api-fetch";
+import { receiptUrl } from "../../../lib/receipt-document";
 import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
 import { HubtelSaleActions } from "./hubtel-sale-actions";
@@ -114,13 +115,16 @@ export function SaleDetailSheet({ saleId, onClose,onPaid }: SaleDetailSheetProps
         </div>
 
         <div className="tos-sheet__foot">
-          {data?.sale.status!=="OPEN"?<Button variant="ghost" icon={<IconPrint className="tos-btn__icon" />} onClick={() => window.print()}>Print</Button>:null}
-          {data?.sale.status!=="OPEN"?<Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
+          {data?.sale.status==="COMPLETED"?<Button variant="ghost" icon={<IconPrint className="tos-btn__icon" />} onClick={() => {
+            const path = receiptUrl(data.sale.id);
+            if (path) window.open(path, "_blank", "noopener,noreferrer");
+          }}>Print receipt</Button>:null}
+          {data?.sale.status==="COMPLETED"?<Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
             if (typeof navigator !== "undefined" && navigator.share) {
               try { await navigator.share({ title: "TradeOS receipt", text: `Receipt ${saleId}` }); } catch { /* cancelled */ }
             }
           }}>Share</Button>:null}
-          {data?.sale.status!=="OPEN"?<Button variant="gold" icon={<IconReturns className="tos-btn__icon" />} onClick={() => { window.location.href = "/returns"; }}>Process return</Button>:null}
+          {data?.sale.status==="COMPLETED"?<Button variant="gold" icon={<IconReturns className="tos-btn__icon" />} onClick={() => { window.location.href = "/returns"; }}>Process return</Button>:null}
           <Button variant="primary" onClick={onClose}>Close</Button>
         </div>
       </div>
