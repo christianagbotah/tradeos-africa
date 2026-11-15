@@ -102,7 +102,7 @@ describe("grounded merchant questions", () => {
     expect(result.json().answer).not.toContain("₵999.99");
   });
 
-  it("selects last month correctly and refuses unsupported calendar and branch rankings", async () => {
+  it("selects last month, rejects unsupported dates and ranks only recorded branch activity", async () => {
     const owner = await createOwner("previous-month");
     await pool.query(
       `INSERT INTO sales(business_id,branch_id,status,currency_code,client_mutation_id,
@@ -126,8 +126,23 @@ describe("grounded merchant questions", () => {
       intent:"UNSUPPORTED",evidence:[],sourcePage:null,
     });
     const ranking = await ask(owner,"Which branch sold the most this month?");
+    expect(ranking.statusCode).toBe(200);
     expect(ranking.json()).toMatchObject({
-      intent:"UNSUPPORTED",evidence:[],sourcePage:null,
+      intent:"SALES",branchId:owner.branchId,sourcePage:"/reports",
+      dataQuality:"INSUFFICIENT",items:[],
+      evidence:expect.arrayContaining([
+        expect.objectContaining({key:"activeBranches",value:1}),
+        expect.objectContaining({key:"branchesWithActivity",value:0}),
+      ]),
+    });
+    const previousRank = await ask(owner,"Which branch sold the most last month?");
+    expect(previousRank.statusCode).toBe(200);
+    expect(previousRank.json()).toMatchObject({
+      intent:"SALES",sourcePage:"/reports",
+      items:[expect.objectContaining({id:owner.branchId})],
+      evidence:expect.arrayContaining([
+        expect.objectContaining({key:"leadingValueMinor",value:33000}),
+      ]),
     });
   });
 
