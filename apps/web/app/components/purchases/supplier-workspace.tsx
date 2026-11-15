@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
@@ -298,6 +299,7 @@ export function SupplierWorkspace() {
           </p>
         </div>
         <div className="tos-page__actions">
+          <Link href="/purchase-orders" className="tos-btn tos-btn--outline">Purchase orders</Link>
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => setNonce((n) => n + 1)}>Refresh</Button>
           {canWrite ? (
             <>

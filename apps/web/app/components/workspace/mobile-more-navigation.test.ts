@@ -26,7 +26,7 @@ describe("five-item mobile bottom navigation", () => {
     expect(groups.map((group) => group.title)).toEqual(["Sales & stock", "Operations & insights", "Business & account"]);
     const menu = links("OWNER");
     expect(menu.map((item) => item.id)).toEqual([
-      "documents", "catalog", "inventory", "returns", "purchases", "cashbook", "operations", "reports",
+      "documents", "catalog", "inventory", "returns", "purchases", "purchase-orders", "cashbook", "operations", "reports",
       "business", "branches", "team", "billing", "devices", "profile", "security", "settings",
     ]);
     expect(menu.find((item) => item.id === "business")?.href).toBe("/settings?section=business");
@@ -38,6 +38,8 @@ describe("five-item mobile bottom navigation", () => {
   it("keeps role restrictions in the mobile sheet", () => {
     const cashier = links("CASHIER");
     expect(cashier.some((item) => item.id === "documents" && item.href === "/documents")).toBe(true);
+    expect(links("OWNER").some((item) => item.id === "purchase-orders" && item.href === "/purchase-orders")).toBe(true);
+    expect(links("INVENTORY").some((item) => item.id === "purchase-orders")).toBe(true);
     expect(cashier.some((item) => item.id === "cashbook" || item.id === "returns" || item.id === "billing" || item.id === "team")).toBe(false);
     expect(cashier.some((item) => item.id === "profile")).toBe(true);
     expect(mobileMoreNavigationGroups(null)).toEqual([]);
