@@ -53,6 +53,6 @@ export interface MerchantBillingOverview {
   payments: MerchantBillingPayment[];
   invoiceHistoryLimited: boolean;
   paymentHistoryLimited: boolean;
-  paymentCollectionEnabled: false;
+  paymentCollectionEnabled: boolean;
   notice: string;
 }

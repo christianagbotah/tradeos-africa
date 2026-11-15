@@ -5,6 +5,7 @@ import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyValue } from "../business/money-value";
 import styles from "./merchant-billing-panel.module.css";
+import { HubtelCheckoutActions } from "./hubtel-checkout-actions";
 
 const READ_ROLES = new Set(["OWNER","ADMIN","ACCOUNTANT"]);
 
@@ -106,6 +107,7 @@ export function MerchantBillingPanel() {
                     <th scope="col">Invoice</th><th scope="col">Issued</th><th scope="col">Due</th>
                     <th scope="col">Status</th><th scope="col">Total</th>
                     <th scope="col">Paid</th><th scope="col">Outstanding</th>
+                    {overview.paymentCollectionEnabled?<th scope="col">Online payment</th>:null}
                   </tr></thead>
                   <tbody>{overview.invoices.map((invoice)=>(
                     <tr key={invoice.id}>
@@ -116,6 +118,11 @@ export function MerchantBillingPanel() {
                       <td><MoneyValue minor={invoice.totalMinor} currencyCode={invoice.currencyCode} /></td>
                       <td><MoneyValue minor={invoice.amountPaidMinor} currencyCode={invoice.currencyCode} /></td>
                       <td><MoneyValue minor={invoice.outstandingMinor} currencyCode={invoice.currencyCode} /></td>
+                      {overview.paymentCollectionEnabled?<td>{invoice.outstandingMinor>0 &&
+                        ["OPEN","PARTIALLY_PAID"].includes(invoice.status)?(
+                        <HubtelCheckoutActions businessId={session.businessId} invoiceId={invoice.id}
+                          online={queue.online} onReconciled={refetch}/>
+                      ):null}</td>:null}
                     </tr>
                   ))}</tbody>
                 </table>
@@ -155,7 +162,7 @@ export function MerchantBillingPanel() {
           </div>
           <p className={styles.footnote}>
             Billing history is per business, not per branch. Figures reflect posted TradeOS subscription records;
-            no payment can be initiated or completed on this screen yet.
+            payments collected through Hubtel require independent provider verification before posting.
           </p>
         </>
       )}

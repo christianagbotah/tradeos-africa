@@ -125,3 +125,133 @@ describe("merchant subscription and billing visibility",()=>{
     }
   });
 });
+
+describe("Hubtel billing checkout guarded activation and verification",()=>{
+  it("leaves collection unavailable with no merchant configuration, with no financial writes",async()=>{
+    const previous=process.env.TRADEOS_HUBTEL_SUBSCRIPTIONS_ENABLED;
+    delete process.env.TRADEOS_HUBTEL_SUBSCRIPTIONS_ENABLED;
+    try{
+      const a=await owner("hubtel-off");
+      const inv=await addInvoice(a);
+      const body={businessId:a.businessId,invoiceId:inv.invoiceId,
+        clientRequestId:"a4df2e2c-03bf-4a52-b842-23d7ac0d3001"};
+      expect((await app.inject({method:"POST",url:"/v1/billing/hubtel/checkout",payload:body})).statusCode)
+        .toBe(401);
+      const denied=await app.inject({method:"POST",url:"/v1/billing/hubtel/checkout",
+        payload:body,headers:a.headers});
+      expect(denied.statusCode).toBe(503);
+      expect(denied.json()).toMatchObject({error:"HUBTEL_COLLECTION_DISABLED"});
+      const count=await pool.query("SELECT count(*)::int n FROM subscription_checkout_attempts");
+      expect(count.rows[0].n).toBe(0);
+      const callback=await app.inject({method:"POST",url:"/v1/billing/hubtel/callback",
+        payload:{ResponseCode:"0000",Data:{ClientReference:"fabricated",Amount:999999}}});
+      expect(callback.statusCode).toBe(202);
+      expect(callback.json()).toMatchObject({verification:"SERVER_SIDE_REQUIRED"});
+      const still=await pool.query("SELECT count(*)::int n FROM subscription_payments");
+      expect(still.rows[0].n).toBe(1);
+    }finally{
+      if(previous===undefined)delete process.env.TRADEOS_HUBTEL_SUBSCRIPTIONS_ENABLED;
+      else process.env.TRADEOS_HUBTEL_SUBSCRIPTIONS_ENABLED=previous;
+    }
+  });
+
+  it("creates one hosted checkout, rejects forged tenants, and records only server-verified payment",async()=>{
+    const before={
+      enabled:process.env.TRADEOS_HUBTEL_SUBSCRIPTIONS_ENABLED,
+      id:process.env.TRADEOS_HUBTEL_API_ID,
+      key:process.env.TRADEOS_HUBTEL_API_KEY,
+      account:process.env.TRADEOS_HUBTEL_COLLECTION_ACCOUNT,
+    };
+    const priorFetch=globalThis.fetch;
+    process.env.TRADEOS_HUBTEL_SUBSCRIPTIONS_ENABLED="true";
+    process.env.TRADEOS_HUBTEL_API_ID="test-id";
+    process.env.TRADEOS_HUBTEL_API_KEY="test-secret";
+    process.env.TRADEOS_HUBTEL_COLLECTION_ACCOUNT="11684";
+    let initiated=0,verified=0;
+    let reference="";
+    globalThis.fetch=(async(url:RequestInfo|URL,options?:RequestInit)=>{
+      const address=String(url);
+      const auth=(options?.headers as Record<string,string>)?.authorization;
+      expect(auth).toBe("Basic "+Buffer.from("test-id:test-secret").toString("base64"));
+      if(address==="https://payproxyapi.hubtel.com/items/initiate"){
+        initiated++;
+        const req=JSON.parse(String(options?.body)) as {
+          clientReference:string;totalAmount:number;callbackUrl:string;};
+        reference=req.clientReference;
+        expect(req.totalAmount).toBe(70);
+        expect(req.callbackUrl).toBe("https://tradeosafrica.lightworldtech.com/v1/billing/hubtel/callback");
+        return new Response(JSON.stringify({responseCode:"0000",status:"Success",data:{
+          clientReference:reference,checkoutId:"7569a11e8b784f21baa9443b3fce31ed",
+          checkoutUrl:"https://pay.hubtel.com/7569a11e8b784f21baa9443b3fce31ed",
+          checkoutDirectUrl:"https://pay.hubtel.com/7569a11e8b784f21baa9443b3fce31ed/direct",
+        }}),{status:200});
+      }
+      if(address.startsWith("https://api-txnstatus.hubtel.com/")){
+        verified++;
+        expect(address).toContain("clientReference="+encodeURIComponent(reference));
+        return new Response(JSON.stringify({responseCode:"0000",message:"Successful",data:{
+          clientReference:reference,status:"Paid",currencyCode:"GHS",amount:70,
+          transactionId:"hubtel-test-txn-001",date:"2026-11-15T12:30:00Z",
+        }}),{status:200});
+      }
+      throw new Error("Unexpected external host");
+    }) as typeof fetch;
+    try{
+      const a=await owner("hubtel-live-a"),b=await owner("hubtel-live-b");
+      const invoice=await addInvoice(a);
+      const body={businessId:a.businessId,invoiceId:invoice.invoiceId,
+        clientRequestId:"ad3d6bd8-c910-40ee-9b8e-2e0e0a1d3932"};
+      const forged=await app.inject({method:"POST",url:"/v1/billing/hubtel/checkout",
+        headers:b.headers,payload:body});
+      expect(forged.statusCode).toBe(403);
+      const first=await app.inject({method:"POST",url:"/v1/billing/hubtel/checkout",
+        headers:a.headers,payload:body});
+      expect(first.statusCode,first.body).toBe(200);
+      expect(first.json().checkout).toMatchObject({
+        businessId:a.businessId,invoiceId:invoice.invoiceId,
+        expectedAmountMinor:7000,state:"READY",
+      });
+      const attemptId=first.json().checkout.id as string;
+      const retry=await app.inject({method:"POST",url:"/v1/billing/hubtel/checkout",
+        headers:a.headers,payload:body});
+      expect(retry.statusCode,retry.body).toBe(200);
+      expect(retry.json().checkout.id).toBe(attemptId);
+      expect(initiated).toBe(1);
+      const unchecked=await pool.query<{count:string}>(
+        "SELECT count(*)::text AS count FROM subscription_payments WHERE provider='HUBTEL'");
+      expect(unchecked.rows[0].count).toBe("0");
+      const forgedVerify=await app.inject({method:"POST",
+        url:"/v1/billing/hubtel/checkout/"+attemptId+"/verify",
+        headers:b.headers,payload:{businessId:a.businessId}});
+      expect(forgedVerify.statusCode).toBe(403);
+      const confirmed=await app.inject({method:"POST",
+        url:"/v1/billing/hubtel/checkout/"+attemptId+"/verify",
+        headers:a.headers,payload:{businessId:a.businessId}});
+      expect(confirmed.statusCode,confirmed.body).toBe(200);
+      expect(confirmed.json().result).toMatchObject({state:"RECONCILED",status:"PAID"});
+      expect(verified).toBe(1);
+      const replay=await app.inject({method:"POST",
+        url:"/v1/billing/hubtel/checkout/"+attemptId+"/verify",
+        headers:a.headers,payload:{businessId:a.businessId}});
+      expect(replay.statusCode,replay.body).toBe(200);
+      const paid=await pool.query<{n:string}>(
+        "SELECT count(*)::text n FROM subscription_payments WHERE provider='HUBTEL' AND invoice_id=$1",
+        [invoice.invoiceId]);
+      expect(paid.rows[0].n).toBe("1");
+      const account=await pool.query<{status:string;amount_paid_minor:string}>(
+        "SELECT status,amount_paid_minor::text FROM subscription_invoices WHERE id=$1",
+        [invoice.invoiceId]);
+      expect(account.rows[0]).toEqual({status:"PAID",amount_paid_minor:"10000"});
+    }finally{
+      globalThis.fetch=priorFetch;
+      for(const [key,value] of Object.entries({
+        TRADEOS_HUBTEL_SUBSCRIPTIONS_ENABLED:before.enabled,
+        TRADEOS_HUBTEL_API_ID:before.id,
+        TRADEOS_HUBTEL_API_KEY:before.key,
+        TRADEOS_HUBTEL_COLLECTION_ACCOUNT:before.account,
+      })){
+        if(value===undefined)delete process.env[key];else process.env[key]=value;
+      }
+    }
+  });
+});

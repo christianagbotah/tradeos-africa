@@ -3,6 +3,7 @@ import type {
   MerchantBillingPayment, MerchantBillingSubscription,
 } from "@tradeos/contracts";
 import type { DatabasePool } from "../db.js";
+import { hubtelSubscriptionCollectionEnabled } from "./hubtel-collection.js";
 
 type SubscriptionRow = {
   id: string; status: MerchantBillingSubscription["status"];
@@ -85,7 +86,9 @@ export async function loadMerchantBillingOverview(
       currencyCode:p.currency_code,receivedAt:p.received_at.toISOString(),
       reconciledAt:iso(p.reconciled_at),
     })),
-    paymentCollectionEnabled:false,
-    notice:"Online subscription checkout is not enabled yet. Invoice and payment history reflect recorded TradeOS billing data only.",
+    paymentCollectionEnabled:hubtelSubscriptionCollectionEnabled(),
+    notice:hubtelSubscriptionCollectionEnabled()
+      ? "Hubtel checkout is available for open invoices. Payment is recorded only after independent provider verification."
+      : "Online subscription checkout is not enabled yet. Invoice and payment history reflect recorded TradeOS billing data only.",
   };
 }
