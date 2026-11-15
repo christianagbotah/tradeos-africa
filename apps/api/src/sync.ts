@@ -80,6 +80,30 @@ export async function ingestSyncBatch(pool: DatabasePool, request: SyncPushReque
   };
 }
 
+/** Only PO-linked receipts use strict semantic replay validation.
+ * Ordinary offline mutations preserve their established retry behavior.
+ * occurredAt and authenticated actor fields are not economic receipt content.
+ */
+function poLinkedReplaySignature(payload:unknown):string|null {
+  if (!payload || typeof payload!=="object" || Array.isArray(payload)) return null;
+  const body=payload as Record<string,unknown>;
+  if (typeof body.purchaseOrderId!=="string" || !body.purchaseOrderId) return null;
+  const lines=Array.isArray(body.lines)?body.lines.map(value=>{
+    const line=value && typeof value==="object" && !Array.isArray(value)
+      ? value as Record<string,unknown>:{};
+    return JSON.stringify([
+      line.purchaseOrderLineId,line.itemId,line.purchaseUnitCode,
+      line.quantity,line.unitCostMinor,
+    ]);
+  }).sort():[];
+  return JSON.stringify([
+    body.purchaseOrderId,body.supplierId,
+    body.settlementMethod??"SUPPLIER_CREDIT",
+    typeof body.supplierReference==="string"?body.supplierReference.trim():"",
+    body.moneyAccountId??null,lines,
+  ]);
+}
+
 async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Promise<MutationResult> {
   assertMutationShape(mutation);
   const serverReceivedAt = new Date().toISOString();
@@ -104,14 +128,26 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
 
     insertedNew = (inserted.rowCount ?? 0) === 1;
     if (!insertedNew) {
-      const existing = await client.query<{ status: StoredStatus; result_payload: unknown | null; received_at: Date }>(
-        `SELECT status,result_payload,received_at FROM sync_mutations
+      const existing = await client.query<{
+        status: StoredStatus; result_payload: unknown | null; received_at: Date;
+        request_payload:ClientMutation;branch_id:string|null;mutation_type:string;
+      }>(
+        `SELECT status,result_payload,received_at,request_payload,branch_id,mutation_type
+           FROM sync_mutations
          WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 FOR SHARE`,
         [mutation.businessId, mutation.clientId, mutation.clientMutationId],
       );
       const prior = existing.rows[0];
       if (!prior) throw new Error("Idempotent mutation record disappeared during transaction");
+      const existingPO=poLinkedReplaySignature(prior.request_payload?.payload);
+      const incomingPO=poLinkedReplaySignature(mutation.payload);
+      const changedLinkedPO=(existingPO!==null||incomingPO!==null) &&
+        (existingPO!==incomingPO || prior.mutation_type!==mutation.mutationType ||
+          prior.branch_id!==(mutation.branchId??null));
       await client.query("COMMIT");
+      if(changedLinkedPO)return rejection(mutation.clientMutationId,serverReceivedAt,
+        "PURCHASE_REPLAY_CONFLICT",
+        new Error("A supplier-order receipt with this mutation ID was already submitted with different content"));
       return {
         clientMutationId: mutation.clientMutationId,
         status: prior.status,

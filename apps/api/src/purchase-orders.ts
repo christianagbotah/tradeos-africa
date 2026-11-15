@@ -32,7 +32,8 @@ interface OrderRow {
 interface LineRow {
   id:string;item_id:string;item_name_snapshot:string;item_sku_snapshot:string|null;
   purchase_unit_code:string;purchase_unit_label_snapshot:string;
-  quantity:string;unit_cost_minor:string;line_net_minor:string;
+  quantity:string;received_quantity:string;received_cost_minor:string;
+  unit_cost_minor:string;line_net_minor:string;
   line_tax_minor:string;line_total_minor:string;
 }
 class PurchaseOrderError extends Error {
@@ -112,19 +113,63 @@ async function load(db:Pick<DatabasePool,"query">|Pick<DatabaseClient,"query">,
   if(!order)throw new PurchaseOrderError("Purchase order not found",
     "PURCHASE_ORDER_NOT_FOUND",404);
   const lines=await db.query<LineRow>(
-    `SELECT id,item_id,item_name_snapshot,item_sku_snapshot,
-    purchase_unit_code,purchase_unit_label_snapshot,quantity::text,
-    unit_cost_minor::text,line_net_minor::text,line_tax_minor::text,
-    line_total_minor::text FROM supplier_purchase_order_lines
-    WHERE business_id=$1 AND order_id=$2 ORDER BY sort_order`,
+    `SELECT pol.id,pol.item_id,pol.item_name_snapshot,pol.item_sku_snapshot,
+    pol.purchase_unit_code,pol.purchase_unit_label_snapshot,pol.quantity::text,
+    pol.unit_cost_minor::text,pol.line_net_minor::text,pol.line_tax_minor::text,
+    pol.line_total_minor::text,
+    COALESCE(SUM(pl.purchase_quantity) FILTER (WHERE p.id IS NOT NULL),0)::text AS received_quantity,
+    COALESCE(SUM(pl.line_cost_minor) FILTER (WHERE p.id IS NOT NULL),0)::text AS received_cost_minor
+    FROM supplier_purchase_order_lines pol
+    LEFT JOIN purchase_lines pl ON pl.business_id=pol.business_id
+      AND pl.purchase_order_line_id=pol.id
+    LEFT JOIN purchases p ON p.id=pl.purchase_id AND p.business_id=pol.business_id
+      AND p.purchase_order_id=pol.order_id AND p.status='RECEIVED'
+    WHERE pol.business_id=$1 AND pol.order_id=$2
+    GROUP BY pol.id
+    ORDER BY pol.sort_order`,
     [businessId,orderId]);
-  return {...view(order),lines:lines.rows.map(row=>({
-    id:row.id,itemId:row.item_id,itemName:row.item_name_snapshot,
-    itemSku:row.item_sku_snapshot,purchaseUnitCode:row.purchase_unit_code,
-    purchaseUnitLabel:row.purchase_unit_label_snapshot,quantity:Number(row.quantity),
-    unitCostMinor:Number(row.unit_cost_minor),lineNetMinor:Number(row.line_net_minor),
-    lineTaxMinor:Number(row.line_tax_minor),lineTotalMinor:Number(row.line_total_minor),
-  }))};
+  const mapped=lines.rows.map(row=>{
+    const received=Number(row.received_quantity);
+    const remaining=Number((BigInt(Math.round(Number(row.quantity)*1e8))-
+      BigInt(Math.round(received*1e8))))/1e8;
+    const expectedReceivedCost=proportionalMinor(Number(row.unit_cost_minor),received,1);
+    return {
+      id:row.id,itemId:row.item_id,itemName:row.item_name_snapshot,
+      itemSku:row.item_sku_snapshot,purchaseUnitCode:row.purchase_unit_code,
+      purchaseUnitLabel:row.purchase_unit_label_snapshot,quantity:Number(row.quantity),
+      receivedQuantity:received,remainingQuantity:remaining,
+      unitCostMinor:Number(row.unit_cost_minor),lineNetMinor:Number(row.line_net_minor),
+      lineTaxMinor:Number(row.line_tax_minor),lineTotalMinor:Number(row.line_total_minor),
+      receivedCostMinor:Number(row.received_cost_minor),
+      priceVarianceMinor:Number(row.received_cost_minor)-expectedReceivedCost,
+    };
+  });
+  const receipts=(await db.query<{
+    id:string;received_at:Date;total_minor:string;supplier_reference:string|null;
+    settlement_method:string;
+  }>(
+    `SELECT id,received_at,total_minor::text,supplier_reference,settlement_method
+     FROM purchases WHERE business_id=$1 AND purchase_order_id=$2 AND status='RECEIVED'
+     ORDER BY received_at DESC,id DESC LIMIT 100`,[businessId,orderId])).rows;
+  // The history list is intentionally bounded, but totals must cover ALL
+  // posted receipts, even for a PO with more than 100 partial deliveries.
+  const receiptTotals=(await db.query<{receipt_count:string;received_minor:string}>(
+    `SELECT COUNT(*)::text AS receipt_count,
+      COALESCE(SUM(total_minor),0)::text AS received_minor
+     FROM purchases WHERE business_id=$1 AND purchase_order_id=$2
+       AND status='RECEIVED'`,[businessId,orderId])).rows[0];
+  const receivedLines=mapped.filter(line=>line.receivedQuantity>0);
+  return {...view(order),lines:mapped,
+    fulfillmentStatus:receivedLines.length===0?"NOT_RECEIVED":
+      mapped.every(line=>line.remainingQuantity===0)?"RECEIVED":"PARTIAL",
+    canReceive:order.status==="ISSUED"&&mapped.some(line=>line.remainingQuantity>0),
+    receivedTotalMinor:safeMinor(Number(receiptTotals?.received_minor??0)),
+    priceVarianceMinor:mapped.reduce((sum,line)=>sum+line.priceVarianceMinor,0),
+    receiptCount:Number(receiptTotals?.receipt_count??0),
+    receipts:receipts.map(row=>({id:row.id,receivedAt:row.received_at.toISOString(),
+      totalMinor:Number(row.total_minor),supplierReference:row.supplier_reference,
+      settlementMethod:row.settlement_method})),
+  };
 }
 async function audit(tx:DatabaseClient,input:{
   businessId:string;branchId:string;staffId:string|null;orderId:string;
