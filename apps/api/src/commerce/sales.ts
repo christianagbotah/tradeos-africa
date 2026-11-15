@@ -9,6 +9,7 @@ import {
 } from "./customer-credit.js";
 import { withTransaction } from "../db.js";
 import { createCustomerCreditObligation } from "./credit-obligations.js";
+import { requireHubtelPosConnection } from "./hubtel-pos-config.js";
 
 export type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT" | "OTHER";
 
@@ -19,6 +20,7 @@ export interface SaleMutationPayload {
   lines: Array<{ itemId: string; quantity: number; saleUnitCode?: string; saleUnit?: string }>;
   payments?: Array<{ method: PaymentMethod; amountMinor: number; moneyAccountId?: string; providerReference?: string }>;
   paymentMethod?: PaymentMethod;
+  paymentProvider?: "HUBTEL";
 }
 
 export interface SaleMutationContext {
@@ -30,7 +32,7 @@ export interface SaleMutationContext {
 
 export interface SaleMutationResult {
   saleId: string;
-  status: "COMPLETED";
+  status: "COMPLETED" | "AWAITING_PAYMENT";
   totalMinor: number;
   idempotentReplay: boolean;
 }
@@ -77,8 +79,22 @@ export async function applySaleMutationInTransaction(
     );
     const replay = prior.rows[0];
     if (replay) {
-      if (replay.status !== "COMPLETED") throw new SaleMutationError("Existing sale mutation is not complete", "SALE_REPLAY_INCOMPLETE");
-      return { saleId: replay.id, status: "COMPLETED", totalMinor: Number(replay.total_minor), idempotentReplay: true };
+      if (!["COMPLETED","OPEN"].includes(replay.status)) {
+        throw new SaleMutationError("Existing sale mutation is not complete","SALE_REPLAY_INCOMPLETE");
+      }
+      return {saleId:replay.id,status:replay.status==="OPEN"?"AWAITING_PAYMENT":"COMPLETED",
+        totalMinor:Number(replay.total_minor),idempotentReplay:true};
+    }
+    const hubtel=payload.paymentProvider==="HUBTEL";
+    if(payload.paymentProvider!==undefined&&!hubtel) {
+      throw new SaleMutationError("Unsupported payment provider","SALE_PAYMENT_PROVIDER_INVALID");
+    }
+    if(hubtel) {
+      if(payload.paymentMethod!=="MOMO"||payload.payments?.length||options.settlePayments===false) {
+        throw new SaleMutationError("Hubtel requires a single full-amount MoMo payment",
+          "SALE_HUBTEL_PAYMENT_INVALID");
+      }
+      await requireHubtelPosConnection(client,context.businessId);
     }
 
     const branch = await client.query<{ currency_code: string }>(
@@ -203,6 +219,7 @@ export async function applySaleMutationInTransaction(
     }
 
     const totalMinor = safeMinor(subtotalMinor + taxMinor);
+    if (hubtel && totalMinor <= 0) throw new SaleMutationError("Hubtel checkout requires a positive amount","SALE_HUBTEL_AMOUNT_INVALID");
     const payments = options.settlePayments === false ? [] : normalizePayments(payload, totalMinor);
     if (options.settlePayments !== false && payments.reduce((sum, payment) => sum + payment.amountMinor, 0) !== totalMinor) {
       throw new SaleMutationError("Payment total does not equal the server-calculated sale total", "PAYMENT_TOTAL_MISMATCH");
@@ -223,22 +240,24 @@ export async function applySaleMutationInTransaction(
         `INSERT INTO payments (
            business_id, branch_id, sale_id, amount_minor, currency_code, method,
            provider_reference, status, client_mutation_id, received_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,'SUCCEEDED',$8,$9) RETURNING id`,
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$10,$8,$9) RETURNING id`,
         [
           context.businessId, context.branchId, saleId, payment.amountMinor, currencyCode,
           payment.method, payment.providerReference ?? null,
           `${context.clientMutationId}:payment:${index}`, context.occurredAt,
+          hubtel ? "PENDING" : "SUCCEEDED",
         ],
       );
       if(payment.method==='CUSTOMER_CREDIT' && payment.moneyAccountId !== undefined) throw new SaleMutationError('Credit payments cannot have money accounts');
-      if(payment.amountMinor>0 && isCashMethod(payment.method)) await recordCashbookEntry(client,{...context,moneyAccountId:payment.moneyAccountId,currencyCode,method:payment.method,amountDeltaMinor:payment.amountMinor,entryType:"SALE_RECEIPT",sourceType:"PAYMENT",sourceId:insertedPayment.rows[0]!.id,actorStaffId:payload.cashierStaffId,idempotencyKey:`sale-payment:${insertedPayment.rows[0]!.id}`});
+      if(!hubtel && payment.amountMinor>0 && isCashMethod(payment.method)) await recordCashbookEntry(client,{...context,moneyAccountId:payment.moneyAccountId,currencyCode,method:payment.method,amountDeltaMinor:payment.amountMinor,entryType:"SALE_RECEIPT",sourceType:"PAYMENT",sourceId:insertedPayment.rows[0]!.id,actorStaffId:payload.cashierStaffId,idempotencyKey:`sale-payment:${insertedPayment.rows[0]!.id}`});
     }
 
     // Receipts remain gross even when their payments are later reversed by a refund.
     await client.query(
-      `UPDATE sales SET subtotal_net_minor=$2, tax_minor=$3, total_minor=$4,
-       status='COMPLETED', completed_at=$5 WHERE id=$1`,
-      [saleId, subtotalMinor, taxMinor, totalMinor, context.occurredAt],
+      `UPDATE sales SET subtotal_net_minor=$2,tax_minor=$3,total_minor=$4,
+       status=$5,completed_at=$6 WHERE id=$1`,
+      [saleId,subtotalMinor,taxMinor,totalMinor,hubtel?"OPEN":"COMPLETED",
+        hubtel?null:context.occurredAt],
     );
     if (creditMinor > 0 && payload.customerId) {
       await recordCustomerAccountEntry(client, {
@@ -256,9 +275,8 @@ export async function applySaleMutationInTransaction(
       });
       await createCustomerCreditObligation(client,{businessId:context.businessId,branchId:context.branchId,customerId:payload.customerId,saleId,currencyCode,amountMinor:creditMinor,termsDays:creditTermsDays,occurredAt:context.occurredAt});
     }
-    await writeEvent(client, context, payload.cashierStaffId ?? null, saleId, totalMinor);
-
-    return { saleId, status: "COMPLETED", totalMinor, idempotentReplay: false };
+    await writeEvent(client, context, payload.cashierStaffId ?? null, saleId, totalMinor,hubtel);
+    return {saleId,status:hubtel?"AWAITING_PAYMENT":"COMPLETED",totalMinor,idempotentReplay:false};
 }
 
 function validateSale(context: SaleMutationContext, payload: SaleMutationPayload): void {
@@ -443,15 +461,16 @@ async function consumeDefinition(
   return componentCostMinor;
 }
 
-async function writeEvent(client: DatabaseClient, context: SaleMutationContext, actorStaffId: string | null, saleId: string, totalMinor: number): Promise<void> {
+async function writeEvent(client: DatabaseClient, context: SaleMutationContext, actorStaffId: string | null, saleId: string, totalMinor: number,pending=false): Promise<void> {
+  const eventType=pending?"SALE_AWAITING_PAYMENT":"SALE_COMPLETED";
   await client.query(
     `INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at)
-     VALUES ($1,$2,$3,'SALE_COMPLETED','SALE',$4,$5,$6::jsonb,$7)`,
-    [context.businessId,context.branchId,actorStaffId,saleId,context.clientMutationId,JSON.stringify({ totalMinor }),context.occurredAt],
+     VALUES ($1,$2,$3,$8,'SALE',$4,$5,$6::jsonb,$7)`,
+    [context.businessId,context.branchId,actorStaffId,saleId,context.clientMutationId,JSON.stringify({ totalMinor }),context.occurredAt,eventType],
   );
   await client.query(
     `INSERT INTO outbox_events (business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at)
-     VALUES ($1,$2,'SALE',$3,'SALE_COMPLETED',$4::jsonb,$5)`,
-    [context.businessId,context.branchId,saleId,JSON.stringify({ saleId,totalMinor }),context.occurredAt],
+     VALUES ($1,$2,'SALE',$3,$6,$4::jsonb,$5)`,
+    [context.businessId,context.branchId,saleId,JSON.stringify({ saleId,totalMinor }),context.occurredAt,eventType],
   );
 }

@@ -53,6 +53,7 @@ interface SaleResult {
   changeMinor: number | null;
   totalMinor: number | null;
   message?: string;
+  paymentPending?: boolean;
 }
 
 export function CheckoutSheet({
@@ -67,6 +68,8 @@ export function CheckoutSheet({
   onComplete,
 }: CheckoutSheetProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+  const [hubtelSelected,setHubtelSelected] = useState(false);
+  const [hubtelAvailable,setHubtelAvailable] = useState(false);
   const [cashReceivedMinor, setCashReceivedMinor] = useState<number | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,12 +79,13 @@ export function CheckoutSheet({
   // Display-only total — the server prices every sale from its own catalog.
   const totalMinor = lines.reduce((sum, l) => sum + l.sellable.priceMinor * l.quantity, 0);
   const changeMinor = cashReceivedMinor !== null ? cashReceivedMinor - totalMinor : null;
-  const canCharge = lines.length > 0 && (paymentMethod !== "CASH" || (cashReceivedMinor !== null && cashReceivedMinor >= totalMinor));
+  const canCharge = lines.length > 0 && (!hubtelSelected || online) && (paymentMethod !== "CASH" || (cashReceivedMinor !== null && cashReceivedMinor >= totalMinor));
 
   // Reset state when the sheet opens.
   useEffect(() => {
     if (open) {
       setPaymentMethod("CASH");
+      setHubtelSelected(false);
       setCashReceivedMinor(null);
       setCustomer(null);
       setBusy(false);
@@ -90,6 +94,18 @@ export function CheckoutSheet({
     }
   }, [open]);
 
+  useEffect(()=>{
+    if(!open || !online){setHubtelAvailable(false);return;}
+    let active=true;
+    void getOfflineQueue().authenticatedFetch(
+      "/v1/payments/hubtel/readiness?businessId="+encodeURIComponent(businessId),
+    ).then(async response=>{
+      if(!response.ok)return;
+      const data=await response.json() as {enabled?:boolean};
+      if(active)setHubtelAvailable(data.enabled===true);
+    }).catch(()=>{if(active)setHubtelAvailable(false);});
+    return ()=>{active=false;};
+  },[open,online,businessId]);
   if (!open) return null;
 
   const handleCharge = async () => {
@@ -111,6 +127,9 @@ export function CheckoutSheet({
         ...(customer ? { customerId: customer.id } : {}),
       });
 
+      if(hubtelSelected) {
+        (payload as Record<string,unknown>).paymentProvider="HUBTEL";
+      }
       const mutation = queue.build({
         businessId,
         branchId,
@@ -146,7 +165,42 @@ export function CheckoutSheet({
           return;
         }
         // APPLIED — extract receipt reference from the result if present.
-        const resultData = mr.result as { saleId?: string; receiptNo?: string; totalMinor?: number } | undefined;
+        const resultData = mr.result as {saleId?:string;receiptNo?:string;
+          totalMinor?:number;status?:string}|undefined;
+        if(hubtelSelected) {
+          if(resultData?.status!=="AWAITING_PAYMENT"||!resultData.saleId) {
+            throw new Error("Hubtel sale was not confirmed as pending. Check Sales before retrying.");
+          }
+          const saleId=resultData.saleId;
+          setResult({status:"pending",reference:saleId,changeMinor:null,paymentPending:true,
+            totalMinor:resultData.totalMinor??totalMinor,
+            message:"Sale created but not yet paid. Open Sales to resume or verify checkout."});
+          try {
+            const response=await queue.authenticatedFetch(
+              "/v1/sales/"+encodeURIComponent(saleId)+"/hubtel/checkout",{
+                method:"POST",headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({businessId,clientRequestId:crypto.randomUUID()}),
+              });
+            if(!response.ok)throw new Error(await readApiErrorMessage(response));
+            const data=await response.json() as {checkout:{saleId:string;checkoutUrl:string|null}};
+            if(data.checkout.saleId!==saleId||!data.checkout.checkoutUrl) {
+              throw new Error("Hubtel checkout link is missing or mismatched.");
+            }
+            const target=new URL(data.checkout.checkoutUrl);
+            if(target.protocol!=="https:"||target.hostname!=="pay.hubtel.com"||
+               target.username||target.password||target.port||target.hash) {
+              throw new Error("Hubtel returned an untrusted checkout link.");
+            }
+            window.location.assign(target.toString());
+          }catch(error) {
+            setResult({status:"pending",reference:saleId,changeMinor:null,paymentPending:true,
+              totalMinor:resultData.totalMinor??totalMinor,
+              message:"The sale is awaiting payment. "+
+                (error instanceof Error?error.message:"Could not open Hubtel.")+
+                " Open Sales to resume checkout; do not create a duplicate sale."});
+          }
+          return;
+        }
         setResult({
           status: "completed",
           reference: resultData?.saleId ?? resultData?.receiptNo ?? mutation.clientMutationId,
@@ -195,7 +249,7 @@ export function CheckoutSheet({
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Checkout</span>
-            <h2 className="tos-sheet__title">{result ? "Sale complete" : "Take payment"}</h2>
+            <h2 className="tos-sheet__title">{result?.paymentPending?"Payment pending":result?"Sale complete":"Take payment"}</h2>
             <p className="tos-sheet__sub">
               {online ? "Online — ready to process" : "Offline — sale will queue locally"}
             </p>
@@ -263,8 +317,8 @@ export function CheckoutSheet({
                         key={m.value}
                         type="button"
                         className="tos-pay-card"
-                        aria-pressed={paymentMethod === m.value}
-                        onClick={() => setPaymentMethod(m.value)}
+                        aria-pressed={paymentMethod === m.value && !hubtelSelected}
+                        onClick={() => {setPaymentMethod(m.value);setHubtelSelected(false);}}
                       >
                         <span className="tos-pay-card__icon-wrap" aria-hidden="true">
                           <Icon className="tos-pay-card__icon" />
@@ -276,8 +330,26 @@ export function CheckoutSheet({
                       </button>
                     );
                   })}
+                  {hubtelAvailable?<button
+                    type="button" className="tos-pay-card"
+                    aria-pressed={hubtelSelected}
+                    onClick={()=>{setPaymentMethod("MOMO");setHubtelSelected(true);}}
+                  >
+                    <span className="tos-pay-card__icon-wrap" aria-hidden="true">
+                      <IconSmartphone className="tos-pay-card__icon"/>
+                    </span>
+                    <span className="tos-pay-card__text">
+                      <span className="tos-pay-card__label">Pay with Hubtel</span>
+                      <span className="tos-pay-card__sub">Online · confirmed before receipt</span>
+                    </span>
+                  </button>:null}
                 </div>
               </div>
+
+              {hubtelSelected?<p role="status" className="tos-callout">
+                Hubtel will open a secure payment page. The order remains unpaid until
+                verification; use Sales to resume if the payment page closes.
+              </p>:null}
 
               {paymentMethod === "CASH" ? (
                 <>
@@ -334,9 +406,7 @@ export function CheckoutSheet({
               loading={busy}
               disabled={!canCharge}
             >
-              {paymentMethod === "CASH" && changeMinor !== null && changeMinor >= 0
-                ? `Charge ${formatMoney(totalMinor, currencyCode)}`
-                : `Charge ${formatMoney(totalMinor, currencyCode)}`}
+              {hubtelSelected?`Request Hubtel payment ${formatMoney(totalMinor,currencyCode)}`:`Charge ${formatMoney(totalMinor,currencyCode)}`}
             </Button>
           </div>
         ) : null}
@@ -378,15 +448,15 @@ function SuccessPanel({
         }
       >
         <span className="tos-success__status-row-dot" aria-hidden="true" />
-        {pending ? (online ? "Queued — processing" : "Queued — will sync when online") : "Synced"}
+        {result.paymentPending?"Awaiting verified Hubtel payment":pending?(online?"Queued — processing":"Queued — will sync when online"):"Synced"}
       </span>
       <h2 className="tos-success__title">
-        {pending ? "Sale queued" : "Sale complete"}
+        {result.paymentPending?"Payment not yet confirmed":pending?"Sale queued":"Sale complete"}
       </h2>
       <p className="tos-success__text">{result.message}</p>
 
       <div className="tos-success__receipt">
-        <span className="tos-success__receipt-label">Receipt reference</span>
+        <span className="tos-success__receipt-label">{result.paymentPending?"Unpaid order reference":"Receipt reference"}</span>
         <span className="tos-success__receipt-ref">{result.reference}</span>
         {result.totalMinor !== null ? (
           <>
@@ -405,8 +475,8 @@ function SuccessPanel({
       </div>
 
       <div className="tos-success__actions">
-        <Button variant="outline" icon={<IconPrint className="tos-btn__icon" />} onClick={onPrint}>Print</Button>
-        <Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={onShare}>Share</Button>
+        {!result.paymentPending?<Button variant="outline" icon={<IconPrint className="tos-btn__icon" />} onClick={onPrint}>Print</Button>:null}
+        {!result.paymentPending?<Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={onShare}>Share</Button>:null}
         <Button variant="gold" className="tos-btn--block" onClick={onNewSale}>New sale</Button>
       </div>
     </div>

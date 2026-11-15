@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
+import { HubtelSaleActions } from "./hubtel-sale-actions";
 import { StatePanel } from "../ui/state-panel";
 import { Button } from "../ui/button";
 import {
@@ -58,14 +59,15 @@ interface SaleDetail {
 interface SaleDetailSheetProps {
   saleId: string | null;
   onClose: () => void;
+  onPaid?: () => void;
 }
 
-export function SaleDetailSheet({ saleId, onClose }: SaleDetailSheetProps) {
-  const { session } = useWorkspace();
+export function SaleDetailSheet({ saleId, onClose,onPaid }: SaleDetailSheetProps) {
+  const { session,queue } = useWorkspace();
   const path = saleId && session
     ? `/v1/sales/${encodeURIComponent(saleId)}?businessId=${encodeURIComponent(session.businessId)}`
     : null;
-  const { data, loading, error } = useApiFetch<SaleDetail>(path);
+  const { data, loading, error,refetch } = useApiFetch<SaleDetail>(path);
 
   useEffect(() => {
     if (!saleId) return;
@@ -87,9 +89,9 @@ export function SaleDetailSheet({ saleId, onClose }: SaleDetailSheetProps) {
       <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label="Sale detail">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
-            <span className="tos-sheet__eyebrow">Receipt</span>
+            <span className="tos-sheet__eyebrow">{data?.sale.status==="OPEN"?"Unpaid order":"Receipt"}</span>
             <h2 className="tos-sheet__title">#{saleId.slice(0, 8)}</h2>
-            <p className="tos-sheet__sub">Posted sale record</p>
+            <p className="tos-sheet__sub">{data?.sale.status==="OPEN"?"Payment awaiting Hubtel confirmation":"Posted sale record"}</p>
           </div>
           <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close sale detail">
             <IconClose style={{ width: 18, height: 18 }} />
@@ -102,18 +104,23 @@ export function SaleDetailSheet({ saleId, onClose }: SaleDetailSheetProps) {
           ) : error ? (
             <StatePanel inline variant="error" title="Could not load receipt" text={error} />
           ) : data ? (
-            <SaleDetailBody detail={data} />
+            <>
+              {data.sale.status==="OPEN" && session?
+                <HubtelSaleActions businessId={session.businessId} saleId={data.sale.id}
+                  online={queue.online} onPaid={()=>{refetch();onPaid?.();}}/>:null}
+              <SaleDetailBody detail={data} />
+            </>
           ) : null}
         </div>
 
         <div className="tos-sheet__foot">
-          <Button variant="ghost" icon={<IconPrint className="tos-btn__icon" />} onClick={() => window.print()}>Print</Button>
-          <Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
+          {data?.sale.status!=="OPEN"?<Button variant="ghost" icon={<IconPrint className="tos-btn__icon" />} onClick={() => window.print()}>Print</Button>:null}
+          {data?.sale.status!=="OPEN"?<Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
             if (typeof navigator !== "undefined" && navigator.share) {
               try { await navigator.share({ title: "TradeOS receipt", text: `Receipt ${saleId}` }); } catch { /* cancelled */ }
             }
-          }}>Share</Button>
-          <Button variant="gold" icon={<IconReturns className="tos-btn__icon" />} onClick={() => { window.location.href = "/returns"; }}>Process return</Button>
+          }}>Share</Button>:null}
+          {data?.sale.status!=="OPEN"?<Button variant="gold" icon={<IconReturns className="tos-btn__icon" />} onClick={() => { window.location.href = "/returns"; }}>Process return</Button>:null}
           <Button variant="primary" onClick={onClose}>Close</Button>
         </div>
       </div>
@@ -136,7 +143,7 @@ function SaleDetailBody({ detail }: { detail: SaleDetail }) {
       <div className="tos-receipt-hero tos-animate-fade-in-up">
         <div className="tos-receipt-hero__head">
           <div className="tos-receipt-hero__head-main">
-            <span className="tos-receipt-hero__eyebrow">Receipt #{sale.id.slice(0, 8)}</span>
+            <span className="tos-receipt-hero__eyebrow">{sale.status==="OPEN"?"Unpaid order":"Receipt"} #{sale.id.slice(0, 8)}</span>
             <h3 className="tos-receipt-hero__title">{customerName}</h3>
             <p className="tos-receipt-hero__sub">
               {completedLabel}{sale.cashierName ? ` · ${sale.cashierName}` : ""}
@@ -232,12 +239,12 @@ function SaleDetailBody({ detail }: { detail: SaleDetail }) {
       <TotalsCard
         currencyCode={sale.currencyCode}
         totalMinor={sale.totalMinor}
-        paidMinor={sale.payments.reduce((sum, p) => sum + p.amountMinor, 0)}
+        paidMinor={sale.payments.filter(p=>["SUCCEEDED","REVERSED","PARTIALLY_REVERSED"].includes(p.status)).reduce((sum,p)=>sum+p.amountMinor,0)}
         refundedMinor={refundedTotal}
       />
 
       <div className="tos-callout tos-callout--info">
-        Posted sales remain in the audit history. Make corrections with a return or refund instead of changing the original receipt.
+        {sale.status==="OPEN"?"Payment is not verified. This is not a final receipt; do not release goods before successful confirmation.":"Posted sales remain in the audit history. Make corrections with a return or refund instead of changing the original receipt."}
       </div>
 
       <div className="tos-callout">
@@ -303,11 +310,11 @@ function SaleStatusBadge({ status }: { status: string }) {
     status === "COMPLETED" ? "tos-badge--positive" :
     status === "VOID" ? "tos-badge--danger" :
     status === "REFUNDED" ? "tos-badge--warning" :
-    status === "PENDING" ? "tos-badge--pending" :
+    (status === "PENDING" || status === "OPEN") ? "tos-badge--pending" :
     "tos-badge--neutral";
   return (
     <span className={`tos-badge ${variant}`}>
-      <span className="tos-badge__dot" />{status}
+      <span className="tos-badge__dot" />{status==="OPEN"?"AWAITING PAYMENT":status}
     </span>
   );
 }

@@ -24,6 +24,7 @@ import { registerPlatformAdminBillingRoutes } from "./platform-admin/billing-rou
 import { registerPlatformAdminAttentionRoutes } from "./platform-admin/attention-routes.js";
 import { registerPlatformAdminAutomationRoutes } from "./platform-admin/automation-routes.js";
 import { registerSalesReadRoutes } from "./sales-read.js";
+import { registerHubtelPosRoutes } from "./commerce/hubtel-pos-routes.js";
 import { registerStaffRoutes } from "./staff/routes.js";
 import { ingestSyncBatch, SyncRequestError } from "./sync.js";
 
@@ -62,6 +63,7 @@ export function buildApp(pool: DatabasePool) {
   registerCatalogRoutes(app, pool);
   registerCustomerRoutes(app, pool);
   registerSalesReadRoutes(app, pool);
+  registerHubtelPosRoutes(app, pool);
   registerStaffRoutes(app, pool);
   registerSupplierInventoryRoutes(app, pool);
   registerCashbookRoutes(app, pool);

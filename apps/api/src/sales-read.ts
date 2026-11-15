@@ -47,7 +47,10 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
            LEFT JOIN customers c ON c.id=s.customer_id
            LEFT JOIN staff st ON st.id=s.cashier_staff_id
            WHERE s.business_id=$1 AND s.branch_id=$2
-             AND s.status <> 'OPEN'
+             AND (s.status <> 'OPEN' OR EXISTS(
+               SELECT 1 FROM payments pending
+               WHERE pending.sale_id=s.id AND pending.business_id=s.business_id
+                 AND pending.method='MOMO' AND pending.status='PENDING'))
              AND ($3='' OR s.id::text ILIKE $4 OR COALESCE(c.name,'') ILIKE $4 OR COALESCE(c.phone,'') ILIKE $4)
            ORDER BY COALESCE(s.completed_at,s.created_at) DESC
            LIMIT $5`,
