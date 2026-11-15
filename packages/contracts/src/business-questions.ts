@@ -1,7 +1,7 @@
 export type BusinessQuestionIntent =
   | "SALES" | "PROFIT" | "CASH" | "TOP_ITEMS"
   | "CUSTOMERS_OVERDUE" | "SUPPLIERS_OVERDUE"
-  | "REPLENISHMENT" | "UNSUPPORTED";
+  | "REPLENISHMENT" | "CASH_FORECAST" | "UNSUPPORTED";
 
 export interface BusinessQuestionRequest {
   businessId: string;
@@ -15,7 +15,7 @@ export interface BusinessQuestionFact {
   label: string;
   value: number;
   unit: "MINOR" | "COUNT" | "STOCK_UNITS";
-  source: "FINANCIAL_REPORT" | "CREDIT_AGING" | "INVENTORY_REPORT";
+  source: "FINANCIAL_REPORT" | "CREDIT_AGING" | "INVENTORY_REPORT" | "CASH_FORECAST";
 }
 export interface BusinessQuestionResultItem {
   id: string;

@@ -218,6 +218,59 @@ describe("grounded merchant questions", () => {
     expect(bad.json().error).toBe("BUSINESS_QUESTION_INVALID");
   });
 
+  it("answers future cash questions with the canonical forecast and no fictitious confidence", async () => {
+    const owner = await createOwner("cash-question");
+    const report = await app.inject({
+      method:"GET",
+      url:`/v1/reports/cash-forecast?businessId=${owner.businessId}&branchId=${owner.branchId}&days=7`,
+      headers:owner.headers,
+    });
+    expect(report.statusCode).toBe(200);
+    const response = await ask(owner,"Will we run out of cash in the next 7 days?");
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      businessId:owner.businessId,branchId:owner.branchId,
+      intent:"CASH_FORECAST",sourcePage:"/reports",dataQuality:"INSUFFICIENT",
+      evidence:expect.arrayContaining([
+        expect.objectContaining({key:"openingCashMinor",value:report.json().summary.openingCashMinor}),
+        expect.objectContaining({key:"historyDaysAvailable",value:0}),
+        expect.objectContaining({key:"horizonDays",value:7}),
+      ]),
+      items:[],
+    });
+    expect(response.json().answer).toMatch(/not enough recorded operating history/i);
+    expect(response.json().evidence.some((e:{key:string})=>e.key==="projectedClosingCashMinor")).toBe(false);
+
+    const unsupported = await ask(owner,"Forecast my cash for the next 90 days");
+    expect(unsupported.statusCode).toBe(200);
+    expect(unsupported.json()).toMatchObject({
+      intent:"UNSUPPORTED",evidence:[],sourcePage:null,
+    });
+    expect(unsupported.json().answer).toMatch(/1 to 30 days/i);
+
+    const current = await ask(owner,"What is my cash balance?");
+    expect(current.statusCode).toBe(200);
+    expect(current.json().intent).toBe("CASH");
+  });
+
+  it("enforces tenant and cashier restrictions on future cash questions", async () => {
+    const a=await createOwner("cash-scope-a");
+    const b=await createOwner("cash-scope-b");
+    const personal=await ask(a,"Forecast cash for the next 14 days");
+    expect(personal.statusCode).toBe(200);
+    expect(personal.json()).toMatchObject({
+      businessId:a.businessId,branchId:a.branchId,intent:"CASH_FORECAST",
+      evidence:expect.arrayContaining([expect.objectContaining({key:"horizonDays",value:14})]),
+    });
+    const unauthorized=await app.inject({
+      method:"POST",url:"/v1/intelligence/question",headers:b.headers,
+      payload:{businessId:a.businessId,branchId:a.branchId,question:"Will we run out of cash next week?"},
+    });
+    expect(unauthorized.statusCode).toBe(403);
+    await pool.query("UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1",[a.businessId]);
+    expect((await ask(a,"Forecast cash for next week")).statusCode).toBe(403);
+  });
+
   it("returns factual empty-company totals and rejects unsupported arbitrary queries", async () => {
     const owner=await createOwner("facts");
     const sales=await ask(owner,"How much did we sell today?");

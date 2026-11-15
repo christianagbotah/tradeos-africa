@@ -7,6 +7,7 @@ import { loadFinancialSummary, loadCreditAging } from "../reports.js";
 import { loadInventoryIntelligence } from "./inventory-intelligence-service.js";
 import { answerFinancialComparison } from "./question-comparisons.js";
 import { answerBranchRanking } from "./branch-ranking-service.js";
+import { answerCashForecastQuestion } from "./question-cash-forecast.js";
 import { isComparisonQuestion, PERIOD_NAMES, questionPeriod, unsupportedBranchRanking, unsupportedCalendarQuestion } from "./question-periods.js";
 
 export class BusinessQuestionError extends Error {
@@ -18,7 +19,11 @@ type OverdueRow = { id: string; name: string; amount_minor: string | number };
 
 export function classifyBusinessQuestion(question: string): BusinessQuestionIntent {
   const normalized = question.trim().toLowerCase();
-  if (/(stock|inventory|reorder|restock|replenish|running out|shortage)/.test(normalized)) return "REPLENISHMENT";
+  if (/(stock|inventory|reorder|restock|replenish|running out of stock|stock shortage)/.test(normalized)) return "REPLENISHMENT";
+  if (/\b(cash|liquidity|bank balance|money)\b/.test(normalized) &&
+      /\b(forecast|predict|project(?:ion|ed)?|future|next|tomorrow|will|run out|shortfall|negative|days?|weeks?|months?)\b/.test(normalized)) {
+    return "CASH_FORECAST";
+  }
   if (/(supplier|vendor|payables|we owe|owe our)/.test(normalized)) return "SUPPLIERS_OVERDUE";
   if (/(customer|receivable|owed to us|owes us|owes me|debtors|unpaid invoice)/.test(normalized)) return "CUSTOMERS_OVERDUE";
   if (/(best sell|sold best|top sell|top-selling|most sold|sold most|top product|popular product|best product|most popular)/.test(normalized)) return "TOP_ITEMS";
@@ -93,9 +98,13 @@ export async function answerBusinessQuestion(
   if (intent === "UNSUPPORTED") {
     return {
       ...base,
-      answer: "I can currently explain recorded sales, profit, cash balance, overdue customer or supplier balances, top-selling items and inventory replenishment reviews. Please ask about one of these topics.",
+      answer: "I can currently explain recorded sales, profit, cash balances, 1–30 day cash-flow scenarios, overdue customer or supplier balances, top-selling items and inventory replenishment reviews. Please ask about one of these topics.",
       limitations: ["Only verified TradeOS reporting topics are supported. No arbitrary database queries are executed."],
     };
+  }
+
+  if (intent === "CASH_FORECAST") {
+    return answerCashForecastQuestion(pool, businessId, branchId, asked, base);
   }
 
   if (intent === "REPLENISHMENT") {

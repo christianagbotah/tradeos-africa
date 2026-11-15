@@ -18,6 +18,8 @@ const SUGGESTIONS = [
   "Why were sales lower this week compared with last week?",
   "What were our total sales last month?",
   "What is our cash balance?",
+  "Will we run out of cash in the next 7 days?",
+  "Forecast our cash for the next 14 days",
   "Who owes us money?",
   "Which stock needs replenishment?",
 ] as const;
@@ -176,7 +178,7 @@ export function BusinessQuestionPanel() {
         <summary className={styles.summary}>
           <span>
             <strong id="business-questions-heading">Ask TradeOS</strong>
-            <small>Ask by voice or text about sales comparisons, profits, cash, debts and stock.</small>
+            <small>Ask by voice or text about sales, profits, cash-flow scenarios, debts and stock.</small>
           </span>
           <span className={styles.summaryAction}>Speak or type</span>
         </summary>
