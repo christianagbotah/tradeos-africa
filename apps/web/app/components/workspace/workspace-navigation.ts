@@ -89,6 +89,10 @@ const MANAGER_ROLES: readonly WorkspaceRole[] = [
   "ACCOUNTANT",
 ];
 
+const PURCHASE_ORDER_ROLES: readonly WorkspaceRole[] = [
+  "OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "INVENTORY",
+];
+
 export const WORKSPACE_NAV_ITEMS: readonly WorkspaceNavItem[] = [
   { id: "dashboard", segment: "dashboard", label: "Dashboard", shortLabel: "Home", group: "Trade", icon: IconDashboard, primary: true },
   { id: "sell", segment: "sell", label: "Sell (POS)", shortLabel: "Sell", group: "Trade", icon: IconSell, visibleTo: WRITE_ROLES, primary: true },
@@ -99,6 +103,7 @@ export const WORKSPACE_NAV_ITEMS: readonly WorkspaceNavItem[] = [
   { id: "inventory", segment: "inventory", label: "Inventory", shortLabel: "Stock", group: "Inventory", icon: IconInventory, visibleTo: WRITE_ROLES },
   { id: "returns", segment: "returns", label: "Returns & refunds", shortLabel: "Returns", group: "Trade", icon: IconReturns, visibleTo: MANAGER_ROLES },
   { id: "purchases", segment: "purchases", label: "Purchases & suppliers", shortLabel: "Purchases", group: "Inventory", icon: IconPurchases, visibleTo: MANAGER_ROLES },
+  { id: "purchase-orders", segment: "purchase-orders", label: "Purchase orders", shortLabel: "Orders", group: "Inventory", icon: IconReceipt, visibleTo: PURCHASE_ORDER_ROLES },
   { id: "cashbook", segment: "cashbook", label: "Cashbook", shortLabel: "Cashbook", group: "Money", icon: IconCashbook, visibleTo: MANAGER_ROLES },
   { id: "operations", segment: "operations", label: "Operations", shortLabel: "Ops", group: "Money", icon: IconOperations, visibleTo: MANAGER_ROLES },
   { id: "reports", segment: "reports", label: "Reports", shortLabel: "Reports", group: "Insights", icon: IconReports, visibleTo: MANAGER_ROLES },
@@ -178,7 +183,7 @@ export function mobileMoreNavigationGroups(role: WorkspaceRole | null | undefine
   ];
 
   return [
-    { id: "stock", title: "Sales & stock", items: linksFor(["documents", "catalog", "inventory", "returns", "purchases"]) },
+    { id: "stock", title: "Sales & stock", items: linksFor(["documents", "catalog", "inventory", "returns", "purchases", "purchase-orders"]) },
     { id: "insights", title: "Operations & insights", items: linksFor(["cashbook", "operations", "reports"]) },
     { id: "account", title: "Business & account", items: accountLinks },
   ].filter((group) => group.items.length > 0);
