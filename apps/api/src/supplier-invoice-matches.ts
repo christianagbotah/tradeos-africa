@@ -3,12 +3,15 @@ import type { FastifyInstance } from "fastify";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { withTransaction, type DatabaseClient, type DatabasePool } from "./db.js";
-import { proportionalMinor, safeMinor, signedMinor } from "./commerce/valuation.js";
+import {
+  proportionalMinor, safeMinor, signedMinor, quantityUnits, quantityFromUnits,
+} from "./commerce/valuation.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
+// Invoice costs, supplier documents and attachments are financial records.
 const READ_ROLES:readonly BusinessRole[]=[
-  "OWNER","ADMIN","MANAGER","ACCOUNTANT","INVENTORY","CASHIER","SALES","STAFF","VIEWER",
+  "OWNER","ADMIN","MANAGER","ACCOUNTANT","INVENTORY",
 ];
 const CREATE_ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","ACCOUNTANT","INVENTORY"];
 const APPROVE_ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER"];
@@ -26,6 +29,9 @@ interface MatchInput {
   invoiceDate?:string;
   invoiceTotalMinor?:number;
   receiptIds?:string[];
+  invoiceLines?:Array<{
+    purchaseOrderLineId?:string;invoiceQuantity?:number;invoiceUnitCostMinor?:number
+  }>;
   notes?:string;
 }
 interface MatchRow {
@@ -33,7 +39,9 @@ interface MatchRow {
   purchase_order_id:string;invoice_reference:string;invoice_date:Date|string;
   currency_code:string;invoice_total_minor:string;receipt_total_minor:string;
   invoice_variance_minor:string;po_price_variance_minor:string;receipt_count:number;
-  status:MatchStatus;notes:string;approval_note:string;approved_at:Date|null;
+  status:MatchStatus;itemized:boolean;invoice_lines_subtotal_minor:string;
+  invoice_adjustment_minor:string;line_discrepancy_count:number;
+  notes:string;approval_note:string;approved_at:Date|null;
   cancelled_at:Date|null;created_at:Date;
 }
 interface ReceiptRow {
@@ -88,13 +96,41 @@ function inputOf(raw:MatchInput|undefined) {
   if(new Set(receipts).size!==receipts.length)
     throw new InvoiceMatchError("Each goods receipt may be selected only once");
   const notes=optional(raw.notes,"Notes",2000);
+  // Optional only for backwards compatibility with existing header-only invoice
+  // matches. The merchant UI always supplies one line per received PO item.
+  let invoiceLines: Array<{
+    purchaseOrderLineId:string;invoiceQuantity:number;invoiceUnitCostMinor:number
+  }> | null = null;
+  if(raw.invoiceLines!==undefined){
+    if(!Array.isArray(raw.invoiceLines)||raw.invoiceLines.length<1||
+      raw.invoiceLines.length>100)
+      throw new InvoiceMatchError("Provide 1 to 100 invoice item lines");
+    invoiceLines=raw.invoiceLines.map((line,index)=>{
+      const purchaseOrderLineId=id(line?.purchaseOrderLineId,
+        `purchase order line ${index+1}`);
+      const invoiceQuantity=line?.invoiceQuantity;
+      if(typeof invoiceQuantity!=="number"||!Number.isFinite(invoiceQuantity)||
+        invoiceQuantity<0||invoiceQuantity>1_000_000||
+        Math.abs(invoiceQuantity*1e8-Math.round(invoiceQuantity*1e8))>.001)
+        throw new InvoiceMatchError("Invoice item quantity must have at most 8 decimals");
+      const invoiceUnitCostMinor=line?.invoiceUnitCostMinor;
+      if(typeof invoiceUnitCostMinor!=="number"||
+        !Number.isSafeInteger(invoiceUnitCostMinor)||invoiceUnitCostMinor<0)
+        throw new InvoiceMatchError("Invoice item unit cost must be in nonnegative pesewas");
+      return {purchaseOrderLineId,invoiceQuantity,invoiceUnitCostMinor};
+    }).sort((a,b)=>a.purchaseOrderLineId.localeCompare(b.purchaseOrderLineId));
+    if(new Set(invoiceLines.map(line=>line.purchaseOrderLineId)).size!==invoiceLines.length)
+      throw new InvoiceMatchError("One invoice item per received purchase-order line is required");
+  }
   return {businessId,clientRequestId,invoiceReference,invoiceDate,
-    invoiceTotalMinor,receiptIds:receipts.sort(),notes};
+    invoiceTotalMinor,receiptIds:receipts.sort(),invoiceLines,notes};
 }
 const SELECT_MATCH=`SELECT id,business_id,branch_id,supplier_id,purchase_order_id,
   invoice_reference,invoice_date,currency_code,invoice_total_minor::text,
   receipt_total_minor::text,invoice_variance_minor::text,po_price_variance_minor::text,
-  receipt_count,status,notes,approval_note,approved_at,cancelled_at,created_at
+  receipt_count,status,itemized,invoice_lines_subtotal_minor::text,
+  invoice_adjustment_minor::text,line_discrepancy_count,
+  notes,approval_note,approved_at,cancelled_at,created_at
   FROM supplier_invoice_matches`;
 function mapMatch(row:MatchRow) {
   const invoiceDate=typeof row.invoice_date==="string"?
@@ -108,12 +144,18 @@ function mapMatch(row:MatchRow) {
     receiptTotalMinor:Number(row.receipt_total_minor),
     invoiceVarianceMinor:Number(row.invoice_variance_minor),
     poPriceVarianceMinor:Number(row.po_price_variance_minor),
-    receiptCount:row.receipt_count,notes:row.notes,approvalNote:row.approval_note,
+    receiptCount:row.receipt_count,itemized:row.itemized,
+    invoiceLinesSubtotalMinor:Number(row.invoice_lines_subtotal_minor),
+    invoiceAdjustmentMinor:Number(row.invoice_adjustment_minor),
+    lineDiscrepancyCount:row.line_discrepancy_count,
+    notes:row.notes,approvalNote:row.approval_note,
     approvedAt:row.approved_at?.toISOString()??null,
     cancelledAt:row.cancelled_at?.toISOString()??null,
     createdAt:row.created_at.toISOString(),
     hasException:Number(row.invoice_variance_minor)!==0||
-      Number(row.po_price_variance_minor)!==0,
+      Number(row.po_price_variance_minor)!==0||
+      (row.itemized&&(Number(row.invoice_adjustment_minor)!==0||
+        row.line_discrepancy_count>0)),
   };
 }
 async function snapshot(db:Q,businessId:string,orderId:string,receiptIds:string[]) {
@@ -159,6 +201,47 @@ async function snapshot(db:Q,businessId:string,orderId:string,receiptIds:string[
     signedMinor(sum+r.poPriceVarianceMinor),0);
   return {receipts,lines,receiptTotalMinor,poPriceVarianceMinor};
 }
+type ReceivedLine=Awaited<ReturnType<typeof snapshot>>["lines"][number];
+type InvoiceLineInput=NonNullable<ReturnType<typeof inputOf>["invoiceLines"]>[number];
+function matchInvoiceItems(
+  receivedLines:ReceivedLine[],invoiceLines:InvoiceLineInput[],invoiceTotalMinor:number
+){
+  if(receivedLines.length!==invoiceLines.length)
+    throw new InvoiceMatchError(
+      "Enter one supplier invoice item for every product in the selected delivery receipts",
+      "INVOICE_MATCH_LINE_COUNT",409);
+  const receivedById=new Map(receivedLines.map(line=>[line.purchaseOrderLineId,line]));
+  let subtotal=0;
+  let lineDiscrepancyCount=0;
+  const lines=invoiceLines.map((line,index)=>{
+    const received=receivedById.get(line.purchaseOrderLineId);
+    if(!received)
+      throw new InvoiceMatchError(
+        "Invoice item does not belong to selected purchase-order delivery receipts",
+        "INVOICE_MATCH_LINE_SCOPE",409);
+    const invoiceLineTotalMinor=proportionalMinor(
+      safeMinor(line.invoiceUnitCostMinor),line.invoiceQuantity,1);
+    const quantityVarianceUnits=quantityUnits(line.invoiceQuantity)-
+      quantityUnits(received.quantity);
+    const quantityVariance=quantityFromUnits(quantityVarianceUnits);
+    const valueVarianceMinor=signedMinor(invoiceLineTotalMinor-received.receiptTotalMinor);
+    if(quantityVarianceUnits!==0n||valueVarianceMinor!==0)lineDiscrepancyCount++;
+    subtotal=safeMinor(subtotal+invoiceLineTotalMinor);
+    return {
+      ...line,
+      sortOrder:index,
+      itemName:received.itemName,purchaseUnitCode:received.purchaseUnitCode,
+      receivedQuantity:received.quantity,receivedCostMinor:received.receiptTotalMinor,
+      poUnitCostMinor:received.poUnitCostMinor,
+      poExpectedTotalMinor:received.expectedAtOrderPriceMinor,
+      invoiceLineTotalMinor,quantityVariance,valueVarianceMinor,
+    };
+  });
+  const invoiceAdjustmentMinor=signedMinor(invoiceTotalMinor-subtotal);
+  return {lines,invoiceLinesSubtotalMinor:subtotal,
+    invoiceAdjustmentMinor,lineDiscrepancyCount};
+}
+
 async function detail(db:Q,businessId:string,matchId:string) {
   const row=(await db.query<MatchRow>(SELECT_MATCH+
     " WHERE business_id=$1 AND id=$2",[businessId,matchId])).rows[0];
@@ -172,7 +255,47 @@ async function detail(db:Q,businessId:string,matchId:string) {
   const derived=refs.length>0?await snapshot(db,businessId,row.purchase_order_id,refs):
     {receipts:[] as ReceiptRow[],lines:[] as Awaited<ReturnType<typeof snapshot>>["lines"],
       receiptTotalMinor:0,poPriceVarianceMinor:0};
+  const itemRows=match.itemized?(await db.query<{
+    id:string;purchase_order_line_id:string;item_name_snapshot:string;
+    purchase_unit_code:string;invoice_quantity:string;
+    invoice_unit_cost_minor:string;invoice_line_total_minor:string;
+    received_quantity:string;received_cost_minor:string;
+    po_unit_cost_minor:string;po_expected_total_minor:string;
+    quantity_variance:string;value_variance_minor:string
+  }>(
+    `SELECT id,purchase_order_line_id,item_name_snapshot,purchase_unit_code,
+      invoice_quantity::text,invoice_unit_cost_minor::text,
+      invoice_line_total_minor::text,received_quantity::text,
+      received_cost_minor::text,po_unit_cost_minor::text,
+      po_expected_total_minor::text,quantity_variance::text,
+      value_variance_minor::text
+     FROM supplier_invoice_match_lines
+     WHERE business_id=$1 AND invoice_match_id=$2 ORDER BY sort_order,id`,
+    [businessId,matchId])).rows:[];
+  const evidence=(await db.query<{
+    id:string;filename:string;mime_type:string;size_bytes:number;created_at:Date
+  }>(
+    `SELECT id,filename,mime_type,size_bytes,created_at
+     FROM supplier_invoice_evidence WHERE business_id=$1 AND invoice_match_id=$2
+     ORDER BY created_at,id`,[businessId,matchId])).rows;
   return {...match,lines:derived.lines,
+    evidence:evidence.map(file=>({
+      id:file.id,filename:file.filename,mimeType:file.mime_type,
+      sizeBytes:file.size_bytes,createdAt:file.created_at.toISOString(),
+    })),
+    invoiceItemLines:itemRows.map(item=>({
+      id:item.id,purchaseOrderLineId:item.purchase_order_line_id,
+      itemName:item.item_name_snapshot,purchaseUnitCode:item.purchase_unit_code,
+      invoiceQuantity:Number(item.invoice_quantity),
+      invoiceUnitCostMinor:Number(item.invoice_unit_cost_minor),
+      invoiceLineTotalMinor:Number(item.invoice_line_total_minor),
+      receivedQuantity:Number(item.received_quantity),
+      receivedCostMinor:Number(item.received_cost_minor),
+      poUnitCostMinor:Number(item.po_unit_cost_minor),
+      poExpectedTotalMinor:Number(item.po_expected_total_minor),
+      quantityVariance:Number(item.quantity_variance),
+      valueVarianceMinor:Number(item.value_variance_minor),
+    })),
     receipts:derived.receipts.map(r=>({
       id:r.id,receivedAt:r.received_at.toISOString(),
       totalMinor:Number(r.total_minor),supplierReference:r.supplier_reference,
@@ -203,7 +326,211 @@ function failure(
   return reply.code(500).send({error:"INVOICE_MATCH_FAILED",
     message:"Supplier invoice could not be reconciled safely"});
 }
+const EVIDENCE_MAX_BYTES=3*1024*1024;
+function receiveEvidence(value:unknown):{
+  filename:string;mimeType:"application/pdf"|"image/png"|"image/jpeg";
+  bytes:Buffer;sizeBytes:number;sha256:string
+}{
+  if(!value||typeof value!=="object"||Array.isArray(value))
+    throw new InvoiceMatchError("A PDF, PNG or JPEG invoice file is required");
+  const raw=value as Record<string,unknown>;
+  const filename=plain(raw.filename,"File name",120)
+    .replace(/[^a-zA-Z0-9._() -]/g,"_").replace(/^\.+/,"");
+  if(!filename)throw new InvoiceMatchError("File name is invalid");
+  const base64=raw.base64;
+  if(typeof base64!=="string"||base64.length>4_194_304||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64))
+    throw new InvoiceMatchError("Invoice document must be a valid file up to 3 MiB");
+  const bytes=Buffer.from(base64,"base64");
+  if(bytes.length===0||bytes.length>EVIDENCE_MAX_BYTES||
+    bytes.toString("base64")!==base64)
+    throw new InvoiceMatchError("Invoice document is empty, invalid or too large");
+  const detected: "application/pdf"|"image/png"|"image/jpeg"|null=
+    bytes.subarray(0,5).toString("ascii")==="%PDF-"?"application/pdf":
+    bytes.length>=8&&bytes.subarray(0,8)
+      .equals(Buffer.from("89504e470d0a1a0a","hex"))?"image/png":
+    bytes.length>=3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255?
+      "image/jpeg":null;
+  if(!detected||raw.mimeType!==detected)
+    throw new InvoiceMatchError(
+      "Invoice evidence must be a real PDF, PNG or JPEG matching its file type",
+      "INVOICE_EVIDENCE_TYPE_INVALID",415);
+  return {filename,mimeType:detected,bytes,sizeBytes:bytes.length,
+    sha256:createHash("sha256").update(bytes).digest("hex")};
+}
+
 export function registerSupplierInvoiceMatchRoutes(app:FastifyInstance,pool:DatabasePool):void {
+  // Private invoice evidence; deliberately NOT routed through the public logo
+  // media API. Max 3 files, 3 MiB each, draft-only, authenticated on each read.
+  app.post<{Params:{matchId:string};Body:{
+    businessId?:string;filename?:string;mimeType?:string;base64?:string
+  }}>(
+    "/v1/supplier-invoice-matches/:matchId/evidence",
+    {bodyLimit:4_700_000},
+    async(request,reply)=>{
+      try{
+        const businessId=id(request.body?.businessId,"business ID");
+        const matchId=id(request.params.matchId,"invoice match ID");
+        const access=await requireBusinessRole(pool,
+          await authenticateAccessToken(pool,request.headers.authorization),
+          businessId,CREATE_ROLES);
+        if(!access.staffId)throw new InvoiceMatchError(
+          "An active staff identity is required to upload evidence",
+          "INVOICE_MATCH_STAFF_REQUIRED",403);
+        const staffId=access.staffId;
+        const file=receiveEvidence(request.body);
+        const result=await withTransaction(pool,async tx=>{
+          const match=(await tx.query<{id:string;status:MatchStatus;
+            branch_id:string;invoice_reference:string}>(
+            `SELECT id,status,branch_id,invoice_reference
+             FROM supplier_invoice_matches WHERE business_id=$1 AND id=$2 FOR UPDATE`,
+            [businessId,matchId])).rows[0];
+          if(!match)throw new InvoiceMatchError("Invoice match not found",
+            "INVOICE_MATCH_NOT_FOUND",404);
+          if(match.status!=="DRAFT")
+            throw new InvoiceMatchError("Evidence may be added only to draft invoice matches",
+              "INVOICE_EVIDENCE_DRAFT_ONLY",409);
+          const existing=(await tx.query<{id:string}>(
+            `SELECT id FROM supplier_invoice_evidence
+             WHERE business_id=$1 AND invoice_match_id=$2 AND sha256=$3`,
+            [businessId,matchId,file.sha256])).rows[0];
+          if(existing)return {id:existing.id,replay:true};
+          const count=(await tx.query<{count:string}>(
+            `SELECT COUNT(*)::text AS count FROM supplier_invoice_evidence
+             WHERE business_id=$1 AND invoice_match_id=$2`,
+            [businessId,matchId])).rows[0];
+          if(Number(count?.count??0)>=3)
+            throw new InvoiceMatchError("A supplier invoice can hold up to three evidence files",
+              "INVOICE_EVIDENCE_LIMIT",409);
+          const inserted=(await tx.query<{id:string}>(
+            `INSERT INTO supplier_invoice_evidence(
+              business_id,invoice_match_id,created_by_staff_id,
+              filename,mime_type,size_bytes,sha256,file_bytes)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+            [businessId,matchId,staffId,file.filename,file.mimeType,
+              file.sizeBytes,file.sha256,file.bytes])).rows[0]!;
+          await audit(tx,{businessId,branchId:match.branch_id,
+            staffId,matchId,
+            eventType:"SUPPLIER_INVOICE_EVIDENCE_ADDED",
+            invoiceReference:match.invoice_reference,
+            note:`${file.filename} · ${file.sizeBytes} bytes`});
+          return {id:inserted.id,replay:false};
+        });
+        return reply.code(result.replay?200:201).send({
+          evidenceId:result.id,idempotentReplay:result.replay,
+        });
+      }catch(error){return failure(request,reply,error);}
+    });
+
+  app.delete<{Params:{matchId:string;fileId:string};Querystring:{
+    businessId?:string
+  }}>(
+    "/v1/supplier-invoice-matches/:matchId/evidence/:fileId",
+    async(request,reply)=>{
+      try{
+        const businessId=id(request.query.businessId,"business ID");
+        const matchId=id(request.params.matchId,"invoice match ID");
+        const fileId=id(request.params.fileId,"evidence ID");
+        const access=await requireBusinessRole(pool,
+          await authenticateAccessToken(pool,request.headers.authorization),
+          businessId,CREATE_ROLES);
+        if(!access.staffId)throw new InvoiceMatchError(
+          "Active staff identity is required to remove evidence",
+          "INVOICE_MATCH_STAFF_REQUIRED",403);
+        const staffId=access.staffId;
+        await withTransaction(pool,async tx=>{
+          const match=(await tx.query<{status:MatchStatus;branch_id:string;
+            invoice_reference:string}>(
+            `SELECT status,branch_id,invoice_reference FROM supplier_invoice_matches
+             WHERE business_id=$1 AND id=$2 FOR UPDATE`,[businessId,matchId])).rows[0];
+          if(!match)throw new InvoiceMatchError("Invoice match not found",
+            "INVOICE_MATCH_NOT_FOUND",404);
+          if(match.status!=="DRAFT")
+            throw new InvoiceMatchError("Evidence can only be removed from draft invoices",
+              "INVOICE_EVIDENCE_DRAFT_ONLY",409);
+          const removed=(await tx.query<{filename:string}>(
+            `DELETE FROM supplier_invoice_evidence
+             WHERE business_id=$1 AND invoice_match_id=$2 AND id=$3
+             RETURNING filename`,[businessId,matchId,fileId])).rows[0];
+          if(!removed)throw new InvoiceMatchError("Evidence not found",
+            "INVOICE_EVIDENCE_NOT_FOUND",404);
+          await audit(tx,{businessId,branchId:match.branch_id,staffId,
+            matchId,eventType:"SUPPLIER_INVOICE_EVIDENCE_REMOVED",
+            invoiceReference:match.invoice_reference,note:removed.filename});
+        });
+        return reply.code(204).send();
+      }catch(error){return failure(request,reply,error);}
+    });
+
+  app.get<{Params:{matchId:string;fileId:string};Querystring:{
+    businessId?:string
+  }}>(
+    "/v1/supplier-invoice-matches/:matchId/evidence/:fileId",
+    async(request,reply)=>{
+      try{
+        const businessId=id(request.query.businessId,"business ID");
+        const matchId=id(request.params.matchId,"invoice match ID");
+        const fileId=id(request.params.fileId,"evidence ID");
+        await requireBusinessRole(pool,
+          await authenticateAccessToken(pool,request.headers.authorization),
+          businessId,READ_ROLES);
+        const row=(await pool.query<{filename:string;mime_type:string;
+          size_bytes:number;file_bytes:Buffer}>(
+          `SELECT e.filename,e.mime_type,e.size_bytes,e.file_bytes
+           FROM supplier_invoice_evidence e
+           JOIN supplier_invoice_matches im
+             ON im.id=e.invoice_match_id AND im.business_id=e.business_id
+           WHERE e.business_id=$1 AND e.invoice_match_id=$2 AND e.id=$3`,
+          [businessId,matchId,fileId])).rows[0];
+        if(!row)throw new InvoiceMatchError("Invoice evidence not found",
+          "INVOICE_EVIDENCE_NOT_FOUND",404);
+        const filename=row.filename.replace(/[\\\r\n"]/g,"_");
+        return reply
+          .header("Content-Type",row.mime_type)
+          .header("Content-Length",String(row.size_bytes))
+          .header("Content-Disposition",`attachment; filename="${filename}"`)
+          .header("Cache-Control","private, no-store")
+          .header("X-Content-Type-Options","nosniff")
+          .header("Content-Security-Policy","sandbox")
+          .send(row.file_bytes);
+      }catch(error){return failure(request,reply,error);}
+    });
+
+
+  // Preview is read-only: quantities and unit costs are derived only from
+  // already posted physical deliveries and scoped to the authenticated PO.
+  app.post<{Params:{orderId:string};Body:{
+    businessId?:string;receiptIds?:string[]
+  }}>(
+    "/v1/purchase-orders/:orderId/invoice-item-preview",
+    async(request,reply)=>{
+      try{
+        const businessId=id(request.body?.businessId,"business ID");
+        const orderId=id(request.params.orderId,"purchase order ID");
+        await requireBusinessRole(pool,
+          await authenticateAccessToken(pool,request.headers.authorization),
+          businessId,READ_ROLES);
+        const ids=request.body?.receiptIds;
+        if(!Array.isArray(ids)||ids.length<1||ids.length>100)
+          throw new InvoiceMatchError("Select 1 to 100 posted deliveries");
+        const receiptIds=ids.map(value=>id(value,"receipt ID"));
+        if(new Set(receiptIds).size!==receiptIds.length)
+          throw new InvoiceMatchError("Each receipt may only be selected once");
+        const po=(await pool.query<{id:string;branch_id:string;supplier_id:string}>(
+          `SELECT id,branch_id,supplier_id FROM supplier_purchase_orders
+           WHERE business_id=$1 AND id=$2`,[businessId,orderId])).rows[0];
+        if(!po)throw new InvoiceMatchError("Purchase order not found",
+          "PURCHASE_ORDER_NOT_FOUND",404);
+        const checked=await snapshot(pool,businessId,orderId,receiptIds);
+        if(checked.receipts.some(r=>r.branch_id!==po.branch_id||
+          r.supplier_id!==po.supplier_id))
+          throw new InvoiceMatchError("Selected deliveries do not belong to this branch and supplier",
+            "INVOICE_MATCH_RECEIPT_SCOPE",409);
+        return {receiptTotalMinor:checked.receiptTotalMinor,
+          poPriceVarianceMinor:checked.poPriceVarianceMinor,lines:checked.lines};
+      }catch(error){return failure(request,reply,error);}
+    });
+
   app.get<{Params:{orderId:string};Querystring:{businessId?:string}}>(
     "/v1/purchase-orders/:orderId/invoice-matches",async(request,reply)=>{
       try {
@@ -284,6 +611,8 @@ export function registerSupplierInvoiceMatchRoutes(app:FastifyInstance,pool:Data
           if(claims.length)
             throw new InvoiceMatchError("A selected receipt is already matched to another invoice",
               "INVOICE_MATCH_RECEIPT_CLAIMED",409);
+          const itemized=data.invoiceLines?
+            matchInvoiceItems(checked.lines,data.invoiceLines,data.invoiceTotalMinor):null;
           const invoiceVariance=signedMinor(data.invoiceTotalMinor-checked.receiptTotalMinor);
           const inserted=(await tx.query<{id:string}>(
             `INSERT INTO supplier_invoice_matches(
@@ -291,20 +620,41 @@ export function registerSupplierInvoiceMatchRoutes(app:FastifyInstance,pool:Data
                 created_by_staff_id,client_request_id,request_fingerprint,
                 invoice_reference,invoice_date,currency_code,invoice_total_minor,
                 receipt_total_minor,invoice_variance_minor,po_price_variance_minor,
-                receipt_count,notes)
-               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                receipt_count,notes,itemized,invoice_lines_subtotal_minor,
+                invoice_adjustment_minor,line_discrepancy_count)
+               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+                 $15,$16,$17,$18,$19,$20)
                RETURNING id`,
             [data.businessId,po.branch_id,po.supplier_id,orderId,staffId,
               data.clientRequestId,fingerprint,data.invoiceReference,data.invoiceDate,
               po.currency_code,data.invoiceTotalMinor,checked.receiptTotalMinor,
               invoiceVariance,checked.poPriceVarianceMinor,data.receiptIds.length,
-              data.notes])).rows[0]!;
+              data.notes,Boolean(itemized),itemized?.invoiceLinesSubtotalMinor??0,
+              itemized?.invoiceAdjustmentMinor??0,
+              itemized?.lineDiscrepancyCount??0])).rows[0]!;
           for(const receipt of checked.receipts){
             await tx.query(
               `INSERT INTO supplier_invoice_match_receipts(
                 business_id,invoice_match_id,purchase_id,purchase_total_minor)
                VALUES($1,$2,$3,$4)`,
               [data.businessId,inserted.id,receipt.id,Number(receipt.total_minor)]);
+          }
+          if(itemized){
+            for(const line of itemized.lines){
+              await tx.query(
+                `INSERT INTO supplier_invoice_match_lines(
+                  business_id,invoice_match_id,purchase_order_line_id,sort_order,
+                  item_name_snapshot,purchase_unit_code,invoice_quantity,
+                  invoice_unit_cost_minor,invoice_line_total_minor,
+                  received_quantity,received_cost_minor,po_unit_cost_minor,
+                  po_expected_total_minor,quantity_variance,value_variance_minor
+                ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+                [data.businessId,inserted.id,line.purchaseOrderLineId,line.sortOrder,
+                  line.itemName,line.purchaseUnitCode,line.invoiceQuantity,
+                  line.invoiceUnitCostMinor,line.invoiceLineTotalMinor,
+                  line.receivedQuantity,line.receivedCostMinor,line.poUnitCostMinor,
+                  line.poExpectedTotalMinor,line.quantityVariance,line.valueVarianceMinor]);
+            }
           }
           await audit(tx,{businessId:data.businessId,branchId:po.branch_id,
             staffId,matchId:inserted.id,
@@ -346,7 +696,9 @@ export function registerSupplierInvoiceMatchRoutes(app:FastifyInstance,pool:Data
                 "INVOICE_MATCH_STATE_CONFLICT",409);
             if(action==="approve"){
               const variance=Number(row.invoice_variance_minor)!==0||
-                Number(row.po_price_variance_minor)!==0;
+                Number(row.po_price_variance_minor)!==0||
+                (row.itemized&&(Number(row.invoice_adjustment_minor)!==0||
+                  row.line_discrepancy_count>0));
               if(variance&&approvalNote.length<12)
                 throw new InvoiceMatchError(
                   "A manager justification of at least 12 characters is required for invoice or PO price differences",

@@ -69,3 +69,46 @@
   .fields{grid-template-columns:1fr}.receipt{padding:10px 9px;gap:8px}
   .lineDetails>div{grid-template-columns:1fr}}
 @media print{.workspace{display:none!important}}
+
+/* The editor never reflows fields into a second row. Narrow screens scroll. */
+.lineSection{display:grid;gap:11px;min-width:0}
+.lineSection h4{font-size:15px;font-weight:800;margin:0}
+.lineScroller{width:100%;max-width:100%;overflow-x:auto;
+  overscroll-behavior-x:contain;scrollbar-width:thin;padding:0 0 10px}
+.lineScroller:focus-visible{outline:2px solid #2b6db0;outline-offset:2px}
+.lineGrid,.invoiceLineHistory{display:grid;gap:8px;min-width:940px;width:100%}
+.lineLabels,.lineRow{display:grid;grid-template-columns:minmax(188px,1fr) 85px 102px 137px 150px 149px;
+  gap:9px;min-width:940px;align-items:center;box-sizing:border-box}
+.lineLabels{color:var(--tos-text-muted,#63748a);font-size:11px;font-weight:750;
+  background:var(--tos-surface-secondary,#f1f5f9);padding:8px 12px;
+  border-radius:8px}
+.lineLabels span:nth-child(n+2){text-align:right}
+.lineRow{border:1px solid var(--tos-border,#dfe7f0);
+  border-radius:9px;padding:9px 12px;background:var(--tos-surface,#fff)}
+.lineRow span{min-width:0;overflow-wrap:anywhere;font-size:12px}
+.lineRow small{display:block;font-size:11px;
+  color:var(--tos-text-muted,#657389)}
+.lineRow input[type=number]{border:1px solid #a8b8cc;border-radius:7px;
+  padding:8px 7px;min-width:0;width:100%;text-align:right;box-sizing:border-box;
+  background:var(--tos-surface,#fff);color:var(--tos-text,#17314c)}
+.lineMoney{min-width:0}
+.lineMoney :global(.tos-money){min-width:0;width:100%}
+.lineMoney :global(.tos-money__input){min-width:0;width:100%;max-width:100%;
+  box-sizing:border-box}
+.numeric{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.lineRow strong{font-size:12px}
+.invoiceLineHistory{min-width:880px}
+.invoiceLineHistory .lineLabels,.invoiceLineHistory .lineRow{
+  min-width:880px;grid-template-columns:minmax(180px,1fr) 104px 104px 134px 134px 134px}
+
+.evidence{border-top:1px solid var(--tos-border,#dce5ee);
+  padding-top:12px;display:grid;gap:8px;min-width:0}
+.evidence>strong{font-size:13px}
+.evidenceList{display:grid;gap:7px}
+.evidenceList>div{display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:8px;padding:7px 0;border-bottom:1px solid #e0e7ef}
+.evidenceList span{font-size:12px;overflow-wrap:anywhere;min-width:0}
+.filePicker{font-size:12px;font-weight:750;display:grid;gap:7px;
+  padding:10px;border:1px solid #aec3da;border-radius:8px}
+.filePicker input{max-width:100%;font-size:12px}
+.evidenceButtons{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
