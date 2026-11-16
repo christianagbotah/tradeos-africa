@@ -83,9 +83,18 @@ export class HubtelStatusClient {
         "HUBTEL_STATUS_UNAVAILABLE",503);
     }
     if (!response.ok) {
+      // Distinguish merchant credential/scope problems from IP/channel access
+      // denial. Neither is evidence of an unpaid order. Never log credentials
+      // or forward provider response bodies to staff screens.
+      if(response.status===401)throw new HubtelStatusError(
+        "Hubtel rejected the status credentials or collection-account scope.",
+        "HUBTEL_STATUS_AUTH_REJECTED",503);
+      if(response.status===403)throw new HubtelStatusError(
+        "Hubtel denied status access. Check IP allowlisting and channel permissions.",
+        "HUBTEL_STATUS_ACCESS_DENIED",503);
       throw new HubtelStatusError("Hubtel status verification did not succeed.",
-        "HUBTEL_STATUS_UNAVAILABLE",response.status >= 500 || response.status === 403 ||
-          response.status === 401 || response.status === 429 ? 503 : 502);
+        "HUBTEL_STATUS_UNAVAILABLE",response.status >= 500 ||
+          response.status === 429 ? 503 : 502);
     }
     let payload: unknown;
     try {
