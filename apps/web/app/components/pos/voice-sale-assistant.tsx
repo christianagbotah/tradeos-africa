@@ -14,6 +14,7 @@ import {
 import type { Customer } from "../workspace/workspace-provider";
 import {
   draftVoiceTransaction, type VoiceDraft, type VoicePayment,
+  type VoiceCheckoutSuggestion,
 } from "../../../lib/voice-transaction-draft";
 import type { CartLine } from "./cart-panel";
 import styles from "./voice-sale-assistant.module.css";
@@ -35,7 +36,8 @@ type Props = {
   sellable: readonly SellableItem[];
   customers: readonly Customer[];
   currencyCode: string;
-  onApply: (lines: CartLine[],customerId:string|null,payment:VoicePayment) => boolean;
+  onApply: (lines: CartLine[],customerId:string|null,payment:VoicePayment,
+    suggestion:VoiceCheckoutSuggestion|null) => boolean;
   onClose: () => void;
 };
 const sample = "Record a sale: Comfort Mensah bought two door number 058 and one door number 326, paid by MoMo.";
@@ -290,7 +292,10 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
       setRecognitionError("A product appears more than once. Combine duplicate lines first.");return;
     }
     if(onApply(cleaned.map(l=>({sellable:l.item,quantity:l.quantity})),
-      customerId||null,paymentMethod))onClose();
+      customerId||null,paymentMethod,
+      draft.paymentState!=="UNSPECIFIED"||draft.tenderedMinor!==null?{
+        paymentState:draft.paymentState,tenderedMinor:draft.tenderedMinor,
+      }:null))onClose();
   }
   const totalMinor=draft?.lines.reduce((total,line)=>
     total+line.item.priceMinor*line.quantity,0)??0;
@@ -504,9 +509,14 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
             </select>
           </label>
           <strong>Draft catalog total: {formatMoney(totalMinor,currencyCode)}</strong>
+          {draft.tenderedMinor!==null?<p className={styles.warning}>
+            Spoken amount: {formatMoney(draft.tenderedMinor,currencyCode)}.
+            This is only a transcription; verify the money actually received at checkout.
+          </p>:null}
           {draft.paymentState==="PARTIAL"?<p className={styles.warning}>
-            Partial payment was mentioned. Set the split and remaining credit in
-            checkout; this draft will not infer the unpaid balance.</p>:null}
+            Partial payment was mentioned. Checkout can offer a reviewed
+            cash-and-credit split when an eligible customer is linked and
+            credit is available. No payment is automatically recorded.</p>:null}
           <label className={styles.confirm}>
             <input type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)}/>
             I reviewed the customer, item identities, quantities and displayed amounts.

@@ -8,7 +8,8 @@ import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { receiptUrl } from "../../../lib/receipt-document";
 import { buildSaleCreatePayload, type PaymentMethod } from "../../../lib/mutation-builders";
 import type { CartLine } from "./cart-panel";
-import type { VoicePayment } from "../../../lib/voice-transaction-draft";
+import type { VoicePayment,VoiceCheckoutSuggestion } from "../../../lib/voice-transaction-draft";
+import {evaluateVoicePaymentSuggestion} from "../../../lib/voice-payment-review";
 import { CustomerPicker } from "./customer-picker";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
@@ -50,6 +51,7 @@ interface CheckoutSheetProps {
   onComplete: () => void;
   initialCustomerId?: string | null;
   initialPaymentMethod?: VoicePayment;
+  initialVoicePaymentSuggestion?: VoiceCheckoutSuggestion | null;
 }
 
 interface ServerQuoteLine{
@@ -87,6 +89,7 @@ export function CheckoutSheet({
   onComplete,
   initialCustomerId,
   initialPaymentMethod,
+  initialVoicePaymentSuggestion,
 }: CheckoutSheetProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [hubtelSelected,setHubtelSelected] = useState(false);
@@ -98,6 +101,8 @@ export function CheckoutSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SaleResult | null>(null);
+  const [voiceSuggestion,setVoiceSuggestion]=useState<VoiceCheckoutSuggestion|null>(null);
+  const [voiceAmountCopied,setVoiceAmountCopied]=useState(false);
   const [serverQuote,setServerQuote]=useState<{key:string;value:ServerQuote}|null>(null);
   const [quotePending,setQuotePending]=useState(false);
   const [quoteError,setQuoteError]=useState<string|null>(null);
@@ -153,6 +158,16 @@ export function CheckoutSheet({
     online&&!hubtelSelected&&paymentMethod!=="CUSTOMER_CREDIT"&&
     Number.isSafeInteger(amountToCollect)&&amountToCollect>0&&amountToCollect<totalMinor
   );
+  const voicePaymentGuide=evaluateVoicePaymentSuggestion({
+    suggestion:voiceSuggestion,
+    paymentMethod,
+    online,
+    pricingVerified:quoteReady&&approvalValid,
+    hubtelSelected,
+    totalMinor,
+    activeCustomer:Boolean(customer?.active),
+    availableCreditMinor,
+  });
   const canCharge = quoteReady&&approvalValid&&lines.length>0&&
     (!hubtelSelected||online)&&
     splitValid&&creditReady&&(paymentMethod!=="CUSTOMER_CREDIT"||online)&&
@@ -173,13 +188,16 @@ export function CheckoutSheet({
       setSplitWithCredit(false);
       setPaidNowMinor(null);
       setCustomer(customers.find(c=>c.id===initialCustomerId&&c.active)??null);
+      setVoiceSuggestion(initialVoicePaymentSuggestion??null);
+      setVoiceAmountCopied(false);
       setBusy(false);
       setError(null);
       setResult(null);
       setSelectedApprovals({});
       setReviewVersion(v=>v+1);
     }
-  }, [open,initialCustomerId,initialPaymentMethod,customers]);
+  }, [open,initialCustomerId,initialPaymentMethod,
+    initialVoicePaymentSuggestion,customers]);
 
   useEffect(()=>{
     if(!open||!online||lines.length===0){
@@ -237,6 +255,21 @@ export function CheckoutSheet({
   },[open,online,businessId]);
   if (!open) return null;
 
+  function copySpokenCash(){
+    if(!voiceSuggestion||!voicePaymentGuide.action||
+      voiceSuggestion.tenderedMinor===null)return;
+    if(voicePaymentGuide.action==="SPLIT_CASH"){
+      setSplitWithCredit(true);
+      setPaidNowMinor(voiceSuggestion.tenderedMinor);
+      setCashReceivedMinor(voiceSuggestion.tenderedMinor);
+    }else if(voicePaymentGuide.action==="CASH_RECEIVED"){
+      setSplitWithCredit(false);
+      setPaidNowMinor(null);
+      setCashReceivedMinor(voiceSuggestion.tenderedMinor);
+    }
+    setVoiceSuggestion(null);
+    setVoiceAmountCopied(true);
+  }
   const handleCharge = async () => {
     if (!canCharge || busy) return;
     if(online&&!quoteReady){
@@ -458,6 +491,8 @@ export function CheckoutSheet({
                 onSelect={c=>{
                   setCustomer(c);setSelectedApprovals({});
                   setCashReceivedMinor(null);setPaidNowMinor(null);
+                  setSplitWithCredit(false);setVoiceSuggestion(null);
+                  setVoiceAmountCopied(false);
                 }}/>
               {online&&quotePending?<p className="tos-callout" role="status">
                 Verifying current customer prices with the server…</p>:null}
@@ -518,7 +553,12 @@ export function CheckoutSheet({
                         type="button"
                         className="tos-pay-card"
                         aria-pressed={paymentMethod === m.value && !hubtelSelected}
-                        onClick={() => {setPaymentMethod(m.value);setHubtelSelected(false);}}
+                        onClick={() => {
+                          setPaymentMethod(m.value);setHubtelSelected(false);
+                          setCashReceivedMinor(null);setPaidNowMinor(null);
+                          setSplitWithCredit(false);setVoiceSuggestion(null);
+                          setVoiceAmountCopied(false);
+                        }}
                       >
                         <span className="tos-pay-card__icon-wrap" aria-hidden="true">
                           <Icon className="tos-pay-card__icon" />
@@ -533,7 +573,12 @@ export function CheckoutSheet({
                   {hubtelAvailable?<button
                     type="button" className="tos-pay-card"
                     aria-pressed={hubtelSelected}
-                    onClick={()=>{setPaymentMethod("MOMO");setHubtelSelected(true);}}
+                    onClick={()=>{
+                      setPaymentMethod("MOMO");setHubtelSelected(true);
+                      setCashReceivedMinor(null);setPaidNowMinor(null);
+                      setSplitWithCredit(false);setVoiceSuggestion(null);
+                      setVoiceAmountCopied(false);
+                    }}
                   >
                     <span className="tos-pay-card__icon-wrap" aria-hidden="true">
                       <IconSmartphone className="tos-pay-card__icon"/>
@@ -546,6 +591,38 @@ export function CheckoutSheet({
                 </div>
               </div>
 
+              {voiceSuggestion?<section className="tos-section"
+                aria-label="Review spoken payment suggestion">
+                <div className="tos-section__head">
+                  <h3 className="tos-section__title">Spoken payment — review required</h3>
+                </div>
+                <div className="tos-section__body" style={{display:"grid",gap:11}}>
+                  {voiceSuggestion.tenderedMinor!==null?<p>
+                    Recognized amount: <strong>{formatMoney(
+                      voiceSuggestion.tenderedMinor,currencyCode)}</strong>.
+                    Speech is not proof that money was received.
+                  </p>:null}
+                  <p role="status">{voicePaymentGuide.message}</p>
+                  {voicePaymentGuide.action?<button type="button"
+                    style={{justifySelf:"start",padding:"10px 13px",
+                      fontWeight:800,borderRadius:8,cursor:"pointer",
+                      border:"1px solid #174f79",background:"#174f79",color:"#fff"}}
+                    onClick={copySpokenCash}>
+                    {voicePaymentGuide.action==="SPLIT_CASH"?
+                      "Use spoken amount for cash + credit split":
+                      "Use spoken amount as cash received"}
+                  </button>:null}
+                  <p style={{fontSize:12}}>
+                    You must review the customer, final prices, payment details and
+                    remaining balance before charging. Electronic payments are never
+                    marked as received by a voice command.
+                  </p>
+                </div>
+              </section>:null}
+              {voiceAmountCopied?<p role="status" className="tos-callout">
+                Spoken amount copied for review only. Check the physical cash
+                and any customer credit before pressing Charge.
+              </p>:null}
               {customer?.active&&availableCreditMinor!==null&&
                 !hubtelSelected&&paymentMethod!=="CUSTOMER_CREDIT"?
                 <section className="tos-section">
