@@ -491,6 +491,8 @@ export function CheckoutSheet({
                 onSelect={c=>{
                   setCustomer(c);setSelectedApprovals({});
                   setCashReceivedMinor(null);setPaidNowMinor(null);
+                  setSplitWithCredit(false);setVoiceSuggestion(null);
+                  setVoiceAmountCopied(false);
                 }}/>
               {online&&quotePending?<p className="tos-callout" role="status">
                 Verifying current customer prices with the server…</p>:null}
@@ -551,7 +553,12 @@ export function CheckoutSheet({
                         type="button"
                         className="tos-pay-card"
                         aria-pressed={paymentMethod === m.value && !hubtelSelected}
-                        onClick={() => {setPaymentMethod(m.value);setHubtelSelected(false);}}
+                        onClick={() => {
+                          setPaymentMethod(m.value);setHubtelSelected(false);
+                          setCashReceivedMinor(null);setPaidNowMinor(null);
+                          setSplitWithCredit(false);setVoiceSuggestion(null);
+                          setVoiceAmountCopied(false);
+                        }}
                       >
                         <span className="tos-pay-card__icon-wrap" aria-hidden="true">
                           <Icon className="tos-pay-card__icon" />
@@ -566,7 +573,12 @@ export function CheckoutSheet({
                   {hubtelAvailable?<button
                     type="button" className="tos-pay-card"
                     aria-pressed={hubtelSelected}
-                    onClick={()=>{setPaymentMethod("MOMO");setHubtelSelected(true);}}
+                    onClick={()=>{
+                      setPaymentMethod("MOMO");setHubtelSelected(true);
+                      setCashReceivedMinor(null);setPaidNowMinor(null);
+                      setSplitWithCredit(false);setVoiceSuggestion(null);
+                      setVoiceAmountCopied(false);
+                    }}
                   >
                     <span className="tos-pay-card__icon-wrap" aria-hidden="true">
                       <IconSmartphone className="tos-pay-card__icon"/>

@@ -34,5 +34,8 @@ describe("voice payment review must not authorize payment",()=>{
     expect(checkout).toContain('mutationType: "SALE_CREATE"');
     expect(checkout).toContain("if (!canCharge || busy) return;");
     expect(checkout).toContain("Electronic payments are never");
+    expect(checkout).toContain('setSplitWithCredit(false);setVoiceSuggestion(null)');
+    expect(checkout).toContain('setCashReceivedMinor(null);setPaidNowMinor(null)');
+    expect(checkout).toContain('setVoiceAmountCopied(false)');
   });
 });
