@@ -1,0 +1,31 @@
+.page{padding:22px;max-width:1380px;margin:0 auto;display:grid;gap:20px;min-width:0}
+.header{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;flex-wrap:wrap}
+.header h1{font-size:27px;font-weight:850;margin:3px 0 9px}
+.header p,.panel p{font-size:13px;color:var(--tos-text-muted,#64748b);line-height:1.5;margin:0}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:800}
+.columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.panel{border:1px solid var(--tos-border,#dde6f0);border-radius:13px;padding:20px;
+ background:var(--tos-surface,#fff);display:grid;align-content:start;gap:13px;min-width:0}
+.panel h2{font-size:19px;font-weight:800}.panel h3{font-size:15px;font-weight:750}
+.panel label{display:grid;gap:7px;font-weight:750;font-size:13px}
+.panel select,.panel input,.panel textarea{width:100%;min-width:0;padding:10px 12px;
+ border:1px solid var(--tos-border,#9eafc2);border-radius:8px;
+ color:var(--tos-text,#162e45);background:var(--tos-surface,#fff);font:inherit}
+.panel textarea{resize:vertical}
+.panel button,.header button{padding:9px 13px;border:1px solid var(--tos-border,#849cb8);
+ border-radius:8px;background:transparent;color:inherit;cursor:pointer;font-weight:750}
+.panel button:disabled,.header button:disabled{opacity:.45;cursor:not-allowed}
+.panel .primary{background:#174c78;color:#fff;border-color:#174c78}
+.warning,.error,.notice{border-radius:8px;padding:10px 13px;font-size:13px}
+.warning{background:#fff0d8;color:#7e4e13}.error{background:#ffeaed;color:#a4253b}
+.notice{background:#edf8f2;color:#1f6844}
+.rates,.requestList{display:grid;gap:10px}
+.rate,.request{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+ border:1px solid var(--tos-border,#dde6f0);padding:12px;border-radius:9px;min-width:0}
+.rate span{display:grid;gap:4px;min-width:0}
+.rate small,.request small{font-size:11px;color:var(--tos-text-muted,#708198);overflow-wrap:anywhere}
+.request p{margin-top:6px;overflow-wrap:anywhere}
+.requestTotals{display:grid;justify-items:end;gap:8px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:920px){.columns{grid-template-columns:1fr}.page{padding:16px}}
+@media(max-width:530px){.rate,.request{flex-direction:column}.requestTotals{justify-items:start}}

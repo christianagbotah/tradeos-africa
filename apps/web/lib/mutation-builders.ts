@@ -514,6 +514,8 @@ export interface SaleLineInput {
   itemId: string;
   saleUnitCode: string;
   quantity: number;
+  expectedUnitPriceMinor?: number;
+  priceApprovalId?: string;
 }
 
 export interface SaleCreateInput {
@@ -539,6 +541,10 @@ export function buildSaleCreatePayload(input: SaleCreateInput): Record<string, u
       itemId: line.itemId,
       saleUnitCode: line.saleUnitCode,
       quantity: line.quantity,
+      ...(line.expectedUnitPriceMinor===undefined?{}:{
+        expectedUnitPriceMinor:line.expectedUnitPriceMinor,
+      }),
+      ...(line.priceApprovalId?{priceApprovalId:line.priceApprovalId}:{}),
     })),
   };
   if (input.customerId) payload.customerId = input.customerId;

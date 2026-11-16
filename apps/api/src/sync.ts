@@ -20,6 +20,7 @@ import {
 } from "./commerce/customer-credit.js";
 import { applyReturnMutation, ReturnMutationError, type ReturnMutationPayload } from "./commerce/returns.js";
 import { applySaleMutation, SaleMutationError, type SaleMutationPayload } from "./commerce/sales.js";
+import {PriceRuleError} from "./commerce/price-rules.js";
 import { applyExchangeMutation, ExchangeMutationError, type ExchangeMutationPayload } from "./commerce/exchanges.js";
 import { applyInventoryAdjustmentMutation, InventoryAdjustmentError, type InventoryAdjustmentMutationPayload } from "./commerce/inventory-adjustments.js";
 import { type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
@@ -181,6 +182,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     return { clientMutationId: mutation.clientMutationId, status: "APPLIED", serverReceivedAt, result };
   } catch (error) {
     const code = error instanceof CashbookError
+      || error instanceof PriceRuleError
       || error instanceof SaleMutationError
       || error instanceof ReturnMutationError
       || error instanceof ExchangeMutationError

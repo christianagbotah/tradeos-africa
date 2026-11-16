@@ -29,6 +29,7 @@ import { registerPurchaseOrderRoutes } from "./purchase-orders.js";
 import { registerSupplierDocumentDeliveryRoutes } from "./supplier-document-delivery.js";
 import { registerSupplierInvoiceMatchRoutes } from "./supplier-invoice-matches.js";
 import { registerHubtelPosRoutes } from "./commerce/hubtel-pos-routes.js";
+import { registerPricingRoutes } from "./commerce/pricing-routes.js";
 import { registerStaffRoutes } from "./staff/routes.js";
 import { ingestSyncBatch, SyncRequestError } from "./sync.js";
 
@@ -72,6 +73,7 @@ export function buildApp(pool: DatabasePool) {
   registerSupplierDocumentDeliveryRoutes(app, pool);
   registerSupplierInvoiceMatchRoutes(app, pool);
   registerHubtelPosRoutes(app, pool);
+  registerPricingRoutes(app, pool);
   registerStaffRoutes(app, pool);
   registerSupplierInventoryRoutes(app, pool);
   registerCashbookRoutes(app, pool);
@@ -167,8 +169,10 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
     return { ...rest, actorStaffId: access.staffId };
   }
   if (mutation.mutationType === "SALE_CREATE") {
-    const { cashierStaffId: _ignored, ...rest } = payload;
-    return { ...rest, cashierStaffId: access.staffId };
+    const { cashierStaffId: _ignored, cashierMembershipId: _ignoredMember,
+      ...rest } = payload;
+    return { ...rest, cashierStaffId: access.staffId,
+      cashierMembershipId: access.membershipId };
   }
 
   if (mutation.mutationType === "EXCHANGE_CREATE") {

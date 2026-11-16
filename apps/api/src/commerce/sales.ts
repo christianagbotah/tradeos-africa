@@ -10,6 +10,8 @@ import {
 import { withTransaction } from "../db.js";
 import { createCustomerCreditObligation } from "./credit-obligations.js";
 import { requireHubtelPosConnection } from "./hubtel-pos-config.js";
+import {resolveCustomerPrice} from "./price-rules.js";
+import {consumeApprovedDiscount} from "./discount-approvals.js";
 
 export type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT" | "OTHER";
 
@@ -17,7 +19,10 @@ export interface SaleMutationPayload {
   currencyCode?: string;
   customerId?: string;
   cashierStaffId?: string;
-  lines: Array<{ itemId: string; quantity: number; saleUnitCode?: string; saleUnit?: string }>;
+  cashierMembershipId?: string;
+  lines: Array<{ itemId: string; quantity: number; saleUnitCode?: string;
+    saleUnit?: string; priceApprovalId?: string;
+    expectedUnitPriceMinor?: number }>;
   payments?: Array<{ method: PaymentMethod; amountMinor: number; moneyAccountId?: string; providerReference?: string }>;
   paymentMethod?: PaymentMethod;
   paymentProvider?: "HUBTEL";
@@ -155,9 +160,29 @@ export async function applySaleMutationInTransaction(
       if (!saleUnitCode) throw new SaleMutationError("Each sale line needs a sale unit");
 
       const item = await loadItem(client, context.businessId, requested.itemId, saleUnitCode);
-      const unitNetMinor = Number(item.default_sale_price_minor);
-      if (!Number.isSafeInteger(unitNetMinor) || unitNetMinor < 0) {
+      const catalogMinor = Number(item.default_sale_price_minor);
+      if (!Number.isSafeInteger(catalogMinor) || catalogMinor < 0) {
         throw new SaleMutationError(`${item.name} has no valid price for ${saleUnitCode}`, "PRICE_NOT_CONFIGURED");
+      }
+      const effective=await resolveCustomerPrice(client,{
+        businessId:context.businessId,customerId:payload.customerId??null,
+        itemId:item.id,unitCode:saleUnitCode,catalogMinor});
+      let unitNetMinor=effective.unitPriceMinor;
+      if(requested.priceApprovalId){
+        unitNetMinor=await consumeApprovedDiscount(client,{
+          businessId:context.businessId,branchId:context.branchId,
+          customerId:payload.customerId??null,
+          cashierMembershipId:payload.cashierMembershipId,
+          itemId:item.id,unitCode:saleUnitCode,quantity:requested.quantity,
+          basePriceMinor:effective.unitPriceMinor,
+          approvalId:requested.priceApprovalId,saleId});
+      }
+      if(requested.expectedUnitPriceMinor!==undefined &&
+        (!Number.isSafeInteger(requested.expectedUnitPriceMinor)||
+          requested.expectedUnitPriceMinor!==unitNetMinor)){
+        throw new SaleMutationError(
+          "The selling price changed. Review the cart and confirm again.",
+          "SALE_PRICE_CHANGED_REVIEW_REQUIRED");
       }
 
       // Tax remains separate; physical products snapshot the branch moving-average cost.
