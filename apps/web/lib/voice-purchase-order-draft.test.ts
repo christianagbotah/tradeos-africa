@@ -48,3 +48,80 @@ describe("spoken purchase-order draft",()=>{
     expect(draft.lines).toHaveLength(0);
   });
 });
+
+describe("spoken purchase-unit and supplier-cost proposals",()=>{
+  it("resolves multi-unit products and explicit per-unit prices",()=>{
+    const carton={...item("Cement bag","CMT-50","cement"),units:[
+      {code:"bag",label:"Bag",canPurchase:true,canSell:true,
+        canStock:true,defaultSalePriceMinor:9999},
+      {code:"carton",label:"Carton",canPurchase:true,canSell:false,
+        canStock:false,defaultSalePriceMinor:null},
+    ]};
+    const result=draftVoicePurchaseOrder(
+      "Order two cartons of cement bag at 120.50 cedis per carton",[carton]);
+    expect(result.lines).toHaveLength(1);
+    expect(result.lines[0]).toMatchObject({
+      itemId:"cement",purchaseUnitCode:"carton",quantity:2,
+      suggestedUnitCostMinor:12050,
+    });
+    expect(JSON.stringify(result)).not.toContain("9999");
+  });
+  it("does not invent supplier cost for unclear or aggregate prices",()=>{
+    const result=draftVoicePurchaseOrder(
+      "Order two cement bags for 550 cedis",[...catalog]);
+    expect(result.lines[0]?.suggestedUnitCostMinor).toBe(null);
+    expect(result.warnings.join(" ")).toMatch(/not clearly a per-unit cost/i);
+  });
+  it("separates explicit per-unit prices for two products",()=>{
+    const result=draftVoicePurchaseOrder(
+      "Buy 2 door number 058 at 25 cedis per box and 3 door number 326 at 35.50 cedis per box",
+      catalog);
+    expect(result.lines.map(l=>l.suggestedUnitCostMinor))
+      .toEqual([2500,3550]);
+  });
+});
+
+describe("multi-unit pricing safety",()=>{
+  const material={...item("Cement bag","CMT-50","cement"),units:[
+    {code:"bag",label:"Bag",canPurchase:true,canSell:true,
+      canStock:true,defaultSalePriceMinor:4000},
+    {code:"carton",label:"Carton",canPurchase:true,canSell:false,
+      canStock:false,defaultSalePriceMinor:null},
+  ]};
+  it("recognizes per-unit after the product, even without a leading unit",()=>{
+    const draft=draftVoicePurchaseOrder(
+      "Order cement bag at 120.75 cedis per carton",[material]);
+    expect(draft.lines[0]?.purchaseUnitCode).toBe("carton");
+    expect(draft.lines[0]?.suggestedUnitCostMinor).toBe(12075);
+  });
+  it("requires explicit purchase unit with a multi-unit item",()=>{
+    const draft=draftVoicePurchaseOrder(
+      "Buy cement bag unit cost 130",[material]);
+    expect(draft.lines[0]?.suggestedUnitCostMinor).toBe(null);
+    expect(draft.warnings.join(" ")).toMatch(/multiple purchasing units/);
+  });
+  it("does not suggest a price when the spoken purchasing unit is unavailable",()=>{
+    const draft=draftVoicePurchaseOrder(
+      "Buy two pallets of cement bag at 100 cedis per pallet",[material]);
+    expect(draft.lines[0]?.suggestedUnitCostMinor).toBe(null);
+    expect(draft.warnings.join(" ")).toMatch(/not configured/);
+  });
+  it("requires cost unit to match purchasing unit",()=>{
+    const draft=draftVoicePurchaseOrder(
+      "Order two bags of cement bag at 120 cedis per carton",[material]);
+    expect(draft.lines[0]?.purchaseUnitCode).toBe("bag");
+    expect(draft.lines[0]?.suggestedUnitCostMinor).toBe(null);
+    expect(draft.warnings.join(" ")).toMatch(/differs from the selected purchasing unit/);
+  });
+});
+
+describe("numeric prices must not become product SKUs",()=>{
+  it("excludes a different numeric SKU matching a spoken supplier cost",()=>{
+    const priceCode=item("Plywood board","120","price-like-sku");
+    const cement=item("Cement bag","CMT-50","cement");
+    const draft=draftVoicePurchaseOrder(
+      "Buy cement bag at 120 cedis per box",[priceCode,cement]);
+    expect(draft.lines.map(l=>l.itemId)).toEqual(["cement"]);
+    expect(draft.lines[0]?.suggestedUnitCostMinor).toBe(12000);
+  });
+});

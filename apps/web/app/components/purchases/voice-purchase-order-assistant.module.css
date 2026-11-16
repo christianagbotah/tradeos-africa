@@ -41,3 +41,8 @@
 .confirm input{margin-top:3px}
 @media(max-width:760px){.dialog{max-height:96dvh}.backdrop{padding:5px}.header{padding:14px}.body{padding:13px}.inputs{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.header h2{font-size:21px}}
 @media(max-width:440px){.inputs{grid-template-columns:minmax(0,1fr)}.row{padding:10px}.suggestion{align-items:start;flex-direction:column}}
+
+.costSuggestion{display:grid;gap:5px;padding:9px;border:1px dashed #9ab5ca;border-radius:9px;background:var(--tos-surface,#fff);font-size:12px;line-height:1.4;margin-bottom:8px}
+.costSuggestion span{font-weight:800}
+.costSuggestion small{font-size:11px;overflow-wrap:anywhere;color:var(--tos-text-muted,#657186)}
+.costSuggestion button{justify-self:start;font-size:12px;min-height:36px}

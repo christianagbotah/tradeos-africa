@@ -148,9 +148,9 @@ function codeContext(text:string,start:number,end:number,sku:string):boolean{
     return true;
   if(/(?:bought|sold|sell|sale|give|need|take|buy)\s*$/.test(tail)&&
     /^\d{3,6}$/.test(compact(sku)))return true;
-  if(/(?:paid|received|amount|cedis|momo|cash|balance)\s*$/.test(tail))return false;
+  if(/(?:paid|received|amount|cedis|momo|cash|balance|at|for|cost|price|priced|each|per|total|ghs)\s*$/.test(tail))return false;
   if(/(?:\d{2,}|\d+\s+\d+)\s*$/.test(tail))return false;
-  if(/(?:cash|momo|cedis|bank|card)/.test(after))return false;
+  if(/^\s*(?:cash|momo|cedis|ghs|pesewas|per|each|total|bank|card)\b/.test(after))return false;
   return /^\d{3,6}$/.test(compact(sku)) &&
     compact(sku)===text.slice(start,end).replace(/\s+/g,"");
 }
