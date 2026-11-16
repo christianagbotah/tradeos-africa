@@ -20,6 +20,8 @@ export interface VoiceDraft {
   tenderedMinor: number | null; warnings: string[]; transcript: string;
   suggestions: Array<{item:SellableItem;score:number;phrase:string}>;
 }
+/** Advisory data only: final checkout must reverify the amount and require a tap. */
+export type VoiceCheckoutSuggestion=Pick<VoiceDraft,"paymentState"|"tenderedMinor">;
 const numberWords = new Map<string,number>([
   ["a",1],["an",1],["one",1],["single",1],["two",2],["three",3],
   ["four",4],["five",5],["six",6],["seven",7],["eight",8],["nine",9],
@@ -45,11 +47,14 @@ function quantityBefore(text: string, start: number): number {
   const qty = numberWords.get(match[1]!) ?? Number(match[1]);
   return Number.isInteger(qty)&&qty>0&&qty<=500 ? qty : 1;
 }
-function tenderFromSpeech(text:string):number|null {
-  const m=text.match(/\b(?:paid|pay|received|gave|collected)\s+(?:an?\s+)?(?:amount\s+of\s+)?(?:ghs|cedis?|c[eè]dis?|₵)?\s*(\d{1,7}(?:\.\d{1,2})?)\b/i);
+function tenderFromSpeech(transcript:string):number|null {
+  // Parse the untouched transcript. Product name normalization strips
+  // decimal points and currency glyphs, changing "50.50" into "50 50".
+  const m=transcript.match(/\b(?:paid|received|collected|gave)\s+(?:(?:a\s+)?(?:part(?:ial)?\s+payment|deposit|part|partly)\s+(?:of\s+)?)?(?:an?\s+)?(?:amount\s+of\s+)?(?:ghs|₵|gh¢|cedis?)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d{1,7}(?:\.\d{1,2})?)\b/i);
   if(!m)return null;
-  const minor=Math.round(Number(m[1])*100);
-  return Number.isSafeInteger(minor)&&minor>=0?minor:null;
+  const major=Number(m[1]!.replace(/,/g,""));
+  const minor=Math.round(major*100);
+  return Number.isSafeInteger(minor)&&minor>0?minor:null;
 }
 export function draftVoiceTransaction(
   transcript: string, sellable: readonly SellableItem[],
@@ -124,6 +129,6 @@ export function draftVoiceTransaction(
   }
   warnings.push("Catalog prices are estimates until the server validates the final sale.");
   return {intent,lines,customerId,customerName,paymentMethod,
-    paymentState,tenderedMinor:tenderFromSpeech(text),warnings,
+    paymentState,tenderedMinor:tenderFromSpeech(safeTranscript),warnings,
     transcript:safeTranscript,suggestions};
 }

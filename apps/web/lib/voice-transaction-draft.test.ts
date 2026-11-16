@@ -47,3 +47,23 @@ describe("voice-assisted draft, never an actual posting",()=>{
     expect(x.warnings.some(w=>w.includes("Purchase-order voice drafts"))).toBe(true);
   });
 });
+
+describe("spoken money is advisory, not a price or receipt",()=>{
+  it("preserves decimal places and comma grouping from the raw transcript",()=>{
+    const x=draftVoiceTransaction(
+      "Comfort Mensah bought door 058 and paid part of ₵1,250.50 by cash",
+      items,customers);
+    expect(x.paymentState).toBe("PARTIAL");
+    expect(x.tenderedMinor).toBe(125050);
+  });
+  it("does not invent a payment amount from a spoken product code",()=>{
+    const x=draftVoiceTransaction(
+      "Customer bought door number 058 by MoMo",items,customers);
+    expect(x.tenderedMinor).toBe(null);
+  });
+  it("recognizes an explicit normal cash amount",()=>{
+    const x=draftVoiceTransaction(
+      "Comfort Mensah bought takeaway pack and paid 50.75 cash",items,customers);
+    expect(x.tenderedMinor).toBe(5075);
+  });
+});

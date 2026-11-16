@@ -10,7 +10,7 @@ import { CheckoutSheet } from "./checkout-sheet";
 import { Button } from "../ui/button";
 import { IconSell } from "../ui/icons";
 import { VoiceSaleAssistant } from "./voice-sale-assistant";
-import type { VoicePayment } from "../../../lib/voice-transaction-draft";
+import type { VoicePayment,VoiceCheckoutSuggestion } from "../../../lib/voice-transaction-draft";
 
 export function PosWorkspace() {
   const { catalog, inventory, customers, session, queue, bump } = useWorkspace();
@@ -20,6 +20,7 @@ export function PosWorkspace() {
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceCustomerId,setVoiceCustomerId]=useState<string|null>(null);
   const [voicePayment,setVoicePayment]=useState<VoicePayment>("UNSPECIFIED");
+  const [voicePaymentSuggestion,setVoicePaymentSuggestion]=useState<VoiceCheckoutSuggestion|null>(null);
 
   const currencyCode = session?.currencyCode ?? "GHS";
   const online = queue.online;
@@ -32,6 +33,7 @@ export function PosWorkspace() {
   );
 
   const handlePick = useCallback((item: SellableItem) => {
+    setVoicePaymentSuggestion(null);
     setLines((prev) => {
       const existing = prev.find((l) => l.sellable.key === item.key);
       if (existing) {
@@ -42,10 +44,12 @@ export function PosWorkspace() {
   }, []);
 
   const handleInc = useCallback((key: string) => {
+    setVoicePaymentSuggestion(null);
     setLines((prev) => prev.map((l) => (l.sellable.key === key ? { ...l, quantity: l.quantity + 1 } : l)));
   }, []);
 
   const handleDec = useCallback((key: string) => {
+    setVoicePaymentSuggestion(null);
     setLines((prev) =>
       prev
         .map((l) => (l.sellable.key === key ? { ...l, quantity: l.quantity - 1 } : l))
@@ -54,10 +58,12 @@ export function PosWorkspace() {
   }, []);
 
   const handleRemove = useCallback((key: string) => {
+    setVoicePaymentSuggestion(null);
     setLines((prev) => prev.filter((l) => l.sellable.key !== key));
   }, []);
 
   const handleClear = useCallback(() => {
+    setVoicePaymentSuggestion(null);
     setLines([]);
   }, []);
 
@@ -69,6 +75,7 @@ export function PosWorkspace() {
   const handleComplete = useCallback(() => {
     setVoiceCustomerId(null);
     setVoicePayment("UNSPECIFIED");
+    setVoicePaymentSuggestion(null);
     setLines([]);
     setCheckoutOpen(false);
     setCartOpen(false);
@@ -166,7 +173,7 @@ export function PosWorkspace() {
       {voiceOpen?<VoiceSaleAssistant
         sellable={sellable} customers={customers} currencyCode={currencyCode}
         onClose={()=>setVoiceOpen(false)}
-        onApply={(reviewed,customerId,payment)=>{
+        onApply={(reviewed,customerId,payment,suggestion)=>{
           if(lines.length>0&&!window.confirm(
             "You have items in your cart. Add the voice-selected items to this cart?")){
             return false;
@@ -183,6 +190,9 @@ export function PosWorkspace() {
           });
           setVoiceCustomerId(customerId);
           setVoicePayment(payment);
+          // Do not reuse a spoken amount for a cart that already contained
+          // other products: the amount was dictated for a different total.
+          setVoicePaymentSuggestion(lines.length===0?suggestion:null);
           setCartOpen(true);
           return true;
         }}
@@ -190,6 +200,7 @@ export function PosWorkspace() {
       <CheckoutSheet
         initialCustomerId={voiceCustomerId}
         initialPaymentMethod={voicePayment}
+        initialVoicePaymentSuggestion={voicePaymentSuggestion}
         open={checkoutOpen}
         lines={lines}
         currencyCode={currencyCode}
