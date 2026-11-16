@@ -7,6 +7,10 @@ import {rankSpokenCatalogProducts} from "../../../lib/voice-catalog-matcher";
 import {searchPosCatalog} from "../../../lib/pos-catalog-search";
 import {parseVoiceDraftCorrection,type VoiceDraftCorrection}
   from "../../../lib/voice-draft-corrections";
+import {
+  parseVoiceContextCorrection,rankVoiceCustomerCandidates,
+  type VoiceContextCorrection,
+} from "../../../lib/voice-context-corrections";
 import type { Customer } from "../workspace/workspace-provider";
 import {
   draftVoiceTransaction, type VoiceDraft, type VoicePayment,
@@ -51,6 +55,11 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
   const [replacementKey,setReplacementKey]=useState("");
   const [correctionTargetKey,setCorrectionTargetKey]=useState("");
   const [correctionCandidates,setCorrectionCandidates]=useState<SellableItem[]>([]);
+  const [contextCorrection,setContextCorrection]=useState<VoiceContextCorrection|null>(null);
+  const [contextCustomerCandidates,setContextCustomerCandidates]=useState<Customer[]>([]);
+  const [selectedContextCustomerId,setSelectedContextCustomerId]=useState("");
+  const [contextSnapshot,setContextSnapshot]=useState("");
+
 
   const manualMatches=useMemo(()=>{
     if(!catalogSearch.trim())return [];
@@ -70,7 +79,9 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     const w=window as WindowWithRecognition;
     const Factory=w.SpeechRecognition??w.webkitSpeechRecognition;
     if(!Factory){
-      setRecognitionError(
+      if(mode==="correction")setCorrectionError(
+        "Voice recognition is not available in this browser. Type the correction below.");
+      else setRecognitionError(
         "Voice recognition is not available in this browser. Type or paste the transaction below.");
       return;
     }
@@ -81,6 +92,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     }else{
       setCorrectionError(null);
       setCorrection(null);
+      setContextCorrection(null);
     }
     const engine=new Factory();
     activeRef.current=engine;
@@ -94,6 +106,8 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
       const next=[prior,segments.join(" ")].filter(Boolean).join(" ");
       if(mode==="correction"){
         setCorrectionText(next.slice(0,500));
+        setCorrection(null);
+        setContextCorrection(null);
       }else{
         setTranscript(next.slice(0,2000));
       }
@@ -118,9 +132,11 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
   }
   function analyze(){
     if(!transcript.trim())return;
-    const result=draftVoiceTransaction(transcript,sellable,customers);
+    const result=draftVoiceTransaction(transcript,sellable,
+      customers.filter(customer=>customer.active));
     setDraft(result);
     setCorrection(null);
+    setContextCorrection(null);
     setCorrectionText("");
     setCustomerId(result.customerId??"");
     setPaymentMethod(result.paymentMethod);
@@ -131,6 +147,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     setDraft(prev=>prev?{...prev,lines:prev.lines.map((line,i)=>
       i===index?{...line,...update}:line)}:prev);
     setCorrection(null);
+    setContextCorrection(null);
     setReviewed(false);
   }
   function addCandidate(item:SellableItem){
@@ -145,14 +162,38 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     });
     setReviewed(false);
     setCorrection(null);
+    setContextCorrection(null);
     setRecognitionError(null);
   }
+  const snapshot=()=>JSON.stringify({
+    lines:draft?.lines.map(line=>[line.item.key,line.quantity])??[],
+    customerId,paymentMethod,
+  });
   function analyzeCorrection(){
     if(!draft)return;
-    const parsed=parseVoiceDraftCorrection(correctionText,draft.lines.length);
+    const context=parseVoiceContextCorrection(correctionText);
     setCorrection(null);
+    setContextCorrection(null);
     setCorrectionCandidates([]);
+    setContextCustomerCandidates([]);
     setReplacementKey("");
+    setSelectedContextCustomerId("");
+    if(context.recognized){
+      if(!context.ok){setCorrectionError(context.message);return;}
+      setCorrectionError(null);
+      setContextCorrection(context.value);
+      setContextSnapshot(snapshot());
+      if(context.value.kind==="CUSTOMER"&&!context.value.walkIn){
+        const candidates=rankVoiceCustomerCandidates(
+          context.value.nameQuery,customers.filter(c=>c.active),8,
+        ).map(match=>match.customer);
+        setContextCustomerCandidates(candidates);
+        if(!candidates.length)setCorrectionError(
+          "No active customer name matches. Choose another name in the existing customer list.");
+      }
+      return;
+    }
+    const parsed=parseVoiceDraftCorrection(correctionText,draft.lines.length);
     if(!parsed.ok){setCorrectionError(parsed.message);return;}
     setCorrectionError(null);
     setCorrection(parsed.value);
@@ -196,8 +237,48 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     setCorrectionText("");
     setCorrectionError(null);
   }
+  function applyContextCorrection(){
+    if(!draft||!contextCorrection)return;
+    if(contextSnapshot!==snapshot()){
+      setContextCorrection(null);
+      setCorrectionError("The draft changed. Prepare the correction again.");
+      return;
+    }
+    if(contextCorrection.kind==="CUSTOMER"){
+      if(contextCorrection.walkIn){
+        setCustomerId("");
+      }else{
+        const selected=contextCustomerCandidates.find(
+          customer=>customer.id===selectedContextCustomerId&&customer.active,
+        );
+        if(!selected){
+          setCorrectionError("Select an existing active customer before confirming.");
+          return;
+        }
+        setCustomerId(selected.id);
+      }
+    }else{
+      setPaymentMethod(contextCorrection.method);
+    }
+    setReviewed(false);
+    setContextCorrection(null);
+    setCorrection(null);
+    setCorrectionText("");
+    setCorrectionError(null);
+    setSelectedContextCustomerId("");
+  }
   function apply(){
     if(!draft||!reviewed||draft.intent!=="SALE"||!draft.lines.length)return;
+    if(correction||contextCorrection){
+      setRecognitionError("Confirm or discard the pending correction before adding the cart.");
+      setReviewed(false);
+      return;
+    }
+    if(paymentMethod==="CREDIT"&&!customerId){
+      setRecognitionError("Credit sales require an active, linked customer. Select the customer first.");
+      setReviewed(false);
+      return;
+    }
     const cleaned=draft.lines.filter(l=>
       Number.isInteger(l.quantity)&&l.quantity>0&&l.quantity<=500);
     if(!cleaned.length)return;
@@ -247,7 +328,8 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
           <textarea rows={4} value={transcript} maxLength={2000}
             placeholder={sample}
             onChange={e=>{setTranscript(e.target.value);setDraft(null);
-              setCorrection(null);setReviewed(false);}}/>
+              setCorrection(null);setContextCorrection(null);
+              setReviewed(false);}}/>
         </label>
         {recognitionError?<p className={styles.warning} role="alert">{recognitionError}</p>:null}
         <div className={styles.controls}>
@@ -255,7 +337,8 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
             onClick={analyze}>Prepare draft for review</button>
           <button type="button" onClick={()=>{
             stop();setTranscript("");setDraft(null);setReviewed(false);setCustomerId("");
-            setCorrection(null);setCorrectionText("");setCorrectionError(null);
+            setCorrection(null);setContextCorrection(null);
+            setCorrectionText("");setCorrectionError(null);
           }}>Clear</button>
         </div>
         {draft?<div className={styles.review}>
@@ -288,6 +371,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
               <button type="button" aria-label={"Remove item "+(i+1)} onClick={()=>{
                 setDraft(prev=>prev?{...prev,lines:prev.lines.filter((_,j)=>j!==i)}:prev);
                 setCorrection(null);
+                setContextCorrection(null);
                 setReviewed(false);
               }}>Remove</button>
             </div>)}
@@ -296,7 +380,9 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
             <h4>Correct a drafted item by voice</h4>
             <p>Try “change item two to SKU 326”, “change quantity of item one
               to three”, or “remove item three”. The system proposes the edit
-              for you to confirm; it never changes a price or posts a sale.</p>
+              for you to confirm; it never changes a price or posts a sale.
+              You can also say “change customer to Comfort Mensah”,
+              “use walk-in customer”, or “set payment to MoMo”.</p>
             <div className={styles.controls}>
               <button type="button"
                 onClick={listening?stop:()=>start("correction")}>
@@ -308,12 +394,37 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
               placeholder="Change item two to door number 058"
               onChange={e=>{
                 setCorrectionText(e.target.value);
-                setCorrection(null);setCorrectionError(null);
+                setCorrection(null);setContextCorrection(null);
+                setCorrectionError(null);
               }}/>
             <button type="button" disabled={!correctionText.trim()||listening}
               onClick={analyzeCorrection}>Prepare correction for review</button>
             {correctionError?<p className={styles.warning} role="alert">
               {correctionError}</p>:null}
+            {contextCorrection?<div className={styles.correctionPreview}>
+              {contextCorrection.kind==="CUSTOMER"?
+                contextCorrection.walkIn?
+                  <p>Proposed customer: <strong>Walk-in customer (no linked account)</strong></p>:
+                  <label>Choose the existing customer (required)
+                    <select value={selectedContextCustomerId}
+                      onChange={e=>setSelectedContextCustomerId(e.target.value)}>
+                      <option value="">Choose the correct active customer</option>
+                      {contextCustomerCandidates.map(customer=><option
+                        key={customer.id} value={customer.id}>{customer.name}</option>)}
+                    </select>
+                  </label>:
+                <p>Proposed payment method: <strong>{{
+                  MOMO:"MoMo",CASH:"Cash",BANK:"Bank transfer",
+                  CARD:"Card",CREDIT:"Credit / pay later",
+                }[contextCorrection.method]}</strong>. Final settlement still
+                requires checkout confirmation.</p>}
+              <button type="button" className={styles.primary}
+                disabled={contextCorrection.kind==="CUSTOMER"&&
+                  !contextCorrection.walkIn&&!selectedContextCustomerId}
+                onClick={applyContextCorrection}>
+                Confirm customer/payment correction
+              </button>
+            </div>:null}
             {correction?<div className={styles.correctionPreview}>
               <p>Item {correction.index+1}: <strong>{draft.lines[correction.index]?.item.name}</strong></p>
               {correction.kind==="REMOVE"?<p>Proposed change: remove this draft line.</p>:
@@ -368,7 +479,10 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
             </div>:null}
           </section>
           <label>Customer
-            <select value={customerId} onChange={e=>{setCustomerId(e.target.value);setReviewed(false);}}>
+            <select value={customerId} onChange={e=>{
+              setCustomerId(e.target.value);setContextCorrection(null);
+              setCorrection(null);setReviewed(false);
+            }}>
               <option value="">Walk-in / select later</option>
               {customers.filter(c=>c.active).map(c=><option key={c.id} value={c.id}>
                 {c.name}
@@ -377,7 +491,10 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
           </label>
           <label>Spoken payment preference
             <select value={paymentMethod}
-              onChange={e=>{setPaymentMethod(e.target.value as VoicePayment);setReviewed(false);}}>
+              onChange={e=>{
+                setPaymentMethod(e.target.value as VoicePayment);
+                setContextCorrection(null);setCorrection(null);setReviewed(false);
+              }}>
               <option value="UNSPECIFIED">Decide at checkout</option>
               <option value="CASH">Cash</option>
               <option value="MOMO">MoMo</option>
@@ -395,6 +512,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
             I reviewed the customer, item identities, quantities and displayed amounts.
           </label>
           <button type="button" className={styles.primary} disabled={!reviewed||
+            Boolean(correction)||Boolean(contextCorrection)||
             draft.intent!=="SALE"||draft.lines.length===0} onClick={apply}>
             Add reviewed items to sale cart
           </button>
