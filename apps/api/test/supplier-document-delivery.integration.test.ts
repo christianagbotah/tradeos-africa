@@ -135,6 +135,30 @@ describe("safe supplier purchase-order email outbox",()=>{
     expect(await count(m,"supplier_payable_ledger")).toBe(0);
     expect(await count(m,"cashbook_entries")).toBe(0);
   });
+  it("allows an authenticated merchant to preview the exact saved PDF before sending",async()=>{
+    const a=await merchant("pdf-own"),b=await merchant("pdf-foreign");
+    await issue(a);
+    const created=await prepare(a);
+    expect(created.statusCode,created.body).toBe(201);
+    const deliveryId=created.json().delivery.id as string;
+    const path="/v1/supplier-document-deliveries/"+deliveryId+"/pdf?businessId=";
+    const pdf=await app.inject({method:"GET",headers:a.headers,
+      url:path+a.businessId});
+    expect(pdf.statusCode,pdf.body).toBe(200);
+    expect(pdf.headers["content-type"]).toContain("application/pdf");
+    expect(pdf.headers["content-disposition"]).toContain(".pdf");
+    expect(pdf.headers["cache-control"]).toContain("no-store");
+    expect(pdf.rawPayload.subarray(0,5).toString()).toBe("%PDF-");
+    const unauthenticated=await app.inject({method:"GET",url:path+a.businessId});
+    expect(unauthenticated.statusCode).toBe(401);
+    const foreign=await app.inject({method:"GET",headers:b.headers,
+      url:path+b.businessId});
+    expect(foreign.statusCode).toBe(404);
+    // Previewing must not mark as sent, affect stock or post money.
+    expect((await history(a)).json().deliveries[0].status).toBe("PREPARED");
+    expect(await count(a,"inventory_movements")).toBe(0);
+    expect(await count(a,"cashbook_entries")).toBe(0);
+  });
   it("enforces issued orders, saved supplier address, tenant isolation and auth",async()=>{
     const a=await merchant("scope-a"),b=await merchant("scope-b");
     const unissued=await prepare(a);

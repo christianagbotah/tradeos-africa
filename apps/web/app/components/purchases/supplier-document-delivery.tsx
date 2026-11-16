@@ -110,6 +110,31 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
     }catch(err){setError(err instanceof Error?err.message:"Could not update delivery");}
     finally{setBusy(false);}
   }
+  async function downloadPdf(row:Delivery){
+    if(!businessId||!online||busy)return;
+    setBusy(true);setError(null);setNotice(null);
+    try{
+      const path="/v1/supplier-document-deliveries/"+
+        encodeURIComponent(row.id)+"/pdf?businessId="+encodeURIComponent(businessId);
+      const response=await getOfflineQueue().authenticatedFetch(path,{method:"GET"});
+      if(!response.ok)throw new Error(await readApiErrorMessage(response));
+      if(!(response.headers.get("content-type")??"").includes("application/pdf"))
+        throw new Error("The server did not return a PDF document.");
+      const pdf=await response.blob();
+      const url=URL.createObjectURL(pdf);
+      try{
+        const anchor=document.createElement("a");
+        anchor.href=url;
+        anchor.download="PO-"+row.documentNumber.replace(/[^A-Za-z0-9._-]/g,"-")+".pdf";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      }finally{window.setTimeout(()=>URL.revokeObjectURL(url),10_000);}
+      setNotice("Exact purchase-order PDF downloaded from this delivery draft.");
+    }catch(err){
+      setError(err instanceof Error?err.message:"Could not download the PDF");
+    }finally{setBusy(false);}
+  }
   async function copyForManualSharing(row:Delivery){
     try{
       await navigator.clipboard.writeText(row.bodyText);
@@ -154,8 +179,9 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
             onChange={e=>{requestId.current=null;setRecipient(e.target.value);}}/>
         </label>
         <p className={styles.muted}>Purchase order: <strong>{orderNumber}</strong>.
-          This release sends a server-generated text summary. Use the existing
-          Print / Save as PDF action for a printable PDF copy.</p>
+          Every authorized email includes the server-generated purchase-order
+          PDF attachment as well as a plain-text summary. Preview the exact
+          saved PDF from the delivery history before authorizing.</p>
         {canPrepare?<button type="button" className={styles.primary}
           disabled={!online||busy||!draftRecipient.trim()}
           onClick={()=>void create()}>
@@ -182,6 +208,11 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
                 <button type="button" className={styles.secondary}
                   onClick={()=>setExpanded(v=>({...v,[row.id]:!v[row.id]}))}>
                   {expanded[row.id]?"Hide":"Review"} exact email
+                </button>
+                <button type="button" className={styles.secondary}
+                  disabled={!online||busy}
+                  onClick={()=>void downloadPdf(row)}>
+                  Download exact PDF
                 </button>
                 <button type="button" className={styles.secondary}
                   onClick={()=>void copyForManualSharing(row)}>

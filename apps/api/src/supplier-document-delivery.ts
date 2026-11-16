@@ -4,6 +4,7 @@ import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { withTransaction, type DatabasePool, type DatabaseClient } from "./db.js";
 import { documentEmailConfig } from "./supplier-document-delivery-worker.js";
+import { renderSupplierPurchaseOrderPdf } from "./supplier-document-pdf.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL=/^[^\s@\r\n<>]+@[^\s@\r\n<>]+\.[^\s@\r\n<>]+$/;
@@ -191,6 +192,32 @@ export function registerSupplierDocumentDeliveryRoutes(app:FastifyInstance,pool:
             ORDER BY created_at DESC,id DESC LIMIT 100`,[businessId,orderId])).rows;
         return {currentSupplierEmail:po.current_email,
           deliveries:rows.map(view)};
+      }catch(err){return errorResult(request,reply,err);}
+    });
+  // The downloadable preview uses the same persisted, tenant-scoped draft
+  // snapshot that will be attached by the SMTP worker. Never query live prices.
+  app.get<{Params:{deliveryId:string};Querystring:{businessId?:string}}>(
+    "/v1/supplier-document-deliveries/:deliveryId/pdf", async(request,reply)=>{
+      try{
+        const businessId=id(request.query.businessId,"businessId");
+        const deliveryId=id(request.params.deliveryId,"deliveryId");
+        await requireBusinessRole(pool,
+          await authenticateAccessToken(pool,request.headers.authorization),
+          businessId,ACCESS);
+        const record=(await pool.query<{
+          document_number:string;payload_snapshot:unknown
+        }>("SELECT document_number,payload_snapshot FROM supplier_document_deliveries WHERE business_id=$1 AND id=$2",
+          [businessId,deliveryId])).rows[0];
+        if(!record)throw new DeliveryError("Delivery request unavailable",
+          "DELIVERY_NOT_FOUND",404);
+        const pdf=await renderSupplierPurchaseOrderPdf(record.payload_snapshot);
+        const filename="PO-"+record.document_number.replace(/[^A-Za-z0-9._-]/g,"-")
+          .slice(0,80)+".pdf";
+        return reply.header("Content-Type","application/pdf")
+          .header("Content-Disposition",'attachment; filename="'+filename+'"')
+          .header("Cache-Control","private, no-store")
+          .header("X-Content-Type-Options","nosniff")
+          .send(pdf);
       }catch(err){return errorResult(request,reply,err);}
     });
   app.post<{Params:{orderId:string};Body:{
