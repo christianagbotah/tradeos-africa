@@ -26,7 +26,7 @@ describe("five-item mobile bottom navigation", () => {
     expect(groups.map((group) => group.title)).toEqual(["Sales & stock", "Operations & insights", "Business & account"]);
     const menu = links("OWNER");
     expect(menu.map((item) => item.id)).toEqual([
-      "documents", "catalog", "inventory", "returns", "purchases", "purchase-orders", "cashbook", "operations", "reports",
+      "documents", "pricing", "catalog", "inventory", "returns", "purchases", "purchase-orders", "cashbook", "operations", "reports",
       "business", "branches", "team", "billing", "devices", "profile", "security", "settings",
     ]);
     expect(menu.find((item) => item.id === "business")?.href).toBe("/settings?section=business");
