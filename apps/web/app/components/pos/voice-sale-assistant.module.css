@@ -33,3 +33,7 @@
 .candidate strong{font-size:13px;overflow-wrap:anywhere}
 .candidate span{font-size:12px;opacity:.8;overflow-wrap:anywhere}
 .candidate button{flex:none;min-width:55px;background:#174f79;color:white;border:0;padding:9px;border-radius:7px;cursor:pointer;font-weight:750}
+.correctionPreview{display:grid;gap:10px;padding:10px;border:1px solid var(--tos-border,#dce4ec);
+  border-radius:9px;background:var(--tos-surface-soft,#f4f7fc)}
+.correctionPreview p{font-size:13px;margin:0}
+.correctionPreview button{justify-self:start}

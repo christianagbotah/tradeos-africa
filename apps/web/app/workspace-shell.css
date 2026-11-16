@@ -9124,3 +9124,16 @@
     -webkit-print-color-adjust: exact;
   }
 }
+
+
+/* A soft, readable notice sits immediately above fuzzy search results. */
+.tos-pos-similar-note {
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--tos-border);
+  border-radius: 8px;
+  background: var(--tos-surface-soft);
+  color: var(--tos-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}

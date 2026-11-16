@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { filterSellableItems, type CatalogKind, type SellableItem } from "../../../lib/catalog-read-model";
+import { type CatalogKind, type SellableItem } from "../../../lib/catalog-read-model";
+import {searchPosCatalog} from "../../../lib/pos-catalog-search";
 import { StatePanel } from "../ui/state-panel";
 import { MoneyValue } from "../business/money-value";
 import {
@@ -39,7 +40,8 @@ export function ProductBrowser({ items, currencyCode, onPick, onSpeak, cartQuant
   const internalRef = useRef<HTMLInputElement | null>(null);
   const inputRef = searchRef ?? internalRef;
 
-  const searched = useMemo(() => filterSellableItems(items, query), [items, query]);
+  const searchResult=useMemo(()=>searchPosCatalog(items,query),[items,query]);
+  const searched=searchResult.items;
 
   const availableKinds = useMemo<readonly CatalogKind[]>(() => {
     const seen = new Set<CatalogKind>();
@@ -99,7 +101,7 @@ export function ProductBrowser({ items, currencyCode, onPick, onSpeak, cartQuant
           placeholder="Search products by name or SKU…"
           aria-label="Search products"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => { setQuery(e.target.value); setKind("ALL"); }}
         />
         {query ? (
           <button
@@ -122,6 +124,10 @@ export function ProductBrowser({ items, currencyCode, onPick, onSpeak, cartQuant
           <span aria-hidden="true">🎙</span> Speak a sale
         </button> : null}
       </div>
+
+      {searchResult.approximate&&hasMatches?<p className="tos-pos-similar-note" role="status">
+        Similar catalog matches for "{query}" — verify the product, SKU and unit before adding.
+      </p>:null}
 
       {showChips ? (
         <div className="tos-pos-chips" role="group" aria-label="Filter by type">
