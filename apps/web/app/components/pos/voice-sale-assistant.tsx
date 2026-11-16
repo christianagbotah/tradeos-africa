@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatMoney } from "@tradeos/contracts";
 import { filterSellableItems, type SellableItem } from "../../../lib/catalog-read-model";
 import {rankSpokenCatalogProducts} from "../../../lib/voice-catalog-matcher";
+import {searchPosCatalog} from "../../../lib/pos-catalog-search";
+import {parseVoiceDraftCorrection,type VoiceDraftCorrection}
+  from "../../../lib/voice-draft-corrections";
 import type { Customer } from "../workspace/workspace-provider";
 import {
   draftVoiceTransaction, type VoiceDraft, type VoicePayment,
@@ -42,6 +45,13 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
   const [paymentMethod,setPaymentMethod]=useState<VoicePayment>("UNSPECIFIED");
   const [language,setLanguage]=useState("en-GH");
   const [catalogSearch,setCatalogSearch]=useState("");
+  const [correctionText,setCorrectionText]=useState("");
+  const [correctionError,setCorrectionError]=useState<string|null>(null);
+  const [correction,setCorrection]=useState<VoiceDraftCorrection|null>(null);
+  const [replacementKey,setReplacementKey]=useState("");
+  const [correctionTargetKey,setCorrectionTargetKey]=useState("");
+  const [correctionCandidates,setCorrectionCandidates]=useState<SellableItem[]>([]);
+
   const manualMatches=useMemo(()=>{
     if(!catalogSearch.trim())return [];
     const exact=filterSellableItems(sellable,catalogSearch).slice(0,12);
@@ -55,7 +65,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     activeRef.current?.stop();
     setListening(false);
   }
-  function start(){
+  function start(mode:"sale"|"correction"="sale"){
     if(listening)return;
     const w=window as WindowWithRecognition;
     const Factory=w.SpeechRecognition??w.webkitSpeechRecognition;
@@ -64,26 +74,37 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
         "Voice recognition is not available in this browser. Type or paste the transaction below.");
       return;
     }
-    setRecognitionError(null);
-    setReviewed(false);
-    setDraft(null);
+    if(mode==="sale"){
+      setRecognitionError(null);
+      setReviewed(false);
+      setDraft(null);
+    }else{
+      setCorrectionError(null);
+      setCorrection(null);
+    }
     const engine=new Factory();
     activeRef.current=engine;
     engine.lang=language;
     engine.continuous=false;
     engine.interimResults=true;
-    const prior=transcript.trim();
+    const prior=(mode==="correction"?correctionText:transcript).trim();
     engine.onresult=(event)=>{
       const segments=Array.from(event.results)
         .map(segment=>segment[0]?.transcript??"").filter(Boolean);
-      setTranscript([prior,segments.join(" ")].filter(Boolean).join(" ").slice(0,2000));
+      const next=[prior,segments.join(" ")].filter(Boolean).join(" ");
+      if(mode==="correction"){
+        setCorrectionText(next.slice(0,500));
+      }else{
+        setTranscript(next.slice(0,2000));
+      }
     };
     engine.onerror=(event)=>{
       setListening(false);
-      setRecognitionError(
-        event.error==="not-allowed"||event.error==="service-not-allowed"?
-          "Microphone permission was denied. Enable it in your browser or use text entry.":
-          "Speech recognition stopped ("+event.error+"). Check the transcript and try again.");
+      const message=event.error==="not-allowed"||event.error==="service-not-allowed"?
+        "Microphone permission was denied. Enable it or type the correction.":
+        "Speech recognition stopped ("+event.error+"). Check the text and try again.";
+      if(mode==="correction")setCorrectionError(message);
+      else setRecognitionError(message);
     };
     engine.onend=()=>{
       activeRef.current=null;
@@ -91,12 +112,16 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     };
     try{engine.start();setListening(true);}
     catch{activeRef.current=null;setListening(false);
-      setRecognitionError("Could not start voice recognition. Try manual text entry.");}
+      if(mode==="correction")setCorrectionError(
+        "Could not start the microphone. Type the correction instead.");
+      else setRecognitionError("Could not start voice recognition. Try manual text entry.");}
   }
   function analyze(){
     if(!transcript.trim())return;
     const result=draftVoiceTransaction(transcript,sellable,customers);
     setDraft(result);
+    setCorrection(null);
+    setCorrectionText("");
     setCustomerId(result.customerId??"");
     setPaymentMethod(result.paymentMethod);
     setReviewed(false);
@@ -105,6 +130,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
   function updateLine(index:number,update:{item?:SellableItem;quantity?:number}){
     setDraft(prev=>prev?{...prev,lines:prev.lines.map((line,i)=>
       i===index?{...line,...update}:line)}:prev);
+    setCorrection(null);
     setReviewed(false);
   }
   function addCandidate(item:SellableItem){
@@ -118,7 +144,57 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
         suggestions:prev.suggestions.filter(s=>s.item.key!==item.key)};
     });
     setReviewed(false);
+    setCorrection(null);
     setRecognitionError(null);
+  }
+  function analyzeCorrection(){
+    if(!draft)return;
+    const parsed=parseVoiceDraftCorrection(correctionText,draft.lines.length);
+    setCorrection(null);
+    setCorrectionCandidates([]);
+    setReplacementKey("");
+    if(!parsed.ok){setCorrectionError(parsed.message);return;}
+    setCorrectionError(null);
+    setCorrection(parsed.value);
+    setCorrectionTargetKey(draft.lines[parsed.value.index]?.item.key??"");
+    if(parsed.value.kind==="REPLACE"){
+      const choices=searchPosCatalog(sellable,parsed.value.productQuery,12).items;
+      setCorrectionCandidates(choices);
+      if(!choices.length)setCorrectionError(
+        "No catalog match for the replacement. Try the exact name or SKU, or edit the item dropdown.");
+    }
+  }
+  function applyCorrection(){
+    if(!draft||!correction)return;
+    if(correction.index<0||correction.index>=draft.lines.length||
+      draft.lines[correction.index]?.item.key!==correctionTargetKey){
+      setCorrectionError("The draft changed. Prepare this correction again.");
+      setCorrection(null);return;
+    }
+    let replacement:SellableItem|undefined;
+    if(correction.kind==="REPLACE"){
+      replacement=correctionCandidates.find(item=>item.key===replacementKey);
+      if(!replacement){setCorrectionError("Select the correct replacement item first.");return;}
+      if(draft.lines.some((line,i)=>i!==correction.index&&line.item.key===replacement!.key)){
+        setCorrectionError("This product is already in another line. Edit its quantity or remove the duplicate first.");
+        return;
+      }
+    }
+    const nextLines=correction.kind==="REMOVE"?
+      draft.lines.filter((_,i)=>i!==correction.index):
+      draft.lines.map((line,i)=>{
+        if(i!==correction.index)return line;
+        if(correction.kind==="QUANTITY")return {...line,quantity:correction.quantity};
+        return {...line,item:replacement!,spoken:correction.productQuery,
+          confidence:"similar" as const};
+      });
+    setDraft({...draft,lines:nextLines});
+    setReviewed(false);
+    setCorrection(null);
+    setCorrectionCandidates([]);
+    setReplacementKey("");
+    setCorrectionText("");
+    setCorrectionError(null);
   }
   function apply(){
     if(!draft||!reviewed||draft.intent!=="SALE"||!draft.lines.length)return;
@@ -162,7 +238,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
             </select>
           </label>
           <button type="button" className={styles.primary}
-            onClick={listening?stop:start}>
+            onClick={listening?stop:()=>start("sale")}>
             {listening?"Stop listening":"🎙 Start speaking"}
           </button>
           {listening?<span role="status">Listening…</span>:null}
@@ -170,7 +246,8 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
         <label className={styles.field}>Your transaction
           <textarea rows={4} value={transcript} maxLength={2000}
             placeholder={sample}
-            onChange={e=>{setTranscript(e.target.value);setDraft(null);setReviewed(false);}}/>
+            onChange={e=>{setTranscript(e.target.value);setDraft(null);
+              setCorrection(null);setReviewed(false);}}/>
         </label>
         {recognitionError?<p className={styles.warning} role="alert">{recognitionError}</p>:null}
         <div className={styles.controls}>
@@ -178,6 +255,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
             onClick={analyze}>Prepare draft for review</button>
           <button type="button" onClick={()=>{
             stop();setTranscript("");setDraft(null);setReviewed(false);setCustomerId("");
+            setCorrection(null);setCorrectionText("");setCorrectionError(null);
           }}>Clear</button>
         </div>
         {draft?<div className={styles.review}>
@@ -209,10 +287,54 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
                 line.item.priceMinor*line.quantity,currencyCode)}</div>
               <button type="button" aria-label={"Remove item "+(i+1)} onClick={()=>{
                 setDraft(prev=>prev?{...prev,lines:prev.lines.filter((_,j)=>j!==i)}:prev);
+                setCorrection(null);
                 setReviewed(false);
               }}>Remove</button>
             </div>)}
           </div>
+          <section className={styles.suggestSection}>
+            <h4>Correct a drafted item by voice</h4>
+            <p>Try “change item two to SKU 326”, “change quantity of item one
+              to three”, or “remove item three”. The system proposes the edit
+              for you to confirm; it never changes a price or posts a sale.</p>
+            <div className={styles.controls}>
+              <button type="button"
+                onClick={listening?stop:()=>start("correction")}>
+                {listening?"Stop microphone":"🎙 Speak a correction"}
+              </button>
+            </div>
+            <input type="text" value={correctionText} maxLength={500}
+              aria-label="Spoken correction command"
+              placeholder="Change item two to door number 058"
+              onChange={e=>{
+                setCorrectionText(e.target.value);
+                setCorrection(null);setCorrectionError(null);
+              }}/>
+            <button type="button" disabled={!correctionText.trim()||listening}
+              onClick={analyzeCorrection}>Prepare correction for review</button>
+            {correctionError?<p className={styles.warning} role="alert">
+              {correctionError}</p>:null}
+            {correction?<div className={styles.correctionPreview}>
+              <p>Item {correction.index+1}: <strong>{draft.lines[correction.index]?.item.name}</strong></p>
+              {correction.kind==="REMOVE"?<p>Proposed change: remove this draft line.</p>:
+                correction.kind==="QUANTITY"?<p>Proposed quantity: <strong>{correction.quantity}</strong></p>:
+                <label>Choose exact replacement (required)
+                  <select value={replacementKey}
+                    onChange={e=>setReplacementKey(e.target.value)}>
+                    <option value="">Select a matching catalog item</option>
+                    {correctionCandidates.map(item=><option key={item.key} value={item.key}>
+                      {item.name} · {item.sku||"No SKU"} · {item.unitLabel}
+                      {" "}· {formatMoney(item.priceMinor,currencyCode)}
+                    </option>)}
+                  </select>
+                </label>}
+              <button type="button" className={styles.primary}
+                disabled={correction.kind==="REPLACE"&&!replacementKey}
+                onClick={applyCorrection}>
+                Confirm correction to draft
+              </button>
+            </div>:null}
+          </section>
           {draft.suggestions.length ? <section className={styles.suggestSection}>
             <h4>Possible matching products</h4>
             <p>These were not automatically added. Check whether one of them
