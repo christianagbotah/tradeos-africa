@@ -44,7 +44,7 @@ export default function CommercialDocumentDetail() {
       <Link href="/documents">Back to quotations & proformas</Link>
       {document.status==="ISSUED"?<button type="button" onClick={()=>window.print()}>Print / Save as PDF</button>:null}
     </div>
-    <article id="tradeos-commercial-document" className={styles.document}>
+    <article id="tradeos-commercial-document" className={`tos-print-document ${styles.document}`}>
       <header className={styles.header}>
         <h1>{business?.name||session?.businessName||"Business"}</h1>
         {branch?<p>{branch.name} branch</p>:null}

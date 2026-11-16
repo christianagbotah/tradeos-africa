@@ -39,18 +39,17 @@
 @media(max-width:420px){.overview{grid-template-columns:1fr}.hero h1{font-size:22px}.heroAmount strong{font-size:27px}.grand strong{font-size:20px}}
 @media print {
   @page{size:A4 portrait;margin:13mm}
-  :global(body:has(#tradeos-supplier-po)) *{visibility:hidden!important}
-  :global(body:has(#tradeos-supplier-po)) #tradeos-supplier-po,
-  :global(body:has(#tradeos-supplier-po)) #tradeos-supplier-po *{visibility:visible!important}
+  /* The app shell is removed from print layout by workspace-shell.css.
+     Do not hide all elements: that caused blank or clipped print previews. */
   .actions{display:none!important}
   .wrapper{padding:0;margin:0;max-width:none}
-  .document{position:absolute;top:0;left:0;width:100%;box-shadow:none;border:0;border-radius:0}
+  .document{position:static;width:100%;box-shadow:none;border:0;border-radius:0;overflow:visible;break-after:auto}
   .hero{background:#fff!important;color:#142339!important;border-bottom:2px solid #233f61;padding:12px 0 18px}
   .hero h1,.heroAmount strong{color:#142339!important}
   .eyebrow,.number,.heroAmount span,.heroSub{color:#415a77!important}
   .overview,.itemsScroll{padding-left:0;padding-right:0}
   .statusRow{margin-left:0}
-  .itemsScroll{overflow:visible}
+  .itemsScroll{overflow:visible;max-width:none}
   .items{min-width:0}
   .items tr{page-break-inside:avoid}
   .totals{margin-right:0}

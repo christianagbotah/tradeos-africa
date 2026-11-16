@@ -703,6 +703,12 @@ jobs:
           await browser.close();
           CAPTURE
 
+      # Create actual sales, quotation and PO documents through the isolated
+      # API contracts, then verify Chromium renders print CSS and real PDFs.
+      # This catches blank previews that ordinary screenshots of /sales miss.
+      - name: Verify nonblank printable sales receipts and documents
+        run: node scripts/qa/verify-print-pages.mjs
+
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4

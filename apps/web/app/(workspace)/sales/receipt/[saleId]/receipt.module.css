@@ -31,12 +31,12 @@
 .blocked a { text-decoration: underline; }
 @media print {
   @page { margin: 6mm; }
-  :global(body:has(#tos-verified-receipt)) * { visibility: hidden !important; }
-  :global(body:has(#tos-verified-receipt)) #tos-verified-receipt,
-  :global(body:has(#tos-verified-receipt)) #tos-verified-receipt * { visibility: visible !important; }
+  /* Print only after the authenticated receipt is fully rendered.
+   * Never globally hide the receipt's ancestor tree: nested print
+   * containers, Chromium/PWA previews and CSS modules could leave it blank. */
   .actions, .hint { display: none !important; }
   .wrapper { padding: 0; margin: 0; max-width: none; }
-  .receipt { position: fixed; top: 0; left: 0; width: 76mm; max-width: 76mm; padding: 2mm; border: 0; box-shadow: none; font-size: 11px; }
+  .receipt { position: static; width: 76mm; max-width: 76mm; min-height: 0; margin: 0; padding: 2mm; border: 0; box-shadow: none; font-size: 11px; color: #111; break-after: auto; }
   .items { font-size: 10px; }
   .header h1 { font-size: 13px; }
   .brand { font-size: 17px; }

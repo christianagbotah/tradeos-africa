@@ -27,11 +27,10 @@
 @media(max-width:640px){.document{padding:18px 12px}.summary{grid-template-columns:1fr 1fr;gap:12px}.document th,.document td{padding:8px 4px;font-size:11px}.documentHeading h2{font-size:15px}.header h1{font-size:21px}.grand{font-size:16px}}
 @media print{
   @page{size:A4 portrait;margin:14mm}
-  :global(body:has(#tradeos-commercial-document)) *{visibility:hidden!important}
-  :global(body:has(#tradeos-commercial-document)) #tradeos-commercial-document,
-  :global(body:has(#tradeos-commercial-document)) #tradeos-commercial-document *{visibility:visible!important}
+  /* Global print shell rules hide non-document UI without hiding its ancestors. */
   .wrapper{margin:0;padding:0;max-width:none}
   .actions{display:none!important}
-  .document{position:absolute;top:0;left:0;box-shadow:none;border:0;padding:0;width:100%;border-radius:0}
-  .document table{page-break-inside:avoid}
+  .document{position:static;box-shadow:none;border:0;padding:0;width:100%;border-radius:0;overflow:visible;color:#152235}
+  .document table{page-break-inside:auto}
+  .document tr{break-inside:avoid;page-break-inside:avoid}
 }

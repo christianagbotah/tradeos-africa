@@ -56,14 +56,18 @@ export default function VerifiedSaleReceiptPage() {
           Print / Save as PDF
         </button>
       </div>
-      <article id="tos-verified-receipt" className={styles.receipt} aria-label="Verified sales receipt">
+      <article id="tos-verified-receipt" className={`tos-print-document ${styles.receipt}`} aria-label="Verified sales receipt">
         <header className={styles.header}>
           <div className={styles.brand}>{business?.name || session?.businessName || "Business"}</div>
           {branch ? <div className={styles.muted}>{branch.name} branch</div> : null}
           {address ? <div className={styles.muted}>{address}</div> : null}
           {branch?.phone || business?.phone ? <div className={styles.muted}>Tel: {branch?.phone || business?.phone}</div> : null}
           <h1>{onCredit ? "CREDIT SALE RECORD" : "SALES RECEIPT"}</h1>
-          <span className={styles.status}>{onCredit ? "PAYMENT DUE" : "SALE COMPLETED"}</span>
+          <span className={styles.status}>
+            {sale.status === "REFUNDED" ? "SALE REFUNDED" :
+              sale.status === "PARTIALLY_REFUNDED" ? "PARTIALLY REFUNDED" :
+              onCredit ? "PAYMENT DUE" : "SALE COMPLETED"}
+          </span>
         </header>
         <div className={styles.details}>
           <div><span>Receipt</span><strong>{sale.id.slice(0, 8).toUpperCase()}</strong></div>
