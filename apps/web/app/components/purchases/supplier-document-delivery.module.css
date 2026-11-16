@@ -54,3 +54,10 @@
 @media(max-width:850px){.columns{grid-template-columns:minmax(0,1fr)}.history{max-height:none}}
 @media(max-width:520px){.shell{padding:0 6px 32px}.panel{padding:15px}}
 @media print{.shell{display:none!important}}
+
+
+.manualShare{border-top:1px solid var(--tos-border,#dce5ee);padding-top:14px;
+  margin-top:14px;display:grid;gap:9px}
+.manualShare h3{font-size:15px;font-weight:800;margin:0}
+.manualShare p{margin:0;overflow-wrap:anywhere}
+.manualShare .actions{margin-top:4px}

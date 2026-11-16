@@ -159,6 +159,55 @@ describe("safe supplier purchase-order email outbox",()=>{
     expect(await count(a,"inventory_movements")).toBe(0);
     expect(await count(a,"cashbook_entries")).toBe(0);
   });
+  it("prepares manual WhatsApp and matching PDF without email or provider sends",async()=>{
+    const a=await merchant("wa-manual"),b=await merchant("wa-other");
+    await issue(a);
+    await pool.query("UPDATE suppliers SET email=NULL WHERE id=$1",[a.supplierId]);
+    const url="/v1/purchase-orders/"+a.orderId+"/manual-whatsapp?businessId=";
+    const prepared=await app.inject({method:"GET",headers:a.headers,
+      url:url+a.businessId});
+    expect(prepared.statusCode,prepared.body).toBe(200);
+    expect(prepared.headers["cache-control"]).toContain("no-store");
+    expect(prepared.json()).toMatchObject({
+      recipientPhone:"233241112222",providerConnected:false,delivered:false,
+    });
+    expect(prepared.json().message).toContain("₵50.00");
+    expect(prepared.json().message).toContain("attach the full purchase-order PDF");
+    expect((await app.inject({method:"GET",url:url+a.businessId})).statusCode).toBe(401);
+    expect((await app.inject({method:"GET",headers:b.headers,
+      url:url+b.businessId})).statusCode).toBe(404);
+    const pdf=await app.inject({method:"GET",headers:a.headers,
+      url:"/v1/purchase-orders/"+a.orderId+
+        "/manual-share-pdf?businessId="+a.businessId});
+    expect(pdf.statusCode,pdf.body).toBe(200);
+    expect(pdf.headers["content-type"]).toContain("application/pdf");
+    expect(pdf.rawPayload.subarray(0,5).toString()).toBe("%PDF-");
+    expect((await app.inject({method:"GET",headers:b.headers,
+      url:"/v1/purchase-orders/"+a.orderId+
+        "/manual-share-pdf?businessId="+b.businessId})).statusCode).toBe(404);
+    expect(await count(a,"supplier_document_deliveries")).toBe(0);
+    expect(await count(a,"supplier_document_delivery_attempts")).toBe(0);
+    expect(await count(a,"cashbook_entries")).toBe(0);
+    expect(await count(a,"inventory_movements")).toBe(0);
+  });
+  it("rejects cancelled or inactive supplier manual WhatsApp operations",async()=>{
+    const m=await merchant("wa-status");
+    const url="/v1/purchase-orders/"+m.orderId+"/manual-whatsapp?businessId="+m.businessId;
+    expect((await app.inject({method:"GET",headers:m.headers,url})).statusCode).toBe(409);
+    await issue(m);
+    await pool.query("UPDATE suppliers SET phone='0302112233' WHERE id=$1",[m.supplierId]);
+    const invalid=await app.inject({method:"GET",headers:m.headers,url});
+    expect(invalid.statusCode,invalid.body).toBe(409);
+    expect(invalid.json().error).toBe("SUPPLIER_WHATSAPP_PHONE_REQUIRED");
+    await pool.query("UPDATE suppliers SET phone='0241112222',is_active=false WHERE id=$1",[m.supplierId]);
+    expect((await app.inject({method:"GET",headers:m.headers,url})).statusCode).toBe(409);
+    await pool.query("UPDATE suppliers SET is_active=true WHERE id=$1",[m.supplierId]);
+    const cancelled=await app.inject({method:"POST",headers:m.headers,
+      url:"/v1/purchase-orders/"+m.orderId+"/cancel",
+      payload:{businessId:m.businessId}});
+    expect(cancelled.statusCode,cancelled.body).toBe(200);
+    expect((await app.inject({method:"GET",headers:m.headers,url})).statusCode).toBe(409);
+  });
   it("enforces issued orders, saved supplier address, tenant isolation and auth",async()=>{
     const a=await merchant("scope-a"),b=await merchant("scope-b");
     const unissued=await prepare(a);

@@ -18,6 +18,10 @@ interface ChannelStatus {
   ready:boolean;issue:string|null;senderEmail:string|null;
   senderName:string;acceptanceOnly:boolean;deliveryReceiptsAvailable:boolean;
 }
+interface ManualWhatsApp {
+  orderId:string;orderNumber:string;recipientName:string;
+  recipientPhone:string;message:string;providerConnected:false;delivered:false;
+}
 interface Props {
   orderId:string;orderNumber:string;status:string;
 }
@@ -52,6 +56,11 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
     whatsapp:{ready:boolean;issue:string}}>(
       businessId&&active&&canView?
         `/v1/supplier-document-delivery/config?businessId=${encodeURIComponent(businessId)}`:null);
+  const manualSharePath=businessId&&active&&canManage?
+    "/v1/purchase-orders/"+encodeURIComponent(orderId)+
+    "/manual-whatsapp?businessId="+encodeURIComponent(businessId):null;
+  const {data:manualWhatsApp,error:manualShareError,refetch:refreshManualShare}=
+    useApiFetch<ManualWhatsApp>(manualSharePath);
   const [recipient,setRecipient]=useState<string|null>(null);
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState<string|null>(null);
@@ -135,6 +144,57 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
       setError(err instanceof Error?err.message:"Could not download the PDF");
     }finally{setBusy(false);}
   }
+  function openManualWhatsApp(){
+    if(!online||busy||!canManage||!manualWhatsApp)return;
+    const {recipientPhone,recipientName,message}=manualWhatsApp;
+    if(!/^[1-9]\d{7,14}$/.test(recipientPhone)||message.length>1800){
+      setError("The supplier contact or prepared message is invalid. Refresh it.");
+      return;
+    }
+    const confirmed=window.confirm(
+      "Open WhatsApp for "+recipientName+" (+"+recipientPhone+")?\n\n"+
+      "This will open a prefilled message, not send it. "+
+      "You must review the recipient, press Send yourself, and attach "+
+      "the purchase-order PDF separately. TradeOS cannot verify delivery."
+    );
+    if(!confirmed)return;
+    const link=document.createElement("a");
+    link.href="https://wa.me/"+recipientPhone+"?text="+encodeURIComponent(message);
+    link.target="_blank";
+    link.rel="noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setNotice("WhatsApp compose was requested. No message or delivery "+
+      "has been recorded by TradeOS. Attach the PDF separately.");
+    setError(null);
+  }
+  async function downloadManualPdf(){
+    if(!businessId||!online||!canManage||busy)return;
+    setBusy(true);setNotice(null);setError(null);
+    try{
+      const path="/v1/purchase-orders/"+encodeURIComponent(orderId)+
+        "/manual-share-pdf?businessId="+encodeURIComponent(businessId);
+      const response=await getOfflineQueue().authenticatedFetch(path,{method:"GET"});
+      if(!response.ok)throw new Error(await readApiErrorMessage(response));
+      if(!(response.headers.get("content-type")??"").includes("application/pdf"))
+        throw new Error("The server did not return a PDF.");
+      const blob=await response.blob();
+      const url=URL.createObjectURL(blob);
+      try{
+        const link=document.createElement("a");
+        link.href=url;
+        link.download="PO-"+orderNumber.replace(/[^A-Za-z0-9._-]/g,"-")+".pdf";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }finally{window.setTimeout(()=>URL.revokeObjectURL(url),10_000);}
+      setNotice("Purchase-order PDF downloaded. Attach it manually to "+
+        "the correct WhatsApp conversation.");
+    }catch(err){setError(err instanceof Error?err.message:
+      "The purchase order could not be downloaded.");
+    }finally{setBusy(false);}
+  }
   async function copyForManualSharing(row:Delivery){
     try{
       await navigator.clipboard.writeText(row.bodyText);
@@ -146,9 +206,9 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
     <header className={styles.header}>
       <div>
         <p className={styles.eyebrow}>Supplier communication</p>
-        <h2>Email purchase order</h2>
-        <p>Send an issued purchase-order summary to the saved supplier email,
-          with explicit manager approval and a permanent sending history.</p>
+        <h2>Supplier document delivery</h2>
+        <p>Send approved supplier emails with permanent delivery history,
+          or prepare a WhatsApp message for manual sharing.</p>
       </div>
       <button type="button" className={styles.secondary}
         disabled={busy} onClick={()=>refetch()}>Refresh history</button>
@@ -164,6 +224,36 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
         "You can prepare and review delivery drafts. Sending stays disabled until the verified SMTP provider is configured on the server."}</p>
       <p>WhatsApp provider sending is not connected. Manual copy is available,
         but it is not counted as a sent message.</p>
+      {canManage?<section className={styles.manualShare}
+          aria-label="Manual WhatsApp purchase-order sharing">
+        <h3>Share purchase order via WhatsApp</h3>
+        <p>Uses the supplier’s currently saved phone number. No API sending,
+          automatic confirmation or delivery tracking. Review the contact
+          and attach the PDF yourself.</p>
+        {manualWhatsApp?
+          <p>Supplier: <strong>{manualWhatsApp.recipientName}</strong>
+            {" "}· WhatsApp: <strong>+{manualWhatsApp.recipientPhone}</strong></p>:
+          <p>WhatsApp contact unavailable. Save a valid Ghana mobile or
+            international phone number under the supplier’s details, then refresh.
+          </p>}
+        {manualShareError?<p className={styles.muted} role="status">
+          {manualShareError}</p>:null}
+        <div className={styles.actions}>
+          <button type="button" className={styles.secondary}
+            disabled={!online||busy} onClick={()=>void downloadManualPdf()}>
+            Download purchase-order PDF
+          </button>
+          <button type="button" className={styles.primary}
+            disabled={!online||busy||!manualWhatsApp}
+            onClick={openManualWhatsApp}>
+            Open WhatsApp (manual)
+          </button>
+          <button type="button" className={styles.secondary}
+            disabled={!online||busy} onClick={()=>refreshManualShare()}>
+            Refresh supplier contact
+          </button>
+        </div>
+      </section>:null}
     </div>
     <div className={styles.columns}>
       <div className={styles.panel}>
