@@ -85,10 +85,13 @@ describe("Hubtel verified collection status",()=>{
       .rejects.toMatchObject({code:"HUBTEL_EXPECTED_PAYMENT_INVALID",statusCode:400});
   });
 
-  it("treats 403 IP-allowlist failures, malformed responses and outages as unavailable",async()=>{
+  it("distinguishes 401 credentials/scope and 403 IP or channel failures",async()=>{
+    const auth=client((async()=>new Response("Unauthorized",{status:401})) as typeof fetch);
+    await expect(auth.verifyStatus(expected))
+      .rejects.toMatchObject({code:"HUBTEL_STATUS_AUTH_REJECTED",statusCode:503});
     const denied=client((async()=>new Response("Forbidden",{status:403})) as typeof fetch);
     await expect(denied.verifyStatus(expected))
-      .rejects.toMatchObject({code:"HUBTEL_STATUS_UNAVAILABLE",statusCode:503});
+      .rejects.toMatchObject({code:"HUBTEL_STATUS_ACCESS_DENIED",statusCode:503});
     const offline=client((async()=>{throw new Error("Connection lost");}) as typeof fetch);
     await expect(offline.verifyStatus(expected))
       .rejects.toMatchObject({code:"HUBTEL_STATUS_UNAVAILABLE",statusCode:503});
