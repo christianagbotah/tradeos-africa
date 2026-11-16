@@ -26,6 +26,17 @@ describe("purchase order supplier delivery UX",()=>{
     expect(ui).toContain("Copy for manual sharing");
     expect(ui).toContain("WhatsApp provider sending is not connected");
   });
+  it("offers a manager-only explicit manual WhatsApp compose, no silent sending",()=>{
+    expect(ui).toContain("Share purchase order via WhatsApp");
+    expect(ui).toContain("Open WhatsApp (manual)");
+    expect(ui).toContain('window.confirm(');
+    expect(ui).toContain('https://wa.me/');
+    expect(ui).toContain('noopener noreferrer');
+    expect(ui).toContain("Download purchase-order PDF");
+    expect(ui).toContain("Attach the PDF separately");
+    expect(ui).toContain("provider sending is not connected");
+    expect(ui).toContain("canManage?<section");
+  });
   it("requires non-receipt confirmation and limits retry after SMTP ambiguity",()=>{
     expect(ui).toContain("confirmedNoDelivery[row.id]");
     expect(ui).toContain("I checked with the supplier and confirmed non-receipt");

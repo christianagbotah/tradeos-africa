@@ -5,6 +5,7 @@ import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js"
 import { withTransaction, type DatabasePool, type DatabaseClient } from "./db.js";
 import { documentEmailConfig } from "./supplier-document-delivery-worker.js";
 import { renderSupplierPurchaseOrderPdf } from "./supplier-document-pdf.js";
+import { makeSupplierWhatsAppSummary, normalizeSupplierWhatsAppPhone } from "./supplier-whatsapp-manual.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL=/^[^\s@\r\n<>]+@[^\s@\r\n<>]+\.[^\s@\r\n<>]+$/;
@@ -34,7 +35,7 @@ interface PORecord {
   business_name_snapshot:string;branch_name_snapshot:string;
   supplier_name_snapshot:string;expected_delivery_at:Date|null;
   notes:string;total_minor:string;
-  supplier_email:string|null;current_email:string|null;current_active:boolean;
+  supplier_email:string|null;current_email:string|null;current_phone:string|null;current_active:boolean;
 }
 interface POLine {
   item_name_snapshot:string;purchase_unit_label_snapshot:string;
@@ -83,7 +84,7 @@ async function loadPO(tx:DatabaseClient,businessId:string,orderId:string,locked=
       o.status,o.currency_code,o.business_name_snapshot,o.branch_name_snapshot,
       o.supplier_name_snapshot,o.expected_delivery_at,o.notes,o.total_minor::text,
       o.supplier_email_snapshot AS supplier_email,
-      s.email AS current_email,s.is_active AS current_active
+      s.email AS current_email,s.phone AS current_phone,s.is_active AS current_active
       FROM supplier_purchase_orders o
       JOIN suppliers s ON s.id=o.supplier_id AND s.business_id=o.business_id
       WHERE o.business_id=$1 AND o.id=$2
@@ -170,6 +171,71 @@ export function registerSupplierDocumentDeliveryRoutes(app:FastifyInstance,pool:
           senderName:c.senderName,
           acceptanceOnly:true,deliveryReceiptsAvailable:false},
           whatsapp:{ready:false,issue:"PROVIDER_NOT_CONNECTED"}};
+      }catch(err){return errorResult(request,reply,err);}
+    });
+  // No WhatsApp provider integration: preparing text is not a send or proof
+  // of delivery. Read the current supplier phone and immutable PO line values.
+  app.get<{Params:{orderId:string};Querystring:{businessId?:string}}>(
+    "/v1/purchase-orders/:orderId/manual-whatsapp",async(request,reply)=>{
+      try{
+        const businessId=id(request.query.businessId,"businessId");
+        const orderId=id(request.params.orderId,"orderId");
+        await requireBusinessRole(pool,
+          await authenticateAccessToken(pool,request.headers.authorization),
+          businessId,AUTHORIZE);
+        const {po,number,snapshot}=await withTransaction(pool,async tx=>{
+          const po=await loadPO(tx,businessId,orderId);
+          if(po.status!=="ISSUED")throw new DeliveryError(
+            "Only issued purchase orders may be shared",
+            "DELIVERY_PO_NOT_ISSUED",409);
+          if(!po.current_active)throw new DeliveryError(
+            "Supplier account is inactive","SUPPLIER_NOT_ACTIVE",409);
+          const number=normalizeSupplierWhatsAppPhone(po.current_phone);
+          if(!number)throw new DeliveryError(
+            "Save a valid international or Ghana mobile number on the supplier before sharing",
+            "SUPPLIER_WHATSAPP_PHONE_REQUIRED",409);
+          const snapshot=await buildSnapshot(tx,po);
+          return {po,number,snapshot};
+        });
+        return reply.header("Cache-Control","private, no-store")
+          .send({orderId,orderNumber:po.order_number,
+            recipientName:po.supplier_name_snapshot,recipientPhone:number,
+            message:makeSupplierWhatsAppSummary({
+              orderNumber:po.order_number,
+              businessName:po.business_name_snapshot,
+              branchName:po.branch_name_snapshot,
+              supplierName:po.supplier_name_snapshot,
+              currencyCode:po.currency_code,
+              expectedDate:po.expected_delivery_at?.toISOString().slice(0,10)??null,
+              totalMinor:snapshot.metadata.totalMinor,
+            }),
+            providerConnected:false,delivered:false});
+      }catch(err){return errorResult(request,reply,err);}
+    });
+  app.get<{Params:{orderId:string};Querystring:{businessId?:string}}>(
+    "/v1/purchase-orders/:orderId/manual-share-pdf",async(request,reply)=>{
+      try{
+        const businessId=id(request.query.businessId,"businessId");
+        const orderId=id(request.params.orderId,"orderId");
+        await requireBusinessRole(pool,
+          await authenticateAccessToken(pool,request.headers.authorization),
+          businessId,AUTHORIZE);
+        const {po,snapshot}=await withTransaction(pool,async tx=>{
+          const po=await loadPO(tx,businessId,orderId);
+          if(po.status!=="ISSUED")throw new DeliveryError(
+            "Only issued purchase orders may be shared",
+            "DELIVERY_PO_NOT_ISSUED",409);
+          const snapshot=await buildSnapshot(tx,po);
+          return {po,snapshot};
+        });
+        const pdf=await renderSupplierPurchaseOrderPdf(snapshot.metadata);
+        const filename="PO-"+po.order_number.replace(/[^A-Za-z0-9._-]/g,"-")
+          .slice(0,80)+".pdf";
+        return reply.header("Content-Type","application/pdf")
+          .header("Content-Disposition",'attachment; filename="'+filename+'"')
+          .header("Cache-Control","private, no-store")
+          .header("X-Content-Type-Options","nosniff")
+          .send(pdf);
       }catch(err){return errorResult(request,reply,err);}
     });
   app.get<{Params:{orderId:string};Querystring:{businessId?:string}}>(
