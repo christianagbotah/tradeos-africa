@@ -90,7 +90,7 @@ export const MUTATION_TYPES: readonly string[] = [
 
 // --- Common types ---------------------------------------------------------
 
-export type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER";
+export type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER" | "CUSTOMER_CREDIT";
 
 export type CatalogRecoveryMethod = "CREDIT_NOTE" | "CASH" | "MOMO" | "CARD" | "BANK" | "OTHER";
 
@@ -521,6 +521,7 @@ export interface SaleCreateInput {
   paymentMethod: PaymentMethod;
   lines: ReadonlyArray<SaleLineInput>;
   customerId?: string | null;
+  payments?: ReadonlyArray<{method: PaymentMethod; amountMinor:number}>;
 }
 
 /**
@@ -541,6 +542,9 @@ export function buildSaleCreatePayload(input: SaleCreateInput): Record<string, u
     })),
   };
   if (input.customerId) payload.customerId = input.customerId;
+  if (input.payments) payload.payments = input.payments.map(payment=>({
+    method:payment.method,amountMinor:payment.amountMinor,
+  }));
   return payload;
 }
 

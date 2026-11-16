@@ -8,6 +8,7 @@ import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { receiptUrl } from "../../../lib/receipt-document";
 import { buildSaleCreatePayload, type PaymentMethod } from "../../../lib/mutation-builders";
 import type { CartLine } from "./cart-panel";
+import type { VoicePayment } from "../../../lib/voice-transaction-draft";
 import { CustomerPicker } from "./customer-picker";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
@@ -33,7 +34,8 @@ const PAYMENT_METHODS: ReadonlyArray<PayMethodDef> = [
   { value: "MOMO", label: "Mobile money", sub: "MTN, Vodafone, Airtel", Icon: IconSmartphone },
   { value: "CARD", label: "Card", sub: "POS terminal", Icon: IconCreditCard },
   { value: "BANK", label: "Bank transfer", sub: "Direct deposit", Icon: IconBuilding },
-  { value: "OTHER", label: "Other", sub: "Credit / custom", Icon: IconWallet },
+  { value: "CUSTOMER_CREDIT", label: "Pay later", sub: "Approved customer credit", Icon: IconWallet },
+  { value: "OTHER", label: "Other", sub: "Manual payment", Icon: IconWallet },
 ];
 
 interface CheckoutSheetProps {
@@ -46,6 +48,8 @@ interface CheckoutSheetProps {
   online: boolean;
   onClose: () => void;
   onComplete: () => void;
+  initialCustomerId?: string | null;
+  initialPaymentMethod?: VoicePayment;
 }
 
 interface SaleResult {
@@ -68,11 +72,15 @@ export function CheckoutSheet({
   online,
   onClose,
   onComplete,
+  initialCustomerId,
+  initialPaymentMethod,
 }: CheckoutSheetProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [hubtelSelected,setHubtelSelected] = useState(false);
   const [hubtelAvailable,setHubtelAvailable] = useState(false);
   const [cashReceivedMinor, setCashReceivedMinor] = useState<number | null>(null);
+  const [splitWithCredit,setSplitWithCredit]=useState(false);
+  const [paidNowMinor,setPaidNowMinor]=useState<number|null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,21 +88,42 @@ export function CheckoutSheet({
 
   // Display-only total — the server prices every sale from its own catalog.
   const totalMinor = lines.reduce((sum, l) => sum + l.sellable.priceMinor * l.quantity, 0);
-  const changeMinor = cashReceivedMinor !== null ? cashReceivedMinor - totalMinor : null;
-  const canCharge = lines.length > 0 && (!hubtelSelected || online) && (paymentMethod !== "CASH" || (cashReceivedMinor !== null && cashReceivedMinor >= totalMinor));
+  const amountToCollect = splitWithCredit?(paidNowMinor??0):totalMinor;
+  const changeMinor = cashReceivedMinor !== null ?
+    cashReceivedMinor - amountToCollect : null;
+  const availableCreditMinor=customer?.creditLimitMinor===null||
+    customer?.creditLimitMinor===undefined?null:
+    Math.max(0,customer.creditLimitMinor-customer.balanceMinor);
+  const creditMinor=splitWithCredit?totalMinor-amountToCollect:
+    paymentMethod==="CUSTOMER_CREDIT"?totalMinor:0;
+  const creditReady=creditMinor<=0||Boolean(customer?.active&&online&&
+    availableCreditMinor!==null&&availableCreditMinor>=creditMinor);
+  const splitValid=!splitWithCredit || (
+    online&&!hubtelSelected&&paymentMethod!=="CUSTOMER_CREDIT"&&
+    Number.isSafeInteger(amountToCollect)&&amountToCollect>0&&amountToCollect<totalMinor
+  );
+  const canCharge = lines.length>0&&(!hubtelSelected||online)&&
+    splitValid&&creditReady&&(paymentMethod!=="CUSTOMER_CREDIT"||online)&&
+    (paymentMethod!=="CASH" || (cashReceivedMinor!==null &&
+      cashReceivedMinor>=amountToCollect));
 
   // Reset state when the sheet opens.
   useEffect(() => {
     if (open) {
-      setPaymentMethod("CASH");
+      const voiceMethod = initialPaymentMethod === "CREDIT"?"CUSTOMER_CREDIT":
+        initialPaymentMethod && initialPaymentMethod!=="UNSPECIFIED"?
+          initialPaymentMethod:"CASH";
+      setPaymentMethod(voiceMethod);
       setHubtelSelected(false);
       setCashReceivedMinor(null);
-      setCustomer(null);
+      setSplitWithCredit(false);
+      setPaidNowMinor(null);
+      setCustomer(customers.find(c=>c.id===initialCustomerId&&c.active)??null);
       setBusy(false);
       setError(null);
       setResult(null);
     }
-  }, [open]);
+  }, [open,initialCustomerId,initialPaymentMethod,customers]);
 
   useEffect(()=>{
     if(!open || !online){setHubtelAvailable(false);return;}
@@ -127,6 +156,10 @@ export function CheckoutSheet({
           quantity: l.quantity,
         })),
         ...(customer ? { customerId: customer.id } : {}),
+        ...(splitWithCredit?{payments:[
+          {method:paymentMethod,amountMinor:amountToCollect},
+          {method:"CUSTOMER_CREDIT" as const,amountMinor:creditMinor},
+        ]}:{}),
       });
 
       if(hubtelSelected) {
@@ -353,6 +386,42 @@ export function CheckoutSheet({
                 </div>
               </div>
 
+              {customer?.active&&availableCreditMinor!==null&&
+                !hubtelSelected&&paymentMethod!=="CUSTOMER_CREDIT"?
+                <section className="tos-section">
+                  <label style={{display:"flex",alignItems:"center",gap:9,
+                    cursor:"pointer",fontWeight:750}}>
+                    <input type="checkbox" checked={splitWithCredit}
+                      onChange={e=>{
+                        setSplitWithCredit(e.target.checked);
+                        setPaidNowMinor(null);
+                        setCashReceivedMinor(null);
+                      }}/>
+                    Customer paid part — put the balance on credit
+                  </label>
+                  {splitWithCredit?<div style={{display:"grid",gap:10,
+                    paddingTop:12}}>
+                    <MoneyInput currencyCode={currencyCode}
+                      valueMinor={paidNowMinor} onChange={setPaidNowMinor}
+                      label="Amount paid now" placeholder="0"/>
+                    <p role="status" style={{fontSize:13}}>
+                      Balance on customer credit: {formatMoney(
+                        Math.max(0,creditMinor),currencyCode)}
+                    </p>
+                    <p style={{fontSize:12}}>Credit available:
+                      {" "}{formatMoney(availableCreditMinor,currencyCode)}.
+                      An online server check confirms the final credit limit.
+                      If the authoritative selling price has changed, checkout
+                      will reject a mismatched split rather than silently adjust it.
+                    </p>
+                  </div>:null}
+                </section>:null}
+              {paymentMethod==="CUSTOMER_CREDIT"?
+                <p role="status" className="tos-callout">
+                  Pay later requires an active selected customer with available
+                  credit and an online credit-limit check. It creates a receivable,
+                  not a cash or MoMo payment.
+                </p>:null}
               {hubtelSelected?<p role="status" className="tos-callout">
                 Hubtel will open a secure payment page. The order remains unpaid until
                 verification; use Sales to resume if the payment page closes.
@@ -379,7 +448,8 @@ export function CheckoutSheet({
                     </span>
                   </div>
                   <div className="tos-quick-cash" role="group" aria-label="Quick cash amounts">
-                    {[totalMinor, totalMinor * 2, roundToNextCashUnit(totalMinor, currencyCode)].map((amt, i) => (
+                    {[amountToCollect, amountToCollect * 2,
+                      roundToNextCashUnit(amountToCollect, currencyCode)].map((amt, i) => (
                       <button
                         key={i}
                         type="button"

@@ -9,12 +9,17 @@ import { CartPanel, type CartLine } from "./cart-panel";
 import { CheckoutSheet } from "./checkout-sheet";
 import { Button } from "../ui/button";
 import { IconSell } from "../ui/icons";
+import { VoiceSaleAssistant } from "./voice-sale-assistant";
+import type { VoicePayment } from "../../../lib/voice-transaction-draft";
 
 export function PosWorkspace() {
   const { catalog, inventory, customers, session, queue, bump } = useWorkspace();
   const [lines, setLines] = useState<CartLine[]>([]);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [voiceCustomerId,setVoiceCustomerId]=useState<string|null>(null);
+  const [voicePayment,setVoicePayment]=useState<VoicePayment>("UNSPECIFIED");
 
   const currencyCode = session?.currencyCode ?? "GHS";
   const online = queue.online;
@@ -62,6 +67,8 @@ export function PosWorkspace() {
   }, []);
 
   const handleComplete = useCallback(() => {
+    setVoiceCustomerId(null);
+    setVoicePayment("UNSPECIFIED");
     setLines([]);
     setCheckoutOpen(false);
     setCartOpen(false);
@@ -93,6 +100,11 @@ export function PosWorkspace() {
             Tap products to build a cart. TradeOS applies the selected unit price and stock rules
             automatically at checkout.
           </p>
+          <button type="button" onClick={()=>setVoiceOpen(true)}
+            style={{marginTop:12,padding:"11px 17px",fontWeight:800,borderRadius:9,
+              background:"#174f79",color:"#fff",border:"none",cursor:"pointer"}}>
+            🎙 Speak a sale
+          </button>
           <div className="tos-pos__hint-row" aria-hidden="true">
             <span>Quick search</span>
             <span className="tos-pos__hint-kbd">F2</span>
@@ -160,7 +172,33 @@ export function PosWorkspace() {
         aria-hidden="true"
       />
 
+      {voiceOpen?<VoiceSaleAssistant
+        sellable={sellable} customers={customers} currencyCode={currencyCode}
+        onClose={()=>setVoiceOpen(false)}
+        onApply={(reviewed,customerId,payment)=>{
+          if(lines.length>0&&!window.confirm(
+            "You have items in your cart. Add the voice-selected items to this cart?")){
+            return false;
+          }
+          setLines(prev=>{
+            const next=[...prev];
+            for(const line of reviewed){
+              const index=next.findIndex(x=>x.sellable.key===line.sellable.key);
+              if(index>=0){
+                next[index]={...next[index]!,quantity:next[index]!.quantity+line.quantity};
+              } else next.push(line);
+            }
+            return next;
+          });
+          setVoiceCustomerId(customerId);
+          setVoicePayment(payment);
+          setCartOpen(true);
+          return true;
+        }}
+      />:null}
       <CheckoutSheet
+        initialCustomerId={voiceCustomerId}
+        initialPaymentMethod={voicePayment}
         open={checkoutOpen}
         lines={lines}
         currencyCode={currencyCode}
