@@ -30,6 +30,7 @@ export type VoicePOReviewLine={
 type ReviewRow={
   key:string;itemId:string;purchaseUnitCode:string;quantity:string;
   costMinor:number|null;confidence:string;
+  suggestedCostMinor:number|null;suggestedCostPhrase:string|null;
 };
 type Props={
   items:readonly CatalogItem[];
@@ -107,6 +108,8 @@ export function VoicePurchaseOrderAssistant({
       purchaseUnitCode:line.purchaseUnitCode,
       quantity:String(line.quantity),costMinor:null,
       confidence:line.confidence,
+      suggestedCostMinor:line.suggestedUnitCostMinor,
+      suggestedCostPhrase:line.suggestedCostPhrase,
     })));
     setReviewed(false);setError(null);
   }
@@ -121,6 +124,7 @@ export function VoicePurchaseOrderAssistant({
     setRows(prev=>[...prev,{
       key:crypto.randomUUID(),itemId:item.id,purchaseUnitCode:unit.code,
       quantity:"1",costMinor:null,confidence:"manual",
+      suggestedCostMinor:null,suggestedCostPhrase:null,
     }]);
     setReviewed(false);
   }
@@ -232,6 +236,8 @@ export function VoicePurchaseOrderAssistant({
                         updateRow(row.key,{
                           itemId:e.target.value,
                           purchaseUnitCode:next?purchasableUnits(next)[0]?.code??"":"",
+                          costMinor:null,suggestedCostMinor:null,
+                          suggestedCostPhrase:null,
                         });
                       }}>
                       <option value="">Choose an item</option>
@@ -243,7 +249,10 @@ export function VoicePurchaseOrderAssistant({
                   <label className={styles.field}>Purchasing unit
                     <select value={row.purchaseUnitCode}
                       onChange={e=>updateRow(row.key,{
-                        purchaseUnitCode:e.target.value})}>
+                        purchaseUnitCode:e.target.value,
+                        costMinor:null,suggestedCostMinor:null,
+                        suggestedCostPhrase:null,
+                      })}>
                       {units.map(unit=><option key={unit.code} value={unit.code}>
                         {unit.label}</option>)}
                     </select>
@@ -254,6 +263,15 @@ export function VoicePurchaseOrderAssistant({
                       onChange={e=>updateRow(row.key,{quantity:e.target.value})}/>
                   </label>
                   <div className={styles.cost}>
+                    {row.suggestedCostMinor!==null&&row.costMinor===null?
+                      <div className={styles.costSuggestion} role="note">
+                        <span>Speech suggested {formatMoney(row.suggestedCostMinor,currencyCode)} per selected unit</span>
+                        <small>Heard: “{row.suggestedCostPhrase}”. Verify against the supplier quote.</small>
+                        <button className={styles.secondary} type="button"
+                          onClick={()=>updateRow(row.key,{
+                            costMinor:row.suggestedCostMinor,
+                          })}>Use suggested cost</button>
+                      </div>:null}
                     <MoneyInput currencyCode={currencyCode}
                       label="Supplier unit cost · required"
                       valueMinor={row.costMinor}
@@ -304,8 +322,9 @@ export function VoicePurchaseOrderAssistant({
             <span>Estimated order amount</span><strong>{formatMoney(total,currencyCode)}</strong>
           </div>
           <p className={styles.hint}>
-            Supplier costs must be entered explicitly. The system never
-            substitutes retail selling prices for supplier prices.
+            Supplier unit costs must be reviewed and explicitly entered or
+            accepted one line at a time. The system never substitutes retail
+            selling prices for supplier prices.
             Applying fills the order form only; it does not save, issue,
             pay for or receive stock.
           </p>

@@ -3,11 +3,15 @@ import {
 } from "./catalog-read-model";
 import {normalizeForCatalogVoice,rankSpokenCatalogProducts}
   from "./voice-catalog-matcher";
+import {resolveSpokenPurchasingUnit,spokenUnitCostHints,spokenItemCostHint}
+  from "./voice-purchase-order-details";
 
 export interface VoicePurchaseOrderLine{
   itemId:string;name:string;sku:string|null;
   purchaseUnitCode:string;quantity:number;
   confidence:"sku"|"name"|"similar";phrase:string;
+  suggestedUnitCostMinor:number|null;
+  suggestedCostPhrase:string|null;
 }
 export interface VoicePurchaseOrderDraft{
   lines:VoicePurchaseOrderLine[];
@@ -32,7 +36,8 @@ function quantityBefore(text:string,start:number):number{
 function candidate(item:SellableItem,quantity:number,
   confidence:"sku"|"name"|"similar",phrase:string):VoicePurchaseOrderLine{
   return {itemId:item.itemId,name:item.name,sku:item.sku,
-    purchaseUnitCode:item.unitCode,quantity,confidence,phrase};
+    purchaseUnitCode:item.unitCode,quantity,confidence,phrase,
+    suggestedUnitCostMinor:null,suggestedCostPhrase:null};
 }
 /**
  * Catalog-grounded purchase order suggestions. Costs are intentionally
@@ -65,9 +70,25 @@ export function draftVoicePurchaseOrder(
     selected.push(match);
   }
   const words=normalizeForCatalogVoice(transcript);
-  const lines=selected.slice(0,50).map(match=>candidate(
-    match.item,quantityBefore(words,match.start),match.basis,match.phrase,
-  ));
+  const costHints=spokenUnitCostHints(transcript);
+  const unitWarnings:string[]=[];
+  const lines=selected.slice(0,50).map((match,index)=>{
+    const item=purchasable.find(i=>i.id===match.item.itemId)!;
+    const nextStart=selected[index+1]?.start??words.length;
+    const unit=resolveSpokenPurchasingUnit({
+      text:words,item,start:match.start,end:match.end,nextStart,
+    });
+    const cost=unit.warning?{minor:null,evidence:null,warning:null}:
+      spokenItemCostHint({
+        hints:costHints,end:match.end,nextStart,unitCode:unit.code,item,
+        unitWasSpoken:unit.unitPhrase!==null,
+      });
+    if(unit.warning)unitWarnings.push(unit.warning);
+    if(cost.warning)unitWarnings.push(cost.warning);
+    return {...candidate(match.item,quantityBefore(words,match.start),
+      match.basis,match.phrase),purchaseUnitCode:unit.code,
+      suggestedUnitCostMinor:cost.minor,suggestedCostPhrase:cost.evidence};
+  });
   const used=new Set(lines.map(line=>line.itemId));
   const suggestions=matches.filter(m=>!used.has(m.item.itemId))
     .slice(0,12).map(m=>candidate(m.item,1,m.basis,m.phrase));
@@ -77,6 +98,9 @@ export function draftVoicePurchaseOrder(
   if(suggestions.length)warnings.push(
     "Similar-sounding items were found. Confirm their identity and purchasing units.");
   if(confident.length>50)warnings.push("Only 50 lines can be drafted at once.");
+  warnings.push(...unitWarnings);
+  if(lines.some(l=>l.suggestedUnitCostMinor!==null))warnings.push(
+    "Spoken supplier unit costs are suggestions only. Click Use suggested cost on each line after checking the amount.");
   warnings.push(
     "Confirm supplier, item, purchasing unit, quantity and supplier cost before applying.");
   return {lines,suggestions,warnings,transcript};
