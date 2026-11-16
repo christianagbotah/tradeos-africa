@@ -420,6 +420,18 @@ test('health check retries initial connection refusal during bounded service sta
   }
 });
 
+test('staging health grace config is bounded and keeps fail-closed status checks', () => {
+  const source = fs.readFileSync(commonPath, 'utf8');
+  assert.match(source, /HEALTH_STARTUP_RETRIES/);
+  assert.match(source, /HEALTH_STARTUP_MAX_SECONDS/);
+  assert.match(source, /--fail --silent --show-error/);
+  assert.match(source, /--retry-connrefused/);
+  assert.match(source, /--retry-max-time/);
+  const config = fs.readFileSync(path.join(opsRoot, 'apps', 'tradeos-africa.staging.conf.example'), 'utf8');
+  assert.match(config, /^HEALTH_STARTUP_RETRIES='45'$/m);
+  assert.match(config, /^HEALTH_STARTUP_MAX_SECONDS='60'$/m);
+});
+
 test('internal deployment executables have a fail-closed Bash contract', () => {
   for (const file of [commonPath, deployPath, statusPath, rollbackPath]) {
     assert.equal(fs.existsSync(file), true, `${path.relative(repoRoot, file)} must exist`);
