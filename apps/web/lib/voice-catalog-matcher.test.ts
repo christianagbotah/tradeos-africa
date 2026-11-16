@@ -29,6 +29,8 @@ describe("spoken catalog recognition",()=>{
       "sold code 0 5 8",
       "sold door number zero fifty eight",
       "sold stock code 058",
+      "sold skew is zero five eight",
+      "sold S K U number 058",
     ]){
       const draft=draftVoiceTransaction(text,items,[]);
       expect(draft.lines.map(l=>l.item.sku),text).toContain("058");

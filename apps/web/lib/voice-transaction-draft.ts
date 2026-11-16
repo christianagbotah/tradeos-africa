@@ -35,13 +35,13 @@ function escapeRegex(value: string): string {
 }
 function quantityBefore(text: string, start: number): number {
   const before = normalized(text.slice(Math.max(0,start-45),start));
-  const match = before.match(/(?:^|\s)(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|dozen)(?:\s+(?:packs?|pieces?|boxes?|bottles?|cartons?|units?|items?|bags?|pairs?|sets?|doors?|numbers?|no|sku|code|stock|model|product|of|the)){0,4}$/);
+  const match = before.match(/(?:^|\s)(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|dozen)(?:\s+(?:packs?|pieces?|boxes?|bottles?|cartons?|units?|items?|bags?|pairs?|sets?|doors?|numbers?|no|sku|skew|code|stock|model|product|of|the)){0,4}$/);
   if (!match) return 1;
   // A preceding SKU ("door number 058") must never turn the next line
   // into quantity 58 even if followed by another product name.
   const matchPosition=(match.index??0)+match[0].indexOf(match[1]!);
   const prefix=before.slice(0,matchPosition);
-  if (/\b(?:number|no|sku|code|model)\s*$/.test(prefix)) return 1;
+  if (/\b(?:number|no|sku|skew|code|model)\s*$/.test(prefix)) return 1;
   const qty = numberWords.get(match[1]!) ?? Number(match[1]);
   return Number.isInteger(qty)&&qty>0&&qty<=500 ? qty : 1;
 }

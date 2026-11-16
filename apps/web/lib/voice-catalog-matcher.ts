@@ -124,7 +124,8 @@ function phraseAliases(code:string):string[]{
   return [...out].map(normalizeForCatalogVoice).filter(x=>
     x.length>=2||(stripped.length===1&&x.length===1));
 }
-const CODE_CONTEXT=/(?:^|\s)(?:sku|s k u|s q|stock code|school code|item code|product code|code|number|no|model)(?:\s+|$)/;
+const CODE_CONTEXT=/(?:^|\s)(?:sku|skew|s k u|s k you|s q|es cue you|school code|stock code|stock keeping unit|item code|item number|product code|product number|code|number|no|model)(?:\s+|$)/;
+const CODE_TAIL=/(?:^|\s)(?:sku|skew|s k u|s k you|s q|es cue you|school code|stock code|stock keeping unit|item code|item number|product code|product number|code|number|no|model)(?:\s+(?:is|as|of|the|number|code)){0,3}\s*$/;
 function indexOfPhrase(text:string,phrase:string):Array<[number,number]>{
   if(!phrase)return[];
   const result:Array<[number,number]>=[];
@@ -141,7 +142,7 @@ function codeContext(text:string,start:number,end:number,sku:string):boolean{
   const after=text.slice(end,Math.min(text.length,end+18));
   if(!/^\d+$/.test(compact(sku)))return true;
   const tail=before.split(" ").slice(-5).join(" ");
-  if(/(?:sku|s k u|school code|stock code|item code|product code|code|number|no|model)\s*$/.test(tail))
+  if(CODE_TAIL.test(tail))
     return true;
   if(/(?:door|doors|tile|tiles|item|items|product|products)\s*$/.test(tail))
     return true;
@@ -163,7 +164,8 @@ function findExactSku(text:string,item:SellableItem):CatalogVoiceMatch|null{
     for(const [start,end] of indexOfPhrase(text,phrase)){
       const contextual=codeContext(text,start,end,item.sku);
       const before=text.slice(Math.max(0,start-30),start);
-      const nearCode=CODE_CONTEXT.test(before) || /(?:door|product|item)\s*$/.test(before);
+      const nearCode=CODE_TAIL.test(before)||CODE_CONTEXT.test(before) ||
+        /(?:door|product|item)\s*$/.test(before);
       if(!contextual || (leadingDropped&&!nearCode))continue;
       const score=leadingDropped?0.84:nearCode?1.0:0.97;
       const match={item,start,end,score,basis:"sku" as const,phrase:text.slice(start,end)};
