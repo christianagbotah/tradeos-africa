@@ -5,6 +5,7 @@ import Link from "next/link";
 import { formatMoney } from "@tradeos/contracts";
 import { useApiFetch } from "../../../../lib/use-api-fetch";
 import { useWorkspace } from "../../../components/workspace/use-workspace";
+import {DocumentDeliveryPanel} from "../../../components/documents/document-delivery-panel";
 import styles from "./document.module.css";
 
 type Kind="QUOTATION"|"PROFORMA";
@@ -91,5 +92,10 @@ export default function CommercialDocumentDetail() {
         <p>TradeOS Africa · {document.documentNumber} · Issued {day(document.issuedAt,tz)}</p>
       </footer>
     </article>
+    {document.status==="ISSUED"?
+      <DocumentDeliveryPanel kind="COMMERCIAL_DOCUMENT"
+        documentId={document.id} documentNumber={document.documentNumber}
+        contactEmail={document.customerEmail} recipientName={document.customerName}
+        status={document.status}/>:null}
   </main>;
 }

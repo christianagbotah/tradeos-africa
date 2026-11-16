@@ -25,6 +25,7 @@ import { registerPlatformAdminAttentionRoutes } from "./platform-admin/attention
 import { registerPlatformAdminAutomationRoutes } from "./platform-admin/automation-routes.js";
 import { registerSalesReadRoutes } from "./sales-read.js";
 import { registerCommercialDocumentRoutes } from "./commercial-documents.js";
+import { registerDocumentDeliveryRoutes } from "./document-deliveries.js";
 import { registerPurchaseOrderRoutes } from "./purchase-orders.js";
 import { registerSupplierInvoiceMatchRoutes } from "./supplier-invoice-matches.js";
 import { registerHubtelPosRoutes } from "./commerce/hubtel-pos-routes.js";
@@ -67,6 +68,7 @@ export function buildApp(pool: DatabasePool) {
   registerCustomerRoutes(app, pool);
   registerSalesReadRoutes(app, pool);
   registerCommercialDocumentRoutes(app, pool);
+  registerDocumentDeliveryRoutes(app, pool);
   registerPurchaseOrderRoutes(app, pool);
   registerSupplierInvoiceMatchRoutes(app, pool);
   registerHubtelPosRoutes(app, pool);
