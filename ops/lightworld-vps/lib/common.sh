@@ -121,6 +121,19 @@ require_release_config() {
   PROCESS_MAX_MEMORY="${PROCESS_MAX_MEMORY:-}"
   PROCESS_INTERPRETER="${PROCESS_INTERPRETER:-}"
   PROCESS_RESTART_DELAY="${PROCESS_RESTART_DELAY:-}"
+  # Per-app startup grace; keep historical defaults for every other service.
+  HEALTH_STARTUP_RETRIES="${HEALTH_STARTUP_RETRIES:-8}"
+  HEALTH_STARTUP_MAX_SECONDS="${HEALTH_STARTUP_MAX_SECONDS:-12}"
+  if [[ ! "$HEALTH_STARTUP_RETRIES" =~ ^[0-9]+$ ]] ||
+     (( HEALTH_STARTUP_RETRIES < 1 || HEALTH_STARTUP_RETRIES > 60 )); then
+    lightworld_die 'HEALTH_STARTUP_RETRIES must be an integer from 1 to 60'
+    return 1
+  fi
+  if [[ ! "$HEALTH_STARTUP_MAX_SECONDS" =~ ^[0-9]+$ ]] ||
+     (( HEALTH_STARTUP_MAX_SECONDS < 1 || HEALTH_STARTUP_MAX_SECONDS > 120 )); then
+    lightworld_die 'HEALTH_STARTUP_MAX_SECONDS must be an integer from 1 to 120'
+    return 1
+  fi
 
   require_absolute_path "$RELEASE_ROOT" 'RELEASE_ROOT'
   require_absolute_path "$CURRENT_LINK" 'CURRENT_LINK'
@@ -794,7 +807,12 @@ health_check_url() {
     fi
     [[ "$url" == test://* ]] && return 0
   fi
-  curl --fail --silent --show-error --max-time 8 --retry 8 --retry-delay 1 --retry-connrefused --retry-max-time 12 --output /dev/null -- "$url"
+  # Bound individual requests while permitting slower heavy VPS startup. Never
+  # disable status-code checks or accept failure as healthy.
+  curl --fail --silent --show-error --max-time 8 \
+    --retry "${HEALTH_STARTUP_RETRIES:-8}" --retry-delay 1 \
+    --retry-connrefused --retry-max-time "${HEALTH_STARTUP_MAX_SECONDS:-12}" \
+    --output /dev/null -- "$url"
 }
 
 verify_configured_health() {
