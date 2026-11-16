@@ -1,0 +1,25 @@
+.backdrop{position:fixed;inset:0;background:rgba(9,21,39,.64);z-index:1000;display:grid;place-items:center;padding:14px}
+.dialog{background:var(--tos-surface,#fff);color:var(--tos-text,#17334c);border-radius:16px;width:min(760px,100%);max-height:94dvh;display:flex;flex-direction:column;box-shadow:0 22px 70px #14233a50}
+.header{padding:18px 20px;border-bottom:1px solid var(--tos-border,#dce4ec);display:flex;align-items:flex-start;justify-content:space-between;gap:15px}
+.header h2{font-size:21px;font-weight:850;margin:0 0 5px}
+.header p{font-size:13px;opacity:.8;margin:0}
+.close{font-size:26px;line-height:1;min-width:40px;height:40px;border-radius:8px}
+.body{overflow-y:auto;display:grid;gap:16px;padding:20px;min-width:0}
+.body label{display:grid;gap:6px;font-weight:700;font-size:13px;min-width:0}
+.body select,.body textarea,.body input[type=number]{color:inherit;background:var(--tos-surface,#fff);border:1px solid var(--tos-border,#a4b7c8);border-radius:8px;min-height:40px;padding:9px 10px;min-width:0;width:100%;font:inherit;box-sizing:border-box}
+.body textarea{resize:vertical;line-height:1.6}
+.controls{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.controls button,.review button,.close{border:1px solid var(--tos-border,#94a8bd);color:inherit;background:transparent;border-radius:8px;padding:10px 13px;cursor:pointer;font-weight:750}
+.controls button:disabled,.review button:disabled{opacity:.45;cursor:not-allowed}
+.controls .primary,.review .primary{background:#1c4875;color:#fff;border-color:#1c4875}
+.privacy{font-size:12px;line-height:1.5;opacity:.78;margin:0}
+.review{display:grid;gap:13px;border-top:1px solid var(--tos-border,#dce4ec);padding-top:17px}
+.review h3{font-size:17px;margin:0}
+.review p{font-size:12px;line-height:1.5;margin:0}
+.warning{border-radius:8px;padding:10px;background:#fff2db;color:#7d4b18;font-size:12px;line-height:1.5}
+.lines{display:grid;gap:9px}
+.line{border:1px solid var(--tos-border,#dce4ec);border-radius:9px;padding:10px;display:grid;grid-template-columns:minmax(0,1fr) 80px minmax(95px,auto) auto;align-items:end;gap:8px}
+.money{font-size:13px;font-weight:800;white-space:nowrap;padding:10px 0}
+.confirm{display:flex!important;align-items:center;gap:9px!important}
+.confirm input{width:18px;height:18px;flex:none}
+@media(max-width:560px){.body{padding:13px}.header{padding:14px}.line{grid-template-columns:minmax(0,1fr) 78px}.line .money{order:3}.line button{order:4}}
