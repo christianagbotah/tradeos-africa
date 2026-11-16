@@ -154,7 +154,8 @@ export default function SupplierPurchaseOrderPreview(){
         <p>{order.orderNumber} · {order.businessName}</p>
       </footer>
     </article>
-    {order.receiptCount>0 && order.status!=="DRAFT" ?
+    {order.receiptCount>0 && order.status!=="DRAFT" &&
+      ["OWNER","ADMIN","MANAGER","ACCOUNTANT","INVENTORY"].includes(role) ?
       <SupplierInvoiceMatching
         purchaseOrderId={order.id} orderNumber={order.orderNumber}
         currencyCode={order.currencyCode} receipts={order.receipts}

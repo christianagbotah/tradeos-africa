@@ -241,3 +241,254 @@ describe("supplier invoice receiving match and approvals",()=>{
     expect(another.totalMinor).toBe(4000);
   });
 });
+
+
+describe("itemized supplier invoice three-way matching",()=>{
+  async function preview(m:Merchant,receiptIds:string[]) {
+    const r=await app.inject({method:"POST",
+      url:`/v1/purchase-orders/${m.orderId}/invoice-item-preview`,
+      headers:m.headers,payload:{businessId:m.businessId,receiptIds}});
+    expect(r.statusCode,r.body).toBe(200);
+    return r.json() as {receiptTotalMinor:number;poPriceVarianceMinor:number;
+      lines:Array<{purchaseOrderLineId:string;itemName:string;purchaseUnitCode:string;
+        quantity:number;poUnitCostMinor:number;receiptTotalMinor:number}>};
+  }
+  async function itemized(m:Merchant,receiptIds:string[],invoiceTotalMinor:number,
+    invoiceLines:Array<{purchaseOrderLineId:string;invoiceQuantity:number;
+      invoiceUnitCostMinor:number}>,reference="INVOICE-ITEMIZED") {
+    return app.inject({method:"POST",
+      url:`/v1/purchase-orders/${m.orderId}/invoice-matches`,headers:m.headers,
+      payload:{businessId:m.businessId,clientRequestId:randomUUID(),
+        invoiceReference:reference,invoiceDate:"2026-11-16",
+        invoiceTotalMinor,receiptIds,invoiceLines,notes:"Verified itemized invoice"},
+    });
+  }
+  it("previews actual delivered items, matches every invoice line and never reposts stock or AP",async()=>{
+    const m=await setup("itemized-exact");
+    const first=await receive(m,"itemized-first",[4,1]);
+    const checked=await preview(m,[first.purchaseId]);
+    expect(checked).toMatchObject({receiptTotalMinor:20000,poPriceVarianceMinor:0});
+    expect(checked.lines).toHaveLength(2);
+    const invoiceLines=checked.lines.map(l=>({
+      purchaseOrderLineId:l.purchaseOrderLineId,
+      invoiceQuantity:l.quantity,invoiceUnitCostMinor:l.poUnitCostMinor,
+    }));
+    const before=await counts(m);
+    const created=await itemized(m,[first.purchaseId],20000,invoiceLines);
+    expect(created.statusCode,created.body).toBe(201);
+    const match=created.json().match;
+    expect(match).toMatchObject({
+      itemized:true,hasException:false,lineDiscrepancyCount:0,
+      invoiceLinesSubtotalMinor:20000,invoiceAdjustmentMinor:0,
+      invoiceVarianceMinor:0,receiptTotalMinor:20000,
+    });
+    expect(match.invoiceItemLines).toHaveLength(2);
+    expect(match.invoiceItemLines.map((l:{invoiceQuantity:number;receivedQuantity:number})=>
+      [l.invoiceQuantity,l.receivedQuantity]).sort((a:number[],b:number[])=>
+      a[0]!-b[0]!)).toEqual([[1,1],[4,4]]);
+    const approved=await app.inject({method:"POST",
+      url:`/v1/supplier-invoice-matches/${match.id}/approve`,headers:m.headers,
+      payload:{businessId:m.businessId}});
+    expect(approved.statusCode,approved.body).toBe(200);
+    expect(approved.json().match.status).toBe("APPROVED");
+    const after=await counts(m);
+    for(const name of ["purchases","purchase_lines","inventory_movements",
+      "supplier_payable_ledger","supplier_credit_obligations","cashbook_entries"]){
+      expect(after[name],name).toBe(before[name]);
+    }
+    const snapshots=await pool.query<{qty:string;unit_cost_minor:string}>(
+      `SELECT invoice_quantity::text AS qty,invoice_unit_cost_minor::text AS unit_cost_minor
+       FROM supplier_invoice_match_lines WHERE business_id=$1 AND invoice_match_id=$2`,
+      [m.businessId,match.id]);
+    expect(snapshots.rows).toHaveLength(2);
+  });
+
+  it("flags quantity, unit-price and invoice adjustment differences for manager justification",async()=>{
+    const m=await setup("itemized-variance");
+    const received=await receive(m,"priced",[2,1],[2200,12000]);
+    const checked=await preview(m,[received.purchaseId]);
+    expect(checked).toMatchObject({receiptTotalMinor:16400,poPriceVarianceMinor:400});
+    const invoiceLines=checked.lines.map(line=>({
+      purchaseOrderLineId:line.purchaseOrderLineId,
+      invoiceQuantity:line.purchaseUnitCode==="piece"?3:1,
+      invoiceUnitCostMinor:line.poUnitCostMinor,
+    }));
+    const created=await itemized(m,[received.purchaseId],18300,invoiceLines,
+      "INV-LINE-DIFFERENCE");
+    expect(created.statusCode,created.body).toBe(201);
+    const match=created.json().match;
+    expect(match).toMatchObject({itemized:true,hasException:true,
+      lineDiscrepancyCount:1,invoiceLinesSubtotalMinor:18000,
+      invoiceAdjustmentMinor:300,receiptTotalMinor:16400,
+      invoiceVarianceMinor:1900,poPriceVarianceMinor:400});
+    expect(match.invoiceItemLines.some((line:{quantityVariance:number})=>
+      line.quantityVariance!==0)).toBe(true);
+    const noReason=await app.inject({method:"POST",
+      url:`/v1/supplier-invoice-matches/${match.id}/approve`,headers:m.headers,
+      payload:{businessId:m.businessId,approvalNote:"okay"}});
+    expect(noReason.statusCode,noReason.body).toBe(409);
+    const approved=await app.inject({method:"POST",
+      url:`/v1/supplier-invoice-matches/${match.id}/approve`,headers:m.headers,
+      payload:{businessId:m.businessId,
+        approvalNote:"Supplier billed additional units and transport; management review required."}});
+    expect(approved.statusCode,approved.body).toBe(200);
+    expect(approved.json().match.status).toBe("APPROVED");
+    expect((await counts(m)).supplier_payable_ledger).toBe(1);
+  });
+
+  it("rejects missing, duplicated or foreign lines without saving an invoice",async()=>{
+    const m=await setup("itemized-invalid");
+    const receipt=await receive(m,"items",[2,1]);
+    const checked=await preview(m,[receipt.purchaseId]);
+    const valid=checked.lines.map(l=>({
+      purchaseOrderLineId:l.purchaseOrderLineId,invoiceQuantity:l.quantity,
+      invoiceUnitCostMinor:l.poUnitCostMinor,
+    }));
+    const foreign=await setup("itemized-foreign");
+    const foreignReceipt=await receive(foreign,"foreign",[2,0]);
+    const foreignPreview=await preview(foreign,[foreignReceipt.purchaseId]);
+    const bads=[
+      [valid[0]],
+      [...valid,valid[0]],
+      valid.map((l,i)=>i===0?{...l,purchaseOrderLineId:foreignPreview.lines[0]!.purchaseOrderLineId}:l),
+      valid.map((l,i)=>i===0?{...l,invoiceQuantity:-2}:l),
+      valid.map((l,i)=>i===0?{...l,invoiceQuantity:1.123456789}:l),
+      valid.map((l,i)=>i===0?{...l,invoiceUnitCostMinor:-1}:l),
+    ];
+    for(const [index,lines] of bads.entries()){
+      const result=await itemized(m,[receipt.purchaseId],20000,lines as typeof valid,
+        `INV-BAD-LINE-${index}`);
+      expect([400,409],result.body).toContain(result.statusCode);
+    }
+    expect((await counts(m)).supplier_invoice_matches).toBe(0);
+    expect((await counts(m)).supplier_invoice_match_receipts).toBe(0);
+  });
+
+  it("only exposes item previews to authorized tenant staff and verified receipt scope",async()=>{
+    const a=await setup("itemized-preview-a");
+    const b=await setup("itemized-preview-b");
+    const goods=await receive(a,"a",[2,0]);
+    const unauthorized=await app.inject({method:"POST",
+      url:`/v1/purchase-orders/${a.orderId}/invoice-item-preview`,
+      payload:{businessId:a.businessId,receiptIds:[goods.purchaseId]}});
+    expect(unauthorized.statusCode).toBe(401);
+    const tenant=await app.inject({method:"POST",
+      url:`/v1/purchase-orders/${a.orderId}/invoice-item-preview`,
+      headers:b.headers,payload:{businessId:b.businessId,receiptIds:[goods.purchaseId]}});
+    expect(tenant.statusCode).toBe(404);
+    const invalid=await app.inject({method:"POST",
+      url:`/v1/purchase-orders/${a.orderId}/invoice-item-preview`,
+      headers:a.headers,payload:{businessId:a.businessId,
+        receiptIds:[goods.purchaseId,goods.purchaseId]}});
+    expect(invalid.statusCode).toBe(400);
+  });
+});
+
+
+describe("private supplier invoice evidence security",()=>{
+  const pdf=Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n");
+  async function registerEvidence(m:Merchant,matchId:string,
+    data:{filename:string;mimeType:string;base64:string}) {
+    return app.inject({method:"POST",
+      url:`/v1/supplier-invoice-matches/${matchId}/evidence`,
+      headers:m.headers,payload:{businessId:m.businessId,...data}});
+  }
+  it("stores private document evidence, returns metadata and authenticates each download",async()=>{
+    const a=await setup("private-evidence-a"),b=await setup("private-evidence-b");
+    const delivered=await receive(a,"pdf-delivery",[2,0]);
+    const invoice=await createInvoice(a,{reference:"FILE-PDF",
+      receiptIds:[delivered.purchaseId],invoiceTotalMinor:4000});
+    expect(invoice.statusCode,invoice.body).toBe(201);
+    const matchId=invoice.json().match.id as string;
+    const data={filename:"supplier-invoice.pdf",mimeType:"application/pdf",
+      base64:pdf.toString("base64")};
+    const uploaded=await registerEvidence(a,matchId,data);
+    expect(uploaded.statusCode,uploaded.body).toBe(201);
+    const fileId=uploaded.json().evidenceId as string;
+    const retried=await registerEvidence(a,matchId,data);
+    expect(retried.statusCode,retried.body).toBe(200);
+    expect(retried.json().evidenceId).toBe(fileId);
+    const matches=await getMatches(a);
+    expect(matches.json().matches[0].evidence).toMatchObject([
+      {id:fileId,filename:"supplier-invoice.pdf",mimeType:"application/pdf",
+        sizeBytes:pdf.length},
+    ]);
+    const url=`/v1/supplier-invoice-matches/${matchId}/evidence/${fileId}?businessId=${a.businessId}`;
+    const unauthorized=await app.inject({method:"GET",url});
+    expect(unauthorized.statusCode).toBe(401);
+    const allowed=await app.inject({method:"GET",url,headers:a.headers});
+    expect(allowed.statusCode,allowed.body).toBe(200);
+    expect(allowed.headers["content-type"]).toMatch(/application\/pdf/);
+    expect(allowed.headers["content-disposition"]).toMatch(/attachment; filename=/);
+    expect(allowed.headers["cache-control"]).toBe("private, no-store");
+    expect(allowed.headers["x-content-type-options"]).toBe("nosniff");
+    expect(allowed.rawPayload.equals(pdf)).toBe(true);
+    const foreign=await app.inject({method:"GET",headers:b.headers,
+      url:`/v1/supplier-invoice-matches/${matchId}/evidence/${fileId}?businessId=${b.businessId}`});
+    expect(foreign.statusCode).toBe(404);
+    const after=await counts(a);
+    expect(after.supplier_payable_ledger).toBe(1);
+    expect(after.cashbook_entries).toBe(0);
+    expect(after.supplier_invoice_match_receipts).toBe(1);
+  });
+
+  it("enforces content signature, attachment limit and draft-only immutable evidence",async()=>{
+    const m=await setup("private-evidence-limits");
+    const delivered=await receive(m,"delivery",[2,0]);
+    const invoice=await createInvoice(m,{reference:"FILE-LIMIT",
+      receiptIds:[delivered.purchaseId],invoiceTotalMinor:4000});
+    expect(invoice.statusCode,invoice.body).toBe(201);
+    const matchId=invoice.json().match.id as string;
+    const mismatched=await registerEvidence(m,matchId,{
+      filename:"fake.pdf",mimeType:"application/pdf",
+      base64:Buffer.from("<svg>not a real PDF</svg>").toString("base64"),
+    });
+    expect(mismatched.statusCode,mismatched.body).toBe(415);
+    const png=Buffer.from("89504e470d0a1a0a00000000","hex");
+    const wrongMime=await registerEvidence(m,matchId,{
+      filename:"renamed.pdf",mimeType:"application/pdf",base64:png.toString("base64"),
+    });
+    expect(wrongMime.statusCode,wrongMime.body).toBe(415);
+    const evidenceIds:string[]=[];
+    for(let i=0;i<3;i++){
+      const content=Buffer.concat([pdf,Buffer.from(`\ninvoice-${i}`)]);
+      const upload=await registerEvidence(m,matchId,{
+        filename:`invoice-page-${i}.pdf`,mimeType:"application/pdf",
+        base64:content.toString("base64"),
+      });
+      expect(upload.statusCode,upload.body).toBe(201);
+      evidenceIds.push(upload.json().evidenceId as string);
+    }
+    const extra=await registerEvidence(m,matchId,{
+      filename:"invoice-page-4.pdf",mimeType:"application/pdf",
+      base64:Buffer.concat([pdf,Buffer.from("\nextra")]).toString("base64"),
+    });
+    expect(extra.statusCode,extra.body).toBe(409);
+    expect(extra.json().error).toBe("INVOICE_EVIDENCE_LIMIT");
+    const remove=await app.inject({method:"DELETE",headers:m.headers,
+      url:`/v1/supplier-invoice-matches/${matchId}/evidence/${evidenceIds[0]}?businessId=${m.businessId}`});
+    expect(remove.statusCode,remove.body).toBe(204);
+    const replacement=await registerEvidence(m,matchId,{
+      filename:"replacement.pdf",mimeType:"application/pdf",
+      base64:Buffer.concat([pdf,Buffer.from("\nreplacement")]).toString("base64"),
+    });
+    expect(replacement.statusCode,replacement.body).toBe(201);
+    const approved=await app.inject({method:"POST",
+      url:`/v1/supplier-invoice-matches/${matchId}/approve`,headers:m.headers,
+      payload:{businessId:m.businessId}});
+    expect(approved.statusCode,approved.body).toBe(200);
+    const changed=await registerEvidence(m,matchId,{
+      filename:"late.pdf",mimeType:"application/pdf",
+      base64:pdf.toString("base64"),
+    });
+    expect(changed.statusCode,changed.body).toBe(409);
+    expect(changed.json().error).toBe("INVOICE_EVIDENCE_DRAFT_ONLY");
+    const removeApproved=await app.inject({method:"DELETE",headers:m.headers,
+      url:`/v1/supplier-invoice-matches/${matchId}/evidence/${evidenceIds[1]}?businessId=${m.businessId}`});
+    expect(removeApproved.statusCode).toBe(409);
+    const rows=await pool.query<{count:string}>(
+      `SELECT COUNT(*)::text AS count FROM supplier_invoice_evidence
+       WHERE business_id=$1 AND invoice_match_id=$2`,[m.businessId,matchId]);
+    expect(Number(rows.rows[0]?.count)).toBe(3);
+  });
+});
