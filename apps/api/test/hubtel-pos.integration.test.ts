@@ -277,7 +277,7 @@ describe("Hubtel five-minute reconciliation worker and merchant monitoring",()=>
     expect(audits.rows[0]?.count).toBe("1");
   });
 
-  it("retries HTTP 403 provider failures without treating checkout as paid or cancelled",async()=>{
+  it("requires manual review for HTTP 403 provider failures without settling checkout",async()=>{
     const m=await merchant("reconciler-403","merchant_1","111111");
     installMock();
     await startSaleHubtelCheckout(pool,{businessId:m.businessId,saleId:m.saleId,
@@ -287,15 +287,15 @@ describe("Hubtel five-minute reconciliation worker and merchant monitoring",()=>
       "WHERE sale_id=$1",[m.saleId]);
     globalThis.fetch=vi.fn(async()=>new Response("",{status:403})) as unknown as typeof fetch;
     const failed=await runHubtelPosReconciliationTick(pool);
-    expect(failed).toMatchObject({attempted:1,failed:1,reviewRequired:0});
+    expect(failed).toMatchObject({attempted:1,failed:1,reviewRequired:1});
     const attempt=await pool.query<{
-      state:string;last_status_error_code:string;next_status_check_at:Date;
+      state:string;last_status_error_code:string;next_status_check_at:Date|null;
     }>(
       "SELECT state,last_status_error_code,next_status_check_at "+
       "FROM hubtel_sale_checkout_attempts WHERE sale_id=$1",[m.saleId]);
-    expect(attempt.rows[0]?.state).toBe("READY");
-    expect(attempt.rows[0]?.last_status_error_code).toBe("HUBTEL_STATUS_UNAVAILABLE");
-    expect(attempt.rows[0]!.next_status_check_at.getTime()).toBeGreaterThan(Date.now());
+    expect(attempt.rows[0]?.state).toBe("REVIEW_REQUIRED");
+    expect(attempt.rows[0]?.last_status_error_code).toBe("HUBTEL_STATUS_ACCESS_DENIED");
+    expect(attempt.rows[0]?.next_status_check_at).toBeNull();
     expect((await ledger(m)).receipt_count).toBe("0");
   });
 
