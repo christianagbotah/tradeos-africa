@@ -43,10 +43,25 @@ async function fixture(tag:string){
       VALUES($1,'Comfort Mensah',100000) RETURNING id`,
     [businessId])).rows[0]!.id;
   const employee=await createUser("employee-"+tag);
+  const employeeStaff=(await pool.query<{id:string}>(
+    `INSERT INTO staff(business_id,display_name,role)
+     VALUES($1,'Pricing Cashier','CASHIER') RETURNING id`,
+    [businessId])).rows[0]!.id;
   await pool.query(
-    `INSERT INTO business_memberships(business_id,user_id,role,status)
-      VALUES($1,$2,'CASHIER','ACTIVE')`,
-    [businessId,employee.id]);
+    `INSERT INTO business_memberships(business_id,user_id,role,status,staff_id)
+      VALUES($1,$2,'CASHIER','ACTIVE',$3)`,
+    [businessId,employee.id,employeeStaff]);
+  const ownerMembership=await pool.query<{staff_id:string|null}>(
+    'SELECT staff_id FROM business_memberships WHERE business_id=$1 AND user_id=$2',
+    [businessId,owner.id]);
+  if(!ownerMembership.rows[0]?.staff_id){
+    const ownerStaff=(await pool.query<{id:string}>(
+      `INSERT INTO staff(business_id,display_name,role)
+       VALUES($1,'Pricing Owner','OWNER') RETURNING id`,
+      [businessId])).rows[0]!.id;
+    await pool.query('UPDATE business_memberships SET staff_id=$1 WHERE business_id=$2 AND user_id=$3',
+      [ownerStaff,businessId,owner.id]);
+  }
   const other=await fixtureOtherBusiness(tag);
   return {owner,employee,businessId,branchId,itemId,customerId,other};
 }
