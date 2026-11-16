@@ -21,6 +21,7 @@ describe("review-first spoken purchase orders",()=>{
     expect(assistant).toContain("purchasableUnits(item).some");
     expect(assistant).toContain("row.costMinor!==null");
     expect(assistant).toContain("setReviewed(false)");
+    expect(assistant).toContain('setSupplierId("")');
     expect(assistant).toContain("disabled={!valid||!reviewed}");
     expect(assistant).toContain("Use reviewed details in order form");
     expect(assistant).toContain("does not save, issue");

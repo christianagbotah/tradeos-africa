@@ -76,7 +76,7 @@ export function VoicePurchaseOrderAssistant({
       setError("This browser does not support speech recognition. Type the purchase order below.");
       return;
     }
-    setError(null);setDraft(null);setRows([]);setReviewed(false);
+    setError(null);setDraft(null);setRows([]);setSupplierId("");setReviewed(false);
     const engine=new Factory();speech.current=engine;
     engine.lang=language;engine.continuous=true;engine.interimResults=false;
     const prior=transcript.trim();
@@ -101,6 +101,7 @@ export function VoicePurchaseOrderAssistant({
     const next=draftVoicePurchaseOrder(transcript,items,
       suppliers.filter(s=>s.active).map(s=>s.name));
     setDraft(next);
+    setSupplierId("");
     setRows(next.lines.map(line=>({
       key:crypto.randomUUID(),itemId:line.itemId,
       purchaseUnitCode:line.purchaseUnitCode,
@@ -179,7 +180,7 @@ export function VoicePurchaseOrderAssistant({
             placeholder="Order 2 door number 058 and 3 bags of cement from Comfort Supplies"
             onChange={e=>{
               setTranscript(e.target.value);
-              setDraft(null);setRows([]);setReviewed(false);
+              setDraft(null);setRows([]);setSupplierId("");setReviewed(false);
             }}/>
         </label>
         <button type="button" className={styles.secondary}
