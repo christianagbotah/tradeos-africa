@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatMoney } from "@tradeos/contracts";
-import type { SellableItem } from "../../../lib/catalog-read-model";
+import { filterSellableItems, type SellableItem } from "../../../lib/catalog-read-model";
+import {rankSpokenCatalogProducts} from "../../../lib/voice-catalog-matcher";
 import type { Customer } from "../workspace/workspace-provider";
 import {
   draftVoiceTransaction, type VoiceDraft, type VoicePayment,
@@ -40,6 +41,14 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
   const [customerId,setCustomerId]=useState<string>("");
   const [paymentMethod,setPaymentMethod]=useState<VoicePayment>("UNSPECIFIED");
   const [language,setLanguage]=useState("en-GH");
+  const [catalogSearch,setCatalogSearch]=useState("");
+  const manualMatches=useMemo(()=>{
+    if(!catalogSearch.trim())return [];
+    const exact=filterSellableItems(sellable,catalogSearch).slice(0,12);
+    if(exact.length)return exact;
+    return rankSpokenCatalogProducts(catalogSearch,sellable).slice(0,10)
+      .map(candidate=>candidate.item);
+  },[catalogSearch,sellable]);
   const activeRef=useRef<SpeechEngine|null>(null);
   useEffect(()=>()=>{activeRef.current?.abort();activeRef.current=null;},[]);
   function stop(){
@@ -97,6 +106,19 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     setDraft(prev=>prev?{...prev,lines:prev.lines.map((line,i)=>
       i===index?{...line,...update}:line)}:prev);
     setReviewed(false);
+  }
+  function addCandidate(item:SellableItem){
+    setDraft(prev=>{
+      if(!prev)return prev;
+      const alreadyAdded=prev.lines.some(line=>line.item.key===item.key);
+      if(alreadyAdded)return prev;
+      return {...prev,
+        lines:[...prev.lines,{item,quantity:1,
+          spoken:"Confirmed in catalog",confidence:"similar"}],
+        suggestions:prev.suggestions.filter(s=>s.item.key!==item.key)};
+    });
+    setReviewed(false);
+    setRecognitionError(null);
   }
   function apply(){
     if(!draft||!reviewed||draft.intent!=="SALE"||!draft.lines.length)return;
@@ -168,7 +190,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
             {warning}</p>)}
           <div className={styles.lines}>
             {draft.lines.map((line,i)=><div key={i} className={styles.line}>
-              <label>Item {i+1}
+              <label>Item {i+1} {line.confidence==="similar"?"· Similar sounding — verify":""}
                 <select value={line.item.key}
                   onChange={e=>{
                     const chosen=sellable.find(item=>item.key===e.target.value);
@@ -191,6 +213,38 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
               }}>Remove</button>
             </div>)}
           </div>
+          {draft.suggestions.length ? <section className={styles.suggestSection}>
+            <h4>Possible matching products</h4>
+            <p>These were not automatically added. Check whether one of them
+              matches what you said, then tap Add.</p>
+            <div className={styles.candidates}>
+              {draft.suggestions.map(s=><div key={s.item.key} className={styles.candidate}>
+                <div><strong>{s.item.name}</strong>
+                  <span>{s.item.sku||"No SKU"} · {s.item.unitLabel} · {formatMoney(
+                    s.item.priceMinor,currencyCode)}</span></div>
+                <button type="button" onClick={()=>addCandidate(s.item)}>
+                  Add</button>
+              </div>)}
+            </div>
+          </section> : null}
+          <section className={styles.suggestSection}>
+            <h4>Can't find the spoken product?</h4>
+            <p>Search the actual catalog by name or SKU, including similar spellings.</p>
+            <input type="search" value={catalogSearch}
+              placeholder="Find a product or SKU to add…"
+              aria-label="Find product manually in voice draft"
+              onChange={e=>setCatalogSearch(e.target.value)} />
+            {catalogSearch.trim()?<div className={styles.candidates}>
+              {manualMatches.length?manualMatches.map(item=><div key={item.key}
+                className={styles.candidate}>
+                <div><strong>{item.name}</strong>
+                  <span>{item.sku||"No SKU"} · {item.unitLabel} · {formatMoney(
+                    item.priceMinor,currencyCode)}</span></div>
+                <button type="button" onClick={()=>addCandidate(item)}>
+                  Add</button>
+              </div>):<p>No catalog match. Verify the item is active and has a selling unit with a price.</p>}
+            </div>:null}
+          </section>
           <label>Customer
             <select value={customerId} onChange={e=>{setCustomerId(e.target.value);setReviewed(false);}}>
               <option value="">Walk-in / select later</option>

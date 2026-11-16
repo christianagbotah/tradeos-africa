@@ -1,4 +1,5 @@
 import type { SellableItem } from "./catalog-read-model";
+import {rankSpokenCatalogProducts, normalizeForCatalogVoice} from "./voice-catalog-matcher";
 
 /**
  * Conservative, review-only transcription interpreter. No model guesses prices
@@ -9,7 +10,7 @@ export type VoicePayment = "CASH" | "MOMO" | "BANK" | "CARD" | "CREDIT" | "UNSPE
 export interface VoiceCustomer { id: string; name: string }
 export interface VoiceLine {
   item: SellableItem; quantity: number; spoken: string;
-  confidence: "sku" | "name";
+  confidence: "sku" | "name" | "similar";
 }
 export interface VoiceDraft {
   intent: VoiceIntent; lines: VoiceLine[];
@@ -17,6 +18,7 @@ export interface VoiceDraft {
   paymentMethod: VoicePayment;
   paymentState: "FULL" | "PARTIAL" | "CREDIT" | "UNSPECIFIED";
   tenderedMinor: number | null; warnings: string[]; transcript: string;
+  suggestions: Array<{item:SellableItem;score:number;phrase:string}>;
 }
 const numberWords = new Map<string,number>([
   ["a",1],["an",1],["one",1],["single",1],["two",2],["three",3],
@@ -33,35 +35,15 @@ function escapeRegex(value: string): string {
 }
 function quantityBefore(text: string, start: number): number {
   const before = normalized(text.slice(Math.max(0,start-45),start));
-  const match = before.match(/(?:^|\s)(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|dozen)(?:\s+(?:packs?|pieces?|boxes?|bottles?|cartons?|units?|items?|bags?|pairs?|sets?|doors?|numbers?|no|of|the)){0,4}$/);
+  const match = before.match(/(?:^|\s)(\d{1,3}|a|an|one|two|three|four|five|six|seven|eight|nine|ten|dozen)(?:\s+(?:packs?|pieces?|boxes?|bottles?|cartons?|units?|items?|bags?|pairs?|sets?|doors?|numbers?|no|sku|code|stock|model|product|of|the)){0,4}$/);
   if (!match) return 1;
   // A preceding SKU ("door number 058") must never turn the next line
-  // into quantity 58 merely because the SKU ends the previous phrase.
-  if (/\b(?:number|no|sku|code)\s+\d{2,}$/.test(before)) return 1;
+  // into quantity 58 even if followed by another product name.
+  const matchPosition=(match.index??0)+match[0].indexOf(match[1]!);
+  const prefix=before.slice(0,matchPosition);
+  if (/\b(?:number|no|sku|code|model)\s*$/.test(prefix)) return 1;
   const qty = numberWords.get(match[1]!) ?? Number(match[1]);
   return Number.isInteger(qty)&&qty>0&&qty<=500 ? qty : 1;
-}
-function candidateMatch(text: string, item: SellableItem):
-  {start:number;end:number;confidence:"name"|"sku"}|null {
-  const sku=normalized(item.sku??"");
-  const name=normalized(item.name);
-  const candidates: Array<{start:number;end:number;confidence:"name"|"sku"}>=[];
-  const normalizedText = normalized(text);
-  const words=name.split(" ").filter(Boolean);
-  const spokenAlternative=words.length===2?
-    words[1]+" of "+words[0]:"";
-  for (const [term,confidence] of [[name,"name"],[spokenAlternative,"name"],[sku,"sku"]] as const) {
-    if (term.length<3) continue;
-    const re=new RegExp("(?:^|\\s)("+escapeRegex(term)+")(?=\\s|$)","g");
-    let m:RegExpExecArray|null;
-    while ((m=re.exec(normalizedText))!==null) {
-      const start=m.index+m[0].length-m[1]!.length;
-      candidates.push({start,end:start+m[1]!.length,confidence});
-    }
-  }
-  return candidates.sort((a,b)=>a.start-b.start||
-    (b.end-b.start)-(a.end-a.start)||
-    (a.confidence==="name"?-1:1))[0]??null;
 }
 function tenderFromSpeech(text:string):number|null {
   const m=text.match(/\b(?:paid|pay|received|gave|collected)\s+(?:an?\s+)?(?:amount\s+of\s+)?(?:ghs|cedis?|c[eè]dis?|₵)?\s*(\d{1,7}(?:\.\d{1,2})?)\b/i);
@@ -74,36 +56,45 @@ export function draftVoiceTransaction(
   customers: readonly VoiceCustomer[],
 ): VoiceDraft {
   const safeTranscript=transcript.slice(0,2000).trim();
-  const text=normalized(safeTranscript);
+  const text=normalizeForCatalogVoice(safeTranscript);
   const warnings:string[]=[];
+  // The entry point is Speak a SALE. Bare product names and SKUs are valid.
   const intent:VoiceIntent=/\b(?:purchase order|order from supplier|buy stock|restock)\b/.test(text)
-    ? "PURCHASE_ORDER"
-    : /\b(?:sale|sell|sold|customer|bought|buying|walk in|checkout|purchased)\b/.test(text)
-      ? "SALE" : "UNKNOWN";
-  if(intent==="UNKNOWN")warnings.push("Choose Sale or Purchase Order before continuing.");
-  const matches=sellable.flatMap(item=>{
-    const candidate=candidateMatch(safeTranscript,item);
-    return candidate?[{item,...candidate}]:[];
-  }).sort((a,b)=>a.start-b.start||(b.end-b.start)-(a.end-a.start));
-  const distinct:Array<(typeof matches)[number]>=[];
-  for(const m of matches){
-    if(distinct.some(existing=>m.start<existing.end && m.end>existing.start)){
-      const sameStart=distinct.find(existing=>
-        m.start<existing.end && m.end>existing.start);
-      if(sameStart&&sameStart.item.key!==m.item.key){
-        warnings.push("Overlapping item matches require confirmation; check the catalog selection.");
+    ? "PURCHASE_ORDER":"SALE";
+  const matches=rankSpokenCatalogProducts(safeTranscript,sellable,
+    customers.map(customer=>customer.name));
+  const distinct:typeof matches=[];
+  // A fuzzy suggestion must never silently become a confirmed sale. Only
+  // strong candidates are placed into the human-reviewed draft.
+  const ordered=matches.filter(m=>m.score>=(m.basis==="similar"?0.94:0.88))
+    .sort((a,b)=>a.start-b.start||
+    b.score-a.score||(b.end-b.start)-(a.end-a.start));
+  for(const match of ordered){
+    const overlap=distinct.find(existing=>match.start<existing.end&&
+      match.end>existing.start);
+    if(overlap){
+      if(overlap.item.key!==match.item.key){
+        warnings.push("Several products or selling units sound similar. Confirm the exact catalog item and unit.");
       }
       continue;
     }
-    if(distinct.some(existing=>existing.item.key===m.item.key))continue;
-    distinct.push(m);
+    if(distinct.some(existing=>existing.item.key===match.item.key))continue;
+    distinct.push(match);
   }
   const lines=distinct.slice(0,30).map(m=>({
     item:m.item,quantity:quantityBefore(text,m.start),
-    spoken:safeTranscript.slice(0,180),confidence:m.confidence,
+    spoken:m.phrase,confidence:m.basis,
   }));
-  if(matches.length>30)warnings.push("Only the first 30 item matches are shown.");
-  if(lines.length===0)warnings.push("No exact sellable catalog item or SKU was recognized. Add items manually.");
+  const chosen=new Set(lines.map(line=>line.item.key));
+  const suggestions=matches.filter(match=>!chosen.has(match.item.key))
+    .slice(0,8).map(match=>({
+      item:match.item,score:match.score,phrase:match.phrase,
+    }));
+  if(ordered.length>30)warnings.push("Only the first 30 recognized products are shown.");
+  if(lines.length===0)warnings.push(
+    "No confident product match. Check similar catalog items below or search manually before checkout.");
+  if(lines.some(line=>line.confidence==="similar"))warnings.push(
+    "Similar-sounding products were identified. Verify the names and selling units carefully.");
   const customerMatches=customers.filter(c=>c.name.trim().length>=3&&
     text.includes(normalized(c.name)));
   const customerId=customerMatches.length===1?customerMatches[0]!.id:null;
@@ -134,5 +125,5 @@ export function draftVoiceTransaction(
   warnings.push("Catalog prices are estimates until the server validates the final sale.");
   return {intent,lines,customerId,customerName,paymentMethod,
     paymentState,tenderedMinor:tenderFromSpeech(text),warnings,
-    transcript:safeTranscript};
+    transcript:safeTranscript,suggestions};
 }

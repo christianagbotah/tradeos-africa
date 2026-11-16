@@ -1577,7 +1577,40 @@
 }
 
 .tos-pos__browser {
-  gap: var(--tos-space-4);
+  /* Search and the first matching tile must remain adjacent on desktop. */
+  gap: var(--tos-space-2);
+  justify-content: flex-start;
+  align-items: stretch;
+}
+.tos-pos-search-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--tos-space-2);
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.tos-pos-voice-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  min-height: 50px;
+  padding: 0 17px;
+  border: 1px solid #174f79;
+  border-radius: var(--tos-radius-md);
+  background: #174f79;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.tos-pos-voice-button:hover { background: #113c5d; }
+.tos-pos-voice-button:focus-visible { outline: 3px solid var(--tos-gold); outline-offset: 2px; }
+@media (max-width: 440px) {
+  .tos-pos-search-row { flex-wrap: wrap; }
+  .tos-pos-search-row .tos-pos-search { flex-basis: 100%; }
+  .tos-pos-voice-button { min-height: 42px; width: 100%; }
 }
 
 /* Desktop cart wrapper — static right pane. On tablet/phone this is hidden
@@ -1600,8 +1633,10 @@
   position: relative;
   display: flex;
   align-items: center;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
+  min-height: 56px;
+  align-self: flex-start;
 }
 
 .tos-pos-search__icon {
