@@ -37,7 +37,7 @@ type Props = {
   customers: readonly Customer[];
   currencyCode: string;
   onApply: (lines: CartLine[],customerId:string|null,payment:VoicePayment,
-    suggestion:VoiceCheckoutSuggestion) => boolean;
+    suggestion:VoiceCheckoutSuggestion|null) => boolean;
   onClose: () => void;
 };
 const sample = "Record a sale: Comfort Mensah bought two door number 058 and one door number 326, paid by MoMo.";
@@ -292,9 +292,10 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
       setRecognitionError("A product appears more than once. Combine duplicate lines first.");return;
     }
     if(onApply(cleaned.map(l=>({sellable:l.item,quantity:l.quantity})),
-      customerId||null,paymentMethod,{
+      customerId||null,paymentMethod,
+      draft.paymentState!=="UNSPECIFIED"||draft.tenderedMinor!==null?{
         paymentState:draft.paymentState,tenderedMinor:draft.tenderedMinor,
-      }))onClose();
+      }:null))onClose();
   }
   const totalMinor=draft?.lines.reduce((total,line)=>
     total+line.item.priceMinor*line.quantity,0)??0;

@@ -10,6 +10,7 @@ describe("voice payment review must not authorize payment",()=>{
   it("transfers only advisory data on final voice draft acknowledgement",()=>{
     expect(assistant).toContain("paymentState:draft.paymentState");
     expect(assistant).toContain("tenderedMinor:draft.tenderedMinor");
+    expect(assistant).toContain('draft.paymentState!=="UNSPECIFIED"||draft.tenderedMinor!==null');
     expect(assistant).toContain("This is only a transcription");
     expect(assistant).toContain("Checkout calculates authoritative prices");
     expect(pos).toContain("setVoicePaymentSuggestion(lines.length===0?suggestion:null)");
