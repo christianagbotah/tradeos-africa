@@ -354,6 +354,19 @@ export function registerPurchaseOrderRoutes(app:FastifyInstance,pool:DatabasePoo
                cancelled_at=CASE WHEN $3='CANCELLED' THEN now() ELSE cancelled_at END,
                updated_at=now() WHERE id=$1 AND business_id=$2`,
               [orderId,businessId,target]);
+            if(target==="CANCELLED"){
+              // A cancelled PO must not have unsubmitted or queued supplier
+              // emails delivered later. The provider may already have accepted
+              // an in-flight email; those records remain immutable and visible.
+              await tx.query(
+                `UPDATE supplier_document_deliveries
+                 SET status='CANCELLED',authorized_at=NULL,
+                   next_attempt_at=NULL,last_error_code='PO_CANCELLED',
+                   updated_at=now()
+                 WHERE business_id=$1 AND purchase_order_id=$2
+                   AND status IN ('PREPARED','QUEUED')`,
+                [businessId,orderId]);
+            }
             await audit(tx,{businessId,branchId:row.branch_id,staffId:access.staffId,
               orderId,eventType:target==="ISSUED"?"PURCHASE_ORDER_ISSUED":"PURCHASE_ORDER_CANCELLED",
               orderNumber:row.order_number});

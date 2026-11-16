@@ -26,6 +26,7 @@ import { registerPlatformAdminAutomationRoutes } from "./platform-admin/automati
 import { registerSalesReadRoutes } from "./sales-read.js";
 import { registerCommercialDocumentRoutes } from "./commercial-documents.js";
 import { registerPurchaseOrderRoutes } from "./purchase-orders.js";
+import { registerSupplierDocumentDeliveryRoutes } from "./supplier-document-delivery.js";
 import { registerSupplierInvoiceMatchRoutes } from "./supplier-invoice-matches.js";
 import { registerHubtelPosRoutes } from "./commerce/hubtel-pos-routes.js";
 import { registerStaffRoutes } from "./staff/routes.js";
@@ -68,6 +69,7 @@ export function buildApp(pool: DatabasePool) {
   registerSalesReadRoutes(app, pool);
   registerCommercialDocumentRoutes(app, pool);
   registerPurchaseOrderRoutes(app, pool);
+  registerSupplierDocumentDeliveryRoutes(app, pool);
   registerSupplierInvoiceMatchRoutes(app, pool);
   registerHubtelPosRoutes(app, pool);
   registerStaffRoutes(app, pool);

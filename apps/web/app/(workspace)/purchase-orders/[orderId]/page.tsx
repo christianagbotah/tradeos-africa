@@ -8,6 +8,7 @@ import { useWorkspace } from "../../../components/workspace/use-workspace";
 import { useApiFetch } from "../../../../lib/use-api-fetch";
 import { PurchaseReceiptBuilder } from "../../../components/purchases/purchase-receipt-builder";
 import { SupplierInvoiceMatching } from "../../../components/purchases/supplier-invoice-matching";
+import { SupplierDocumentDelivery } from "../../../components/purchases/supplier-document-delivery";
 import type { Supplier } from "../../../components/purchases/supplier-sheet";
 import styles from "./purchase-order-preview.module.css";
 
@@ -154,6 +155,11 @@ export default function SupplierPurchaseOrderPreview(){
         <p>{order.orderNumber} · {order.businessName}</p>
       </footer>
     </article>
+    {order.status==="ISSUED" &&
+      ["OWNER","ADMIN","MANAGER","ACCOUNTANT","INVENTORY"].includes(role) ?
+      <SupplierDocumentDelivery
+        orderId={order.id} orderNumber={order.orderNumber} status={order.status}/>
+      : null}
     {order.receiptCount>0 && order.status!=="DRAFT" &&
       ["OWNER","ADMIN","MANAGER","ACCOUNTANT","INVENTORY"].includes(role) ?
       <SupplierInvoiceMatching
