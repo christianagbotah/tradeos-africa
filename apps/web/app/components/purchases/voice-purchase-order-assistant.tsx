@@ -2,7 +2,11 @@
 
 import {useEffect,useMemo,useRef,useState} from "react";
 import {formatMoney} from "@tradeos/contracts";
-import {purchasableUnits,type CatalogItem} from "../../../lib/catalog-read-model";
+import {purchasableUnits,type CatalogItem,type SellableItem}
+  from "../../../lib/catalog-read-model";
+import {searchPosCatalog} from "../../../lib/pos-catalog-search";
+import {parseVoicePOCorrection,type VoicePOCorrection}
+  from "../../../lib/voice-purchase-order-correction";
 import {normalizeForCatalogVoice} from "../../../lib/voice-catalog-matcher";
 import {
   draftVoicePurchaseOrder,type VoicePurchaseOrderDraft,
@@ -52,8 +56,27 @@ export function VoicePurchaseOrderAssistant({
   const [supplierId,setSupplierId]=useState("");
   const [reviewed,setReviewed]=useState(false);
   const [lookup,setLookup]=useState("");
+  const [correctionText,setCorrectionText]=useState("");
+  const [correctionError,setCorrectionError]=useState<string|null>(null);
+  const [correction,setCorrection]=useState<VoicePOCorrection|null>(null);
+  const [correctionSnapshot,setCorrectionSnapshot]=useState("");
+  const [correctionTargetKey,setCorrectionTargetKey]=useState("");
+  const [replacementId,setReplacementId]=useState("");
+  const [replacementChoices,setReplacementChoices]=useState<CatalogItem[]>([]);
+  const [unitCode,setUnitCode]=useState("");
+  const [correctionSupplierId,setCorrectionSupplierId]=useState("");
+
   const speech=useRef<SpeechEngine|null>(null);
   const byId=useMemo(()=>new Map(items.map(item=>[item.id,item])),[items]);
+  const correctionCatalog=useMemo<SellableItem[]>(()=>items.map(item=>{
+    const unit=purchasableUnits(item)[0]!;
+    return {
+      key:item.id+":"+unit.code,itemId:item.id,name:item.name,sku:item.sku,
+      kind:item.kind,unitCode:unit.code,unitLabel:unit.label,
+      priceMinor:0,trackStock:true,stockUnitCode:item.stockUnitCode,
+      availableStock:null,
+    };
+  }),[items]);
   const supplierMention=useMemo(()=>{
     const heard=normalizeForCatalogVoice(transcript);
     const matches=suppliers.filter(s=>s.active&&
@@ -69,39 +92,54 @@ export function VoicePurchaseOrderAssistant({
   },[items,lookup]);
   useEffect(()=>()=>{speech.current?.abort();speech.current=null;},[]);
   function stop(){speech.current?.stop();setListening(false);}
-  function start(){
+  function start(mode:"order"|"correction"="order"){
     if(listening)return;
     const w=window as SpeechWindow;
     const Factory=w.SpeechRecognition??w.webkitSpeechRecognition;
     if(!Factory){
-      setError("This browser does not support speech recognition. Type the purchase order below.");
+      if(mode==="correction")setCorrectionError(
+        "Microphone unavailable. Type the correction below.");
+      else setError("This browser does not support speech recognition. Type the purchase order below.");
       return;
     }
-    setError(null);setDraft(null);setRows([]);setSupplierId("");setReviewed(false);
+    if(mode==="order"){
+      setError(null);setDraft(null);setRows([]);setSupplierId("");
+      setCorrection(null);setReviewed(false);
+    }else{
+      setCorrectionError(null);setCorrection(null);setReviewed(false);
+    }
     const engine=new Factory();speech.current=engine;
     engine.lang=language;engine.continuous=true;engine.interimResults=false;
-    const prior=transcript.trim();
+    const prior=(mode==="correction"?correctionText:transcript).trim();
     engine.onresult=event=>{
       const words=Array.from(event.results)
         .map(result=>result[0]?.transcript??"").filter(Boolean).join(" ");
-      setTranscript([prior,words].filter(Boolean).join(" ").slice(0,2000));
+      const next=[prior,words].filter(Boolean).join(" ");
+      if(mode==="correction"){
+        setCorrectionText(next.slice(0,500));setCorrection(null);
+      }else setTranscript(next.slice(0,2000));
     };
     engine.onerror=e=>{
-      setListening(false);setError(
-        e.error==="not-allowed"||e.error==="service-not-allowed"?
-        "Microphone permission denied. Type the order instead.":
-        "Speech recognition stopped. Review the transcript and try again.");
+      setListening(false);
+      const message=e.error==="not-allowed"||e.error==="service-not-allowed"?
+        "Microphone permission denied. Type the instruction instead.":
+        "Speech recognition stopped. Check the transcript and try again.";
+      if(mode==="correction")setCorrectionError(message);
+      else setError(message);
     };
     engine.onend=()=>{setListening(false);speech.current=null;};
     try{engine.start();setListening(true);}
     catch{speech.current=null;setListening(false);
-      setError("Could not start the microphone. Type the order instead.");}
+      if(mode==="correction")setCorrectionError(
+        "Could not start the microphone. Type the correction instead.");
+      else setError("Could not start the microphone. Type the order instead.");}
   }
   function prepare(){
     stop();
     const next=draftVoicePurchaseOrder(transcript,items,
       suppliers.filter(s=>s.active).map(s=>s.name));
     setDraft(next);
+    setCorrection(null);setCorrectionError(null);setCorrectionText("");
     setSupplierId("");
     setRows(next.lines.map(line=>({
       key:crypto.randomUUID(),itemId:line.itemId,
@@ -115,7 +153,7 @@ export function VoicePurchaseOrderAssistant({
   }
   function updateRow(key:string,patch:Partial<ReviewRow>){
     setRows(prev=>prev.map(row=>row.key===key?{...row,...patch}:row));
-    setReviewed(false);
+    setCorrection(null);setCorrectionError(null);setReviewed(false);
   }
   function addItem(item:CatalogItem){
     if(rows.length>=50)return;
@@ -126,6 +164,116 @@ export function VoicePurchaseOrderAssistant({
       quantity:"1",costMinor:null,confidence:"manual",
       suggestedCostMinor:null,suggestedCostPhrase:null,
     }]);
+    setCorrection(null);setReviewed(false);
+  }
+  const draftSnapshot=()=>JSON.stringify({
+    supplierId,
+    rows:rows.map(r=>[r.key,r.itemId,r.purchaseUnitCode,r.quantity,
+      r.costMinor,r.suggestedCostMinor]),
+  });
+  function prepareCorrection(){
+    if(!draft)return;
+    const parsed=parseVoicePOCorrection(correctionText,rows.length);
+    setCorrection(null);setCorrectionError(null);
+    setReplacementId("");setReplacementChoices([]);
+    setUnitCode("");setCorrectionSupplierId("");
+    if(!parsed.ok){setCorrectionError(parsed.message);return;}
+    const next=parsed.value;
+    const target=next.kind==="SUPPLIER"?null:rows[next.index]??null;
+    const item=target?byId.get(target.itemId):null;
+    setCorrectionSnapshot(draftSnapshot());
+    setCorrectionTargetKey(target?.key??"");
+    if(next.kind==="REPLACE"){
+      const choices=searchPosCatalog(correctionCatalog,next.itemQuery,12).items
+        .map(match=>byId.get(match.itemId)).filter(
+          (value):value is CatalogItem=>Boolean(value));
+      setReplacementChoices(choices);
+      if(!choices.length){
+        setCorrectionError("No purchasable catalog match. Try a different item name or SKU.");
+        return;
+      }
+    }
+    if(next.kind==="UNIT"){
+      const available=item?purchasableUnits(item):[];
+      const normalized=normalizeForCatalogVoice(next.unitQuery).replace(/s$/,"");
+      const matching=available.find(u=>
+        normalizeForCatalogVoice(u.code).replace(/s$/,"")===normalized||
+        normalizeForCatalogVoice(u.label).replace(/s$/,"")===normalized);
+      if(!matching){
+        setCorrectionError("That purchasing unit is not configured for this item. Choose a listed unit.");
+      }else setUnitCode(matching.code);
+    }
+    if(next.kind==="COST"&&next.perUnit&&item){
+      const selected=purchasableUnits(item).find(u=>u.code===target?.purchaseUnitCode);
+      const normalized=normalizeForCatalogVoice(next.perUnit).replace(/s$/,"");
+      if(!selected||![selected.code,selected.label].some(
+        u=>normalizeForCatalogVoice(u).replace(/s$/,"")===normalized)){
+        setCorrectionError("The spoken cost unit differs from the chosen purchasing unit.");
+        return;
+      }
+    }
+    if(next.kind==="SUPPLIER"){
+      const matches=suppliers.filter(s=>s.active&&normalizeForCatalogVoice(s.name)
+        .includes(next.supplierQuery));
+      if(matches.length===0){
+        setCorrectionError("No matching active supplier. Say the saved supplier name.");
+        return;
+      }
+    }
+    setCorrection(next);
+    if(next.kind!=="UNIT")setCorrectionError(null);
+  }
+  function confirmCorrection(){
+    if(!draft||!correction)return;
+    if(correctionSnapshot!==draftSnapshot()||
+      (correction.kind!=="SUPPLIER"&&
+        rows[correction.index]?.key!==correctionTargetKey)){
+      setCorrection(null);
+      setCorrectionError("The order changed. Prepare the correction again.");
+      return;
+    }
+    const change=correction;
+    const current=change.kind==="SUPPLIER"?null:rows[change.index];
+    const item=current?byId.get(current.itemId):null;
+    if(change.kind==="SUPPLIER"){
+      const supplier=suppliers.find(s=>s.id===correctionSupplierId&&s.active);
+      if(!supplier){setCorrectionError("Select a saved active supplier first.");return;}
+      setSupplierId(supplier.id);
+      if(supplier.id!==supplierId)setRows(prev=>prev.map(row=>({
+        ...row,costMinor:null,suggestedCostMinor:null,suggestedCostPhrase:null,
+      })));
+    }else if(change.kind==="REMOVE"){
+      setRows(prev=>prev.filter((_,i)=>i!==change.index));
+    }else if(change.kind==="QUANTITY"){
+      setRows(prev=>prev.map((row,i)=>i===change.index?
+        {...row,quantity:String(change.quantity)}:row));
+    }else if(change.kind==="COST"){
+      if(!item||!current){setCorrectionError("The chosen item no longer exists.");return;}
+      setRows(prev=>prev.map((row,i)=>i===change.index?
+        {...row,costMinor:change.unitCostMinor,
+          suggestedCostMinor:null,suggestedCostPhrase:null}:row));
+    }else if(change.kind==="UNIT"){
+      if(!item||!purchasableUnits(item).some(u=>u.code===unitCode)){
+        setCorrectionError("Choose a configured purchasing unit first.");return;
+      }
+      setRows(prev=>prev.map((row,i)=>i===change.index?
+        {...row,purchaseUnitCode:unitCode,costMinor:null,
+          suggestedCostMinor:null,suggestedCostPhrase:null}:row));
+    }else{
+      const selected=replacementChoices.some(x=>x.id===replacementId);
+      const replacement=selected?byId.get(replacementId):undefined;
+      const unit=replacement&&replacement.active&&replacement.kind==="PRODUCT"&&
+        replacement.trackStock?purchasableUnits(replacement)[0]:null;
+      if(!replacement||!unit){
+        setCorrectionError("Select a purchasable catalog replacement first.");return;
+      }
+      setRows(prev=>prev.map((row,i)=>i===change.index?
+        {...row,itemId:replacement.id,purchaseUnitCode:unit.code,
+          quantity:"1",costMinor:null,suggestedCostMinor:null,
+          suggestedCostPhrase:null,confidence:"manual"}:row));
+    }
+    setCorrection(null);setCorrectionError(null);setCorrectionText("");
+    setReplacementId("");setUnitCode("");setCorrectionSupplierId("");
     setReviewed(false);
   }
   const valid=rows.length>0&&rows.length<=50&&Boolean(supplierId)&&
@@ -141,7 +289,7 @@ export function VoicePurchaseOrderAssistant({
   const total=rows.reduce((n,r)=>n+
     Math.round((r.costMinor??0)*(Number(r.quantity)||0)),0);
   function apply(){
-    if(!valid||!reviewed)return;
+    if(!valid||!reviewed||correction)return;
     const reviewedLines=rows.map(row=>({
       itemId:row.itemId,purchaseUnitCode:row.purchaseUnitCode,
       quantity:Number(row.quantity),unitCostMinor:row.costMinor!,
@@ -174,7 +322,7 @@ export function VoicePurchaseOrderAssistant({
             </select>
           </label>
           <button className={styles.primary} type="button"
-            onClick={listening?stop:start}>
+            onClick={listening?stop:()=>start("order")}>
             {listening?"Stop recording":"🎙 Speak order"}
           </button>
         </div>
@@ -184,7 +332,8 @@ export function VoicePurchaseOrderAssistant({
             placeholder="Order 2 door number 058 and 3 bags of cement from Comfort Supplies"
             onChange={e=>{
               setTranscript(e.target.value);
-              setDraft(null);setRows([]);setSupplierId("");setReviewed(false);
+              setDraft(null);setRows([]);setSupplierId("");
+              setCorrection(null);setCorrectionText("");setReviewed(false);
             }}/>
         </label>
         <button type="button" className={styles.secondary}
@@ -198,19 +347,105 @@ export function VoicePurchaseOrderAssistant({
           {supplierMention?<p className={styles.hint}>
             Supplier mentioned: <strong>{supplierMention.name}</strong>.
             <button type="button" className={styles.linkButton}
-              onClick={()=>{setSupplierId(supplierMention.id);setReviewed(false);}}>
+              onClick={()=>{
+                setSupplierId(supplierMention.id);setCorrection(null);setReviewed(false);
+              }}>
               Select this supplier
             </button>
           </p>:null}
           <label className={styles.field}>Supplier · required
             <select value={supplierId} onChange={e=>{
-              setSupplierId(e.target.value);setReviewed(false);
+              setSupplierId(e.target.value);setCorrection(null);setReviewed(false);
             }}>
               <option value="">Choose the correct supplier</option>
               {suppliers.filter(s=>s.active).map(s=>
                 <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
+          <section className={styles.correctionPanel}
+            aria-label="Correct purchase order by voice">
+            <h4>Correct this order by voice or text</h4>
+            <p className={styles.hint}>
+              Say “change item two quantity to five”, “set item one unit to carton”,
+              “change item two cost to ₵120.50”, “replace item one with SKU 058”,
+              “remove item three”, or “change supplier to Comfort Supplies”.
+              A correction only changes this unposted draft after confirmation.
+            </p>
+            <div className={styles.buttons}>
+              <button type="button" className={styles.secondary}
+                onClick={listening?stop:()=>start("correction")}>
+                {listening?"Stop microphone":"🎙 Speak correction"}
+              </button>
+            </div>
+            <label className={styles.field}>Correction instruction
+              <input type="text" value={correctionText} maxLength={500}
+                aria-label="Spoken purchase-order correction"
+                placeholder="Change item two quantity to five"
+                onChange={e=>{
+                  setCorrectionText(e.target.value);
+                  setCorrection(null);setCorrectionError(null);
+                }}/>
+            </label>
+            <button type="button" className={styles.secondary}
+              disabled={!correctionText.trim()||listening} onClick={prepareCorrection}>
+              Prepare correction for review
+            </button>
+            {correctionError?<p className={styles.error} role="alert">
+              {correctionError}</p>:null}
+            {correction?<div className={styles.correctionPreview}>
+              {correction.kind!=="SUPPLIER"?<p>
+                Item {correction.index+1}: <strong>{
+                  byId.get(rows[correction.index]?.itemId??"")?.name??"Unknown"
+                }</strong>
+              </p>:null}
+              {correction.kind==="REMOVE"?<p>Proposed change: remove this draft line.</p>:null}
+              {correction.kind==="QUANTITY"?<p>
+                Proposed quantity: <strong>{correction.quantity}</strong>
+              </p>:null}
+              {correction.kind==="COST"?<p>
+                Proposed supplier unit cost: <strong>{
+                  formatMoney(correction.unitCostMinor,currencyCode)}</strong>
+                {correction.perUnit?" per "+correction.perUnit:" per selected purchasing unit"}.
+                Confirm this amount against the supplier quote.
+              </p>:null}
+              {correction.kind==="UNIT"?<label className={styles.field}>
+                Select the actual configured purchasing unit
+                <select value={unitCode} onChange={e=>{setUnitCode(e.target.value);setCorrectionError(null);}}>
+                  <option value="">Choose purchasing unit</option>
+                  {(byId.get(rows[correction.index]?.itemId??"")?
+                    purchasableUnits(byId.get(rows[correction.index]?.itemId??"")!):[]
+                  ).map(unit=><option key={unit.code} value={unit.code}>
+                    {unit.label}</option>)}
+                </select>
+                <span className={styles.hint}>Changing a unit clears existing supplier costs.</span>
+              </label>:null}
+              {correction.kind==="REPLACE"?<label className={styles.field}>
+                Select the replacement catalog product
+                <select value={replacementId}
+                  onChange={e=>{setReplacementId(e.target.value);setCorrectionError(null);}}>
+                  <option value="">Select the exact purchasable item</option>
+                  {replacementChoices.map(item=><option key={item.id} value={item.id}>
+                    {item.name} · {item.sku??"No SKU"}</option>)}
+                </select>
+                <span className={styles.hint}>Replacement resets the quantity to one, selects the new product's default purchasing unit, and clears old costs. Verify all three.</span>
+              </label>:null}
+              {correction.kind==="SUPPLIER"?<label className={styles.field}>
+                Select the saved active supplier
+                <select value={correctionSupplierId}
+                  onChange={e=>{setCorrectionSupplierId(e.target.value);setCorrectionError(null);}}>
+                  <option value="">Choose the correct supplier</option>
+                  {suppliers.filter(s=>s.active&&
+                    normalizeForCatalogVoice(s.name).includes(correction.supplierQuery)
+                  ).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </label>:null}
+              <button type="button" className={styles.primary}
+                disabled={(correction.kind==="REPLACE"&&!replacementId)||
+                  (correction.kind==="UNIT"&&!unitCode)||
+                  (correction.kind==="SUPPLIER"&&!correctionSupplierId)}
+                onClick={confirmCorrection}>Confirm change to draft only</button>
+            </div>:null}
+          </section>
           <div className={styles.listHeading}>
             <h4>Items and supplier unit costs</h4><span>{rows.length}/50</span>
           </div>
@@ -225,7 +460,7 @@ export function VoicePurchaseOrderAssistant({
                     aria-label={"Remove proposed item "+(index+1)}
                     onClick={()=>{
                       setRows(prev=>prev.filter(r=>r.key!==row.key));
-                      setReviewed(false);
+                      setCorrection(null);setReviewed(false);
                     }}>Remove</button>
                 </div>
                 <div className={styles.inputs}>
@@ -334,7 +569,7 @@ export function VoicePurchaseOrderAssistant({
             I verified supplier, SKUs, purchasing units, quantities and costs.
           </label>
           <button type="button" className={styles.primary}
-            disabled={!valid||!reviewed} onClick={apply}>
+            disabled={!valid||!reviewed||Boolean(correction)} onClick={apply}>
             Use reviewed details in order form
           </button>
         </div>:null}

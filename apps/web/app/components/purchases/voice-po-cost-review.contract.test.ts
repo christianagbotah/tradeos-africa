@@ -14,7 +14,7 @@ describe("speech never silently authorizes a supplier cost",()=>{
     expect(assistant).toContain("Use suggested cost");
     expect(assistant).toContain("costMinor:row.suggestedCostMinor");
     expect(assistant).toContain("row.costMinor!==null");
-    expect(assistant).toContain("disabled={!valid||!reviewed}");
+    expect(assistant).toContain("disabled={!valid||!reviewed||Boolean(correction)}");
   });
   it("invalidates old price on product or purchasing unit change",()=>{
     expect(assistant).toContain("costMinor:null,suggestedCostMinor:null");
