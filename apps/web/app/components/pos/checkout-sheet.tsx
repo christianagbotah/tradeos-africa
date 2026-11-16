@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatMoney, majorToMinor, minorToMajor, getCurrencyMeta } from "@tradeos/contracts";
 import type { SyncResponse } from "@tradeos/contracts";
 import { getOfflineQueue } from "../../../lib/offline-sync";
@@ -52,6 +52,19 @@ interface CheckoutSheetProps {
   initialPaymentMethod?: VoicePayment;
 }
 
+interface ServerQuoteLine{
+  itemId:string;unitCode:string;quantity:number;unitPriceMinor:number;
+  standardPriceMinor:number;source:"CATALOG"|"CUSTOMER";
+}
+interface ServerQuote{
+  lines:ServerQuoteLine[];totalMinor:number;
+}
+interface ApprovedPrice{
+  id:string;status:string;branchId:string;customerId:string|null;
+  itemId:string;unitCode:string;quantity:number;
+  baseUnitPriceMinor:number;requestedUnitPriceMinor:number;
+  expiresAt:string|null;createdAt:string;
+}
 interface SaleResult {
   status: "pending" | "completed";
   reference: string;
@@ -85,9 +98,47 @@ export function CheckoutSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SaleResult | null>(null);
-
-  // Display-only total — the server prices every sale from its own catalog.
-  const totalMinor = lines.reduce((sum, l) => sum + l.sellable.priceMinor * l.quantity, 0);
+  const [serverQuote,setServerQuote]=useState<{key:string;value:ServerQuote}|null>(null);
+  const [quotePending,setQuotePending]=useState(false);
+  const [quoteError,setQuoteError]=useState<string|null>(null);
+  const [approvals,setApprovals]=useState<ApprovedPrice[]>([]);
+  const [selectedApprovals,setSelectedApprovals]=useState<Record<string,string>>({});
+  const initializedRef=useRef(false);
+  const [reviewVersion,setReviewVersion]=useState(0);
+  const quoteKey=JSON.stringify({
+    customerId:customer?.id??null,
+    lines:lines.map(l=>[l.sellable.itemId,l.sellable.unitCode,l.quantity]),
+  });
+  const quote=online&&serverQuote?.key===quoteKey?serverQuote.value:null;
+  function matchingApproval(itemId:string,unitCode:string,quantity:number,
+    baseMinor:number,id:string){
+    return approvals.find(a=>a.id===id&&a.status==="APPROVED"&&
+      a.branchId===branchId&&a.customerId===(customer?.id??null)&&
+      a.itemId===itemId&&a.unitCode===unitCode&&a.quantity===quantity&&
+      a.baseUnitPriceMinor===baseMinor&&
+      a.requestedUnitPriceMinor<baseMinor&&
+      a.expiresAt!==null&&Date.parse(a.expiresAt)>Date.now());
+  }
+  function lineNetMinor(l:CartLine,index:number):number{
+    const server=quote?.lines[index];
+    const base=server?.itemId===l.sellable.itemId&&
+      server.unitCode===l.sellable.unitCode&&
+      server.quantity===l.quantity?server.unitPriceMinor:l.sellable.priceMinor;
+    const selected=selectedApprovals[l.sellable.key]??"";
+    const special=matchingApproval(l.sellable.itemId,l.sellable.unitCode,l.quantity,
+      base,selected);
+    return special?.requestedUnitPriceMinor??base;
+  }
+  const totalMinor = lines.reduce((sum,l,i)=>
+    sum+Math.round(lineNetMinor(l,i)*l.quantity),0);
+  const quoteReady=!online||Boolean(quote)&&!quoteError&&!quotePending;
+  const approvalValid=lines.every((l,i)=>{
+    const id=selectedApprovals[l.sellable.key];
+    if(!id)return true;
+    const base=quote?.lines[i]?.unitPriceMinor??l.sellable.priceMinor;
+    return Boolean(matchingApproval(l.sellable.itemId,l.sellable.unitCode,l.quantity,
+      base,id));
+  });
   const amountToCollect = splitWithCredit?(paidNowMinor??0):totalMinor;
   const changeMinor = cashReceivedMinor !== null ?
     cashReceivedMinor - amountToCollect : null;
@@ -102,14 +153,17 @@ export function CheckoutSheet({
     online&&!hubtelSelected&&paymentMethod!=="CUSTOMER_CREDIT"&&
     Number.isSafeInteger(amountToCollect)&&amountToCollect>0&&amountToCollect<totalMinor
   );
-  const canCharge = lines.length>0&&(!hubtelSelected||online)&&
+  const canCharge = quoteReady&&approvalValid&&lines.length>0&&
+    (!hubtelSelected||online)&&
     splitValid&&creditReady&&(paymentMethod!=="CUSTOMER_CREDIT"||online)&&
     (paymentMethod!=="CASH" || (cashReceivedMinor!==null &&
       cashReceivedMinor>=amountToCollect));
 
-  // Reset state when the sheet opens.
+  // Initialize once per opening, not whenever the customer list refreshes.
   useEffect(() => {
-    if (open) {
+    if (!open) {initializedRef.current=false;return;}
+    if (open && !initializedRef.current) {
+      initializedRef.current=true;
       const voiceMethod = initialPaymentMethod === "CREDIT"?"CUSTOMER_CREDIT":
         initialPaymentMethod && initialPaymentMethod!=="UNSPECIFIED"?
           initialPaymentMethod:"CASH";
@@ -122,9 +176,53 @@ export function CheckoutSheet({
       setBusy(false);
       setError(null);
       setResult(null);
+      setSelectedApprovals({});
+      setReviewVersion(v=>v+1);
     }
   }, [open,initialCustomerId,initialPaymentMethod,customers]);
 
+  useEffect(()=>{
+    if(!open||!online||lines.length===0){
+      setServerQuote(null);setQuotePending(false);setQuoteError(null);return;
+    }
+    let active=true;
+    const submittedKey=quoteKey;
+    setQuotePending(true);setQuoteError(null);
+    void getOfflineQueue().authenticatedFetch("/v1/pricing/quote",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({businessId,branchId,customerId:customer?.id??null,
+        lines:lines.map(l=>({itemId:l.sellable.itemId,
+          unitCode:l.sellable.unitCode,quantity:l.quantity}))}),
+    }).then(async response=>{
+      if(!response.ok)throw new Error(await readApiErrorMessage(response));
+      const result=await response.json() as ServerQuote;
+      if(result.lines.length!==lines.length ||
+        result.lines.some((l,i)=>l.itemId!==lines[i]?.sellable.itemId||
+          l.unitCode!==lines[i]?.sellable.unitCode||
+          l.quantity!==lines[i]?.quantity||
+          !Number.isSafeInteger(l.unitPriceMinor)||l.unitPriceMinor<0) ||
+        !Number.isSafeInteger(result.totalMinor)||result.totalMinor<0)
+        throw new Error("The pricing server returned an inconsistent quote.");
+      if(active)setServerQuote({key:submittedKey,value:result});
+    }).catch(e=>{
+      if(active){setServerQuote(null);setQuoteError(
+        e instanceof Error?e.message:"Cannot verify current selling prices.");}
+    }).finally(()=>{if(active)setQuotePending(false);});
+    return ()=>{active=false;};
+  },[open,online,businessId,branchId,customer?.id,quoteKey,reviewVersion]);
+  useEffect(()=>{
+    if(!open||!online){setApprovals([]);return;}
+    let active=true;
+    void getOfflineQueue().authenticatedFetch(
+      "/v1/pricing/discount-requests?businessId="+encodeURIComponent(businessId)+
+      "&status=APPROVED",
+    ).then(async response=>{
+      if(!response.ok)return;
+      const data=await response.json() as {requests:ApprovedPrice[]};
+      if(active)setApprovals(data.requests);
+    }).catch(()=>{if(active)setApprovals([]);});
+    return ()=>{active=false;};
+  },[open,online,businessId,reviewVersion]);
   useEffect(()=>{
     if(!open || !online){setHubtelAvailable(false);return;}
     let active=true;
@@ -141,6 +239,10 @@ export function CheckoutSheet({
 
   const handleCharge = async () => {
     if (!canCharge || busy) return;
+    if(online&&!quoteReady){
+      setError("Current prices have not been verified. Refresh pricing before charging.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -150,10 +252,14 @@ export function CheckoutSheet({
       const payload = buildSaleCreatePayload({
         currencyCode,
         paymentMethod,
-        lines: lines.map((l) => ({
+        lines: lines.map((l,i) => ({
           itemId: l.sellable.itemId,
           saleUnitCode: l.sellable.unitCode,
           quantity: l.quantity,
+          ...(online?{expectedUnitPriceMinor:lineNetMinor(l,i)}:{}),
+          ...(selectedApprovals[l.sellable.key]?{
+            priceApprovalId:selectedApprovals[l.sellable.key],
+          }:{}),
         })),
         ...(customer ? { customerId: customer.id } : {}),
         ...(splitWithCredit?{payments:[
@@ -325,11 +431,14 @@ export function CheckoutSheet({
                         <div className="tos-checkout-lines__main">
                           <span className="tos-checkout-lines__title">{l.sellable.name}</span>
                           <span className="tos-checkout-lines__sub">
-                            {l.quantity} × {l.sellable.unitLabel} · {formatMoney(l.sellable.priceMinor, currencyCode)}
+                            {l.quantity} × {l.sellable.unitLabel} · {formatMoney(lineNetMinor(l,
+                              lines.findIndex(x=>x.sellable.key===l.sellable.key)),currencyCode)}
                           </span>
                         </div>
                         <span className="tos-checkout-lines__amount">
-                          <MoneyValue minor={l.sellable.priceMinor * l.quantity} currencyCode={currencyCode} />
+                          <MoneyValue minor={Math.round(lineNetMinor(l,
+                            lines.findIndex(x=>x.sellable.key===l.sellable.key))*l.quantity)}
+                            currencyCode={currencyCode} />
                         </span>
                       </li>
                     ))}
@@ -345,7 +454,58 @@ export function CheckoutSheet({
                 </span>
               </div>
 
-              <CustomerPicker customers={customers} selected={customer} onSelect={setCustomer} />
+              <CustomerPicker customers={customers} selected={customer}
+                onSelect={c=>{
+                  setCustomer(c);setSelectedApprovals({});
+                  setCashReceivedMinor(null);setPaidNowMinor(null);
+                }}/>
+              {online&&quotePending?<p className="tos-callout" role="status">
+                Verifying current customer prices with the server…</p>:null}
+              {online&&quoteError?<p className="tos-callout" role="alert">
+                Price verification unavailable: {quoteError}. Charging is paused
+                until a valid server quote is available.</p>:null}
+              {!online&&customer?<p className="tos-callout">
+                Customer prices are offline estimates and may differ from a
+                negotiated rate. Reconnect before giving a binding price.</p>:null}
+              {online?<section className="tos-section">
+                <div className="tos-section__head">
+                  <h3 className="tos-section__title">Approved price exceptions</h3>
+                  <button type="button" style={{padding:"7px 10px",
+                    borderRadius:8,background:"transparent",cursor:"pointer"}}
+                    onClick={()=>setReviewVersion(v=>v+1)}>
+                    Refresh prices & approvals
+                  </button>
+                </div>
+                <div className="tos-section__body" style={{display:"grid",gap:12}}>
+                  {lines.map((l,i)=>{
+                    const base=quote?.lines[i]?.unitPriceMinor??l.sellable.priceMinor;
+                    const usable=approvals.filter(a=>a.status==="APPROVED"&&
+                      a.branchId===branchId&&a.customerId===(customer?.id??null)&&
+                      a.itemId===l.sellable.itemId&&a.unitCode===l.sellable.unitCode&&
+                      a.quantity===l.quantity&&a.baseUnitPriceMinor===base&&
+                      a.expiresAt!==null&&Date.parse(a.expiresAt)>Date.now());
+                    return <label key={l.sellable.key} style={{display:"grid",gap:5}}>
+                      <span style={{fontWeight:750,fontSize:12}}>{l.sellable.name}
+                        {" "}({l.quantity} × {l.sellable.unitLabel}) —{" "}
+                        {formatMoney(base,currencyCode)}</span>
+                      <select value={selectedApprovals[l.sellable.key]??""}
+                        onChange={e=>{setSelectedApprovals(old=>({
+                          ...old,[l.sellable.key]:e.target.value}));
+                          setCashReceivedMinor(null);setPaidNowMinor(null);}}
+                        style={{padding:10,borderRadius:8,maxWidth:"100%"}}>
+                        <option value="">Use normal / customer-specific rate</option>
+                        {usable.map(a=><option key={a.id} value={a.id}>
+                          Approved: {formatMoney(a.requestedUnitPriceMinor,currencyCode)}
+                          {" "}· expires {new Date(a.expiresAt!).toLocaleTimeString("en-GB")}
+                        </option>)}
+                      </select>
+                    </label>;
+                  })}
+                  <a href="/pricing" style={{fontWeight:750,fontSize:13}}>
+                    Request a new discount or view approval status
+                  </a>
+                </div>
+              </section>:null}
 
               <div className="tos-field">
                 <span className="tos-field__label">Payment method</span>

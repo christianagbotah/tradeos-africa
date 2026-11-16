@@ -118,6 +118,7 @@ export function registerPricingRoutes(app:FastifyInstance,pool:DatabasePool){
       const itemId=pricingUuid(req.body?.itemId,"itemId");
       const unitCode=pricingUnit(req.body?.unitCode);
       const priceMinor=pricingMinor(req.body?.priceMinor);
+      if(priceMinor===0)pricingFail("Customer price must be positive","PRICING_PRICE_INVALID");
       const active=req.body?.active!==false;
       const rate=await withTransaction(pool,async db=>{
         await ensureCustomer(db,a.businessId,customer);
@@ -155,6 +156,7 @@ export function registerPricingRoutes(app:FastifyInstance,pool:DatabasePool){
       const unitCode=pricingUnit(req.body?.unitCode);
       const qty=pricingQty(req.body?.quantity);
       const proposed=pricingMinor(req.body?.requestedPriceMinor);
+      if(proposed===0)pricingFail("Discounted price must be positive","PRICING_PRICE_INVALID");
       const clientRequestId=pricingUuid(req.body?.clientRequestId,"clientRequestId");
       const reason=req.body?.reason?.trim()??"";
       if(reason.length<8||reason.length>500)
@@ -198,10 +200,32 @@ export function registerPricingRoutes(app:FastifyInstance,pool:DatabasePool){
             client_request_id,customer_id,item_id,sale_unit_code,quantity,
             base_unit_price_minor,requested_unit_price_minor,reason,
             requested_by_membership_id,requested_by_staff_id)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ON CONFLICT (business_id,client_request_id) DO NOTHING RETURNING id`,
           [a.businessId,branchId,clientRequestId,customer,itemId,unitCode,
             qty,effective.unitPriceMinor,proposed,reason,a.membershipId,a.staffId]);
-        const id=q.rows[0]!.id;
+        const id=q.rows[0]?.id;
+        if(!id){
+          const replay=await db.query<{
+            id:string;status:string;branch_id:string;customer_id:string|null;
+            item_id:string;sale_unit_code:string;quantity:string;
+            requested_unit_price_minor:string;reason:string;
+            requested_by_membership_id:string;
+          }>(`SELECT id,status,branch_id,customer_id,item_id,sale_unit_code,
+             quantity,requested_unit_price_minor,reason,requested_by_membership_id
+             FROM sale_price_approval_requests
+             WHERE business_id=$1 AND client_request_id=$2`,
+             [a.businessId,clientRequestId]);
+          const prior=replay.rows[0];
+          if(!prior||prior.branch_id!==branchId||prior.customer_id!==customer||
+            prior.item_id!==itemId||prior.sale_unit_code!==unitCode||
+            Number(prior.quantity)!==qty||
+            Number(prior.requested_unit_price_minor)!==proposed||
+            prior.reason!==reason||prior.requested_by_membership_id!==a.membershipId)
+            pricingFail("Request identifier was reused with changed details",
+              "PRICING_IDEMPOTENCY_CONFLICT",409);
+          return {id:prior.id,status:prior.status};
+        }
         await audit(db,a,"SALE_DISCOUNT_REQUESTED","SALE_PRICE_APPROVAL",id,
           {customerId:customer,itemId,unitCode,quantity:qty,
             currentUnitPriceMinor:effective.unitPriceMinor,
