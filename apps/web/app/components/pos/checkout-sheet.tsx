@@ -232,7 +232,9 @@ export function CheckoutSheet({
   const handlePrint = () => {
     if (result?.status !== "completed" || !result.receiptAvailable) return;
     const path = receiptUrl(result.reference);
-    if (path) window.open(path, "_blank", "noopener,noreferrer");
+    // Navigate in the current window: native desktop and mobile webviews may
+    // silently block new popups, leaving an apparently blank receipt.
+    if (path) window.location.assign(path);
   };
 
   const handleShare = async () => {

@@ -39,7 +39,7 @@ export function isReceiptIdentifier(value: string): boolean {
 
 export function canIssueReceipt(sale: ReceiptSale | null | undefined): sale is ReceiptSale {
   return Boolean(sale
-    && sale.status === "COMPLETED"
+    && ["COMPLETED", "PARTIALLY_REFUNDED", "REFUNDED"].includes(sale.status)
     && isReceiptIdentifier(sale.id)
     && sale.completedAt
     && Number.isSafeInteger(sale.totalMinor)

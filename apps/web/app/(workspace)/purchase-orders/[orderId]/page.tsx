@@ -67,7 +67,7 @@ export default function SupplierPurchaseOrderPreview(){
       {order.status==="ISSUED"?<button type="button" onClick={()=>window.print()}>
         Print / Save as PDF</button>:null}
     </div>
-    <article id="tradeos-supplier-po" className={styles.document}>
+    <article id="tradeos-supplier-po" className={`tos-print-document ${styles.document}`}>
       <header className={styles.hero}>
         <p className={styles.eyebrow}>TradeOS Africa · Purchasing</p>
         <div className={styles.heroRow}>

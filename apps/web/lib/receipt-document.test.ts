@@ -24,7 +24,9 @@ describe("customer receipt release gate", () => {
   it("requires the server-confirmed COMPLETED sale", () => {
     expect(canIssueReceipt(sale)).toBe(true);
     expect(canIssueReceipt({ ...sale, status: "OPEN", completedAt: null })).toBe(false);
-    expect(canIssueReceipt({ ...sale, status: "REFUNDED" })).toBe(false);
+    expect(canIssueReceipt({ ...sale, status: "REFUNDED" })).toBe(true);
+    expect(canIssueReceipt({ ...sale, status: "PARTIALLY_REFUNDED" })).toBe(true);
+    expect(canIssueReceipt({ ...sale, status: "REFUNDED", completedAt: null })).toBe(false);
     expect(canIssueReceipt({ ...sale, payments: [{ ...sale.payments[0]!, status: "PENDING" }] })).toBe(false);
   });
   it("does not treat offline mutation references as proof of payment", () => {
