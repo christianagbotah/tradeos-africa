@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { renderSupplierPurchaseOrderPdf } from "./supplier-document-pdf.js";
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
 import type { DatabasePool, DatabaseClient } from "./db.js";
 import { withTransaction } from "./db.js";
@@ -30,7 +31,7 @@ export interface DeliveryJob {
   id:string;business_id:string;branch_id:string;
   purchase_order_id:string;recipient_email:string;recipient_name:string;
   sender_email:string;subject:string;body_text:string;
-  attempt_count:number;document_number:string;
+  attempt_count:number;document_number:string;payload_snapshot:unknown;
 }
 export interface SendResult {
   messageId:string;accepted:boolean;
@@ -52,10 +53,14 @@ export async function smtpSendSupplierDocument(job:DeliveryJob):Promise<SendResu
     pool:false,
   } as SMTPTransport.Options);
   try{
+    const pdf = await renderSupplierPurchaseOrderPdf(job.payload_snapshot);
+    const filename = "PO-" + job.document_number.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 80) + ".pdf";
     const result=await transporter.sendMail({
       from:{name:config.senderName,address:config.senderEmail},
       to:{name:job.recipient_name,address:job.recipient_email},
       subject:job.subject,text:job.body_text,
+      attachments:[{filename,content:pdf,contentType:"application/pdf",
+        contentDisposition:"attachment"}],
       headers:{"X-TradeOS-Delivery-Id":job.id},
       disableFileAccess:true,disableUrlAccess:true,
     });
@@ -113,7 +118,8 @@ export async function processSupplierDeliveryOnce(
   const job=await withTransaction(pool,async tx=>{
     const row=(await tx.query<DeliveryJob>(
       `SELECT id,business_id,branch_id,purchase_order_id,recipient_email,
-        recipient_name,sender_email,subject,body_text,attempt_count,document_number
+        recipient_name,sender_email,subject,body_text,attempt_count,document_number,
+        payload_snapshot
        FROM supplier_document_deliveries
        WHERE status='QUEUED' AND next_attempt_at<=now()
          AND attempt_count<3 AND authorized_at IS NOT NULL
