@@ -10,6 +10,8 @@ import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { MoneyInput } from "../ui/money-input";
 import { purchasableUnits } from "../../../lib/catalog-read-model";
 import type { Supplier } from "./supplier-sheet";
+import {VoicePurchaseOrderAssistant,type VoicePOReviewLine}
+  from "./voice-purchase-order-assistant";
 import styles from "./purchase-order-workspace.module.css";
 
 type Status = "DRAFT" | "ISSUED" | "CANCELLED";
@@ -37,6 +39,7 @@ export function PurchaseOrderWorkspace(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [notice,setNotice]=useState<string|null>(null);
+  const [voiceOpen,setVoiceOpen]=useState(false);
   const requestId=useRef<string|null>(null);
   const canWrite=["OWNER","ADMIN","MANAGER","INVENTORY"].includes(role);
   const canIssue=["OWNER","ADMIN","MANAGER"].includes(role);
@@ -113,7 +116,11 @@ export function PurchaseOrderWorkspace(){
     </header>
     <div className={styles.columns}>
       <section className={styles.panel} aria-label="Create purchase order">
-        <h2>Create purchase order</h2>
+        <div className={styles.listHeading}>
+          <h2>Create purchase order</h2>
+          {canWrite?<button type="button" className={styles.secondary}
+            onClick={()=>setVoiceOpen(true)}>🎙 Speak an order</button>:null}
+        </div>
         <p className={styles.muted}>Save a draft, then review and issue it to your supplier.</p>
         <label className={styles.field}>Supplier
           <select value={supplierId} disabled={!canWrite||suppliersLoading}
@@ -234,5 +241,24 @@ export function PurchaseOrderWorkspace(){
           </div>}
       </section>
     </div>
+    {voiceOpen&&canWrite?<VoicePurchaseOrderAssistant
+      items={items} suppliers={suppliers} currencyCode={currency}
+      onClose={()=>setVoiceOpen(false)}
+      onApply={(chosenSupplier,reviewed:VoicePOReviewLine[])=>{
+        if(!canWrite||reviewed.length===0||reviewed.length>50)return false;
+        const existing=Boolean(supplierId)||lines.some(line=>line.itemId!=="");
+        if(existing&&!window.confirm(
+          "Replace the current order items and supplier with the reviewed voice draft?"))
+          return false;
+        dirty();setSupplierId(chosenSupplier);
+        setLines(reviewed.map(line=>({
+          key:crypto.randomUUID(),itemId:line.itemId,
+          purchaseUnitCode:line.purchaseUnitCode,quantity:String(line.quantity),
+          unitCostMinor:line.unitCostMinor,
+        })));
+        setError(null);
+        setNotice("Voice order copied for review. Check notes and delivery date, then use Create draft order to save. Nothing was issued or paid.");
+        return true;
+      }}/>:null}
   </main>;
 }
