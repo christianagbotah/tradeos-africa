@@ -46,3 +46,10 @@
 .costSuggestion span{font-weight:800}
 .costSuggestion small{font-size:11px;overflow-wrap:anywhere;color:var(--tos-text-muted,#657186)}
 .costSuggestion button{justify-self:start;font-size:12px;min-height:36px}
+.correctionPanel{display:grid;gap:12px;border:1px solid var(--tos-border,#dbe2ec);border-radius:12px;background:var(--tos-surface-secondary,#f8fafc);padding:14px;min-width:0}
+.correctionPanel h4{font-size:14px;margin:0}
+.correctionPanel>button{justify-self:start}
+.correctionPreview{display:grid;gap:10px;border:1px solid #9fb6c9;border-radius:10px;background:var(--tos-surface,#fff);padding:12px;min-width:0}
+.correctionPreview p{font-size:13px;line-height:1.5;margin:0}
+.correctionPreview button{justify-self:start}
+@media(max-width:440px){.correctionPanel{padding:10px}.correctionPreview{padding:10px}.correctionPreview button{width:100%}}
