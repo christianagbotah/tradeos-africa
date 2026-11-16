@@ -100,21 +100,12 @@ export function PosWorkspace() {
             Tap products to build a cart. TradeOS applies the selected unit price and stock rules
             automatically at checkout.
           </p>
-          <button type="button" onClick={()=>setVoiceOpen(true)}
-            style={{marginTop:12,padding:"11px 17px",fontWeight:800,borderRadius:9,
-              background:"#174f79",color:"#fff",border:"none",cursor:"pointer"}}>
-            🎙 Speak a sale
-          </button>
-          <div className="tos-pos__hint-row" aria-hidden="true">
-            <span>Quick search</span>
-            <span className="tos-pos__hint-kbd">F2</span>
-            <span>· add to cart by tapping a tile</span>
-          </div>
         </div>
       </header>
 
       <div className="tos-pos">
         <ProductBrowser
+          onSpeak={()=>setVoiceOpen(true)}
           items={sellable}
           currencyCode={currencyCode}
           onPick={handlePick}

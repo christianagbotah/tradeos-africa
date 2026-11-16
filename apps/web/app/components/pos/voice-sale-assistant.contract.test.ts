@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const ui=readFileSync(fileURLToPath(new URL("./voice-sale-assistant.tsx",import.meta.url)),"utf8");
 const pos=readFileSync(fileURLToPath(new URL("./pos-workspace.tsx",import.meta.url)),"utf8");
+const browser=readFileSync(fileURLToPath(new URL("./product-browser.tsx",import.meta.url)),"utf8");
 const checkout=readFileSync(fileURLToPath(new URL("./checkout-sheet.tsx",import.meta.url)),"utf8");
 describe("voice-assisted POS guardrails",()=>{
   it("requires user to review before applying, never automatically posts",()=>{
@@ -13,7 +14,8 @@ describe("voice-assisted POS guardrails",()=>{
     expect(ui).toContain("Adding the cart does not take payment or post a sale");
     expect(ui).not.toContain('authenticatedFetch(');
     expect(pos).toContain("setLines(prev=>{");
-    expect(pos).toContain("Speak a sale");
+    expect(browser).toContain("Speak a sale");
+    expect(pos).toContain("onSpeak={()=>setVoiceOpen(true)}");
   });
   it("browser voice is optional, with clear privacy and text fallback",()=>{
     expect(ui).toContain("webkitSpeechRecognition");

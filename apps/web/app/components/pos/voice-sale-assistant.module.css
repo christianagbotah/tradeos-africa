@@ -23,3 +23,13 @@
 .confirm{display:flex!important;align-items:center;gap:9px!important}
 .confirm input{width:18px;height:18px;flex:none}
 @media(max-width:560px){.body{padding:13px}.header{padding:14px}.line{grid-template-columns:minmax(0,1fr) 78px}.line .money{order:3}.line button{order:4}}
+.suggestSection{display:grid;gap:9px;border:1px solid var(--tos-border,#dce4ec);border-radius:10px;padding:12px;min-width:0}
+.suggestSection h4{margin:0;font-size:15px;font-weight:800}
+.suggestSection p{font-size:12px;opacity:.82;margin:0;line-height:1.5}
+.suggestSection input[type=search]{font:inherit;padding:10px;min-height:42px;min-width:0;border:1px solid var(--tos-border,#a4b7c8);background:var(--tos-surface,#fff);color:inherit;border-radius:8px;width:100%;box-sizing:border-box}
+.candidates{display:grid;gap:7px;max-height:230px;overflow-y:auto}
+.candidate{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--tos-border,#dce4ec);border-radius:8px;padding:10px;min-width:0}
+.candidate>div{min-width:0;display:grid;gap:4px}
+.candidate strong{font-size:13px;overflow-wrap:anywhere}
+.candidate span{font-size:12px;opacity:.8;overflow-wrap:anywhere}
+.candidate button{flex:none;min-width:55px;background:#174f79;color:white;border:0;padding:9px;border-radius:7px;cursor:pointer;font-weight:750}
