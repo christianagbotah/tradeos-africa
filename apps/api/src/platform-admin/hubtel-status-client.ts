@@ -11,6 +11,7 @@ export interface HubtelStatusVerification {
   clientReference: string;
   collectionAccount: string;
   status: HubtelStatus;
+  paymentMethod: "MOMO" | "CARD" | null;
   amountMinor: number | null;
   currencyCode: "GHS";
   transactionId: string | null;
@@ -144,11 +145,20 @@ export function verifyHubtelStatusPayload(
     throw new HubtelStatusError("Hubtel did not confirm a transaction identifier.",
       "HUBTEL_STATUS_INVALID",502);
   }
+  // A hosted checkout can offer multiple tenders even if the cashier chose
+  // one in TradeOS. Read the ACTUAL method from authenticated status, never
+  // trust the UI preference or an unsigned callback for accounting.
+  const providerMethod=typeof data.paymentMethod==="string"?
+    data.paymentMethod.toLowerCase().trim():null;
+  const paymentMethod=providerMethod==="mobilemoney"?"MOMO":
+    ["card","bankcard","bank_card","bank card"].includes(providerMethod??"")?
+      "CARD":null;
   const date = typeof data.date === "string" && Number.isFinite(Date.parse(data.date))
     ? new Date(data.date).toISOString() : null;
   return {
     clientReference:lookup.clientReference,collectionAccount,status,amountMinor,
-    currencyCode:"GHS",transactionId,externalTransactionId:ref(data.externalTransactionId),
+    currencyCode:"GHS",transactionId,paymentMethod,
+    externalTransactionId:ref(data.externalTransactionId),
     providerReportedAt:date,verifiedAt,
   };
 }

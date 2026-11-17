@@ -95,8 +95,9 @@ export async function applySaleMutationInTransaction(
       throw new SaleMutationError("Unsupported payment provider","SALE_PAYMENT_PROVIDER_INVALID");
     }
     if(hubtel) {
-      if(payload.paymentMethod!=="MOMO"||payload.payments?.length||options.settlePayments===false) {
-        throw new SaleMutationError("Hubtel requires a single full-amount MoMo payment",
+      if(!["MOMO","CARD"].includes(payload.paymentMethod??"")||
+         payload.payments?.length||options.settlePayments===false) {
+        throw new SaleMutationError("Hubtel requires a single full-amount electronic payment",
           "SALE_HUBTEL_PAYMENT_INVALID");
       }
       await requireHubtelPosConnection(client,context.businessId);

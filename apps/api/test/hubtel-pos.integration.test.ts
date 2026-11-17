@@ -68,7 +68,8 @@ async function merchant(tag:string,alias:string,account:string){
   return {businessId,branchId,saleId,paymentId,headers};
 }
 type Merchant=Awaited<ReturnType<typeof merchant>>;
-function installMock(account="111111",status:"Paid"|"Unpaid"="Paid",amount=70){
+function installMock(account="111111",status:"Paid"|"Unpaid"="Paid",amount=70,
+  paymentMethod:"mobilemoney"|"card"="mobilemoney"){
   let reference="";
   const request=vi.fn(async (url:RequestInfo|URL,init?:RequestInit)=>{
     const uri=String(url);
@@ -89,7 +90,7 @@ function installMock(account="111111",status:"Paid"|"Unpaid"="Paid",amount=70){
       expect(uri).toContain("/transactions/"+account+"/status");
       expect(uri).toContain("clientReference="+encodeURIComponent(reference));
       return new Response(JSON.stringify({responseCode:"0000",data:{
-        clientReference:reference,status,amount,
+        clientReference:reference,status,amount,paymentMethod,
         transactionId:status==="Paid"?"txn-confirmed-123":null,
         currencyCode:"GHS",date:"2026-11-15T11:00:00Z",
       }}),{status:200});
@@ -176,6 +177,40 @@ describe("Hubtel multi-tenant POS safety",()=>{
     expect(repeat.statusCode).toBe(200);
     expect((await ledger(m)).receipt_count).toBe("1");
     expect((await ledger(b)).receipt_count).toBe("0");
+  });
+  it("keeps a Hubtel card sale unpaid until independent status verification",async()=>{
+    const m=await merchant("card-payment","merchant_1","111111");
+    await pool.query("UPDATE payments SET method='CARD' WHERE id=$1",[m.paymentId]);
+    installMock("111111","Paid",70,"card");
+    const created=await startSaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,clientRequestId:randomUUID(),
+    });
+    expect(created.state).toBe("READY");
+    expect(await ledger(m)).toMatchObject({
+      status:"OPEN",payment_status:"PENDING",receipt_count:"0",
+    });
+    const result=await verifySaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,
+    });
+    expect(result.state).toBe("PAID");
+    expect(await ledger(m)).toMatchObject({
+      status:"COMPLETED",payment_status:"SUCCEEDED",
+      receipt_count:"1",amount:"7000",attempt_state:"RECONCILED",
+    });
+  });
+  it("rejects card-labelled sales that actually use MoMo on Hubtel",async()=>{
+    const m=await merchant("card-method-mismatch","merchant_1","111111");
+    await pool.query("UPDATE payments SET method='CARD' WHERE id=$1",[m.paymentId]);
+    installMock("111111","Paid",70,"mobilemoney");
+    await startSaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,clientRequestId:randomUUID(),
+    });
+    await expect(verifySaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,
+    })).rejects.toMatchObject({code:"HUBTEL_POS_PAYMENT_METHOD_MISMATCH"});
+    expect(await ledger(m)).toMatchObject({
+      status:"OPEN",payment_status:"PENDING",receipt_count:"0",
+    });
   });
   it("refuses mismatched amounts without crediting the cashbook",async()=>{
     const m=await merchant("mismatch","merchant_1","111111");
