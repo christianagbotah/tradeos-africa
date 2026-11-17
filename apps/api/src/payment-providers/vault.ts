@@ -88,3 +88,53 @@ export function unsealSmsProviderSecret(
       503,"SMS_VAULT_INVALID");
   }
 }
+
+
+/**
+ * Separate payment merchant-connection vault. AAD prevents moving a
+ * Paystack/Hubtel credential between businesses, providers or environments.
+ * No decryption or credential values are ever exposed through HTTP routes.
+ */
+export type MerchantProvider=
+  "HUBTEL"|"PAYSTACK"|"FLUTTERWAVE"|"STRIPE"|"PESAPAL"|"DPO"|"MPESA";
+export type MerchantEnvironment="TEST"|"LIVE";
+function merchantAad(businessId:string,provider:MerchantProvider,
+  environment:MerchantEnvironment):Buffer{
+  return Buffer.from("TradeOS/v2/merchant/"+businessId+"/"+provider+
+    "/"+environment,"utf8");
+}
+export function sealMerchantGatewayCredentials(
+  businessId:string,provider:MerchantProvider,
+  environment:MerchantEnvironment,credentials:Record<string,string>,
+):SealedTestSecret{
+  const nonce=randomBytes(12);
+  const cipher=createCipheriv("aes-256-gcm",masterKey(),nonce);
+  cipher.setAAD(merchantAad(businessId,provider,environment));
+  const encrypted=Buffer.concat([
+    cipher.update(JSON.stringify(credentials),"utf8"),cipher.final(),
+  ]);
+  return {encrypted,nonce,tag:cipher.getAuthTag(),keyVersion:1};
+}
+export function unsealMerchantGatewayCredentials(
+  businessId:string,provider:MerchantProvider,
+  environment:MerchantEnvironment,sealed:SealedTestSecret,
+):Record<string,string>{
+  if(sealed.keyVersion!==1||sealed.nonce.length!==12||sealed.tag.length!==16)
+    throw new AuthError("Stored merchant credentials cannot be decrypted.",
+      503,"GATEWAY_MERCHANT_VAULT_INVALID");
+  try{
+    const decipher=createDecipheriv("aes-256-gcm",masterKey(),sealed.nonce);
+    decipher.setAAD(merchantAad(businessId,provider,environment));
+    decipher.setAuthTag(sealed.tag);
+    const data=JSON.parse(Buffer.concat([
+      decipher.update(sealed.encrypted),decipher.final(),
+    ]).toString("utf8")) as Record<string,string>;
+    if(!data||typeof data!=="object"||Array.isArray(data)||
+      Object.values(data).some(v=>typeof v!=="string"))
+      throw new Error("Malformed credential payload");
+    return data;
+  }catch{
+    throw new AuthError("Stored merchant credentials cannot be decrypted.",
+      503,"GATEWAY_MERCHANT_VAULT_INVALID");
+  }
+}
