@@ -10,6 +10,8 @@ type Attempt={
   attemptId:string;saleId:string;branchId:string;providerCode:string;
   environment:"TEST";clientReference:string;expectedAmountMinor:string;
   currencyCode:string;paymentMethod:string;state:string;createdAt:string;
+  sandboxEvidence:{status:"TEST_PAID_OBSERVED"|"TEST_UNPAID_OBSERVED";
+    observedAt:string;posted:false}|null;
 };
 type Monitor={
   businessId:string;collectionEnabled:false;notice:string;
@@ -67,7 +69,7 @@ export function GatewayAttemptMonitor({businessId,online}:{
     {data.attempts.length?<div style={{maxWidth:"100%",overflowX:"auto"}}>
       <table style={{width:"100%",fontSize:13}}>
         <thead><tr><th>When</th><th>Gateway</th><th>Method</th>
-          <th>Amount</th><th>State</th><th>Reference</th></tr></thead>
+          <th>Amount</th><th>State</th><th>Sandbox observation</th><th>Reference</th></tr></thead>
         <tbody>{data.attempts.map(attempt=>(
           <tr key={attempt.attemptId}>
             <td>{new Date(attempt.createdAt).toLocaleString("en-GB")}</td>
@@ -78,6 +80,11 @@ export function GatewayAttemptMonitor({businessId,online}:{
                 currencyCode={attempt.currencyCode}/>:
               attempt.expectedAmountMinor+" "+attempt.currencyCode}</td>
             <td>{attempt.state.replaceAll("_"," ")}</td>
+            <td>{attempt.sandboxEvidence?
+              <span title={"Observed "+attempt.sandboxEvidence.observedAt}>
+                {attempt.sandboxEvidence.status==="TEST_PAID_OBSERVED"?
+                  "TEST payment observed — not settled":"TEST unpaid observed"}
+              </span>:"Not checked"}</td>
             <td><code>{attempt.clientReference}</code></td>
           </tr>
         ))}</tbody>
