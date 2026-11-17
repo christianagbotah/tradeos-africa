@@ -9,10 +9,10 @@ type Connection={providerCode:Provider;environment:"TEST";
   status:"PENDING_VERIFICATION"|"REVOKED";revision:number;enabled:false};
 type Snapshot={businessId:string;vaultReady:boolean;connections:Connection[];notice:string};
 
-export function GatewayConnectionsPanel({businessId,online}:{
-  businessId:string;online:boolean;
+export function GatewayConnectionsPanel({businessId,online,providerCode}:{
+  businessId:string;online:boolean;providerCode:Provider;
 }){
-  const [provider,setProvider]=useState<Provider>("PAYSTACK");
+  const provider=providerCode;
   const [snapshot,setSnapshot]=useState<Snapshot|null>(null);
   const [busy,setBusy]=useState(false);
   const [secretKey,setSecretKey]=useState("");
@@ -37,6 +37,8 @@ export function GatewayConnectionsPanel({businessId,online}:{
     return ()=>{active=false;};
   },[businessId,online,reload]);
 
+  useEffect(()=>{setSecretKey("");setPassword("");setError(null);
+    setMessage(null);},[provider]);
   const current=snapshot?.connections.find(x=>x.providerCode===provider);
   async function update(kind:"save"|"revoke"){
     if(!snapshot||!online||busy||!password)return;
@@ -72,14 +74,9 @@ export function GatewayConnectionsPanel({businessId,online}:{
     {snapshot&&!snapshot.vaultReady?<p className="tos-callout" role="alert">
       Secure credential storage is not configured. Ask the TradeOS platform
       administrator to provision the server encryption master key.</p>:null}
-    {snapshot?<><label htmlFor="gateway-connect-provider">Provider</label>
-      <select id="gateway-connect-provider" className="tos-input"
-        value={provider} disabled={!online||busy}
-        onChange={e=>{setProvider(e.target.value as Provider);
-          setSecretKey("");setPassword("");setMessage(null);setError(null);}}>
-        <option value="PAYSTACK">Paystack</option>
-        <option value="FLUTTERWAVE">Flutterwave</option>
-      </select>
+    {snapshot?<><p>Connection: <strong>{
+      provider==="PAYSTACK"?"Paystack":"Flutterwave"
+    }</strong></p>
       <p>Status: <strong>{!current?"Not configured":
         current.status==="REVOKED"?"Revoked":"TEST credentials saved — pending verification"}
       </strong>. Real collections: <strong>Disabled</strong>.</p>
