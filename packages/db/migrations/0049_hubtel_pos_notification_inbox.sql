@@ -21,6 +21,8 @@ CREATE TABLE hubtel_pos_notification_inbox (
 );
 CREATE INDEX idx_hubtel_notification_inbox_attempt
   ON hubtel_pos_notification_inbox(attempt_id,received_at DESC);
+CREATE INDEX idx_hubtel_notification_inbox_business
+  ON hubtel_pos_notification_inbox(business_id,received_at DESC);
 
 CREATE FUNCTION guard_hubtel_notification_inbox()
 RETURNS trigger LANGUAGE plpgsql AS $$
