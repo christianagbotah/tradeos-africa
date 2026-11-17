@@ -197,6 +197,11 @@ describe("Hubtel multi-tenant POS safety",()=>{
       status:"COMPLETED",payment_status:"SUCCEEDED",
       receipt_count:"1",amount:"7000",attempt_state:"RECONCILED",
     });
+    const entry=(await pool.query<{method:string}>(
+      "SELECT method FROM cashbook_entries WHERE business_id=$1 "+
+      "AND source_type='PAYMENT' AND source_id=$2",
+      [m.businessId,m.paymentId])).rows[0];
+    expect(entry?.method).toBe("CARD");
   });
   it("rejects card-labelled sales that actually use MoMo on Hubtel",async()=>{
     const m=await merchant("card-method-mismatch","merchant_1","111111");
