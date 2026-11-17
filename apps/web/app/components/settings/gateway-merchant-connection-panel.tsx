@@ -4,6 +4,7 @@ import {useEffect,useState} from "react";
 import {Button} from "../ui/button";
 import {getOfflineQueue} from "../../../lib/offline-sync";
 import {readApiErrorMessage} from "../../../lib/auth-fetch";
+import {HubtelMerchantActivationChecklist} from "./hubtel-activation-checklist";
 
 type Env="TEST"|"LIVE";
 type ProviderField={id:string;label:string;required:boolean;secret:boolean;hint?:string};
@@ -196,5 +197,7 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
         A successful account check verifies read-only collection access;
         it is not permission to charge customers.</p>:null}
     </div>:null}
+    {providerCode==="HUBTEL"?<HubtelMerchantActivationChecklist
+      businessId={businessId} online={online} refreshKey={refresh}/>:null}
   </section>;
 }
