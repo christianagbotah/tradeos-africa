@@ -12,6 +12,7 @@
  * TradeOS stores money as integer minor units (e.g. GHS 12.34 = 1234 pesewas).
  * The minor-unit exponent is currency-specific:
  *   - GHS, NGN, KES, TZS, ETB, ZAR, EGP, MAD, DZD, MZN, AOA, ZMW, BWP, NAD → 2
+ *   - EUR, GBP, USD, CAD, CHF, SEK, NOK, DKK, PLN, CZK, HUF, RON → 2
  *   - UGX, RWF, XOF, XAF → 0 (no minor units; 500 UGX is stored as 500, not 50000)
  *   - TND → 3 (1.234 TND is stored as 1234 millimes)
  *
@@ -58,6 +59,18 @@ export const SUPPORTED_CURRENCIES: readonly SupportedCurrency[] = [
   { currencyCode: "ZMW", symbol: "K", name: "Zambian Kwacha", exponent: 2, locale: "en-ZM", decimalPlaces: 2 },
   { currencyCode: "BWP", symbol: "P", name: "Botswana Pula", exponent: 2, locale: "en-BW", decimalPlaces: 2 },
   { currencyCode: "NAD", symbol: "N$", name: "Namibian Dollar", exponent: 2, locale: "en-NA", decimalPlaces: 2 },
+  { currencyCode: "EUR", symbol: "€", name: "Euro", exponent: 2, locale: "de-DE", decimalPlaces: 2 },
+  { currencyCode: "GBP", symbol: "£", name: "British Pound", exponent: 2, locale: "en-GB", decimalPlaces: 2 },
+  { currencyCode: "USD", symbol: "$", name: "US Dollar", exponent: 2, locale: "en-US", decimalPlaces: 2 },
+  { currencyCode: "CAD", symbol: "C$", name: "Canadian Dollar", exponent: 2, locale: "en-CA", decimalPlaces: 2 },
+  { currencyCode: "CHF", symbol: "CHF", name: "Swiss Franc", exponent: 2, locale: "de-CH", decimalPlaces: 2 },
+  { currencyCode: "SEK", symbol: "kr", name: "Swedish Krona", exponent: 2, locale: "sv-SE", decimalPlaces: 2 },
+  { currencyCode: "NOK", symbol: "kr", name: "Norwegian Krone", exponent: 2, locale: "nb-NO", decimalPlaces: 2 },
+  { currencyCode: "DKK", symbol: "kr", name: "Danish Krone", exponent: 2, locale: "da-DK", decimalPlaces: 2 },
+  { currencyCode: "PLN", symbol: "zł", name: "Polish Zloty", exponent: 2, locale: "pl-PL", decimalPlaces: 2 },
+  { currencyCode: "CZK", symbol: "Kč", name: "Czech Koruna", exponent: 2, locale: "cs-CZ", decimalPlaces: 2 },
+  { currencyCode: "HUF", symbol: "Ft", name: "Hungarian Forint", exponent: 2, locale: "hu-HU", decimalPlaces: 2 },
+  { currencyCode: "RON", symbol: "lei", name: "Romanian Leu", exponent: 2, locale: "ro-RO", decimalPlaces: 2 },
 ] as const;
 
 const CURRENCY_BY_CODE = new Map<string, SupportedCurrency>(
@@ -88,8 +101,9 @@ export interface SupportedCountry {
 /**
  * Launch / supported countries.
  *
- * This is NOT a claim of every African country — it is the verified
- * supported-market set. Each entry has been checked for ISO country code,
+ * This is NOT a claim of every country on earth or a guarantee that
+ * every local payment gateway is available — it is a gradually expanding
+ * supported-country configuration set. Each entry has been checked for ISO country code,
  * ISO currency code, currency exponent, symbol, locale, dial code, and
  * timezone behavior.
  */
@@ -114,6 +128,38 @@ export const SUPPORTED_COUNTRIES: readonly SupportedCountry[] = [
   { countryCode: "ZM", country: "Zambia", flag: "🇿🇲", dialCode: "+260", defaultCurrencyCode: "ZMW", timezones: ["Africa/Lusaka"], locale: "en-ZM" },
   { countryCode: "BW", country: "Botswana", flag: "🇧🇼", dialCode: "+267", defaultCurrencyCode: "BWP", timezones: ["Africa/Gaborone"], locale: "en-BW" },
   { countryCode: "NA", country: "Namibia", flag: "🇳🇦", dialCode: "+264", defaultCurrencyCode: "NAD", timezones: ["Africa/Windhoek"], locale: "en-NA" },
+  { countryCode: "AT", country: "Austria", flag: "🇦🇹", dialCode: "+43", defaultCurrencyCode: "EUR", timezones: ["Europe/Vienna"], locale: "de-AT" },
+  { countryCode: "BE", country: "Belgium", flag: "🇧🇪", dialCode: "+32", defaultCurrencyCode: "EUR", timezones: ["Europe/Brussels"], locale: "fr-BE" },
+  { countryCode: "BG", country: "Bulgaria", flag: "🇧🇬", dialCode: "+359", defaultCurrencyCode: "EUR", timezones: ["Europe/Sofia"], locale: "bg-BG" },
+  { countryCode: "HR", country: "Croatia", flag: "🇭🇷", dialCode: "+385", defaultCurrencyCode: "EUR", timezones: ["Europe/Zagreb"], locale: "hr-HR" },
+  { countryCode: "CY", country: "Cyprus", flag: "🇨🇾", dialCode: "+357", defaultCurrencyCode: "EUR", timezones: ["Asia/Nicosia"], locale: "el-CY" },
+  { countryCode: "CZ", country: "Czech Republic", flag: "🇨🇿", dialCode: "+420", defaultCurrencyCode: "CZK", timezones: ["Europe/Prague"], locale: "cs-CZ" },
+  { countryCode: "DK", country: "Denmark", flag: "🇩🇰", dialCode: "+45", defaultCurrencyCode: "DKK", timezones: ["Europe/Copenhagen"], locale: "da-DK" },
+  { countryCode: "EE", country: "Estonia", flag: "🇪🇪", dialCode: "+372", defaultCurrencyCode: "EUR", timezones: ["Europe/Tallinn"], locale: "et-EE" },
+  { countryCode: "FI", country: "Finland", flag: "🇫🇮", dialCode: "+358", defaultCurrencyCode: "EUR", timezones: ["Europe/Helsinki"], locale: "fi-FI" },
+  { countryCode: "FR", country: "France", flag: "🇫🇷", dialCode: "+33", defaultCurrencyCode: "EUR", timezones: ["Europe/Paris"], locale: "fr-FR" },
+  { countryCode: "DE", country: "Germany", flag: "🇩🇪", dialCode: "+49", defaultCurrencyCode: "EUR", timezones: ["Europe/Berlin"], locale: "de-DE" },
+  { countryCode: "GR", country: "Greece", flag: "🇬🇷", dialCode: "+30", defaultCurrencyCode: "EUR", timezones: ["Europe/Athens"], locale: "el-GR" },
+  { countryCode: "HU", country: "Hungary", flag: "🇭🇺", dialCode: "+36", defaultCurrencyCode: "HUF", timezones: ["Europe/Budapest"], locale: "hu-HU" },
+  { countryCode: "IE", country: "Ireland", flag: "🇮🇪", dialCode: "+353", defaultCurrencyCode: "EUR", timezones: ["Europe/Dublin"], locale: "en-IE" },
+  { countryCode: "IT", country: "Italy", flag: "🇮🇹", dialCode: "+39", defaultCurrencyCode: "EUR", timezones: ["Europe/Rome"], locale: "it-IT" },
+  { countryCode: "LV", country: "Latvia", flag: "🇱🇻", dialCode: "+371", defaultCurrencyCode: "EUR", timezones: ["Europe/Riga"], locale: "lv-LV" },
+  { countryCode: "LT", country: "Lithuania", flag: "🇱🇹", dialCode: "+370", defaultCurrencyCode: "EUR", timezones: ["Europe/Vilnius"], locale: "lt-LT" },
+  { countryCode: "LU", country: "Luxembourg", flag: "🇱🇺", dialCode: "+352", defaultCurrencyCode: "EUR", timezones: ["Europe/Luxembourg"], locale: "fr-LU" },
+  { countryCode: "MT", country: "Malta", flag: "🇲🇹", dialCode: "+356", defaultCurrencyCode: "EUR", timezones: ["Europe/Malta"], locale: "en-MT" },
+  { countryCode: "NL", country: "Netherlands", flag: "🇳🇱", dialCode: "+31", defaultCurrencyCode: "EUR", timezones: ["Europe/Amsterdam"], locale: "nl-NL" },
+  { countryCode: "PL", country: "Poland", flag: "🇵🇱", dialCode: "+48", defaultCurrencyCode: "PLN", timezones: ["Europe/Warsaw"], locale: "pl-PL" },
+  { countryCode: "PT", country: "Portugal", flag: "🇵🇹", dialCode: "+351", defaultCurrencyCode: "EUR", timezones: ["Europe/Lisbon"], locale: "pt-PT" },
+  { countryCode: "RO", country: "Romania", flag: "🇷🇴", dialCode: "+40", defaultCurrencyCode: "RON", timezones: ["Europe/Bucharest"], locale: "ro-RO" },
+  { countryCode: "SK", country: "Slovakia", flag: "🇸🇰", dialCode: "+421", defaultCurrencyCode: "EUR", timezones: ["Europe/Bratislava"], locale: "sk-SK" },
+  { countryCode: "SI", country: "Slovenia", flag: "🇸🇮", dialCode: "+386", defaultCurrencyCode: "EUR", timezones: ["Europe/Ljubljana"], locale: "sl-SI" },
+  { countryCode: "ES", country: "Spain", flag: "🇪🇸", dialCode: "+34", defaultCurrencyCode: "EUR", timezones: ["Europe/Madrid"], locale: "es-ES" },
+  { countryCode: "SE", country: "Sweden", flag: "🇸🇪", dialCode: "+46", defaultCurrencyCode: "SEK", timezones: ["Europe/Stockholm"], locale: "sv-SE" },
+  { countryCode: "GB", country: "United Kingdom", flag: "🇬🇧", dialCode: "+44", defaultCurrencyCode: "GBP", timezones: ["Europe/London"], locale: "en-GB" },
+  { countryCode: "NO", country: "Norway", flag: "🇳🇴", dialCode: "+47", defaultCurrencyCode: "NOK", timezones: ["Europe/Oslo"], locale: "nb-NO" },
+  { countryCode: "CH", country: "Switzerland", flag: "🇨🇭", dialCode: "+41", defaultCurrencyCode: "CHF", timezones: ["Europe/Zurich"], locale: "de-CH" },
+  { countryCode: "US", country: "United States", flag: "🇺🇸", dialCode: "+1", defaultCurrencyCode: "USD", timezones: ["America/New_York","America/Chicago","America/Denver","America/Los_Angeles"], locale: "en-US" },
+  { countryCode: "CA", country: "Canada", flag: "🇨🇦", dialCode: "+1", defaultCurrencyCode: "CAD", timezones: ["America/Toronto","America/Winnipeg","America/Edmonton","America/Vancouver"], locale: "en-CA" },
 ] as const;
 
 const COUNTRY_BY_CODE = new Map<string, SupportedCountry>(

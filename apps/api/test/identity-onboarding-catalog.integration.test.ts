@@ -335,6 +335,9 @@ describe("identity, onboarding and flexible-unit catalog", () => {
       ["KE", "KES", "Africa/Nairobi", "Kenya UAT"],
       ["SN", "XOF", "Africa/Dakar", "Senegal UAT"],
       ["TN", "TND", "Africa/Tunis", "Tunisia UAT"],
+      ["DE", "EUR", "Europe/Berlin", "Germany UAT"],
+      ["GB", "GBP", "Europe/London", "UK UAT"],
+      ["US", "USD", "America/New_York", "USA UAT"],
     ] as const;
 
     for (const [countryCode, currencyCode, timezone, name] of scenarios) {
@@ -383,7 +386,7 @@ describe("identity, onboarding and flexible-unit catalog", () => {
 
     for (const [payload, expectedCode] of [
       [{ countryCode: "XX", currencyCode: "GHS", timezone: "Africa/Accra" }, "UNSUPPORTED_COUNTRY"],
-      [{ countryCode: "GH", currencyCode: "USD", timezone: "Africa/Accra" }, "UNSUPPORTED_CURRENCY"],
+      [{ countryCode: "GH", currencyCode: "ZZZ", timezone: "Africa/Accra" }, "UNSUPPORTED_CURRENCY"],
       [{ countryCode: "GH", currencyCode: "GHS", timezone: "Mars/Olympus" }, "UNSUPPORTED_TIMEZONE"],
     ] as const) {
       const response = await app.inject({
