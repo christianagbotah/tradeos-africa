@@ -61,7 +61,7 @@ function merchantCredentialSchemaList(){
     "HUBTEL","PAYSTACK","FLUTTERWAVE","STRIPE","PESAPAL","DPO","MPESA"];
   return codes.map(code=>({providerCode:code,
     fields:merchantCredentialSchema(code).fields,
-    canVerifyConnection:code==="HUBTEL",
+    canVerifyConnection:["HUBTEL","PAYSTACK","FLUTTERWAVE"].includes(code),
     verificationRequiresLiveKey:code==="HUBTEL",
   }));
 }
@@ -307,6 +307,105 @@ export async function verifyMerchantHubtelConnection(pool:DatabasePool,input:{
       "(business_id,provider_code,environment,event_type,revision,actor_user_id) "+
       "VALUES($1,'HUBTEL','LIVE','ACCOUNT_VERIFIED',$2,$3)",
       [input.businessId,expected,input.actorUserId]);
+    return {connection:publicView(updated),replayed:false};
+  });
+}
+/**
+ * Credential scope checks using provider read-only balance API endpoints.
+ * These assert API authorization only; beneficiary/payout ownership and
+ * permission to collect are separate, still-unapproved gates.
+ */
+export async function checkHostedGatewayApiAccess(input:{
+  provider:"PAYSTACK"|"FLUTTERWAVE";secretKey:string;
+  fetchImpl?:typeof fetch;
+}):Promise<{verified:true}>{
+  const origin=input.provider==="PAYSTACK"?
+    "https://api.paystack.co/balance":"https://api.flutterwave.com/v3/balances";
+  let response:Response;
+  try{
+    response=await (input.fetchImpl??fetch)(origin,{
+      method:"GET",headers:{authorization:"Bearer "+input.secretKey,
+        accept:"application/json"},
+      signal:AbortSignal.timeout(10000),
+    });
+  }catch{
+    throw new MerchantProbeError(
+      "Provider account could not be reached. Try again without saving new keys.",
+      "GATEWAY_PROBE_UNAVAILABLE",503);
+  }
+  if(response.status===401||response.status===403)
+    throw new MerchantProbeError(
+      "Provider rejected this API key or its permissions.",
+      "GATEWAY_PROBE_ACCESS_REJECTED",409);
+  if(!response.ok)throw new MerchantProbeError(
+    "Provider account verification did not succeed.",
+    "GATEWAY_PROBE_UNAVAILABLE",503);
+  let raw:unknown;
+  try{raw=await response.json();}catch{
+    throw new MerchantProbeError("Invalid provider account response.",
+      "GATEWAY_PROBE_INVALID",502);
+  }
+  if(!raw||typeof raw!=="object"||Array.isArray(raw)){
+    throw new MerchantProbeError("Provider account response was not trusted.",
+      "GATEWAY_PROBE_INVALID",502);
+  }
+  const data=raw as Record<string,unknown>;
+  const okay=input.provider==="PAYSTACK"?
+    data.status===true&&Array.isArray(data.data):
+    data.status==="success"&&Array.isArray(data.data);
+  if(!okay)throw new MerchantProbeError(
+    "The provider did not independently confirm API account access.",
+    "GATEWAY_PROBE_INVALID",502);
+  return {verified:true};
+}
+export async function verifyMerchantHostedGatewayConnection(pool:DatabasePool,input:{
+  businessId:string;actorUserId:string;providerCode:unknown;
+  environment:unknown;expectedRevision:unknown;
+  currentPassword:unknown;fetchImpl?:typeof fetch;
+}){
+  const provider=merchantCredentialSchema(input.providerCode).providerCode;
+  if(provider!=="PAYSTACK"&&provider!=="FLUTTERWAVE")
+    throw new AuthError("Only Paystack and Flutterwave have this API access probe.",
+      409,"GATEWAY_PROBE_NOT_SUPPORTED");
+  const env=gatewayEnvironment(input.environment),expected=checkRevision(input.expectedRevision);
+  await reauthenticateSensitiveSettings(pool,input.actorUserId,input.currentPassword);
+  const row=(await pool.query<Row>(
+    "SELECT "+SELECT+" FROM business_merchant_gateway_credentials "+
+    "WHERE business_id=$1 AND provider_code=$2 AND environment=$3",
+    [input.businessId,provider,env])).rows[0];
+  if(!row||row.status==="REVOKED"||!row.encrypted_credentials||
+    !row.nonce||!row.auth_tag)throw new AuthError(
+    "Save the merchant API credentials before verifying them.",
+    409,"GATEWAY_MERCHANT_CREDENTIALS_REQUIRED");
+  if(row.revision!==expected)throw new AuthError(
+    "Connection changed. Refresh before verifying.",
+    409,"GATEWAY_MERCHANT_REVISION_CONFLICT");
+  const creds=unsealMerchantGatewayCredentials(input.businessId,provider,env,{
+    encrypted:row.encrypted_credentials,nonce:row.nonce,
+    tag:row.auth_tag,keyVersion:row.key_version});
+  await checkHostedGatewayApiAccess({
+    provider,secretKey:creds.secretKey,fetchImpl:input.fetchImpl});
+  return withTransaction(pool,async tx=>{
+    const latest=(await tx.query<Row>(
+      "SELECT "+SELECT+" FROM business_merchant_gateway_credentials "+
+      "WHERE business_id=$1 AND provider_code=$2 AND environment=$3 FOR UPDATE",
+      [input.businessId,provider,env])).rows[0];
+    if(!latest||latest.status==="REVOKED"||latest.revision!==expected)
+      throw new AuthError("Merchant credentials changed during verification.",
+        409,"GATEWAY_MERCHANT_REVISION_CONFLICT");
+    if(latest.status==="VERIFIED")return {
+      connection:publicView(latest),replayed:true};
+    const updated=(await tx.query<Row>(
+      "UPDATE business_merchant_gateway_credentials SET "+
+      "status='VERIFIED',verified_at=now(),updated_at=now() "+
+      "WHERE business_id=$1 AND provider_code=$2 AND environment=$3 "+
+      "RETURNING "+SELECT,
+      [input.businessId,provider,env])).rows[0]!;
+    await tx.query(
+      "INSERT INTO business_merchant_gateway_credential_audit "+
+      "(business_id,provider_code,environment,event_type,revision,actor_user_id) "+
+      "VALUES($1,$2,$3,'ACCOUNT_VERIFIED',$4,$5)",
+      [input.businessId,provider,env,expected,input.actorUserId]);
     return {connection:publicView(updated),replayed:false};
   });
 }
