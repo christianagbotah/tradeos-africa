@@ -144,6 +144,17 @@ describe("Hubtel multi-tenant POS safety",()=>{
     const saleCheckout=first.json().checkout as {state:string;checkoutUrl:string};
     expect(saleCheckout.state).toBe("READY");
     expect(saleCheckout.checkoutUrl).toContain("https://pay.hubtel.com/");
+    const source=(await pool.query<{credential_source:string;
+      merchant_credential_revision:number|null}>(
+      "SELECT credential_source,merchant_credential_revision "+
+      "FROM hubtel_sale_checkout_attempts WHERE sale_id=$1",
+      [m.saleId])).rows[0];
+    expect(source).toMatchObject({credential_source:"PLATFORM_ALIAS",
+      merchant_credential_revision:null});
+    await expect(pool.query(
+      "UPDATE hubtel_sale_checkout_attempts "+
+      "SET credential_source='MERCHANT_VAULT',merchant_credential_revision=1 "+
+      "WHERE sale_id=$1",[m.saleId])).rejects.toThrow();
     expect(await ledger(m)).toMatchObject({
       status:"OPEN",payment_status:"PENDING",receipt_count:"0",
     });
