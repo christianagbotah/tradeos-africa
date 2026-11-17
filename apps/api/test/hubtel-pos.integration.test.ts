@@ -298,7 +298,8 @@ describe("Hubtel five-minute reconciliation worker and merchant monitoring",()=>
       [m.saleId])).rows[0]!.client_reference;
     globalThis.fetch=vi.fn(async()=>new Response(JSON.stringify({
       responseCode:"0000",data:{clientReference:ref,status:"Paid",amount:70,
-        currencyCode:"GHS",transactionId:"late-confirmed-transaction",date:new Date().toISOString()},
+        paymentMethod:"mobilemoney",currencyCode:"GHS",
+        transactionId:"late-confirmed-transaction",date:new Date().toISOString()},
     }),{status:200})) as unknown as typeof fetch;
     const recovered=await verifySaleHubtelCheckout(pool,{
       businessId:m.businessId,saleId:m.saleId});

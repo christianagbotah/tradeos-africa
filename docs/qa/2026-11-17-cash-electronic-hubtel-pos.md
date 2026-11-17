@@ -14,3 +14,8 @@
 - Focused POS UI checks and isolated database card-payment test.
 - Complete domain CI, Visual QA, native client checks, production staging smoke and rollback readiness before deployment.
 - Never run integration tests that TRUNCATE business tables against production or staging.
+
+## Integration migration follow-up
+- New additive migration 0040_hubtel_pos_card_scope.sql permits card and MoMo payments while preserving historical 0030 migration checksums, merchant ownership, amount, branch and sale scope.
+- CI applies all migrations to isolated PostgreSQL before destructive tests. Pending-card checkout, provider-method mismatch and late MoMo verification are tested.
+- The provided Hubtel Transaction Status sample includes paymentMethod in the authoritative paid response. A missing method cannot establish a safely classified receipt.
