@@ -99,9 +99,13 @@ export function HubtelSaleActions({businessId,saleId,online,onPaid}:Props){
       {readiness && !readiness.enabled?<p>{readiness.notice}</p>:null}
       {(readiness?.enabled||(readiness?.existingCheckoutEnabled&&checkout))?
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {checkout?.state!=="RECONCILED"?<Button variant="gold" disabled={busy||!online}
-          onClick={()=>void start()}>{checkout?.checkoutUrl?"Open Hubtel checkout":"Create Hubtel checkout"}</Button>:null}
-        {checkout && ["READY","PENDING_VERIFICATION","RECONCILED"].includes(checkout.state)?
+        {readiness?.enabled && (!checkout ||
+          (["READY","PENDING_VERIFICATION"].includes(checkout.state) && checkout.checkoutUrl)) ?
+          <Button variant="gold" disabled={busy||!online}
+            onClick={()=>void start()}>{checkout?.checkoutUrl?"Open Hubtel checkout":"Create Hubtel checkout"}</Button>
+          : null}
+        {readiness?.existingCheckoutEnabled && checkout &&
+          ["READY","PENDING_VERIFICATION","REVIEW_REQUIRED"].includes(checkout.state)?
           <Button variant="outline" disabled={busy||!online} onClick={()=>void verify()}>
             {busy?"Checking…":"Verify payment"}
           </Button>:null}

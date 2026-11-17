@@ -7,7 +7,7 @@ import {
 } from "./hubtel-pos-config.js";
 import { HubtelCheckoutClient } from "../platform-admin/hubtel-checkout-client.js";
 import { HubtelStatusClient } from "../platform-admin/hubtel-status-client.js";
-import {selectedGateway} from "../payment-providers/service.js";
+import {selectedGateway,requireHubtelPreference} from "../payment-providers/service.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type SaleRow={id:string;business_id:string;branch_id:string;status:string;
@@ -129,6 +129,10 @@ export async function startSaleHubtelCheckout(
       posFail("This sale belongs to a prior gateway attempt. Reconcile it "+
         "with its original provider before starting Hubtel.",
         "HUBTEL_POS_EXISTING_GLOBAL_GATEWAY_ATTEMPT",409);
+    // Selecting another payment provider blocks all NEW Hubtel checkout
+    // initiation, including a direct API call. An existing attempt above
+    // retains its original Hubtel provider for independent reconciliation.
+    await requireHubtelPreference(connection,input.businessId);
     assertSaleReady(sale,payments);
     const reference="TSP-"+randomBytes(12).toString("hex");
     const row=(await connection.query<AttemptRow>(
