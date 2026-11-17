@@ -32,7 +32,8 @@ type Report = {
   attempts: Item[];
   summary: { awaiting: number; reviewRequired: number; reconciled: number };
 };
-type Readiness = { enabled: boolean; notice: string };
+type Readiness = { enabled: boolean; existingCheckoutEnabled: boolean;
+  preferredProvider: string; notice: string };
 function date(value: string | null): string {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-GB", {
@@ -66,7 +67,7 @@ export function HubtelReconciliationWorkspace() {
   );
 
   async function verify(item: Item) {
-    if (!session || !canVerify || !readiness?.enabled || !queue.online || busyId) return;
+    if (!session || !canVerify || !readiness?.existingCheckoutEnabled || !queue.online || busyId) return;
     setBusyId(item.attemptId);
     setMessage(null);setError(null);
     try {
@@ -113,8 +114,11 @@ export function HubtelReconciliationWorkspace() {
     </header>
 
     <div className={styles.notice}>
-      <strong>{readiness?.enabled ? "Merchant payments configured" : "Live merchant collection is not enabled"}</strong>
-      <p>TradeOS records payment only after independently confirming it with Hubtel.
+      <strong>{readiness?.enabled ? "Hubtel selected for new payments" :
+        readiness?.existingCheckoutEnabled ? "Existing Hubtel payments can still be verified" :
+          "Hubtel collection is not enabled"}</strong>
+      <p>Switching to another provider prevents new Hubtel checkouts but does not erase
+        older Hubtel payment attempts. TradeOS records payment only after independently confirming it with Hubtel.
         Missing status or an “Unpaid” result never automatically returns stock or generates a receipt.</p>
     </div>
     <div className={styles.stats}>
@@ -154,7 +158,7 @@ export function HubtelReconciliationWorkspace() {
             <Link href="/sales" className={styles.secondary}>Sales register</Link>
             {canVerify&&item.state!=="RECONCILED" ? <button
               type="button" className={styles.primary}
-              disabled={!readiness?.enabled || !queue.online || busyId!==null}
+              disabled={!readiness?.existingCheckoutEnabled || !queue.online || busyId!==null}
               onClick={()=>void verify(item)}>
               {busyId===item.attemptId ? "Checking…" : "Verify with Hubtel"}</button> : null}
           </div>

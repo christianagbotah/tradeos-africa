@@ -268,6 +268,55 @@ describe("Hubtel multi-tenant POS safety",()=>{
   });
 });
 
+describe("Hubtel provider switch preserves original payment ownership",()=>{
+  it("rejects new direct Hubtel checkout requests when Paystack is selected",async()=>{
+    const tag="provider-switch-no-new";
+    const m=await merchant(tag,"merchant_1","111111");
+    const calls=installMock();
+    await pool.query(
+      "INSERT INTO business_payment_gateway_preferences " +
+      "(business_id,provider_code,changed_by_user_id) " +
+      "SELECT $1,'PAYSTACK',id FROM app_users WHERE email=$2",
+      [m.businessId,"hubtel-pos-"+tag+"@test.tradeos"],
+    );
+    const readiness=await getHubtelPosReadiness(pool,m.businessId);
+    expect(readiness).toMatchObject({enabled:false,existingCheckoutEnabled:true,
+      preferredProvider:"PAYSTACK"});
+    const forbidden=await app.inject({method:"POST",
+      url:"/v1/sales/"+m.saleId+"/hubtel/checkout",
+      headers:m.headers,payload:{businessId:m.businessId,clientRequestId:randomUUID()}});
+    expect(forbidden.statusCode,forbidden.body).toBe(409);
+    expect(forbidden.json().error).toBe("PAYMENT_PROVIDER_NOT_SELECTED");
+    expect(calls).not.toHaveBeenCalled();
+    expect(await ledger(m)).toMatchObject({status:"OPEN",payment_status:"PENDING",
+      receipt_count:"0",attempt_state:null});
+  });
+
+  it("still verifies the original Hubtel checkout after switching to Paystack",async()=>{
+    const tag="provider-switch-old";
+    const m=await merchant(tag,"merchant_1","111111");
+    const calls=installMock();
+    const checkout=await startSaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,clientRequestId:randomUUID()});
+    expect(checkout.state).toBe("READY");
+    await pool.query(
+      "INSERT INTO business_payment_gateway_preferences " +
+      "(business_id,provider_code,changed_by_user_id) " +
+      "SELECT $1,'PAYSTACK',id FROM app_users WHERE email=$2",
+      [m.businessId,"hubtel-pos-"+tag+"@test.tradeos"],
+    );
+    const readiness=await getHubtelPosReadiness(pool,m.businessId);
+    expect(readiness).toMatchObject({enabled:false,existingCheckoutEnabled:true,
+      preferredProvider:"PAYSTACK"});
+    const verified=await verifySaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId});
+    expect(verified.state).toBe("PAID");
+    expect(await ledger(m)).toMatchObject({status:"COMPLETED",
+      payment_status:"SUCCEEDED",receipt_count:"1",attempt_state:"RECONCILED"});
+    expect(calls).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("Hubtel five-minute reconciliation worker and merchant monitoring",()=>{
   it("does not check a checkout before five minutes, then settles confirmed payment once",async()=>{
     const m=await merchant("reconciler-paid","merchant_1","111111");
@@ -407,6 +456,27 @@ describe("Hubtel reconciliation review-only escalation",()=>{
       "SELECT last_status_error_code FROM hubtel_sale_checkout_attempts "+
       "WHERE sale_id=$1",[m.saleId]);
     expect(attempt.rows[0]?.last_status_error_code).toBe("HUBTEL_STATUS_AMOUNT_MISMATCH");
+  });
+
+  it("immediately holds a verified provider-method mismatch for review",async()=>{
+    const m=await merchant("reconciler-method-mismatch","merchant_1","111111");
+    installMock("111111","Paid",70,"card");
+    await startSaleHubtelCheckout(pool,{businessId:m.businessId,
+      saleId:m.saleId,clientRequestId:randomUUID()});
+    await pool.query(
+      "UPDATE hubtel_sale_checkout_attempts SET created_at=now()-interval '7 minutes' " +
+      "WHERE sale_id=$1",[m.saleId]);
+    const tick=await runHubtelPosReconciliationTick(pool);
+    expect(tick).toMatchObject({attempted:1,failed:1,reviewRequired:1,paid:0});
+    expect(await ledger(m)).toMatchObject({status:"OPEN",
+      payment_status:"PENDING",receipt_count:"0",attempt_state:"REVIEW_REQUIRED"});
+    const result=await pool.query<{last_status_error_code:string;
+      next_status_check_at:Date|null}>(
+      "SELECT last_status_error_code,next_status_check_at " +
+      "FROM hubtel_sale_checkout_attempts WHERE sale_id=$1",[m.saleId]);
+    expect(result.rows[0]).toMatchObject({
+      last_status_error_code:"HUBTEL_POS_PAYMENT_METHOD_MISMATCH",
+      next_status_check_at:null});
   });
 
   it("does not create receipt on a provider-refunded status",async()=>{
