@@ -4,7 +4,7 @@ import {useMemo,useState,type FormEvent} from "react";
 import Link from "next/link";
 import {PageHeader,Banner,Section} from
   "../../components/admin-ui";
-import {IconInfo,IconShield,IconRefresh} from
+import {IconInfo,IconRefresh} from
   "../../components/icons";
 import {usePlatformAdminSession,useAdminResource} from
   "../../components/platform-admin-session";
