@@ -13,5 +13,7 @@ describe("merchant gateway test-credential UI",()=>{
     expect(file).toContain('setSecretKey("")');
     expect(file).not.toContain("sk_live_");
     expect(parent).toContain("canManage&&businessId?<GatewayConnectionsPanel");
+    expect(parent).toContain("providerCode={selected.code}");
+    expect(parent).toContain("tradeos-selected-payment-provider");
   });
 });

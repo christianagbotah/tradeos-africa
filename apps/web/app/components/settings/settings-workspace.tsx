@@ -16,6 +16,7 @@ import { ImagePicker } from "./image-picker";
 import { TeamAccess } from "./team-access";
 import { MerchantBillingPanel } from "./merchant-billing-panel";
 import { PaymentProviderPanel } from "./payment-provider-panel";
+import { SmsProviderPanel } from "./sms-provider-panel";
 import {
   IconAlert,
   IconBuilding,
@@ -35,13 +36,14 @@ import type {
 } from "../workspace/workspace-provider";
 import type { WorkspaceRole } from "../workspace/workspace-navigation";
 
-export type SettingsSectionId = "profile" | "security" | "business" | "payments" | "billing" | "branches" | "team" | "devices";
+export type SettingsSectionId = "profile" | "security" | "business" | "payments" | "messaging" | "billing" | "branches" | "team" | "devices";
 
 export const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string; description: string }[] = [
   { id: "profile", label: "My Profile", description: "Personal identity and contact details" },
   { id: "security", label: "Security", description: "Password and sign-in protection" },
   { id: "business", label: "Business", description: "Business identity, location and new businesses" },
   { id: "payments", label: "Payment providers", description: "Choose electronic collection gateway" },
+  { id: "messaging", label: "SMS & messaging", description: "Configure SMS provider API credentials" },
   { id: "billing", label: "Subscription & billing", description: "Plan, invoices and recorded payments" },
   { id: "branches", label: "Branches", description: "Locations, branch status and new branches" },
   { id: "team", label: "Team & access", description: "Role and staff access boundary" },
@@ -194,6 +196,9 @@ export function SettingsWorkspace() {
           ) : null}
           {section === "payments" ? (
             <PaymentProviderPanel />
+          ) : null}
+          {section === "messaging" ? (
+            <SmsProviderPanel />
           ) : null}
           {section === "billing" ? (
             <MerchantBillingPanel />

@@ -30,6 +30,7 @@ import { registerSupplierDocumentDeliveryRoutes } from "./supplier-document-deli
 import { registerSupplierInvoiceMatchRoutes } from "./supplier-invoice-matches.js";
 import { registerHubtelPosRoutes } from "./commerce/hubtel-pos-routes.js";
 import { registerPaymentProviderRoutes } from "./payment-providers/routes.js";
+import { registerSmsProviderRoutes } from "./messaging/routes.js";
 import { registerPricingRoutes } from "./commerce/pricing-routes.js";
 import { registerStaffRoutes } from "./staff/routes.js";
 import { ingestSyncBatch, SyncRequestError } from "./sync.js";
@@ -75,6 +76,7 @@ export function buildApp(pool: DatabasePool) {
   registerSupplierInvoiceMatchRoutes(app, pool);
   registerHubtelPosRoutes(app, pool);
   registerPaymentProviderRoutes(app, pool);
+  registerSmsProviderRoutes(app, pool);
   registerPricingRoutes(app, pool);
   registerStaffRoutes(app, pool);
   registerSupplierInventoryRoutes(app, pool);

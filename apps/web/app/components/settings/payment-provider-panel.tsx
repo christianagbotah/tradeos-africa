@@ -111,47 +111,46 @@ export function PaymentProviderPanel(){
           "Verified merchant connection enabled":"Not enabled"}</strong>.
         Your preferred provider is a separate configuration choice.
       </p>
-      <div style={{display:"grid",
-        gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,255px),1fr))",
-        gap:12}} role="group" aria-label="Choose payment provider">
-        {snapshot.providers.map(provider=>(
-          <div key={provider.code} style={{
-            border:choice===provider.code?"2px solid var(--tos-color-primary, #176785)":
-              "1px solid var(--tos-color-border, #cbd5e1)",
-            borderRadius:12,padding:14,display:"grid",gap:8,minWidth:0}}>
-            <div style={{display:"flex",gap:8,justifyContent:"space-between",
-              alignItems:"center",flexWrap:"wrap"}}>
-              <strong style={{fontSize:17}}>{provider.name}</strong>
-              <span style={{fontSize:12,fontWeight:700}}>
-                {provider.code===current?"Selected":!provider.eligible?
-                  "Not listed for this market":"Available to request"}
-              </span>
-            </div>
-            <p style={{fontSize:13,margin:0}}>{provider.region}</p>
-            <p style={{fontSize:13,margin:0}}>{provider.description}</p>
-            <p style={{fontSize:12,margin:0}}>
-              Methods: {provider.methods.join(" · ")}
-            </p>
-            {provider.integrationStage==="PLANNED"?
-              <p style={{fontSize:12,margin:0}}>
-                Integration in development. Selecting it reserves your preference
-                but does not yet allow charging customers.
-              </p>:<p style={{fontSize:12,margin:0}}>
-                Existing provider connector; merchant authorization and verification required.
-              </p>}
-            <a href={provider.docsUrl} target="_blank" rel="noopener noreferrer"
-              style={{fontSize:13}}>Provider documentation</a>
-            <button type="button" className="tos-pay-card"
-              style={{width:"100%",minHeight:42,justifyContent:"center",cursor:
-                canManage&&online&&provider.eligible?"pointer":"not-allowed"}}
-              aria-pressed={choice===provider.code}
-              disabled={!provider.eligible||!online||!canManage||saving}
-              onClick={()=>{setChoice(provider.code);setError(null);setSuccess(null);}}>
-              {choice===provider.code?"Chosen":"Choose "+provider.name}
-            </button>
-          </div>
-        ))}
+      <div style={{display:"grid",gap:12,maxWidth:720,minWidth:0}}>
+        <label htmlFor="tradeos-selected-payment-provider">
+          Choose payment provider</label>
+        <select id="tradeos-selected-payment-provider" className="tos-input"
+          value={choice} disabled={!online||!canManage||saving}
+          onChange={e=>{setChoice(e.target.value);setError(null);
+            setSuccess(null);}}>
+          <option value="" disabled>Select payment provider</option>
+          {snapshot.providers.map(provider=>(
+            <option key={provider.code} value={provider.code}
+              disabled={!provider.eligible}>
+              {provider.name}{provider.eligible?"":" (not available for this market)"}
+            </option>
+          ))}
+        </select>
+        {selected?<div style={{display:"grid",gap:8,padding:14,
+          border:"1px solid var(--tos-color-border, #cbd5e1)",borderRadius:12}}>
+          <strong>{selected.name}</strong>
+          <p style={{margin:0}}>{selected.description}</p>
+          <p style={{margin:0}}>Regions: {selected.region} · Methods:
+            {" "+selected.methods.join(" · ")}</p>
+          <p style={{margin:0}}>Connection:
+            <strong>{" "+(selected.integrationStage==="PLANNED"?
+              "Planned / gated":"Existing gated integration")}</strong></p>
+          <a href={selected.docsUrl} target="_blank" rel="noopener noreferrer">
+            View provider setup instructions</a>
+        </div>:null}
       </div>
+      {(selected?.code==="PAYSTACK"||selected?.code==="FLUTTERWAVE")&&
+        canManage&&businessId?<GatewayConnectionsPanel
+          key={selected.code} businessId={businessId} online={online}
+          providerCode={selected.code}/>:null}
+      {selected&&selected.code!=="PAYSTACK"&&selected.code!=="FLUTTERWAVE"?
+        <p className="tos-callout">
+          API credential self-service is not available for {selected.name} yet.
+          Selecting this provider only saves your preference. For Hubtel
+          merchant collections, TradeOS administrators must verify the
+          business collection account and authorize the connector. Do not
+          paste API keys in the preference field.
+        </p>:null}
       {!canManage?<p className="tos-callout">
         Only the owner or a business administrator may change its preferred gateway.
       </p>:null}
@@ -168,8 +167,7 @@ export function PaymentProviderPanel(){
         </span>
       </div>
       {success?<p className="tos-callout" role="status">{success}</p>:null}
-      {canManage&&businessId?<GatewayConnectionsPanel
-        businessId={businessId} online={online}/>:null}
+
       {canManage&&businessId?<GatewayAttemptMonitor
         businessId={businessId} online={online}/>:null}
       <p className="tos-callout" role="status">
