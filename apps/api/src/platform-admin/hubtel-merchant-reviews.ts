@@ -202,6 +202,19 @@ export async function reviewHubtelMerchantAccount(pool:DatabasePool,
       [businessId,current.account_reference,current.credential_revision,
         next,args.decision,args.beneficiaryOwnershipConfirmed,
         args.evidenceReference,args.rationale,actor.id]);
+    await tx.query(
+      "INSERT INTO platform_audit_events "+
+      "(platform_user_id,business_id,event_type,entity_type,entity_id,"+
+      "reason,payload) VALUES($1,$2,'HUBTEL_MERCHANT_ACCOUNT_REVIEWED',"+
+      "'BUSINESS',($2::uuid)::text,$3,$4::jsonb)",
+      [actor.id,businessId,args.rationale,JSON.stringify({
+        providerCode:"HUBTEL",accountReference:current.account_reference,
+        credentialRevision:current.credential_revision,reviewVersion:next,
+        decision:args.decision,
+        beneficiaryOwnershipConfirmed:args.beneficiaryOwnershipConfirmed,
+        evidenceReference:args.evidenceReference,
+        collectionEnabled:false,
+      })]);
     // Deliberately never writes platform Hubtel sales account enabled flags,
     // business_merchant_gateway_credentials.collection_enabled, payments,
     // sales, money accounts, payouts or cashbook.
