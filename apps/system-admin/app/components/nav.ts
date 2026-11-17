@@ -35,7 +35,11 @@ export const adminNavGroups: AdminNavGroup[] = [
   },
   {
     label: "Tenants",
-    items: [{ href: "/console/tenants", label: "Tenants", icon: IconBuilding }],
+    items: [
+      { href: "/console/tenants", label: "Tenants", icon: IconBuilding },
+      { href: "/console/hubtel-merchant-accounts",
+        label: "Hubtel account reviews", icon: IconShield },
+    ],
   },
   {
     label: "Billing",
