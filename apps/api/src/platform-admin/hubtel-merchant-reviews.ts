@@ -2,7 +2,7 @@ import type {DatabasePool} from "../db.js";
 import {withTransaction} from "../db.js";
 import {PlatformAdminError,type PlatformAdminContext} from "./security.js";
 
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CAN_REVIEW=new Set(["SUPER_ADMIN","PLATFORM_ADMIN"]);
 const CAN_READ=new Set(["SUPER_ADMIN","PLATFORM_ADMIN","OPERATIONS"]);
 type Decision="APPROVED"|"REJECTED";
