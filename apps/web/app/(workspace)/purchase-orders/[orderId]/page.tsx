@@ -9,12 +9,14 @@ import { useApiFetch } from "../../../../lib/use-api-fetch";
 import { PurchaseReceiptBuilder } from "../../../components/purchases/purchase-receipt-builder";
 import { SupplierInvoiceMatching } from "../../../components/purchases/supplier-invoice-matching";
 import { SupplierDocumentDelivery } from "../../../components/purchases/supplier-document-delivery";
+import { PurchaseOrderDraftEditor } from "../../../components/purchases/purchase-order-draft-editor";
 import type { Supplier } from "../../../components/purchases/supplier-sheet";
 import styles from "./purchase-order-preview.module.css";
 
 type Status="DRAFT"|"ISSUED"|"CANCELLED";
 interface PurchaseOrder {
   id:string;orderNumber:string;businessId:string;branchId:string;supplierId:string;
+  updatedAt:string;
   status:Status;currencyCode:string;businessName:string;branchName:string;
   supplierName:string;supplierPhone:string|null;supplierEmail:string|null;
   supplierAddress:string|null;notes:string;expectedDeliveryDate:string|null;
@@ -24,7 +26,7 @@ interface PurchaseOrder {
   receipts:Array<{id:string;receivedAt:string;totalMinor:number;
     supplierReference:string|null;settlementMethod:string}>;
   issuedAt:string|null;cancelledAt:string|null;createdAt:string;
-  lines:Array<{id:string;itemName:string;itemSku:string|null;
+  lines:Array<{id:string;itemId:string;itemName:string;itemSku:string|null;
     purchaseUnitCode:string;purchaseUnitLabel:string;quantity:number;
     unitCostMinor:number;lineTotalMinor:number;
     receivedQuantity:number;remainingQuantity:number;
@@ -41,6 +43,7 @@ export default function SupplierPurchaseOrderPreview(){
   const params=useParams<{orderId:string}>();
   const {session,role,queue}=useWorkspace();
   const [receiveOpen,setReceiveOpen]=useState(false);
+  const [editOpen,setEditOpen]=useState(false);
   const valid=UUID.test(params.orderId);
   const url=session&&valid?
     `/v1/purchase-orders/${encodeURIComponent(params.orderId)}?businessId=${encodeURIComponent(session.businessId)}`:null;
@@ -48,6 +51,7 @@ export default function SupplierPurchaseOrderPreview(){
   const order=data?.order;
   const receiveRoles=["OWNER","ADMIN","MANAGER","INVENTORY","ACCOUNTANT"];
   const mayReceive=receiveRoles.includes(role)&&queue.online;
+  const canEditDraft=["OWNER","ADMIN","MANAGER","INVENTORY"].includes(role);
   const suppliers=useMemo<readonly Supplier[]>(()=>order?[{
     id:order.supplierId,name:order.supplierName,phone:order.supplierPhone,
     email:order.supplierEmail,address:order.supplierAddress,
@@ -61,6 +65,9 @@ export default function SupplierPurchaseOrderPreview(){
   return <main className={styles.wrapper}>
     <div className={styles.actions}>
       <Link href="/purchase-orders">Back to purchase orders</Link>
+      {order.status==="DRAFT"&&canEditDraft?
+        <button type="button" disabled={!queue.online||editOpen}
+          onClick={()=>setEditOpen(true)}>Edit saved draft</button>:null}
       {order.canReceive&&receiveRoles.includes(role)?
         <button type="button" disabled={!mayReceive}
           title={!queue.online?"Connect to receive against current outstanding quantities":undefined}
@@ -68,6 +75,10 @@ export default function SupplierPurchaseOrderPreview(){
       {order.status==="ISSUED"?<button type="button" onClick={()=>window.print()}>
         Print / Save as PDF</button>:null}
     </div>
+    {editOpen&&order.status==="DRAFT"&&canEditDraft?
+      <PurchaseOrderDraftEditor order={order}
+        onClose={()=>setEditOpen(false)}
+        onSaved={()=>{setEditOpen(false);refetch();}}/>:null}
     <article id="tradeos-supplier-po" className={`tos-print-document ${styles.document}`}>
       <header className={styles.hero}>
         <p className={styles.eyebrow}>TradeOS Africa · Purchasing</p>

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
@@ -322,6 +322,105 @@ export function registerPurchaseOrderRoutes(app:FastifyInstance,pool:DatabasePoo
       return reply.code(created.replay?200:201).send({
         order:await load(pool,input.businessId,created.id),idempotentReplay:created.replay,
       });
+    }catch(error){return errorResponse(request,reply,error);}
+  });
+
+  // Editing a saved PO is permitted only before issuance. The server locks
+  // the draft, rejects stale versions, and replaces its unposted line snapshot
+  // in one transaction. Issued/cancelled documents and receipts remain immutable.
+  app.patch<{Params:{orderId:string};Body:PurchaseOrderInput&{
+    expectedUpdatedAt?:string;
+  }}>("/v1/purchase-orders/:orderId",async(request,reply)=>{
+    try{
+      const orderId=requireId(request.params.orderId,"orderId");
+      const body=request.body;
+      const businessId=requireId(body?.businessId,"businessId");
+      if(typeof body.expectedUpdatedAt!=="string"||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(body.expectedUpdatedAt)||
+        !Number.isFinite(Date.parse(body.expectedUpdatedAt)))
+        throw new PurchaseOrderError("Current order version is required",
+          "PURCHASE_ORDER_VERSION_REQUIRED");
+      const auth=await authenticateAccessToken(pool,request.headers.authorization);
+      const access=await requireBusinessRole(pool,auth,businessId,WRITE_ROLES);
+      await withTransaction(pool,async tx=>{
+        const row=(await tx.query<{
+          id:string;branch_id:string;order_number:string;status:Status;
+          updated_at:Date;
+        }>(
+          "SELECT id,branch_id,order_number,status,updated_at "+
+          "FROM supplier_purchase_orders "+
+          "WHERE id=$1 AND business_id=$2 FOR UPDATE",
+          [orderId,businessId])).rows[0];
+        if(!row)throw new PurchaseOrderError("Purchase order not found",
+          "PURCHASE_ORDER_NOT_FOUND",404);
+        if(row.status!=="DRAFT")throw new PurchaseOrderError(
+          "Only unissued drafts can be edited","PURCHASE_ORDER_NOT_DRAFT",409);
+        if(row.updated_at.toISOString()!==body.expectedUpdatedAt)
+          throw new PurchaseOrderError(
+            "Purchase order changed elsewhere. Reload before editing.",
+            "PURCHASE_ORDER_VERSION_CONFLICT",409);
+        const input=validate({...body,branchId:row.branch_id,
+          clientRequestId:randomUUID()});
+        const supplier=(await tx.query<{
+          name:string;phone:string|null;email:string|null;address:string|null;
+        }>(
+          "SELECT name,phone,email,address FROM suppliers "+
+          "WHERE id=$1 AND business_id=$2 AND is_active=true",
+          [input.supplierId,businessId])).rows[0];
+        if(!supplier)throw new PurchaseOrderError(
+          "Supplier is not active in this business",
+          "PURCHASE_ORDER_SUPPLIER_INVALID",404);
+        const snapshots:Array<{
+          itemId:string;name:string;sku:string|null;unit:string;label:string;
+          quantity:number;unitCostMinor:number;lineMinor:number;
+        }>=[];
+        let subtotal=0;
+        for(const line of input.lines){
+          const item=(await tx.query<{
+            name:string;sku:string|null;unit_label:string;
+          }>(
+            `SELECT i.name,i.sku,u.unit_label FROM catalog_items i
+             JOIN catalog_item_units u ON u.item_id=i.id AND u.business_id=i.business_id
+             WHERE i.id=$1 AND i.business_id=$2 AND i.is_active=true
+               AND i.kind='PRODUCT' AND i.track_stock=true
+               AND u.unit_code=$3 AND u.can_purchase=true FOR SHARE OF i,u`,
+            [line.itemId,businessId,line.unit])).rows[0];
+          if(!item)throw new PurchaseOrderError(
+            "Item/unit cannot be ordered from this business catalog",
+            "PURCHASE_ORDER_UNIT_INVALID",409);
+          const lineMinor=proportionalMinor(safeMinor(line.unitCostMinor),line.quantity,1);
+          subtotal=safeMinor(subtotal+lineMinor);
+          snapshots.push({itemId:line.itemId,name:item.name,sku:item.sku,
+            unit:line.unit,label:item.unit_label,quantity:line.quantity,
+            unitCostMinor:line.unitCostMinor,lineMinor});
+        }
+        await tx.query(
+          `UPDATE supplier_purchase_orders SET
+             supplier_id=$3,supplier_name_snapshot=$4,supplier_phone_snapshot=$5,
+             supplier_email_snapshot=$6,supplier_address_snapshot=$7,
+             notes=$8,expected_delivery_at=$9,subtotal_minor=$10,
+             tax_minor=0,total_minor=$10,
+             updated_at=GREATEST(clock_timestamp(),updated_at + interval '1 millisecond')
+           WHERE id=$1 AND business_id=$2`,
+          [orderId,businessId,input.supplierId,supplier.name,supplier.phone,
+            supplier.email,supplier.address,input.notes,input.expectedDeliveryDate,subtotal]);
+        await tx.query("DELETE FROM supplier_purchase_order_lines "+
+          "WHERE business_id=$1 AND order_id=$2",[businessId,orderId]);
+        for(const [index,line] of snapshots.entries()){
+          await tx.query(
+            `INSERT INTO supplier_purchase_order_lines(
+              business_id,order_id,sort_order,item_id,item_name_snapshot,item_sku_snapshot,
+              purchase_unit_code,purchase_unit_label_snapshot,quantity,unit_cost_minor,
+              line_net_minor,line_tax_minor,line_total_minor
+            ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,$11)`,
+            [businessId,orderId,index,line.itemId,line.name,line.sku,
+              line.unit,line.label,line.quantity,line.unitCostMinor,line.lineMinor]);
+        }
+        await audit(tx,{businessId,branchId:row.branch_id,
+          staffId:access.staffId,orderId,eventType:"PURCHASE_ORDER_DRAFT_UPDATED",
+          orderNumber:row.order_number});
+      });
+      return {order:await load(pool,businessId,orderId)};
     }catch(error){return errorResponse(request,reply,error);}
   });
 

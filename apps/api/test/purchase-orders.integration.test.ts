@@ -165,3 +165,119 @@ describe("supplier purchase order creation and lifecycle",()=>{
     expect(response.statusCode).toBe(401);
   });
 });
+
+describe("saved purchase-order draft editing",()=>{
+  const patch=(m:Merchant,id:string,body:unknown)=>app.inject({
+    method:"PATCH",url:`/v1/purchase-orders/${id}`,
+    headers:m.headers,payload:body,
+  });
+  it("edits a saved draft, rebuilds snapshots, and audits without stock or money",async()=>{
+    const m=await merchant("edit-ok");
+    const first=await request(m,payload(m));
+    expect(first.statusCode,first.body).toBe(201);
+    const original=first.json().order as {id:string;updatedAt:string;orderNumber:string};
+    const supplier2=(await pool.query<{id:string}>(
+      "INSERT INTO suppliers(business_id,name) VALUES($1,'Replacement Supplier') RETURNING id",
+      [m.businessId])).rows[0]!.id;
+    const revised=await patch(m,original.id,{
+      ...payload(m),supplierId:supplier2,expectedUpdatedAt:original.updatedAt,
+      notes:"Different safe delivery instructions",expectedDeliveryDate:"2027-01-20",
+      lines:[{itemId:m.item,purchaseUnitCode:"bundle",quantity:3,
+        unitCostMinor:7550}],
+    });
+    expect(revised.statusCode,revised.body).toBe(200);
+    const saved=revised.json().order;
+    expect(saved).toMatchObject({id:original.id,orderNumber:original.orderNumber,
+      status:"DRAFT",supplierName:"Replacement Supplier",
+      expectedDeliveryDate:"2027-01-20",notes:"Different safe delivery instructions",
+      subtotalMinor:22650,totalMinor:22650});
+    expect(saved.updatedAt).not.toBe(original.updatedAt);
+    expect(saved.lines).toHaveLength(1);
+    expect(saved.lines[0]).toMatchObject({purchaseUnitCode:"bundle",
+      purchaseUnitLabel:"Bundle",quantity:3,unitCostMinor:7550,lineTotalMinor:22650});
+    for(const table of ["purchases","purchase_lines","inventory_movements",
+      "supplier_payable_ledger","cashbook_entries"]){
+      expect(await tableCount(table,m.businessId),table).toBe(0);
+    }
+    const audit=await pool.query<{event_type:string}>(
+      "SELECT event_type FROM audit_events WHERE business_id=$1 AND entity_id=$2 ORDER BY occurred_at,id",
+      [m.businessId,original.id]);
+    expect(audit.rows.map(row=>row.event_type)).toEqual([
+      "PURCHASE_ORDER_CREATED","PURCHASE_ORDER_DRAFT_UPDATED",
+    ]);
+    const stale=await patch(m,original.id,{...payload(m),
+      expectedUpdatedAt:original.updatedAt});
+    expect(stale.statusCode,stale.body).toBe(409);
+    expect(stale.json().error).toBe("PURCHASE_ORDER_VERSION_CONFLICT");
+    const afterStale=await app.inject({method:"GET",headers:m.headers,
+      url:`/v1/purchase-orders/${original.id}?businessId=${m.businessId}`});
+    expect(afterStale.json().order.totalMinor).toBe(22650);
+  });
+
+  it("rejects editing issued and cancelled purchase orders",async()=>{
+    const m=await merchant("edit-lock");
+    const created=await request(m,payload(m));
+    const original=created.json().order;
+    const body={...payload(m),expectedUpdatedAt:original.updatedAt};
+    expect((await endpoint(m,original.id,"issue")).statusCode).toBe(200);
+    const issued=await patch(m,original.id,body);
+    expect(issued.statusCode,issued.body).toBe(409);
+    expect(issued.json().error).toBe("PURCHASE_ORDER_NOT_DRAFT");
+    expect((await endpoint(m,original.id,"cancel")).statusCode).toBe(200);
+    expect((await patch(m,original.id,body)).statusCode).toBe(409);
+  });
+
+  it("rejects cross-business suppliers and stock units atomically",async()=>{
+    const a=await merchant("edit-tenant-a");
+    const b=await merchant("edit-tenant-b");
+    const created=await request(a,payload(a));
+    const original=created.json().order;
+    const body={...payload(a),expectedUpdatedAt:original.updatedAt};
+    const otherSupplier=await patch(a,original.id,{...body,supplierId:b.supplier});
+    expect(otherSupplier.statusCode).toBe(404);
+    const otherItem=await patch(a,original.id,{...body,
+      lines:[{itemId:b.item,purchaseUnitCode:"piece",quantity:1,unitCostMinor:100}]});
+    expect(otherItem.statusCode).toBe(409);
+    const otherTenant=await patch(b,original.id,{...payload(b),
+      expectedUpdatedAt:original.updatedAt});
+    expect(otherTenant.statusCode).toBe(404);
+    const badUnit=await patch(a,original.id,{...body,
+      lines:[{itemId:a.item,purchaseUnitCode:"unknown",quantity:1,unitCostMinor:100}]});
+    expect(badUnit.statusCode).toBe(409);
+    const unchanged=await app.inject({method:"GET",headers:a.headers,
+      url:`/v1/purchase-orders/${original.id}?businessId=${a.businessId}`});
+    expect(unchanged.json().order.totalMinor).toBe(17500);
+    expect(unchanged.json().order.lines).toHaveLength(2);
+  });
+});
+
+describe("draft editing authorization and atomic rollback",()=>{
+  it("does not mutate when edit lacks a version, authorization or valid unit",async()=>{
+    const m=await merchant("edit-rollback");
+    const created=await request(m,payload(m));
+    const prior=created.json().order;
+    const endpointUrl=`/v1/purchase-orders/${prior.id}`;
+    const body={...payload(m),expectedUpdatedAt:prior.updatedAt};
+    const missing=await app.inject({method:"PATCH",url:endpointUrl,
+      headers:m.headers,payload:{...payload(m)}});
+    expect(missing.statusCode).toBe(400);
+    const untrusted=await app.inject({method:"PATCH",url:endpointUrl,payload:body});
+    expect(untrusted.statusCode).toBe(401);
+    const invalid=await app.inject({method:"PATCH",url:endpointUrl,
+      headers:m.headers,payload:{...body,lines:[{
+        itemId:m.item,purchaseUnitCode:"piece",quantity:1,unitCostMinor:-3,
+      }]}});
+    expect(invalid.statusCode).toBe(400);
+    const reread=await app.inject({method:"GET",url:
+      `${endpointUrl}?businessId=${m.businessId}`,headers:m.headers});
+    expect(reread.statusCode).toBe(200);
+    expect(reread.json().order).toMatchObject({
+      updatedAt:prior.updatedAt,totalMinor:17500,supplierId:m.supplier,
+    });
+    expect(reread.json().order.lines).toHaveLength(2);
+    const audits=await pool.query<{event_type:string}>(
+      "SELECT event_type FROM audit_events WHERE business_id=$1 AND entity_id=$2",
+      [m.businessId,prior.id]);
+    expect(audits.rows.map(a=>a.event_type)).toEqual(["PURCHASE_ORDER_CREATED"]);
+  });
+});
