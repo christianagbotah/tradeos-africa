@@ -122,6 +122,9 @@ export default function ConsoleOverviewPage() {
         <div className="admin-quicklinks">
           <QuickLink href="/console/automation" icon={IconActivity} title="AI Operations" desc="Grounded briefings, deterministic attention, approval-controlled automation and run history." />
           <QuickLink href="/console/tenants" icon={IconBuilding} title="Tenant 360" desc="Business state, access, subscriptions, billing, devices and recent activity." />
+          <QuickLink href="/console/hubtel-merchant-accounts" icon={IconBuilding}
+            title="Hubtel merchant account reviews"
+            desc="Review business-owned collection beneficiary evidence and activation requests without enabling charges." />
           <QuickLink href="/console/subscriptions" icon={IconActivity} title="Subscriptions" desc="Assign plans and manage subscription lifecycle with audited reasons." />
           <QuickLink href="/console/billing/invoices" icon={IconInfo} title="Invoices" desc="Inspect SaaS billing exposure, due dates and payment state." />
           <QuickLink href="/console/billing/payments" icon={IconActivity} title="Payments" desc="Review provider collections and controlled reconciliation outcomes." />

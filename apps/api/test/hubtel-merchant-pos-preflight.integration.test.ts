@@ -110,14 +110,15 @@ describe("Merchant-owned Hubtel collection activation preflight",()=>{
     expect(final.body).not.toContain(fields.apiKey);
     expect(final.json()).toMatchObject({
       merchantCredentialStatus:"VERIFIED",
-      activationRequested:true,accountApproved:true,
-      merchantCollectionEnabled:false,
+      activationRequested:true,accountApproved:false,
+      accountReviewStatus:"PENDING",merchantCollectionEnabled:false,
     });
     const steps=final.json().steps as {code:string;status:string}[];
     for(const code of ["CREDENTIAL_VAULT","MERCHANT_CREDENTIALS",
-      "API_ACCESS","ACTIVATION_REQUEST","ACCOUNT_APPROVAL"]){
+      "API_ACCESS","ACTIVATION_REQUEST"]){
       expect(steps.find(s=>s.code===code)?.status).toBe("DONE");
     }
+    expect(steps.find(s=>s.code==="ACCOUNT_APPROVAL")?.status).toBe("BLOCKED");
     expect(steps.find(s=>s.code==="POS_RELEASE")?.status).toBe("BLOCKED");
     expect(mock).toHaveBeenCalledTimes(1);
     expect(await hubtelPosConnection(pool,m.businessId)).toBeNull();
