@@ -43,6 +43,20 @@ describe("Hubtel verified collection status",()=>{
     });
   });
 
+  it("uses independently verified payment method instead of POS preference",()=>{
+    const mobile=verifyHubtelStatusPayload({
+      ...paid,data:{...paid.data,paymentMethod:"mobilemoney"}
+    },expected,"11684");
+    expect(mobile.paymentMethod).toBe("MOMO");
+    const card=verifyHubtelStatusPayload({
+      ...paid,data:{...paid.data,paymentMethod:"card"}
+    },expected,"11684");
+    expect(card.paymentMethod).toBe("CARD");
+    const unknown=verifyHubtelStatusPayload({
+      ...paid,data:{...paid.data,paymentMethod:"unsupported-wallet"}
+    },expected,"11684");
+    expect(unknown.paymentMethod).toBeNull();
+  });
   it("accepts an unpaid status without reporting it as a paid invoice",()=>{
     const unpaid={...paid,data:{...paid.data,status:"Unpaid",amount:null,transactionId:null}};
     const response=verifyHubtelStatusPayload(unpaid,expected,"11684");

@@ -22,22 +22,10 @@ import {
   IconBanknote,
   IconSmartphone,
   IconCreditCard,
-  IconBuilding,
   IconWallet,
   IconCloudOff,
 } from "../ui/icons";
 import type { Customer } from "../workspace/workspace-provider";
-
-type PayMethodDef = { value: PaymentMethod; label: string; sub: string; Icon: typeof IconBanknote };
-
-const PAYMENT_METHODS: ReadonlyArray<PayMethodDef> = [
-  { value: "CASH", label: "Cash", sub: "Notes & coins", Icon: IconBanknote },
-  { value: "MOMO", label: "Mobile money", sub: "MTN, Vodafone, Airtel", Icon: IconSmartphone },
-  { value: "CARD", label: "Card", sub: "POS terminal", Icon: IconCreditCard },
-  { value: "BANK", label: "Bank transfer", sub: "Direct deposit", Icon: IconBuilding },
-  { value: "CUSTOMER_CREDIT", label: "Pay later", sub: "Approved customer credit", Icon: IconWallet },
-  { value: "OTHER", label: "Other", sub: "Manual payment", Icon: IconWallet },
-];
 
 interface CheckoutSheetProps {
   open: boolean;
@@ -169,7 +157,7 @@ export function CheckoutSheet({
     availableCreditMinor,
   });
   const canCharge = quoteReady&&approvalValid&&lines.length>0&&
-    (!hubtelSelected||online)&&
+    (!hubtelSelected||(online&&hubtelAvailable))&&
     splitValid&&creditReady&&(paymentMethod!=="CUSTOMER_CREDIT"||online)&&
     (paymentMethod!=="CASH" || (cashReceivedMinor!==null &&
       cashReceivedMinor>=amountToCollect));
@@ -182,8 +170,11 @@ export function CheckoutSheet({
       const voiceMethod = initialPaymentMethod === "CREDIT"?"CUSTOMER_CREDIT":
         initialPaymentMethod && initialPaymentMethod!=="UNSPECIFIED"?
           initialPaymentMethod:"CASH";
-      setPaymentMethod(voiceMethod);
-      setHubtelSelected(false);
+      // Voice cannot mark an electronic payment received without Hubtel status.
+      const electronicVoice=["MOMO","CARD","BANK","OTHER"].includes(voiceMethod);
+      setPaymentMethod(electronicVoice?
+        (voiceMethod==="CARD"?"CARD":"MOMO"):voiceMethod);
+      setHubtelSelected(electronicVoice);
       setCashReceivedMinor(null);
       setSplitWithCredit(false);
       setPaidNowMinor(null);
@@ -254,6 +245,14 @@ export function CheckoutSheet({
     return ()=>{active=false;};
   },[open,online,businessId]);
   if (!open) return null;
+
+  function chooseTender(next:"CASH"|"MOMO"|"CARD"|"CUSTOMER_CREDIT"){
+    setPaymentMethod(next);
+    setHubtelSelected(next==="MOMO"||next==="CARD");
+    setCashReceivedMinor(null);setPaidNowMinor(null);
+    setSplitWithCredit(false);setVoiceSuggestion(null);
+    setVoiceAmountCopied(false);
+  }
 
   function copySpokenCash(){
     if(!voiceSuggestion||!voicePaymentGuide.action||
@@ -545,49 +544,85 @@ export function CheckoutSheet({
               <div className="tos-field">
                 <span className="tos-field__label">Payment method</span>
                 <div className="tos-pay-cards" role="group" aria-label="Payment method">
-                  {PAYMENT_METHODS.map((m) => {
-                    const Icon = m.Icon;
-                    return (
-                      <button
-                        key={m.value}
-                        type="button"
-                        className="tos-pay-card"
-                        aria-pressed={paymentMethod === m.value && !hubtelSelected}
-                        onClick={() => {
-                          setPaymentMethod(m.value);setHubtelSelected(false);
-                          setCashReceivedMinor(null);setPaidNowMinor(null);
-                          setSplitWithCredit(false);setVoiceSuggestion(null);
-                          setVoiceAmountCopied(false);
-                        }}
-                      >
-                        <span className="tos-pay-card__icon-wrap" aria-hidden="true">
-                          <Icon className="tos-pay-card__icon" />
-                        </span>
-                        <span className="tos-pay-card__text">
-                          <span className="tos-pay-card__label">{m.label}</span>
-                          <span className="tos-pay-card__sub">{m.sub}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {hubtelAvailable?<button
-                    type="button" className="tos-pay-card"
+                  <button type="button" className="tos-pay-card"
+                    aria-pressed={!hubtelSelected&&paymentMethod==="CASH"}
+                    onClick={()=>chooseTender("CASH")}>
+                    <span className="tos-pay-card__icon-wrap" aria-hidden="true">
+                      <IconBanknote className="tos-pay-card__icon"/>
+                    </span>
+                    <span className="tos-pay-card__text">
+                      <span className="tos-pay-card__label">Cash</span>
+                      <span className="tos-pay-card__sub">Count physical cash</span>
+                    </span>
+                  </button>
+                  <button type="button" className="tos-pay-card"
                     aria-pressed={hubtelSelected}
-                    onClick={()=>{
-                      setPaymentMethod("MOMO");setHubtelSelected(true);
-                      setCashReceivedMinor(null);setPaidNowMinor(null);
-                      setSplitWithCredit(false);setVoiceSuggestion(null);
-                      setVoiceAmountCopied(false);
-                    }}
-                  >
+                    onClick={()=>chooseTender("MOMO")}>
                     <span className="tos-pay-card__icon-wrap" aria-hidden="true">
                       <IconSmartphone className="tos-pay-card__icon"/>
                     </span>
                     <span className="tos-pay-card__text">
-                      <span className="tos-pay-card__label">Pay with Hubtel</span>
-                      <span className="tos-pay-card__sub">Online · confirmed before receipt</span>
+                      <span className="tos-pay-card__label">Electronic</span>
+                      <span className="tos-pay-card__sub">Secure Hubtel payment</span>
                     </span>
-                  </button>:null}
+                  </button>
+                </div>
+                {hubtelSelected?<section className="tos-section"
+                  aria-label="Electronic payment type">
+                  <div className="tos-section__head">
+                    <h3 className="tos-section__title">Electronic payment type</h3>
+                  </div>
+                  <div className="tos-section__body" style={{display:"grid",gap:12}}>
+                    <div className="tos-pay-cards" role="group"
+                      aria-label="Electronic payment type">
+                      <button type="button" className="tos-pay-card"
+                        aria-pressed={paymentMethod==="MOMO"}
+                        onClick={()=>chooseTender("MOMO")}>
+                        <span className="tos-pay-card__icon-wrap" aria-hidden="true">
+                          <IconSmartphone className="tos-pay-card__icon"/>
+                        </span>
+                        <span className="tos-pay-card__text">
+                          <span className="tos-pay-card__label">Mobile money</span>
+                          <span className="tos-pay-card__sub">MTN · Telecel · AirtelTigo</span>
+                        </span>
+                      </button>
+                      <button type="button" className="tos-pay-card"
+                        aria-pressed={paymentMethod==="CARD"}
+                        onClick={()=>chooseTender("CARD")}>
+                        <span className="tos-pay-card__icon-wrap" aria-hidden="true">
+                          <IconCreditCard className="tos-pay-card__icon"/>
+                        </span>
+                        <span className="tos-pay-card__text">
+                          <span className="tos-pay-card__label">Bank card</span>
+                          <span className="tos-pay-card__sub">Bank authentication via Hubtel</span>
+                        </span>
+                      </button>
+                    </div>
+                    <p role="status" style={{fontSize:13}}>
+                      {paymentMethod==="MOMO"?
+                        "Hubtel asks for the customer's mobile number and network; the customer approves the prompt on their phone.":
+                        "Only Hubtel collects card details and bank authorization. Never type card details into TradeOS."}
+                    </p>
+                    {!hubtelAvailable?<p role="alert" className="tos-callout">
+                      Electronic collection is not enabled for this business.
+                      No prompt or card charge will be sent. Ask your administrator
+                      to confirm merchant status access and payment permissions.
+                    </p>:null}
+                  </div>
+                </section>:null}
+                <div style={{paddingTop:10}}>
+                  <button type="button" className="tos-pay-card"
+                    style={{width:"100%",maxWidth:450}}
+                    aria-pressed={!hubtelSelected&&paymentMethod==="CUSTOMER_CREDIT"}
+                    onClick={()=>chooseTender("CUSTOMER_CREDIT")}>
+                    <span className="tos-pay-card__icon-wrap" aria-hidden="true">
+                      <IconWallet className="tos-pay-card__icon"/>
+                    </span>
+                    <span className="tos-pay-card__text">
+                      <span className="tos-pay-card__label">Pay later (customer credit)</span>
+                      <span className="tos-pay-card__sub">Not a cash or electronic receipt</span>
+                    </span>
+                  </button>
                 </div>
               </div>
 
@@ -660,8 +695,9 @@ export function CheckoutSheet({
                   not a cash or MoMo payment.
                 </p>:null}
               {hubtelSelected?<p role="status" className="tos-callout">
-                Hubtel will open a secure payment page. The order remains unpaid until
-                verification; use Sales to resume if the payment page closes.
+                Hubtel will open a secure {paymentMethod==="CARD"?"card":"mobile money"}
+                payment page. The sale remains unpaid until independent Hubtel
+                verification. Use Sales to resume; never create duplicate payments.
               </p>:null}
 
               {paymentMethod === "CASH" ? (

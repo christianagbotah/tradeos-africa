@@ -50,10 +50,11 @@ function assertSaleReady(s:SaleRow,payments:PaymentRow[]){
   if(s.status!=="OPEN"||s.currency_code!=="GHS"||
       !Number.isSafeInteger(Number(s.total_minor))||Number(s.total_minor)<=0||
       payments.length!==1||payments[0]?.status!=="PENDING"||
-      payments[0]?.method!=="MOMO"||payments[0]?.currency_code!=="GHS"||
+      !["MOMO","CARD"].includes(payments[0]?.method??"")||
+      payments[0]?.currency_code!=="GHS"||
       payments[0]?.branch_id!==s.branch_id||
       payments[0]?.amount_minor!==s.total_minor) {
-    posFail("Only a valid unsettled Hubtel MoMo sale can create a checkout.",
+    posFail("Only a valid unsettled Hubtel electronic sale can create a checkout.",
       "HUBTEL_POS_SALE_NOT_COLLECTIBLE",409);
   }
 }
@@ -198,6 +199,11 @@ export async function verifySaleHubtelCheckout(
        payment.branch_id!==sale.branch_id||sale.currency_code!=="GHS"){
       posFail("Hubtel verification does not match the owning sale.",
         "HUBTEL_POS_PAYMENT_MISMATCH",409);
+    }
+    if(verified.paymentMethod!==payment.method){
+      posFail("Hubtel returned a different or unverified electronic payment method. "+
+        "Manual review required; no paid receipt was posted.",
+        "HUBTEL_POS_PAYMENT_METHOD_MISMATCH",409);
     }
     if(current.state==="RECONCILED"){
       if(current.verified_provider_transaction_id!==verified.transactionId||
