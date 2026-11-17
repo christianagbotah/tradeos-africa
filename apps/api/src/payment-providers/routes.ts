@@ -9,6 +9,7 @@ import {listGatewayTestAttempts} from "./attempts.js";
 import {
   listMerchantGatewayCredentials,saveMerchantPaymentCredentials,
   revokeMerchantPaymentCredentials,verifyMerchantHubtelConnection,
+  verifyMerchantHostedGatewayConnection,
   requestMerchantGatewayActivation,MerchantProbeError,
 } from "./merchant-connections.js";
 
@@ -152,6 +153,25 @@ export function registerPaymentProviderRoutes(app:FastifyInstance,pool:DatabaseP
         return await verifyMerchantHubtelConnection(pool,{
           businessId:req.params.businessId,actorUserId:auth.userId,
           environment:req.body?.environment,
+          expectedRevision:req.body?.expectedRevision,
+          currentPassword:req.body?.currentPassword,
+        });
+      }catch(error){return sendError(req,reply,error);}
+    });
+  app.post<{Params:{businessId:string;providerCode:string;environment:string};Body:{
+    expectedRevision?:unknown;currentPassword?:unknown;
+  }}>(
+    "/v1/businesses/:businessId/payment-gateways/merchant-connections/:providerCode/:environment/verify",
+    {bodyLimit:1024},async(req,reply)=>{
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId))throw new AuthError(
+          "Invalid business ID",400,"BUSINESS_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        return await verifyMerchantHostedGatewayConnection(pool,{
+          businessId:req.params.businessId,actorUserId:auth.userId,
+          providerCode:req.params.providerCode,
+          environment:req.params.environment,
           expectedRevision:req.body?.expectedRevision,
           currentPassword:req.body?.currentPassword,
         });
