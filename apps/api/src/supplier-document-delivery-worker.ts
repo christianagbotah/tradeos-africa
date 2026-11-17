@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import { renderSupplierPurchaseOrderPdf } from "./supplier-document-pdf.js";
+import { renderSupplierPurchaseOrderPdf, supplierPurchaseOrderPdfFilename } from "./supplier-document-pdf.js";
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
 import type { DatabasePool, DatabaseClient } from "./db.js";
 import { withTransaction } from "./db.js";
@@ -54,7 +54,7 @@ export async function smtpSendSupplierDocument(job:DeliveryJob):Promise<SendResu
   } as SMTPTransport.Options);
   try{
     const pdf = await renderSupplierPurchaseOrderPdf(job.payload_snapshot);
-    const filename = "PO-" + job.document_number.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 80) + ".pdf";
+    const filename = supplierPurchaseOrderPdfFilename(job.document_number);
     const result=await transporter.sendMail({
       from:{name:config.senderName,address:config.senderEmail},
       to:{name:job.recipient_name,address:job.recipient_email},

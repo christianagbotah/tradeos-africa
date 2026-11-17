@@ -4,7 +4,7 @@ import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { withTransaction, type DatabasePool, type DatabaseClient } from "./db.js";
 import { documentEmailConfig } from "./supplier-document-delivery-worker.js";
-import { renderSupplierPurchaseOrderPdf } from "./supplier-document-pdf.js";
+import { renderSupplierPurchaseOrderPdf, supplierPurchaseOrderPdfFilename } from "./supplier-document-pdf.js";
 import { makeSupplierWhatsAppSummary, normalizeSupplierWhatsAppPhone } from "./supplier-whatsapp-manual.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -229,8 +229,7 @@ export function registerSupplierDocumentDeliveryRoutes(app:FastifyInstance,pool:
           return {po,snapshot};
         });
         const pdf=await renderSupplierPurchaseOrderPdf(snapshot.metadata);
-        const filename="PO-"+po.order_number.replace(/[^A-Za-z0-9._-]/g,"-")
-          .slice(0,80)+".pdf";
+        const filename=supplierPurchaseOrderPdfFilename(po.order_number);
         return reply.header("Content-Type","application/pdf")
           .header("Content-Disposition",'attachment; filename="'+filename+'"')
           .header("Cache-Control","private, no-store")
@@ -277,8 +276,7 @@ export function registerSupplierDocumentDeliveryRoutes(app:FastifyInstance,pool:
         if(!record)throw new DeliveryError("Delivery request unavailable",
           "DELIVERY_NOT_FOUND",404);
         const pdf=await renderSupplierPurchaseOrderPdf(record.payload_snapshot);
-        const filename="PO-"+record.document_number.replace(/[^A-Za-z0-9._-]/g,"-")
-          .slice(0,80)+".pdf";
+        const filename=supplierPurchaseOrderPdfFilename(record.document_number);
         return reply.header("Content-Type","application/pdf")
           .header("Content-Disposition",'attachment; filename="'+filename+'"')
           .header("Cache-Control","private, no-store")
