@@ -54,3 +54,15 @@
 .success{color:#1f603b;background:#e9f7ed}
 @media(max-width:1100px){.orderList{grid-template-columns:repeat(2,minmax(0,1fr))}.scrollHint{display:block}}
 @media(max-width:700px){.workspace{padding:16px 10px 60px}.panel{padding:15px}.orderList{grid-template-columns:1fr}.header h1{font-size:25px}.totalPreview strong{font-size:19px}}
+.costReminder{border:1px solid #e8c5a0;background:#fff7ed;color:#7c3e0a;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.confirmBackdrop{position:fixed;inset:0;z-index:1080;background:rgba(11,25,43,.69);padding:16px;display:flex;align-items:center;justify-content:center}
+.confirmDialog{background:var(--tos-surface,#fff);border:1px solid var(--tos-border,#dbe2ec);color:var(--tos-text,#17283f);border-radius:16px;padding:24px;max-width:min(100%,540px);width:100%;max-height:90dvh;overflow-y:auto;display:grid;gap:16px;box-shadow:0 24px 70px #1118}
+.confirmDialog h2{font-size:21px;font-weight:800;margin:0}
+.confirmDialog .muted{max-width:100%}
+.confirmSummary{display:grid;gap:0;border:1px solid var(--tos-border,#dbe2ec);border-radius:10px;overflow:hidden;margin:0}
+.confirmSummary div{display:flex;justify-content:space-between;align-items:start;gap:12px;padding:10px 12px;border-bottom:1px solid var(--tos-border,#dbe2ec)}
+.confirmSummary div:last-child{border-bottom:0}
+.confirmSummary dt{font-size:12px;color:var(--tos-text-muted,#657186)}
+.confirmSummary dd{font-size:14px;font-weight:800;margin:0;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.confirmActions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+@media(max-width:540px){.confirmBackdrop{padding:8px}.confirmDialog{padding:17px}.confirmActions>button{flex:1 1 0}}

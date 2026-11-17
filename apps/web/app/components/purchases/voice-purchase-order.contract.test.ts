@@ -14,7 +14,8 @@ describe("review-first spoken purchase orders",()=>{
     expect(order).toContain("setLines(reviewed.map(");
     expect(order).toContain("Replace the current order items and supplier");
     expect(order).toContain('onClick={()=>void create()}');
-    expect(order).toContain('onClick={()=>void transition(order,"issue")}');
+    expect(order).toContain('onClick={()=>void transition(issueCandidate,"issue")}');
+    expect(order).toContain('Confirm issue order');
   });
   it("requires supplier, purchasing unit, cost and review before copying",()=>{
     expect(assistant).toContain("suppliers.some(s=>s.id===supplierId&&s.active)");

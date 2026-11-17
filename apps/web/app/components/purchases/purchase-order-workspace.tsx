@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { formatMoney } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
@@ -9,6 +9,11 @@ import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { MoneyInput } from "../ui/money-input";
 import { purchasableUnits } from "../../../lib/catalog-read-model";
+import {
+  selectPurchaseOrderItem,selectPurchaseOrderUnit,selectPurchaseOrderSupplier,
+  purchaseOrderCostMissing,validatePurchaseOrderLines,
+  type PurchaseOrderDraftLine,
+} from "../../../lib/purchase-order-draft-guards";
 import type { Supplier } from "./supplier-sheet";
 import {VoicePurchaseOrderAssistant,type VoicePOReviewLine}
   from "./voice-purchase-order-assistant";
@@ -19,11 +24,9 @@ interface Order {
   id:string;orderNumber:string;status:Status;totalMinor:number;currencyCode:string;
   supplierName:string;createdAt:string;expectedDeliveryDate:string|null;
 }
-interface DraftLine {
-  key:string;itemId:string;purchaseUnitCode:string;quantity:string;unitCostMinor:number;
-}
+type DraftLine=PurchaseOrderDraftLine;
 const makeLine=():DraftLine=>({
-  key:crypto.randomUUID(),itemId:"",purchaseUnitCode:"",quantity:"1",unitCostMinor:0,
+  key:crypto.randomUUID(),itemId:"",purchaseUnitCode:"",quantity:"1",unitCostMinor:null,
 });
 const date=(value:string|null)=>value?new Intl.DateTimeFormat("en-GB",{
   day:"2-digit",month:"2-digit",year:"numeric",timeZone:"Africa/Accra",
@@ -40,6 +43,8 @@ export function PurchaseOrderWorkspace(){
   const [error,setError]=useState<string|null>(null);
   const [notice,setNotice]=useState<string|null>(null);
   const [voiceOpen,setVoiceOpen]=useState(false);
+  const [issueCandidate,setIssueCandidate]=useState<Order|null>(null);
+  const issueCancelButton=useRef<HTMLButtonElement>(null);
   const requestId=useRef<string|null>(null);
   const canWrite=["OWNER","ADMIN","MANAGER","INVENTORY"].includes(role);
   const canIssue=["OWNER","ADMIN","MANAGER"].includes(role);
@@ -52,14 +57,13 @@ export function PurchaseOrderWorkspace(){
   const items=useMemo(()=>catalog.filter(i=>i.active&&i.kind==="PRODUCT"&&
     i.trackStock&&purchasableUnits(i).length>0),[catalog]);
   const byId=useMemo(()=>new Map(items.map(i=>[i.id,i])),[items]);
-  const valid=lines.length>=1&&lines.length<=50&&lines.every(l=>
-    l.itemId!==""&&l.purchaseUnitCode!==""&&l.quantity.trim()!==""&&
-    Number(l.quantity)>0&&Number(l.quantity)<=1_000_000&&
-    Number.isFinite(Number(l.quantity))&&Math.abs(Number(l.quantity)*1e8-
-      Math.round(Number(l.quantity)*1e8))<.001&&
-    Number.isSafeInteger(l.unitCostMinor)&&l.unitCostMinor>=0);
+  const valid=validatePurchaseOrderLines(lines,items);
+  const missingCostLines=purchaseOrderCostMissing(lines);
   const total=lines.reduce((sum,l)=>
-    sum+Math.round(l.unitCostMinor*(Number(l.quantity)||0)),0);
+    sum+Math.round((l.unitCostMinor??0)*(Number(l.quantity)||0)),0);
+  useEffect(()=>{
+    if(issueCandidate)issueCancelButton.current?.focus();
+  },[issueCandidate]);
   const visible=(ordersData?.orders??[]).filter(o=>filter==="ALL"||o.status===filter);
   const dirty=()=>{requestId.current=null;};
   const updateLine=(key:string,patch:Partial<DraftLine>)=>{
@@ -78,7 +82,7 @@ export function PurchaseOrderWorkspace(){
           notes, ...(expectedDeliveryDate?{expectedDeliveryDate}:{}),
           lines:lines.map(l=>({
             itemId:l.itemId,purchaseUnitCode:l.purchaseUnitCode,
-            quantity:Number(l.quantity),unitCostMinor:l.unitCostMinor,
+            quantity:Number(l.quantity),unitCostMinor:l.unitCostMinor!,
           })),
         }),
       });
@@ -92,6 +96,8 @@ export function PurchaseOrderWorkspace(){
   }
   async function transition(order:Order,action:"issue"|"cancel"){
     if(!session||!canIssue||!queue.online||busy)return;
+    if(action==="issue"&&(
+      !issueCandidate||issueCandidate.id!==order.id||order.status!=="DRAFT"))return;
     if(action==="cancel"&&!window.confirm(`Cancel ${order.orderNumber}? This cannot be undone.`))return;
     setBusy(true);setError(null);setNotice(null);
     try{
@@ -102,6 +108,7 @@ export function PurchaseOrderWorkspace(){
         });
       if(!response.ok)throw new Error(await readApiErrorMessage(response));
       setNotice(`${order.orderNumber} ${action==="issue"?"issued":"cancelled"}.`);
+      setIssueCandidate(null);
       refetch();
     }catch(e){setError(e instanceof Error?e.message:"Could not update purchase order");}
     finally{setBusy(false);}
@@ -124,7 +131,11 @@ export function PurchaseOrderWorkspace(){
         <p className={styles.muted}>Save a draft, then review and issue it to your supplier.</p>
         <label className={styles.field}>Supplier
           <select value={supplierId} disabled={!canWrite||suppliersLoading}
-            onChange={e=>{setSupplierId(e.target.value);dirty();}}>
+            onChange={e=>{
+              const next=e.target.value;
+              setLines(prev=>selectPurchaseOrderSupplier(prev,supplierId,next));
+              setSupplierId(next);dirty();
+            }}>
             <option value="">{suppliersLoading?"Loading suppliers…":"Choose supplier"}</option>
             {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
@@ -148,21 +159,26 @@ export function PurchaseOrderWorkspace(){
               {lines.map((line,index)=>{
                 const item=byId.get(line.itemId);
                 const units=item?purchasableUnits(item):[];
-                const lineTotal=Math.round(line.unitCostMinor*(Number(line.quantity)||0));
+                const lineTotal=Math.round((line.unitCostMinor??0)*(Number(line.quantity)||0));
                 return <div key={line.key} className={styles.lineRow}>
                   <span className={styles.lineIndex}>{index+1}</span>
                   <select aria-label={`Line ${index+1} item`} value={line.itemId}
                     disabled={!canWrite} onChange={e=>{
                       const next=byId.get(e.target.value);
-                      updateLine(line.key,{itemId:e.target.value,
-                        purchaseUnitCode:next?purchasableUnits(next)[0]?.code??"":""});
+                      dirty();
+                      setLines(prev=>prev.map(l=>l.key===line.key?
+                        selectPurchaseOrderItem(l,e.target.value,
+                          next?purchasableUnits(next)[0]?.code??"":""):l));
                     }}>
                     <option value="">Choose item</option>
                     {items.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
                   </select>
                   <select aria-label={`Line ${index+1} purchasing unit`}
                     value={line.purchaseUnitCode} disabled={!canWrite||!item}
-                    onChange={e=>updateLine(line.key,{purchaseUnitCode:e.target.value})}>
+                    onChange={e=>{
+                      dirty();setLines(prev=>prev.map(l=>l.key===line.key?
+                        selectPurchaseOrderUnit(l,e.target.value):l));
+                    }}>
                     {!item?<option value="">Choose item first</option>:null}
                     {units.map(u=><option key={u.code} value={u.code}>{u.label}</option>)}
                   </select>
@@ -172,8 +188,10 @@ export function PurchaseOrderWorkspace(){
                     onChange={e=>updateLine(line.key,{quantity:e.target.value})}/>
                   <div className={styles.cost}>
                     <MoneyInput currencyCode={currency} valueMinor={line.unitCostMinor}
-                      disabled={!canWrite} onChange={minor=>updateLine(line.key,{
-                        unitCostMinor:minor??0})} aria-label={`Line ${index+1} unit cost`}/>
+                      id={`tos-po-cost-${line.key}`}
+                      disabled={!canWrite} required
+                      onChange={minor=>updateLine(line.key,{
+                        unitCostMinor:minor})} aria-label={`Line ${index+1} unit cost`}/>
                   </div>
                   <strong className={styles.lineTotal}>{formatMoney(lineTotal,currency)}</strong>
                   <button type="button" className={styles.remove} disabled={!canWrite||lines.length===1}
@@ -191,8 +209,14 @@ export function PurchaseOrderWorkspace(){
             placeholder="Delivery terms, address or special instructions"
             onChange={e=>{setNotes(e.target.value);dirty();}}/>
         </label>
+        {missingCostLines.length>0?<p className={styles.costReminder} role="status">
+          Enter supplier unit cost for line{missingCostLines.length>1?"s":""} {missingCostLines.join(", ")}.
+          Prices are never assumed when products, purchasing units or suppliers change.
+        </p>:null}
         <div className={styles.totalPreview}>
-          <span>Estimated purchase order total</span>
+          <span>{missingCostLines.length>0?
+            "Current subtotal — supplier costs still missing":
+            "Estimated purchase order total"}</span>
           <strong>{formatMoney(total,currency)}</strong>
         </div>
         <p className={styles.muted}>Supplier prices and line totals are saved with the document. No purchase receipt, supplier debt or stock is created yet.</p>
@@ -232,7 +256,9 @@ export function PurchaseOrderWorkspace(){
                 <Link className={styles.secondary} href={`/purchase-orders/${order.id}`}>Preview</Link>
                 {order.status==="DRAFT"&&canIssue?
                   <button className={styles.primary} disabled={busy||!queue.online}
-                    type="button" onClick={()=>void transition(order,"issue")}>Issue order</button>:null}
+                    type="button" onClick={()=>{
+                      setError(null);setIssueCandidate(order);
+                    }}>Issue order</button>:null}
                 {order.status!=="CANCELLED"&&canIssue?
                   <button className={styles.danger} disabled={busy||!queue.online}
                     type="button" onClick={()=>void transition(order,"cancel")}>Cancel</button>:null}
@@ -241,6 +267,39 @@ export function PurchaseOrderWorkspace(){
           </div>}
       </section>
     </div>
+    {issueCandidate&&canIssue?<div className={styles.confirmBackdrop}
+      role="presentation">
+      <section className={styles.confirmDialog} role="alertdialog" aria-modal="true"
+        aria-labelledby="tos-po-issue-title" aria-describedby="tos-po-issue-description"
+        onKeyDown={event=>{
+          if(event.key==="Escape"&&!busy)setIssueCandidate(null);
+        }}>
+        <h2 id="tos-po-issue-title">Confirm issuing this purchase order</h2>
+        <p id="tos-po-issue-description" className={styles.muted}>
+          Verify the supplier, order number and total before issuing. Issuing
+          changes the order status; it does not record a supplier payment or
+          stock receipt, and it does not automatically email the supplier.
+        </p>
+        <dl className={styles.confirmSummary}>
+          <div><dt>Purchase order</dt><dd>{issueCandidate.orderNumber}</dd></div>
+          <div><dt>Supplier</dt><dd>{issueCandidate.supplierName}</dd></div>
+          <div><dt>Order amount</dt><dd>{formatMoney(
+            issueCandidate.totalMinor,issueCandidate.currencyCode)}</dd></div>
+          <div><dt>Expected delivery</dt><dd>{date(
+            issueCandidate.expectedDeliveryDate)}</dd></div>
+        </dl>
+        {error?<p role="alert" className={styles.error}>{error}</p>:null}
+        <div className={styles.confirmActions}>
+          <button type="button" className={styles.secondary} disabled={busy}
+            ref={issueCancelButton}
+            onClick={()=>setIssueCandidate(null)}>Keep as draft</button>
+          <button type="button" className={styles.primary} disabled={busy||!queue.online}
+            onClick={()=>void transition(issueCandidate,"issue")}>
+            {busy?"Issuing…":"Confirm issue order"}
+          </button>
+        </div>
+      </section>
+    </div>:null}
     {voiceOpen&&canWrite?<VoicePurchaseOrderAssistant
       items={items} suppliers={suppliers} currencyCode={currency}
       onClose={()=>setVoiceOpen(false)}

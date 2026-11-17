@@ -38,7 +38,7 @@ describe("human-confirmed purchase-order voice corrections",()=>{
     expect(parser).toContain("Voice cannot pay, receive stock, issue or approve orders");
     expect(assistant).not.toContain("authenticatedFetch");
     expect(order).toContain('onClick={()=>void create()}');
-    expect(order).toContain('onClick={()=>void transition(order,"issue")}');
+    expect(order).toContain('onClick={()=>void transition(issueCandidate,"issue")}');
     expect(css).toContain("@media(max-width:440px)");
     expect(assistant).toContain('role="dialog" aria-modal="true"');
   });
