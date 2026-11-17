@@ -3,6 +3,8 @@ import type {DatabasePool} from "../db.js";
 import {authenticateAccessToken,AuthError} from "../auth/security.js";
 import {requireBusinessRole,type BusinessRole} from "../auth/authorization.js";
 import {paymentGatewayOptions,savePreferredGateway} from "./service.js";
+import {listMerchantGatewayConnections,saveMerchantGatewayTestKey,
+  revokeMerchantGatewayConnection} from "./connections.js";
 
 const READ:readonly BusinessRole[]=[
   "OWNER","ADMIN","MANAGER","CASHIER","SALES",
@@ -18,6 +20,50 @@ export function registerPaymentProviderRoutes(app:FastifyInstance,pool:DatabaseP
           "Invalid business ID",400,"BUSINESS_ID_INVALID");
         await requireBusinessRole(pool,auth,req.params.businessId,READ);
         return await paymentGatewayOptions(pool,req.params.businessId);
+      }catch(error){return sendError(req,reply,error);}
+    });
+  app.get<{Params:{businessId:string}}>(
+    "/v1/businesses/:businessId/payment-gateways/connections",
+    async(req,reply)=>{
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId))throw new AuthError(
+          "Invalid business ID",400,"BUSINESS_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        return await listMerchantGatewayConnections(pool,req.params.businessId);
+      }catch(error){return sendError(req,reply,error);}
+    });
+  app.put<{Params:{businessId:string;providerCode:string};Body:{
+      secretKey?:unknown;currentPassword?:unknown;expectedRevision?:unknown;
+    }}>("/v1/businesses/:businessId/payment-gateways/connections/:providerCode",
+    {bodyLimit:3072},async(req,reply)=>{
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId))throw new AuthError(
+          "Invalid business ID",400,"BUSINESS_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        const connection=await saveMerchantGatewayTestKey(pool,{
+          businessId:req.params.businessId,providerCode:req.params.providerCode,
+          actorUserId:auth.userId,secretKey:req.body?.secretKey,
+          currentPassword:req.body?.currentPassword,
+          expectedRevision:req.body?.expectedRevision});
+        return {connection};
+      }catch(error){return sendError(req,reply,error);}
+    });
+  app.delete<{Params:{businessId:string;providerCode:string};Body:{
+      currentPassword?:unknown;expectedRevision?:unknown;
+    }}>("/v1/businesses/:businessId/payment-gateways/connections/:providerCode",
+    {bodyLimit:1024},async(req,reply)=>{
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId))throw new AuthError(
+          "Invalid business ID",400,"BUSINESS_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        const connection=await revokeMerchantGatewayConnection(pool,{
+          businessId:req.params.businessId,providerCode:req.params.providerCode,
+          actorUserId:auth.userId,currentPassword:req.body?.currentPassword,
+          expectedRevision:req.body?.expectedRevision});
+        return {connection};
       }catch(error){return sendError(req,reply,error);}
     });
   app.put<{Params:{businessId:string};Body:{
