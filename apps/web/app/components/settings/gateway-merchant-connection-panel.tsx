@@ -111,7 +111,7 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
     <div>
       <h3>Connect & activate your merchant account</h3>
       <p>Enter the credentials issued to your own business. They are
-        encrypted server-side and never shown again after saving.</p>
+        encrypted securely by TradeOS and cannot be viewed after saving.</p>
     </div>
     {!online?<p className="tos-callout">Go online to manage API credentials.</p>:null}
     {loading?<p role="status">Loading secure provider connection…</p>:null}
