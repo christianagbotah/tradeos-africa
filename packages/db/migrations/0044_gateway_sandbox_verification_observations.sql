@@ -68,4 +68,36 @@ CREATE TRIGGER gateway_sandbox_observation_immutable
 BEFORE UPDATE OR DELETE ON gateway_sandbox_verification_observations
 FOR EACH ROW EXECUTE FUNCTION reject_gateway_sandbox_observation_change();
 
+-- Two distinct legacy and new attempt tables must not allow the same
+-- canonical sale to be checked out at two different providers. Serialize
+-- competing INSERTs by locking their shared sale row before checking.
+CREATE FUNCTION prevent_cross_gateway_sale_checkout()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM 1 FROM sales WHERE id=NEW.sale_id FOR UPDATE;
+  IF TG_TABLE_NAME='hubtel_sale_checkout_attempts' THEN
+    IF EXISTS (
+      SELECT 1 FROM gateway_collection_attempts a
+      WHERE a.business_id=NEW.business_id AND a.sale_id=NEW.sale_id
+    ) THEN
+      RAISE EXCEPTION 'This sale already has a payment attempt at another gateway';
+    END IF;
+  ELSE
+    IF EXISTS (
+      SELECT 1 FROM hubtel_sale_checkout_attempts a
+      WHERE a.business_id=NEW.business_id AND a.sale_id=NEW.sale_id
+    ) THEN
+      RAISE EXCEPTION 'This sale already has a Hubtel payment attempt';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER hubtel_cross_gateway_attempt_guard
+BEFORE INSERT ON hubtel_sale_checkout_attempts
+FOR EACH ROW EXECUTE FUNCTION prevent_cross_gateway_sale_checkout();
+CREATE TRIGGER gateway_cross_hubtel_attempt_guard
+BEFORE INSERT ON gateway_collection_attempts
+FOR EACH ROW EXECUTE FUNCTION prevent_cross_gateway_sale_checkout();
+
 COMMIT;
