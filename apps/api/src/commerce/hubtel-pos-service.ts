@@ -19,7 +19,9 @@ type AttemptRow={id:string;business_id:string;branch_id:string;sale_id:string;
   payment_id:string;client_reference:string;merchant_collection_account:string;
   expected_amount_minor:string;state:string;checkout_id:string|null;
   checkout_url:string|null;checkout_direct_url:string|null;
-  verified_provider_transaction_id:string|null};
+  verified_provider_transaction_id:string|null;
+  credential_source:"PLATFORM_ALIAS"|"MERCHANT_VAULT";
+  merchant_credential_revision:number|null};
 
 export interface SaleHubtelCheckout {
   attemptId:string;saleId:string;state:string;
@@ -78,7 +80,7 @@ async function findAttempt(pool:Pick<DatabasePool,"query">|Pick<DatabaseClient,"
   const r=await pool.query<AttemptRow>(
     "SELECT id,business_id,branch_id,sale_id,payment_id,client_reference,"+
     "merchant_collection_account,expected_amount_minor::text,state,checkout_id,"+
-    "checkout_url,checkout_direct_url,verified_provider_transaction_id "+
+    "checkout_url,checkout_direct_url,verified_provider_transaction_id,credential_source,merchant_credential_revision "+
     "FROM hubtel_sale_checkout_attempts WHERE business_id=$1 AND sale_id=$2",
     [businessId,saleId]);
   return r.rows[0]??null;
@@ -101,10 +103,16 @@ export async function startSaleHubtelCheckout(
   try{
     await connection.query("SELECT pg_advisory_lock(hashtext($1),hashtext($2))",
       ["HUBTEL_POS_SALE",lockKey]);locked=true;
-    const config=await requireHubtelPosConnection(connection,input.businessId);
-    const {sale,payments}=await saleAndPayment(connection,input.businessId,input.saleId);
     const attempt=await findAttempt(connection,input.businessId,input.saleId);
+    const config=await requireHubtelPosConnection(
+      connection,input.businessId,attempt?.credential_source??"AUTO");
+    const {sale,payments}=await saleAndPayment(connection,input.businessId,input.saleId);
     if(attempt){
+      if(attempt.credential_source!==config.credentialSource||
+        attempt.merchant_credential_revision!==config.merchantCredentialRevision)
+        posFail("Original Hubtel checkout credentials changed. "+
+          "Reconcile the existing payment with its original provider.",
+          "HUBTEL_POS_CREDENTIAL_PROVENANCE_MISMATCH",409);
       if(attempt.merchant_collection_account!==config.collectionAccount)
         posFail("Merchant account changed; checkout needs manual review.",
           "HUBTEL_POS_ACCOUNT_MISMATCH",409);
@@ -126,13 +134,15 @@ export async function startSaleHubtelCheckout(
     const row=(await connection.query<AttemptRow>(
       "INSERT INTO hubtel_sale_checkout_attempts "+
       "(business_id,branch_id,sale_id,payment_id,client_request_id,client_reference,"+
-      "merchant_collection_account,expected_amount_minor,currency_code) "+
-      "VALUES($1,$2,$3,$4,$5,$6,$7,$8,'GHS') "+
+      "merchant_collection_account,expected_amount_minor,currency_code,"+
+      "credential_source,merchant_credential_revision) "+
+      "VALUES($1,$2,$3,$4,$5,$6,$7,$8,'GHS',$9,$10) "+
       "RETURNING id,business_id,branch_id,sale_id,payment_id,client_reference,"+
       "merchant_collection_account,expected_amount_minor::text,state,checkout_id,"+
-      "checkout_url,checkout_direct_url,verified_provider_transaction_id",
+      "checkout_url,checkout_direct_url,verified_provider_transaction_id,credential_source,merchant_credential_revision",
       [input.businessId,sale.branch_id,sale.id,payments[0]!.id,input.clientRequestId,
-        reference,config.collectionAccount,sale.total_minor])).rows[0]!;
+        reference,config.collectionAccount,sale.total_minor,
+        config.credentialSource,config.merchantCredentialRevision])).rows[0]!;
     const origin=hubtelPosPublicOrigin();
     const checkout=await new HubtelCheckoutClient({
       apiId:config.apiId,apiKey:config.apiKey,
@@ -149,7 +159,7 @@ export async function startSaleHubtelCheckout(
       "checkout_url=$3,checkout_direct_url=$4,updated_at=now() WHERE id=$1 "+
       "RETURNING id,business_id,branch_id,sale_id,payment_id,client_reference,"+
       "merchant_collection_account,expected_amount_minor::text,state,checkout_id,"+
-      "checkout_url,checkout_direct_url,verified_provider_transaction_id",
+      "checkout_url,checkout_direct_url,verified_provider_transaction_id,credential_source,merchant_credential_revision",
       [row.id,checkout.checkoutId,checkout.checkoutUrl,checkout.checkoutDirectUrl],
     );
     return asCheckout(updated.rows[0]!);
@@ -164,9 +174,15 @@ export async function verifySaleHubtelCheckout(
   pool:DatabasePool,input:{businessId:string;saleId:string},
 ):Promise<SaleHubtelVerification>{
   requireId(input.businessId);requireId(input.saleId);
-  const config=await requireHubtelPosConnection(pool,input.businessId);
   const attempt=await findAttempt(pool,input.businessId,input.saleId);
   if(!attempt)posFail("Hubtel checkout was not found.","HUBTEL_POS_CHECKOUT_NOT_FOUND",404);
+  const config=await requireHubtelPosConnection(
+    pool,input.businessId,attempt.credential_source);
+  if(config.credentialSource!==attempt.credential_source||
+     config.merchantCredentialRevision!==attempt.merchant_credential_revision)
+    posFail("Original Hubtel credential authorization has changed. "+
+      "Payment requires manual reconciliation with the original provider.",
+      "HUBTEL_POS_CREDENTIAL_PROVENANCE_MISMATCH",409);
   if(attempt.merchant_collection_account!==config.collectionAccount)
     posFail("Hubtel checkout account mismatch.","HUBTEL_POS_ACCOUNT_MISMATCH",409);
   if(!["READY","PENDING_VERIFICATION","RECONCILED","REVIEW_REQUIRED"].includes(attempt.state))
@@ -204,19 +220,21 @@ export async function verifySaleHubtelCheckout(
     const current=(await tx.query<AttemptRow>(
       "SELECT id,business_id,branch_id,sale_id,payment_id,client_reference,"+
       "merchant_collection_account,expected_amount_minor::text,state,checkout_id,"+
-      "checkout_url,checkout_direct_url,verified_provider_transaction_id "+
+      "checkout_url,checkout_direct_url,verified_provider_transaction_id,credential_source,merchant_credential_revision "+
       "FROM hubtel_sale_checkout_attempts WHERE id=$1 AND business_id=$2 FOR UPDATE",
       [attempt.id,input.businessId])).rows[0];
     if(!sale||!payment||!current||current.payment_id!==payment.id||
        payment.sale_id!==sale.id||current.client_reference!==verified.clientReference||
        current.merchant_collection_account!==config.collectionAccount||
+       current.credential_source!==config.credentialSource||
+       current.merchant_credential_revision!==config.merchantCredentialRevision||
        Number(current.expected_amount_minor)!==Number(payment.amount_minor)||
        Number(payment.amount_minor)!==Number(sale.total_minor)||
        payment.branch_id!==sale.branch_id||sale.currency_code!=="GHS"){
       posFail("Hubtel verification does not match the owning sale.",
         "HUBTEL_POS_PAYMENT_MISMATCH",409);
     }
-    if(verified.paymentMethod!==payment.method){
+    if(!verified.paymentMethod||verified.paymentMethod!==payment.method){
       posFail("Hubtel returned a different or unverified electronic payment method. "+
         "Manual review required; no paid receipt was posted.",
         "HUBTEL_POS_PAYMENT_METHOD_MISMATCH",409);
@@ -241,7 +259,8 @@ export async function verifySaleHubtelCheckout(
     );
     await recordCashbookEntry(tx,{
       businessId:input.businessId,branchId:sale.branch_id,
-      currencyCode:"GHS",method:"MOMO",amountDeltaMinor:Number(payment.amount_minor),
+      currencyCode:"GHS",method:verified.paymentMethod,
+      amountDeltaMinor:Number(payment.amount_minor),
       entryType:"SALE_RECEIPT",sourceType:"PAYMENT",sourceId:payment.id,
       actorStaffId:sale.cashier_staff_id,idempotencyKey:"sale-payment:"+payment.id,
       occurredAt,
