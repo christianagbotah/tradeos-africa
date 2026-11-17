@@ -10,6 +10,7 @@ import {
 import { HubtelCheckoutError } from "../platform-admin/hubtel-checkout-client.js";
 import { HubtelStatusError } from "../platform-admin/hubtel-status-client.js";
 import { getBusinessHubtelPosMonitor } from "./hubtel-pos-monitor.js";
+import {recordUntrustedHubtelNotification} from "./hubtel-pos-notification-inbox.js";
 
 const ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","CASHIER","SALES","STAFF"];
 const MONITOR_ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","ACCOUNTANT"];
@@ -38,10 +39,24 @@ function errorResponse(
   });
 }
 export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):void {
-  // Unsigned callbacks cannot post payments. The authenticated merchant
-  // Verify endpoint independently checks Hubtel status using private keys.
-  app.post("/v1/payments/hubtel/notifications",{bodyLimit:4096},async(_req,reply)=>{
-    return reply.code(202).send({accepted:true,verification:"SERVER_SIDE_REQUIRED"});
+  // Hubtel Online Checkout v1 callback bodies are not signed. Even a
+  // success-looking callback is UNTRUSTED and never marks a sale paid.
+  // Optional inbox storage is independently gated and retains a digest,
+  // not customer PII or raw callback JSON. Reconciliation is server-side.
+  app.post("/v1/payments/hubtel/notifications",{bodyLimit:4096},async(req,reply)=>{
+    reply.header("Cache-Control","no-store");
+    try{
+      await recordUntrustedHubtelNotification(pool,req.body);
+      return reply.code(202).send({accepted:true,verification:"SERVER_SIDE_REQUIRED"});
+    }catch(error){
+      // When opt-in inbox storage is unavailable, return a retryable
+      // failure rather than falsely acknowledging persistent capture.
+      req.log.error(error);
+      return reply.code(503).send({
+        error:"HUBTEL_INBOX_UNAVAILABLE",
+        message:"Notification capture is temporarily unavailable.",
+      });
+    }
   });
   app.get<{Querystring:{businessId?:string}}>(
     "/v1/payments/hubtel/readiness",async(request,reply)=>{
