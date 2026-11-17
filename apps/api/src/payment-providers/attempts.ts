@@ -146,6 +146,25 @@ export async function listGatewayTestAttempts(pool:DatabasePool,input:{
     "WHERE business_id=$1 AND ($2::uuid IS NULL OR branch_id=$2::uuid) "+
     "ORDER BY created_at DESC,id DESC LIMIT $3",
     [input.businessId,input.branchId??null,limit]);
+  // Only read observations already tied to this tenant's attempt IDs.
+  // An independently observed sandbox payment is NOT a posted receipt.
+  const attemptIds=results.rows.map(row=>row.id);
+  const evidence=attemptIds.length?await pool.query<{
+    attempt_id:string;observation_kind:"SANDBOX_PAID"|"SANDBOX_UNPAID";
+    observed_at:Date;
+  }>(
+    "SELECT DISTINCT ON (attempt_id) attempt_id,observation_kind,observed_at "+
+    "FROM gateway_sandbox_verification_observations WHERE business_id=$1 "+
+    "AND attempt_id=ANY($2::uuid[]) "+
+    "ORDER BY attempt_id,(observation_kind='SANDBOX_PAID') DESC,observed_at DESC",
+    [input.businessId,attemptIds]):{rows:[]};
+  const evidenceByAttempt=new Map(evidence.rows.map(row=>[
+    row.attempt_id,{
+      status:row.observation_kind==="SANDBOX_PAID"?
+        "TEST_PAID_OBSERVED" as const:"TEST_UNPAID_OBSERVED" as const,
+      observedAt:row.observed_at.toISOString(),posted:false,
+    },
+  ]));
   const summary=await pool.query<{
     prepared:string;cancelled:string;review_required:string;
   }>(
@@ -157,7 +176,8 @@ export async function listGatewayTestAttempts(pool:DatabasePool,input:{
     [input.businessId,input.branchId??null]);
   return {
     businessId:input.businessId,
-    attempts:results.rows.map(attemptView),
+    attempts:results.rows.map(row=>({...attemptView(row),
+      sandboxEvidence:evidenceByAttempt.get(row.id)??null})),
     summary:{
       prepared:Number(summary.rows[0]?.prepared??0),
       cancelled:Number(summary.rows[0]?.cancelled??0),
