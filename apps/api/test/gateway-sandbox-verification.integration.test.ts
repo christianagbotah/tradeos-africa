@@ -222,4 +222,53 @@ describe("independently polled, non-posting sandbox evidence",()=>{
         code:"GATEWAY_SANDBOX_CONNECTION_CHANGED"});
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  it("blocks cross-provider double checkout in both insert directions",async()=>{
+    const m=await merchant();
+    const account="9"+String(Math.floor(Math.random()*900000000)+100000000);
+    const alias="sandbox-"+randomUUID().slice(0,18);
+    await pool.query(
+      "INSERT INTO business_hubtel_sales_accounts "+
+      "(business_id,collection_account,credential_alias) VALUES($1,$2,$3)",
+      [m.businessId,account,alias]);
+
+    // Legacy Hubtel checkout first: future TEST Paystack preparation must not
+    // create a second attempt, even after a merchant switches preference.
+    const tag=randomUUID();
+    const legacySale=(await pool.query<{id:string}>(
+      "INSERT INTO sales (business_id,branch_id,status,currency_code,"+
+      "total_minor,client_mutation_id) "+
+      "VALUES($1,$2,'OPEN','GHS',8500,$3) RETURNING id",
+      [m.businessId,m.branchId,"legacy-"+tag])).rows[0]!.id;
+    const legacyPayment=(await pool.query<{id:string}>(
+      "INSERT INTO payments (business_id,branch_id,sale_id,amount_minor,"+
+      "currency_code,method,status,client_mutation_id) "+
+      "VALUES($1,$2,$3,8500,'GHS','MOMO','PENDING',$4) RETURNING id",
+      [m.businessId,m.branchId,legacySale,"legacy-payment-"+tag])).rows[0]!.id;
+    await pool.query(
+      "INSERT INTO hubtel_sale_checkout_attempts "+
+      "(business_id,branch_id,sale_id,payment_id,client_request_id,"+
+      "client_reference,merchant_collection_account,expected_amount_minor,"+
+      "currency_code) VALUES($1,$2,$3,$4,$5,$6,$7,8500,'GHS')",
+      [m.businessId,m.branchId,legacySale,legacyPayment,randomUUID(),
+        "TSP-"+randomUUID().replaceAll("-","").slice(0,24),account]);
+    await expect(prepareTestGatewayAttempt(pool,{
+      businessId:m.businessId,saleId:legacySale,
+      clientRequestId:randomUUID()})).rejects.toMatchObject({
+        code:"GATEWAY_ATTEMPT_EXISTING_HUBTEL",statusCode:409});
+
+    // TEST Paystack prepared first: a later Hubtel insert must fail at the
+    // database boundary even if an internal caller bypasses the API guard.
+    const a=await sale(m);
+    await expect(pool.query(
+      "INSERT INTO hubtel_sale_checkout_attempts "+
+      "(business_id,branch_id,sale_id,payment_id,client_request_id,"+
+      "client_reference,merchant_collection_account,expected_amount_minor,"+
+      "currency_code) VALUES($1,$2,$3,$4,$5,$6,$7,8500,'GHS')",
+      [m.businessId,m.branchId,a.saleId,a.paymentId,randomUUID(),
+        "TSP-"+randomUUID().replaceAll("-","").slice(0,24),account],
+    )).rejects.toThrow();
+    expect(await financialState(a.paymentId,a.saleId)).toEqual({
+      payment:"PENDING",sale:"OPEN",cashbook:"0"});
+  });
+
 });
