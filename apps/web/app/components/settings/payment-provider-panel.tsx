@@ -6,6 +6,7 @@ import {readApiErrorMessage} from "../../../lib/auth-fetch";
 import {Button} from "../ui/button";
 import {useWorkspace} from "../workspace/use-workspace";
 import {GatewayConnectionsPanel} from "./gateway-connections-panel";
+import {GatewayAttemptMonitor} from "./gateway-attempt-monitor";
 
 type Provider={
   code:string;name:string;description:string;region:string;
@@ -168,6 +169,8 @@ export function PaymentProviderPanel(){
       </div>
       {success?<p className="tos-callout" role="status">{success}</p>:null}
       {canManage&&businessId?<GatewayConnectionsPanel
+        businessId={businessId} online={online}/>:null}
+      {canManage&&businessId?<GatewayAttemptMonitor
         businessId={businessId} online={online}/>:null}
       <p className="tos-callout" role="status">
         <strong>Payment security:</strong> {snapshot.notice} Provider API keys,
