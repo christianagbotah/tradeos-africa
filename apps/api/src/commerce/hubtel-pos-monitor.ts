@@ -17,6 +17,10 @@ export interface HubtelPosMonitorItem {
   lastStatusResult: string | null;
   lastErrorCode: string | null;
   reviewRequestedAt: string | null;
+  notificationCount:number;
+  lastNotificationHint:string|null;
+  lastNotificationAt:string|null;
+  notificationTrust:"UNTRUSTED";
 }
 type Row = {
   id: string; sale_id: string; branch_id: string;
@@ -31,6 +35,9 @@ type Row = {
   last_status_check_result: string | null;
   last_status_error_code: string | null;
   review_requested_at: Date | null;
+  notification_count:number;
+  last_notification_hint:string|null;
+  last_notification_at:Date|null;
 };
 
 /**
@@ -51,8 +58,17 @@ export async function getBusinessHubtelPosMonitor(
     "p.status AS payment_status,a.expected_amount_minor::text,a.currency_code," +
     "a.created_at,a.last_status_checked_at,a.next_status_check_at," +
     "a.status_check_attempts,a.last_status_check_result," +
-    "a.last_status_error_code,a.review_requested_at " +
+    "a.last_status_error_code,a.review_requested_at," +
+    "COALESCE(n.notification_count,0) AS notification_count," +
+    "n.last_notification_hint,n.last_notification_at " +
     "FROM hubtel_sale_checkout_attempts a " +
+    "LEFT JOIN LATERAL (" +
+    "SELECT count(*)::integer AS notification_count," +
+    "max(received_at) AS last_notification_at," +
+    "(array_agg(status_hint ORDER BY received_at DESC,id DESC))[1] " +
+    "AS last_notification_hint " +
+    "FROM hubtel_pos_notification_inbox WHERE attempt_id=a.id" +
+    ") n ON true " +
     "JOIN sales s ON s.id=a.sale_id AND s.business_id=a.business_id " +
     "JOIN payments p ON p.id=a.payment_id AND p.business_id=a.business_id " +
     "WHERE a.business_id=$1 AND ($2::uuid IS NULL OR a.branch_id=$2::uuid) " +
@@ -76,6 +92,10 @@ export async function getBusinessHubtelPosMonitor(
     lastStatusResult: row.last_status_check_result,
     lastErrorCode: row.last_status_error_code,
     reviewRequestedAt: row.review_requested_at?.toISOString() ?? null,
+    notificationCount:row.notification_count,
+    lastNotificationHint:row.last_notification_hint,
+    lastNotificationAt:row.last_notification_at?.toISOString() ?? null,
+    notificationTrust:"UNTRUSTED" as const,
   }));
   const summary = await pool.query<{
     awaiting: string; review_required: string; reconciled: string;
