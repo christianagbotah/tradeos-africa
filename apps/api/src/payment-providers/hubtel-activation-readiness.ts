@@ -35,7 +35,7 @@ export async function getHubtelMerchantActivationReadiness(
 ){
   if(!UUID.test(businessId))throw new AuthError("Invalid business identifier.",
     400,"HUBTEL_ACTIVATION_BUSINESS_INVALID");
-  const [business,creds,approval,counts,preferred,current,review]=await Promise.all([
+  const [business,creds,approval,counts,preferred,current,review,hints]=await Promise.all([
     pool.query<{id:string}>("SELECT id FROM businesses WHERE id=$1",[businessId]),
     pool.query<Credential>(
       "SELECT status,revision,account_reference,verified_at,"+
@@ -56,6 +56,9 @@ export async function getHubtelMerchantActivationReadiness(
     pool.query<ManualReview>(
       "SELECT decision,credential_revision,account_reference,reviewed_at "+
       "FROM hubtel_merchant_account_reviews WHERE business_id=$1",[businessId]),
+    pool.query<{total:number}>(
+      "SELECT count(*)::int AS total FROM hubtel_pos_notification_inbox "+
+      "WHERE business_id=$1",[businessId]),
   ]);
   if(!business.rows[0])throw new AuthError("Business not found.",
     404,"HUBTEL_ACTIVATION_BUSINESS_NOT_FOUND");
@@ -132,6 +135,7 @@ export async function getHubtelMerchantActivationReadiness(
     existingLegacyCollectionEnabled:current?.credentialSource==="PLATFORM_ALIAS",
     unsettledPayments:Number(tally?.unsettled??0),
     reviewRequired:Number(tally?.review??0),
+    untrustedNotifications:Number(hints.rows[0]?.total??0),
     steps,notice:activeFromMerchantVault?
       "Customer payments still require independently verified settlement.":
       "Saving API keys and verifying account access do not enable money collection. "+
