@@ -5,7 +5,8 @@ import {createPool} from "../src/db.js";
 import {
   saveMerchantPaymentCredentials,verifyMerchantHubtelConnection,
   requestMerchantGatewayActivation,revokeMerchantPaymentCredentials,
-  checkHubtelCollectionBalance,
+  checkHubtelCollectionBalance,checkHostedGatewayApiAccess,
+  verifyMerchantHostedGatewayConnection,
 } from "../src/payment-providers/merchant-connections.js";
 import {unsealMerchantGatewayCredentials} from
   "../src/payment-providers/vault.js";
@@ -239,4 +240,67 @@ describe("tenant-owned multi-provider merchant credential portal",()=>{
         responseCode:"0000",data:{amount:null}}),{status:200}),
     })).rejects.toMatchObject({code:"HUBTEL_PROBE_INVALID"});
   });
+  it("independently checks Paystack and Flutterwave TEST accounts with GET only",async()=>{
+    const m=await merchant();
+    const credentials=[
+      {provider:"PAYSTACK" as const,secret:"sk_test_"+randomUUID().replaceAll("-",""),
+        url:"https://api.paystack.co/balance",
+        response:{status:true,data:[]}},
+      {provider:"FLUTTERWAVE" as const,
+        secret:"FLWSECK_TEST-"+randomUUID().replaceAll("-",""),
+        url:"https://api.flutterwave.com/v3/balances",
+        response:{status:"success",data:[]}},
+    ];
+    for(const item of credentials){
+      await saveMerchantPaymentCredentials(pool,{
+        businessId:m.businessId,actorUserId:m.actor,providerCode:item.provider,
+        environment:"TEST",fields:{secretKey:item.secret},expectedRevision:0,
+        currentPassword:password,
+      });
+      const fetchMock=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+        expect(String(url)).toBe(item.url);
+        expect(init?.method).toBe("GET");
+        expect(init?.body).toBeUndefined();
+        expect((init?.headers as Record<string,string>).authorization)
+          .toBe("Bearer "+item.secret);
+        return new Response(JSON.stringify(item.response),{status:200});
+      });
+      const result=await verifyMerchantHostedGatewayConnection(pool,{
+        businessId:m.businessId,actorUserId:m.actor,providerCode:item.provider,
+        environment:"TEST",expectedRevision:1,currentPassword:password,
+        fetchImpl:fetchMock as typeof fetch,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.connection).toMatchObject({
+        status:"VERIFIED",collectionEnabled:false});
+      const request=await requestMerchantGatewayActivation(pool,{
+        businessId:m.businessId,actorUserId:m.actor,providerCode:item.provider,
+        environment:"TEST",expectedRevision:1,currentPassword:password});
+      expect(request.connection.activationRequestedAt).toBeTruthy();
+      expect(request.connection.collectionEnabled).toBe(false);
+      await expect(checkHostedGatewayApiAccess({
+        provider:item.provider,secretKey:item.secret,
+        fetchImpl:async()=>new Response(JSON.stringify({status:false,data:[]}),
+          {status:200}),
+      })).rejects.toMatchObject({code:"GATEWAY_PROBE_INVALID"});
+    }
+  });
+
+  it("does not silently enable provider collections with a valid account",async()=>{
+    const m=await merchant();
+    const rows=await pool.query<{c:string}>(
+      "SELECT count(*)::text AS c FROM business_merchant_gateway_credentials "+
+      "WHERE business_id=$1 AND collection_enabled=true",[m.businessId]);
+    expect(rows.rows[0]?.c).toBe("0");
+    const merchantSessionPath="/v1/businesses/"+m.businessId+
+      "/payment-gateways/merchant-connections";
+    const info=await app.inject({method:"GET",url:merchantSessionPath,
+      headers:m.headers});
+    expect(info.statusCode,info.body).toBe(200);
+    expect(info.json().collectionEnabled).toBe(false);
+    const foreign=await merchant();
+    expect((await app.inject({method:"GET",url:merchantSessionPath,
+      headers:foreign.headers})).statusCode).toBe(403);
+  });
+
 });
