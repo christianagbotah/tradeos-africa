@@ -113,6 +113,14 @@ export async function startSaleHubtelCheckout(
       posFail("Prior payment checkout may already exist at Hubtel. Contact support before retrying.",
         "HUBTEL_POS_REVIEW_REQUIRED",409);
     }
+    const anotherGateway=(await connection.query<{id:string}>(
+      "SELECT id FROM gateway_collection_attempts "+
+      "WHERE business_id=$1 AND sale_id=$2",
+      [input.businessId,input.saleId])).rows[0];
+    if(anotherGateway)
+      posFail("This sale belongs to a prior gateway attempt. Reconcile it "+
+        "with its original provider before starting Hubtel.",
+        "HUBTEL_POS_EXISTING_GLOBAL_GATEWAY_ATTEMPT",409);
     assertSaleReady(sale,payments);
     const reference="TSP-"+randomBytes(12).toString("hex");
     const row=(await connection.query<AttemptRow>(

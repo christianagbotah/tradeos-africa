@@ -25,12 +25,20 @@ const CURRENCY=/^[A-Z]{3}$/;
 const EMAIL=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const isObject=(x:unknown):x is Record<string,unknown>=>
   typeof x==="object"&&x!==null&&!Array.isArray(x);
-function validateRequest(input:GatewayRequest):void{
+export type GatewayVerificationRequest=Pick<GatewayRequest,
+  "reference"|"amountMinor"|"currencyCode"|"method">;
+function validateVerificationRequest(input:GatewayVerificationRequest):void{
   if(!REFERENCE.test(input.reference)||!Number.isSafeInteger(input.amountMinor)||
     input.amountMinor<=0||!CURRENCY.test(input.currencyCode)||
     !getCurrencyMeta(input.currencyCode)||
-    !EMAIL.test(input.customerEmail)||!["MOMO","CARD"].includes(input.method)){
+    !["MOMO","CARD"].includes(input.method)){
     throw new GatewayAdapterError("Invalid payment request.","GATEWAY_REQUEST_INVALID",400);
+  }
+}
+function validateRequest(input:GatewayRequest):void{
+  validateVerificationRequest(input);
+  if(!EMAIL.test(input.customerEmail)){
+    throw new GatewayAdapterError("Invalid customer email.","GATEWAY_REQUEST_INVALID",400);
   }
   try{
     const url=new URL(input.returnUrl);
@@ -89,7 +97,7 @@ function moneyMajor(amount:unknown,currencyCode:string):number|null{
   const minor=Math.round(raw);
   return Number.isSafeInteger(minor)&&Math.abs(raw-minor)<0.000001?minor:null;
 }
-function matchPaid(input:GatewayRequest,output:GatewayVerification):GatewayVerification{
+function matchPaid(input:GatewayVerificationRequest,output:GatewayVerification):GatewayVerification{
   if(output.reference!==input.reference||output.currencyCode!==input.currencyCode||
      output.amountMinor!==input.amountMinor||output.method!==input.method||
      !output.transactionId){
@@ -131,8 +139,8 @@ export class PaystackHostedAdapter{
     return {reference:input.reference,
       checkoutUrl:trustedCheckout(data.authorization_url,["checkout.paystack.com"])};
   }
-  async verify(input:GatewayRequest):Promise<GatewayVerification>{
-    validateRequest(input);
+  async verify(input:GatewayVerificationRequest):Promise<GatewayVerification>{
+    validateVerificationRequest(input);
     if(getCurrencyMeta(input.currencyCode)?.exponent!==2)
       throw new GatewayAdapterError(
         "This Paystack currency requires a verified subunit policy.",
@@ -189,8 +197,8 @@ export class FlutterwaveHostedAdapter{
     return {reference:input.reference,
       checkoutUrl:trustedCheckout(result.data.link,["checkout.flutterwave.com"])};
   }
-  async verify(input:GatewayRequest,providerTransactionId:string):Promise<GatewayVerification>{
-    validateRequest(input);
+  async verify(input:GatewayVerificationRequest,providerTransactionId:string):Promise<GatewayVerification>{
+    validateVerificationRequest(input);
     if(!/^[1-9][0-9]{0,15}$/.test(providerTransactionId))throw new GatewayAdapterError(
       "Invalid provider transaction reference.","GATEWAY_TRANSACTION_INVALID",400);
     const result=await send(this.fetchImpl,
