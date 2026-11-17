@@ -696,7 +696,7 @@ export function CheckoutSheet({
                 </p>:null}
               {hubtelSelected?<p role="status" className="tos-callout">
                 Hubtel will open a secure {paymentMethod==="CARD"?"card":"mobile money"}
-                payment page. The sale remains unpaid until server-side provider
+                payment page. The sale remains unpaid until independent Hubtel
                 verification. Use Sales to resume; never create duplicate payments.
               </p>:null}
 

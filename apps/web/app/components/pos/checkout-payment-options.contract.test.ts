@@ -19,7 +19,7 @@ describe("POS cash / electronic checkout",()=>{
     expect(checkout).toContain('(payload as Record<string,unknown>).paymentProvider="HUBTEL"');
     expect(checkout).toContain('resultData?.status!=="AWAITING_PAYMENT"');
     expect(checkout).toContain('target.hostname!=="pay.hubtel.com"');
-    expect(checkout).toContain('server-side provider');
+    expect(checkout).toContain('independent Hubtel');
     expect(checkout).toContain('Only Hubtel collects card details');
   });
 });
