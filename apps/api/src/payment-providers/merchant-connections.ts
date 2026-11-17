@@ -4,7 +4,7 @@ import {AuthError} from "../auth/security.js";
 import {gatewayFor,gatewaySupported,type GatewayCode} from "./catalog.js";
 import {
   isGatewayVaultConfigured,sealMerchantGatewayCredentials,
-  unsealMerchantGatewayCredentials,
+  unsealMerchantGatewayCredentials,sealTestGatewayKey,
 } from "./vault.js";
 import {reauthenticateSensitiveSettings} from "./connections.js";
 import {
@@ -123,6 +123,28 @@ export async function saveMerchantPaymentCredentials(pool:DatabasePool,input:{
         409,"GATEWAY_HUBTEL_ACCOUNT_ALREADY_CONNECTED");
       throw error;
     }
+    // Preserve the existing TEST attempt/reconciliation engine. The new
+    // self-service form must not strand PAYSTACK/FLUTTERWAVE TEST credentials
+    // in a vault their existing sandbox adapter cannot read.
+    if(environment==="TEST"&&(provider==="PAYSTACK"||provider==="FLUTTERWAVE")){
+      const old=(await tx.query<{revision:number}>(
+        "SELECT revision FROM business_gateway_connections "+
+        "WHERE business_id=$1 AND provider_code=$2 FOR UPDATE",
+        [input.businessId,provider])).rows[0];
+      const legacy=sealTestGatewayKey(input.businessId,provider,
+        credentials.secretKey);
+      await tx.query(
+        "INSERT INTO business_gateway_connections "+
+        "(business_id,provider_code,environment,connection_status,"+
+        "encrypted_secret,nonce,auth_tag,enabled,revision,changed_by_user_id) "+
+        "VALUES($1,$2,'TEST','PENDING_VERIFICATION',$3,$4,$5,false,$6,$7) "+
+        "ON CONFLICT(business_id,provider_code) DO UPDATE SET "+
+        "encrypted_secret=$3,nonce=$4,auth_tag=$5,enabled=false,"+
+        "connection_status='PENDING_VERIFICATION',revision=$6,"+
+        "changed_by_user_id=$7,updated_at=now()",
+        [input.businessId,provider,legacy.encrypted,legacy.nonce,
+          legacy.tag,(old?.revision??0)+1,input.actorUserId]);
+    }
     await tx.query(
       "INSERT INTO business_merchant_gateway_credential_audit "+
       "(business_id,provider_code,environment,event_type,revision,actor_user_id) "+
@@ -159,6 +181,15 @@ export async function revokeMerchantPaymentCredentials(pool:DatabasePool,input:{
       "collection_enabled=false,revision=$4,changed_by_user_id=$5,updated_at=now() "+
       "WHERE business_id=$1 AND provider_code=$2 AND environment=$3 RETURNING "+SELECT,
       [input.businessId,provider,env,next,input.actorUserId])).rows[0]!;
+    if(env==="TEST"&&(provider==="PAYSTACK"||provider==="FLUTTERWAVE")){
+      await tx.query(
+        "UPDATE business_gateway_connections SET "+
+        "encrypted_secret=NULL,nonce=NULL,auth_tag=NULL,"+
+        "connection_status='REVOKED',enabled=false,"+
+        "revision=revision+1,changed_by_user_id=$3,updated_at=now() "+
+        "WHERE business_id=$1 AND provider_code=$2",
+        [input.businessId,provider,input.actorUserId]);
+    }
     await tx.query(
       "INSERT INTO business_merchant_gateway_credential_audit "+
       "(business_id,provider_code,environment,event_type,revision,actor_user_id) "+
