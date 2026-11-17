@@ -86,7 +86,7 @@ export function validateMerchantGatewayCredentials(provider:GatewayCode,
         throw new AuthError("Hubtel account numbers must contain digits only.",
           400,"GATEWAY_HUBTEL_ACCOUNT_INVALID");
     }
-    if(result.apiId.includes(":"))
+    if(result.apiId!.includes(":"))
       throw new AuthError("Hubtel API ID cannot contain a colon.",
         400,"GATEWAY_HUBTEL_ID_INVALID");
     if(result.collectionAccount===result.disbursementAccount)
@@ -94,18 +94,18 @@ export function validateMerchantGatewayCredentials(provider:GatewayCode,
         400,"GATEWAY_HUBTEL_ACCOUNT_INVALID");
   }
   if(provider==="PAYSTACK"&&
-    !result.secretKey.startsWith(environment==="TEST"?"sk_test_":"sk_live_"))
+    !result.secretKey!.startsWith(environment==="TEST"?"sk_test_":"sk_live_"))
     throw new AuthError("Enter a matching Paystack "+environment+" Secret Key.",
       400,"GATEWAY_MERCHANT_KEY_ENV_MISMATCH");
   if(provider==="FLUTTERWAVE"&&
-    !result.secretKey.startsWith(environment==="TEST"?"FLWSECK_TEST-":"FLWSECK-"))
+    !result.secretKey!.startsWith(environment==="TEST"?"FLWSECK_TEST-":"FLWSECK-"))
     throw new AuthError("Enter a matching Flutterwave "+environment+" Secret Key.",
       400,"GATEWAY_MERCHANT_KEY_ENV_MISMATCH");
   if(provider==="STRIPE"&&
-    !result.secretKey.startsWith(environment==="TEST"?"sk_test_":"sk_live_"))
+    !result.secretKey!.startsWith(environment==="TEST"?"sk_test_":"sk_live_"))
     throw new AuthError("Enter a matching Stripe "+environment+" Secret Key.",
       400,"GATEWAY_MERCHANT_KEY_ENV_MISMATCH");
-  if(provider==="MPESA"&&!/^[0-9]{4,12}$/.test(result.shortCode))
+  if(provider==="MPESA"&&!/^[0-9]{4,12}$/.test(result.shortCode!))
     throw new AuthError("Enter a numeric M-Pesa shortcode.",
       400,"GATEWAY_MERCHANT_FIELD_INVALID");
   return result;
