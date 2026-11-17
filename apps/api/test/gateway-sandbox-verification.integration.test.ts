@@ -119,6 +119,18 @@ describe("independently polled, non-posting sandbox evidence",()=>{
     expect(again).toMatchObject({replayed:true,evidence:{
       observationId:observed.evidence.observationId}});
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const audit=await app.inject({method:"GET",
+      url:"/v1/businesses/"+m.businessId+"/payment-gateways/attempts",
+      headers:m.headers});
+    expect(audit.statusCode,audit.body).toBe(200);
+    expect(audit.json().attempts.find((x:{attemptId:string})=>
+      x.attemptId===a.attemptId)).toMatchObject({sandboxEvidence:{
+        status:"TEST_PAID_OBSERVED",posted:false}});
+    expect(audit.body).not.toContain(KEY.PAYSTACK);
+    const unauthorized=await app.inject({method:"GET",
+      url:"/v1/businesses/"+m.businessId+"/payment-gateways/attempts",
+      headers:foreign.headers});
+    expect(unauthorized.statusCode).toBe(403);
     await expect(observeSandboxGatewayVerification(pool,{
       businessId:foreign.businessId,attemptId:a.attemptId,
       fetchImpl:fetchMock as typeof fetch})).rejects.toMatchObject({
@@ -164,11 +176,13 @@ describe("independently polled, non-posting sandbox evidence",()=>{
 
   it("records unpaid then independently verified Flutterwave TEST paid; rejects reuse",async()=>{
     const m=await merchant("FLUTTERWAVE"),a=await sale(m);
+    let checks=0;
     const check=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+      checks++;
       expect(String(url)).toContain("/transactions/123456/verify");
       expect((init?.headers as Record<string,string>).authorization)
         .toBe("Bearer "+KEY.FLUTTERWAVE);
-      return check.mock.calls.length===1?
+      return checks===1?
         json({status:"success",data:{tx_ref:a.reference,status:"pending"}}):
         flutterResponse(a.reference);
     });
