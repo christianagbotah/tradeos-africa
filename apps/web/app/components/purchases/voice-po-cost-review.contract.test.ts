@@ -27,7 +27,7 @@ describe("speech never silently authorizes a supplier cost",()=>{
     expect(assistant).toContain("Use reviewed details in order form");
     expect(order).toContain("setLines(reviewed.map(");
     expect(order).toContain('onClick={()=>void create()}');
-    expect(order).toContain('onClick={()=>void transition(order,"issue")}');
+    expect(order).toContain('onClick={()=>void transition(issueCandidate,"issue")}');
     expect(order).toContain("No stock or money is recorded");
   });
 });
