@@ -254,6 +254,7 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
       try {
         const admin = await authenticatePlatformAdmin(
           pool,readAdminCookie(request.headers.cookie));
+        reply.header("Cache-Control","no-store");
         return await listHubtelMerchantAccountReviews(pool,admin,{
           limit:Number(request.query?.limit??50),
         });
@@ -276,6 +277,7 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
       try {
         const admin = await authenticatePlatformAdmin(
           pool,readAdminCookie(request.headers.cookie));
+        reply.header("Cache-Control","no-store");
         return {review:await reviewHubtelMerchantAccount(
           pool,admin,request.params.businessId,{
             decision:request.body?.decision,
