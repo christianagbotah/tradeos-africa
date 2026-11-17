@@ -28,7 +28,7 @@ function checkRevision(value:unknown):number{
       400,"GATEWAY_CONNECTION_REVISION_REQUIRED");
   return value as number;
 }
-async function reauthenticate(pool:DatabasePool,userId:string,password:unknown){
+export async function reauthenticateSensitiveSettings(pool:DatabasePool,userId:string,password:unknown){
   if(typeof password!=="string"||!password||password.length>200){
     throw new AuthError("Enter your current sign-in password.",
       400,"GATEWAY_REAUTH_REQUIRED");
@@ -72,7 +72,7 @@ export async function saveMerchantGatewayTestKey(pool:DatabasePool,input:{
       400,"GATEWAY_TEST_KEY_INVALID");
   }
   const sealed=sealTestGatewayKey(input.businessId,provider,input.secretKey);
-  await reauthenticate(pool,input.actorUserId,input.currentPassword);
+  await reauthenticateSensitiveSettings(pool,input.actorUserId,input.currentPassword);
   return withTransaction(pool,async tx=>{
     const business=(await tx.query<Market>(
       "SELECT country_code,currency_code FROM businesses WHERE id=$1 FOR UPDATE",
@@ -119,7 +119,7 @@ export async function revokeMerchantGatewayConnection(pool:DatabasePool,input:{
 }){
   const provider=checkProvider(input.providerCode);
   const expected=checkRevision(input.expectedRevision);
-  await reauthenticate(pool,input.actorUserId,input.currentPassword);
+  await reauthenticateSensitiveSettings(pool,input.actorUserId,input.currentPassword);
   return withTransaction(pool,async tx=>{
     await tx.query("SELECT id FROM businesses WHERE id=$1 FOR UPDATE",
       [input.businessId]);
