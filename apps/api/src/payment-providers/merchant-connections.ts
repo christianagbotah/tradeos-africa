@@ -132,7 +132,7 @@ export async function saveMerchantPaymentCredentials(pool:DatabasePool,input:{
         "WHERE business_id=$1 AND provider_code=$2 FOR UPDATE",
         [input.businessId,provider])).rows[0];
       const legacy=sealTestGatewayKey(input.businessId,provider,
-        credentials.secretKey);
+        credentials.secretKey!);
       await tx.query(
         "INSERT INTO business_gateway_connections "+
         "(business_id,provider_code,environment,connection_status,"+
@@ -244,10 +244,11 @@ export async function checkHubtelCollectionBalance(input:{
       "HUBTEL_PROBE_INVALID",502);
   const payload=data as Record<string,unknown>;
   const result=payload.data;
+  const amount=result&&typeof result==="object"&&!Array.isArray(result)?
+    (result as Record<string,unknown>).amount:null;
   if(payload.responseCode!=="0000"||!result||typeof result!=="object"||
-    Array.isArray(result)||typeof (result as Record<string,unknown>).amount!=="number"||
-    !Number.isFinite((result as Record<string,number>).amount)||
-    (result as Record<string,number>).amount<0)
+    Array.isArray(result)||typeof amount!=="number"||
+    !Number.isFinite(amount)||amount<0)
     throw new MerchantProbeError("Hubtel did not validate collection-account access.",
       "HUBTEL_PROBE_INVALID",502);
   // Do not return balances to the browser. This confirms read-only account
@@ -285,7 +286,7 @@ export async function verifyMerchantHubtelConnection(pool:DatabasePool,input:{
     throw new AuthError("Collection account is not eligible.",
       409,"HUBTEL_MERCHANT_ACCOUNT_MISMATCH");
   await checkHubtelCollectionBalance({
-    apiId:creds.apiId,apiKey:creds.apiKey,
+    apiId:creds.apiId!,apiKey:creds.apiKey!,
     collectionAccount:creds.collectionAccount,fetchImpl:input.fetchImpl});
   return withTransaction(pool,async tx=>{
     const current=(await tx.query<Row>(
@@ -384,7 +385,7 @@ export async function verifyMerchantHostedGatewayConnection(pool:DatabasePool,in
     encrypted:row.encrypted_credentials,nonce:row.nonce,
     tag:row.auth_tag,keyVersion:row.key_version});
   await checkHostedGatewayApiAccess({
-    provider,secretKey:creds.secretKey,fetchImpl:input.fetchImpl});
+    provider,secretKey:creds.secretKey!,fetchImpl:input.fetchImpl});
   return withTransaction(pool,async tx=>{
     const latest=(await tx.query<Row>(
       "SELECT "+SELECT+" FROM business_merchant_gateway_credentials "+
