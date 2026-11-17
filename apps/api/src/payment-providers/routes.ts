@@ -5,6 +5,7 @@ import {requireBusinessRole,type BusinessRole} from "../auth/authorization.js";
 import {paymentGatewayOptions,savePreferredGateway} from "./service.js";
 import {listMerchantGatewayConnections,saveMerchantGatewayTestKey,
   revokeMerchantGatewayConnection} from "./connections.js";
+import {listGatewayTestAttempts} from "./attempts.js";
 
 const READ:readonly BusinessRole[]=[
   "OWNER","ADMIN","MANAGER","CASHIER","SALES",
@@ -20,6 +21,24 @@ export function registerPaymentProviderRoutes(app:FastifyInstance,pool:DatabaseP
           "Invalid business ID",400,"BUSINESS_ID_INVALID");
         await requireBusinessRole(pool,auth,req.params.businessId,READ);
         return await paymentGatewayOptions(pool,req.params.businessId);
+      }catch(error){return sendError(req,reply,error);}
+    });
+  app.get<{Params:{businessId:string};Querystring:{branchId?:string;limit?:string}}>(
+    "/v1/businesses/:businessId/payment-gateways/attempts",
+    async(req,reply)=>{
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId))throw new AuthError(
+          "Invalid business ID",400,"BUSINESS_ID_INVALID");
+        if(req.query.branchId&&!UUID.test(req.query.branchId))
+          throw new AuthError("Invalid branch ID",400,"BRANCH_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,
+          ["OWNER","ADMIN","MANAGER","ACCOUNTANT"]);
+        return await listGatewayTestAttempts(pool,{
+          businessId:req.params.businessId,
+          ...(req.query.branchId?{branchId:req.query.branchId}:{}),
+          limit:Number(req.query.limit??25),
+        });
       }catch(error){return sendError(req,reply,error);}
     });
   app.get<{Params:{businessId:string}}>(
