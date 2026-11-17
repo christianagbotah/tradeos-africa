@@ -24,6 +24,13 @@ export interface PurchaseOrderAttachmentSnapshot {
     lineTotalMinor: number;
   }>;
 }
+/** Consistent, non-duplicated, header-safe filename for issued supplier POs. */
+export function supplierPurchaseOrderPdfFilename(orderNumber: string): string {
+  const clean = orderNumber.replace(/[^A-Za-z0-9._-]/g, "-")
+    .replace(/^\.+/, "").slice(0, 80);
+  if (!clean || !/[A-Za-z0-9]/.test(clean)) throw new Error("PO_PDF_NUMBER_INVALID");
+  return ( /^PO-/i.test(clean) ? clean : "PO-" + clean ) + ".pdf";
+}
 function safeText(value: unknown, max = 220): string {
   if (typeof value !== "string") throw new Error("PO_PDF_SNAPSHOT_INVALID");
   const cleaned = value.replace(/[\x00-\x1f\x7f]/g, " ").trim();
@@ -50,7 +57,7 @@ function validateSnapshot(value: unknown): PurchaseOrderAttachmentSnapshot {
   if (expectedDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(expectedDate)) {
     throw new Error("PO_PDF_DATE_INVALID");
   }
-  return {
+  const document: PurchaseOrderAttachmentSnapshot = {
     number: safeText(snapshot.number, 80),
     businessName: safeText(snapshot.businessName),
     branchName: safeText(snapshot.branchName),
@@ -76,6 +83,28 @@ function validateSnapshot(value: unknown): PurchaseOrderAttachmentSnapshot {
       };
     }),
   };
+  // The PDF is a financial commitment. Refuse corrupt or inconsistent
+  // snapshots instead of distributing documents with conflicting amounts.
+  // Match the PO ledger's eight-decimal, half-up minor-unit arithmetic.
+  let sum = 0n;
+  for (const line of document.lines) {
+    const scaled = line.quantity * 1e8;
+    if (line.quantity > Number.MAX_SAFE_INTEGER / 1e8 ||
+        Math.abs(scaled - Math.round(scaled)) >= 0.001) {
+      throw new Error("PO_PDF_QUANTITY_INVALID");
+    }
+    const quantityUnits = BigInt(Math.round(scaled));
+    const calculated = (BigInt(line.unitCostMinor) * quantityUnits +
+      50_000_000n) / 100_000_000n;
+    if (calculated !== BigInt(line.lineTotalMinor)) {
+      throw new Error("PO_PDF_LINE_TOTAL_MISMATCH");
+    }
+    sum += BigInt(line.lineTotalMinor);
+  }
+  if (sum !== BigInt(document.totalMinor)) {
+    throw new Error("PO_PDF_TOTAL_MISMATCH");
+  }
+  return document;
 }
 function amount(minor: number) {
   return new Intl.NumberFormat("en-GH", {

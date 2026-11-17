@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderSupplierPurchaseOrderPdf } from "../src/supplier-document-pdf.js";
+import { renderSupplierPurchaseOrderPdf, supplierPurchaseOrderPdfFilename } from "../src/supplier-document-pdf.js";
 
 const snapshot = {
   number:"PO-2026-0042",
@@ -33,6 +33,31 @@ describe("supplier purchase-order PDF from persisted snapshot",()=>{
     expect(pdf.subarray(0,5).toString()).toBe("%PDF-");
     expect((pdf.toString("latin1").match(/\/Type \/Page\b/g)??[]).length)
       .toBeGreaterThanOrEqual(2);
+  });
+  it("uses one safe PO number in email and downloadable PDF filenames",()=>{
+    expect(supplierPurchaseOrderPdfFilename("PO-2026-0042"))
+      .toBe("PO-2026-0042.pdf");
+    expect(supplierPurchaseOrderPdfFilename("2026-0042"))
+      .toBe("PO-2026-0042.pdf");
+    expect(supplierPurchaseOrderPdfFilename("../unsafe/path"))
+      .not.toContain("/");
+    expect(()=>supplierPurchaseOrderPdfFilename("...")).toThrow(
+      "PO_PDF_NUMBER_INVALID");
+  });
+  it("uses exact eight-decimal cost rounding and rejects inconsistent totals",async()=>{
+    const fractional = {...snapshot,lines:[{...snapshot.lines[0],
+      quantity:2.5,unitCostMinor:101,lineTotalMinor:253}],totalMinor:253};
+    const pdf = await renderSupplierPurchaseOrderPdf(fractional);
+    expect(pdf.subarray(0,5).toString()).toBe("%PDF-");
+    await expect(renderSupplierPurchaseOrderPdf({
+      ...fractional, totalMinor:254,
+    })).rejects.toThrow("PO_PDF_TOTAL_MISMATCH");
+    await expect(renderSupplierPurchaseOrderPdf({
+      ...fractional, lines:[{...fractional.lines[0],lineTotalMinor:252}],
+    })).rejects.toThrow("PO_PDF_LINE_TOTAL_MISMATCH");
+    await expect(renderSupplierPurchaseOrderPdf({
+      ...fractional,lines:[{...fractional.lines[0],quantity:2.500000001}],
+    })).rejects.toThrow("PO_PDF_QUANTITY_INVALID");
   });
   it("rejects invalid snapshot values rather than mailing a corrupt PDF",async()=>{
     await expect(renderSupplierPurchaseOrderPdf({
