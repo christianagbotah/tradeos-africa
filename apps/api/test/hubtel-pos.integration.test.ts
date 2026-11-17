@@ -144,6 +144,17 @@ describe("Hubtel multi-tenant POS safety",()=>{
     const saleCheckout=first.json().checkout as {state:string;checkoutUrl:string};
     expect(saleCheckout.state).toBe("READY");
     expect(saleCheckout.checkoutUrl).toContain("https://pay.hubtel.com/");
+    const source=(await pool.query<{credential_source:string;
+      merchant_credential_revision:number|null}>(
+      "SELECT credential_source,merchant_credential_revision "+
+      "FROM hubtel_sale_checkout_attempts WHERE sale_id=$1",
+      [m.saleId])).rows[0];
+    expect(source).toMatchObject({credential_source:"PLATFORM_ALIAS",
+      merchant_credential_revision:null});
+    await expect(pool.query(
+      "UPDATE hubtel_sale_checkout_attempts "+
+      "SET credential_source='MERCHANT_VAULT',merchant_credential_revision=1 "+
+      "WHERE sale_id=$1",[m.saleId])).rejects.toThrow();
     expect(await ledger(m)).toMatchObject({
       status:"OPEN",payment_status:"PENDING",receipt_count:"0",
     });
@@ -197,6 +208,11 @@ describe("Hubtel multi-tenant POS safety",()=>{
       status:"COMPLETED",payment_status:"SUCCEEDED",
       receipt_count:"1",amount:"7000",attempt_state:"RECONCILED",
     });
+    const entry=(await pool.query<{method:string}>(
+      "SELECT method FROM cashbook_entries WHERE business_id=$1 "+
+      "AND source_type='PAYMENT' AND source_id=$2",
+      [m.businessId,m.paymentId])).rows[0];
+    expect(entry?.method).toBe("CARD");
   });
   it("rejects card-labelled sales that actually use MoMo on Hubtel",async()=>{
     const m=await merchant("card-method-mismatch","merchant_1","111111");

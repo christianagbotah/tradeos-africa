@@ -6,6 +6,7 @@ import {paymentGatewayOptions,savePreferredGateway} from "./service.js";
 import {listMerchantGatewayConnections,saveMerchantGatewayTestKey,
   revokeMerchantGatewayConnection} from "./connections.js";
 import {listGatewayTestAttempts} from "./attempts.js";
+import {getHubtelMerchantActivationReadiness} from "./hubtel-activation-readiness.js";
 import {
   listMerchantGatewayCredentials,saveMerchantPaymentCredentials,
   revokeMerchantPaymentCredentials,verifyMerchantHubtelConnection,
@@ -93,6 +94,17 @@ export function registerPaymentProviderRoutes(app:FastifyInstance,pool:DatabaseP
     });
   // Unified merchant-facing API credential vault. This is provider setup,
   // not permission to collect real money.
+  app.get<{Params:{businessId:string}}>(
+    "/v1/businesses/:businessId/payment-gateways/HUBTEL/activation-readiness",
+    async(req,reply)=>{
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId))throw new AuthError(
+          "Invalid business ID",400,"BUSINESS_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        return await getHubtelMerchantActivationReadiness(pool,req.params.businessId);
+      }catch(error){return sendError(req,reply,error);}
+    });
   app.get<{Params:{businessId:string}}>(
     "/v1/businesses/:businessId/payment-gateways/merchant-connections",
     async(req,reply)=>{
