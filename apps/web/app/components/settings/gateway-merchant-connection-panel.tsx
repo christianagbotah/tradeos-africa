@@ -58,7 +58,8 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
     if(busy||!online||!snapshot||!schema||!password)return;
     if(action==="save"&&(!snapshot.vaultReady||
       schema.fields.some(f=>f.required&&!values[f.id]?.trim())))return;
-    if(action==="verify"&&(providerCode!=="HUBTEL"||environment!=="LIVE"||
+    if(action==="verify"&&(!schema.canVerifyConnection||
+      schema.verificationRequiresLiveKey&&environment!=="LIVE"||
       current?.status!=="SAVED_UNVERIFIED"))return;
     if(action==="request"&&(current?.status!=="VERIFIED"||
       current.activationRequestedAt))return;
@@ -68,7 +69,8 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
     const base="/v1/businesses/"+encodeURIComponent(businessId)+
       "/payment-gateways/merchant-connections";
     const credentialPath=base+"/"+providerCode+"/"+environment;
-    const url=action==="verify"?base+"/HUBTEL/verify":
+    const url=action==="verify"?
+      providerCode==="HUBTEL"?base+"/HUBTEL/verify":credentialPath+"/verify":
       action==="request"?credentialPath+"/request-activation":credentialPath;
     const fields=Object.fromEntries(Object.entries(values)
       .filter(([,v])=>v.trim().length>0).map(([k,v])=>[k,v.trim()]));
@@ -91,7 +93,8 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
       setMessage(action==="save"?
         "Merchant credentials saved securely. Verify the account before activation.":
         action==="verify"?
-          "Hubtel collection-account access verified. No customer was charged.":
+          "Read-only provider API access verified. No customer was charged. "+
+          "Settlement ownership and live collection still require approval.":
         action==="request"?
           "Activation request recorded. Collections remain disabled until "+
           "the payment and settlement checks have been approved.":
@@ -166,11 +169,13 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
           disabled={!online||busy||!snapshot.vaultReady||!password||
             schema.fields.some(f=>f.required&&!values[f.id]?.trim())}
           onClick={()=>void perform("save")}>Save credentials</Button>
-        {providerCode==="HUBTEL"&&environment==="LIVE"?
+        {schema.canVerifyConnection&&
+          (!schema.verificationRequiresLiveKey||environment==="LIVE")?
           <Button type="button" variant="outline"
             disabled={!online||busy||!password||current?.status!=="SAVED_UNVERIFIED"}
             onClick={()=>void perform("verify")}>
-            Verify Hubtel account (no charge)</Button>:null}
+            {providerCode==="HUBTEL"?"Verify Hubtel account (no charge)":
+              "Verify API access (no charge)"}</Button>:null}
         <Button type="button" variant="outline"
           disabled={!online||busy||!password||current?.status!=="VERIFIED"||
             Boolean(current?.activationRequestedAt)}
