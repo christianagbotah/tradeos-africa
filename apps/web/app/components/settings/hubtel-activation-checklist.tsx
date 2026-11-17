@@ -13,7 +13,8 @@ type Readiness={
   accountReference:string|null;activationRequested:boolean;
   accountApproved:boolean;preferredProvider:string;
   merchantCollectionEnabled:boolean;existingLegacyCollectionEnabled:boolean;
-  unsettledPayments:number;reviewRequired:number;steps:Step[];notice:string;
+  unsettledPayments:number;reviewRequired:number;
+  untrustedNotifications:number;steps:Step[];notice:string;
 };
 const LABEL:Record<Status,string>={
   DONE:"Complete",NEEDS_ACTION:"Action needed",BLOCKED:"Not available yet",
@@ -82,6 +83,12 @@ export function HubtelMerchantActivationChecklist({businessId,online,refreshKey}
           data.unsettledPayments}</strong>.
           {" "}Needing manual review: <strong>{data.reviewRequired}</strong>.
           Those payments remain tied to their original merchant account.</p>:null}
+      {data.untrustedNotifications>0?<p className="tos-callout">
+        Hubtel callback notifications captured: <strong>{
+          data.untrustedNotifications}</strong>. These are untrusted claims;
+          even a success notification is not payment confirmation. TradeOS
+          must verify the original transaction directly with Hubtel.
+      </p>:null}
       <p className="tos-callout">{data.notice}</p>
     </div>:null}
   </section>;
