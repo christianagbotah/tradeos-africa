@@ -287,7 +287,9 @@ export async function verifyMerchantHubtelConnection(pool:DatabasePool,input:{
       409,"HUBTEL_MERCHANT_ACCOUNT_MISMATCH");
   await checkHubtelCollectionBalance({
     apiId:creds.apiId!,apiKey:creds.apiKey!,
-    collectionAccount:creds.collectionAccount,fetchImpl:input.fetchImpl});
+    collectionAccount:creds.collectionAccount!,
+    ...(input.fetchImpl?{fetchImpl:input.fetchImpl}:{}),
+  });
   return withTransaction(pool,async tx=>{
     const current=(await tx.query<Row>(
       "SELECT "+SELECT+" FROM business_merchant_gateway_credentials "+
@@ -385,7 +387,9 @@ export async function verifyMerchantHostedGatewayConnection(pool:DatabasePool,in
     encrypted:row.encrypted_credentials,nonce:row.nonce,
     tag:row.auth_tag,keyVersion:row.key_version});
   await checkHostedGatewayApiAccess({
-    provider,secretKey:creds.secretKey!,fetchImpl:input.fetchImpl});
+    provider,secretKey:creds.secretKey!,
+    ...(input.fetchImpl?{fetchImpl:input.fetchImpl}:{}),
+  });
   return withTransaction(pool,async tx=>{
     const latest=(await tx.query<Row>(
       "SELECT "+SELECT+" FROM business_merchant_gateway_credentials "+
