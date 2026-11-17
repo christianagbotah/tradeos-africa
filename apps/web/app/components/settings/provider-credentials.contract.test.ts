@@ -22,9 +22,9 @@ describe("merchant provider configuration discoverability",()=>{
   it("puts payment secret fields alongside a single provider selection",()=>{
     expect(payments).toContain("tradeos-selected-payment-provider");
     expect(payments).toContain("providerCode={selected.code}");
-    expect(payments).toContain("<GatewayConnectionsPanel");
+    expect(payments).toContain("<GatewayMerchantConnectionPanel");
     expect(payments).not.toContain("tos-pay-card");
     expect(payments).toContain("Save preferred provider");
-    expect(payments).toContain("API credential self-service is not available");
+    expect(payments).toContain("canManage&&businessId");
   });
 });
