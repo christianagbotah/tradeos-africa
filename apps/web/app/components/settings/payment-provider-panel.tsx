@@ -5,7 +5,7 @@ import {getOfflineQueue} from "../../../lib/offline-sync";
 import {readApiErrorMessage} from "../../../lib/auth-fetch";
 import {Button} from "../ui/button";
 import {useWorkspace} from "../workspace/use-workspace";
-import {GatewayConnectionsPanel} from "./gateway-connections-panel";
+import {GatewayMerchantConnectionPanel} from "./gateway-merchant-connection-panel";
 import {GatewayAttemptMonitor} from "./gateway-attempt-monitor";
 
 type Provider={
@@ -139,18 +139,10 @@ export function PaymentProviderPanel(){
             View provider setup instructions</a>
         </div>:null}
       </div>
-      {(selected?.code==="PAYSTACK"||selected?.code==="FLUTTERWAVE")&&
-        canManage&&businessId?<GatewayConnectionsPanel
-          key={selected.code} businessId={businessId} online={online}
+      {selected&&canManage&&businessId?
+        <GatewayMerchantConnectionPanel key={businessId+selected.code}
+          businessId={businessId} online={online}
           providerCode={selected.code}/>:null}
-      {selected&&selected.code!=="PAYSTACK"&&selected.code!=="FLUTTERWAVE"?
-        <p className="tos-callout">
-          API credential self-service is not available for {selected.name} yet.
-          Selecting this provider only saves your preference. For Hubtel
-          merchant collections, TradeOS administrators must verify the
-          business collection account and authorize the connector. Do not
-          paste API keys in the preference field.
-        </p>:null}
       {!canManage?<p className="tos-callout">
         Only the owner or a business administrator may change its preferred gateway.
       </p>:null}
