@@ -19,7 +19,7 @@ type Step={
   code:string;title:string;status:"DONE"|"NEEDS_ACTION"|"BLOCKED";
   detail:string;
 };
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Read-only owner checklist. This code never decrypts credentials or calls
