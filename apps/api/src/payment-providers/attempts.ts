@@ -70,6 +70,15 @@ export async function prepareTestGatewayAttempt(pool:DatabasePool,input:{
         "that attempt before changing provider or request.",409,
         "GATEWAY_ATTEMPT_ALREADY_EXISTS");
     }
+    // Existing Hubtel checkout must be reconciled with its original provider;
+    // changing merchant preference cannot authorize another checkout.
+    const legacy=(await tx.query<{id:string}>(
+      "SELECT id FROM hubtel_sale_checkout_attempts "+
+      "WHERE business_id=$1 AND sale_id=$2",
+      [input.businessId,input.saleId])).rows[0];
+    if(legacy)throw new AuthError(
+      "This sale already has a Hubtel checkout requiring reconciliation.",
+      409,"GATEWAY_ATTEMPT_EXISTING_HUBTEL");
     const provider=await selectedGateway(tx,input.businessId);
     if(provider!=="PAYSTACK"&&provider!=="FLUTTERWAVE")
       throw new AuthError("The selected gateway has no TEST attempt adapter.",
