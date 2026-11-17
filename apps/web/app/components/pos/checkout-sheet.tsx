@@ -82,6 +82,12 @@ export function CheckoutSheet({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [hubtelSelected,setHubtelSelected] = useState(false);
   const [hubtelAvailable,setHubtelAvailable] = useState(false);
+  const [preferredGateway,setPreferredGateway]=useState("HUBTEL");
+  const gatewayLabel:Record<string,string>={
+    HUBTEL:"Hubtel",PAYSTACK:"Paystack",FLUTTERWAVE:"Flutterwave",
+    STRIPE:"Stripe",PESAPAL:"Pesapal",DPO:"DPO Pay",MPESA:"M-Pesa",
+  };
+  const gatewayName=gatewayLabel[preferredGateway]??"selected provider";
   const [cashReceivedMinor, setCashReceivedMinor] = useState<number | null>(null);
   const [splitWithCredit,setSplitWithCredit]=useState(false);
   const [paidNowMinor,setPaidNowMinor]=useState<number|null>(null);
@@ -235,12 +241,17 @@ export function CheckoutSheet({
   useEffect(()=>{
     if(!open || !online){setHubtelAvailable(false);return;}
     let active=true;
+    setHubtelAvailable(false);
+    setPreferredGateway("HUBTEL");
     void getOfflineQueue().authenticatedFetch(
       "/v1/payments/hubtel/readiness?businessId="+encodeURIComponent(businessId),
     ).then(async response=>{
       if(!response.ok)return;
-      const data=await response.json() as {enabled?:boolean};
-      if(active)setHubtelAvailable(data.enabled===true);
+      const data=await response.json() as {enabled?:boolean;preferredProvider?:string};
+      if(active){
+        setHubtelAvailable(data.enabled===true);
+        setPreferredGateway(data.preferredProvider??"HUBTEL");
+      }
     }).catch(()=>{if(active)setHubtelAvailable(false);});
     return ()=>{active=false;};
   },[open,online,businessId]);
@@ -563,7 +574,9 @@ export function CheckoutSheet({
                     </span>
                     <span className="tos-pay-card__text">
                       <span className="tos-pay-card__label">Electronic</span>
-                      <span className="tos-pay-card__sub">Secure Hubtel payment</span>
+                      <span className="tos-pay-card__sub">
+                        {gatewayName} · verified online checkout
+                      </span>
                     </span>
                   </button>
                 </div>
@@ -594,19 +607,22 @@ export function CheckoutSheet({
                         </span>
                         <span className="tos-pay-card__text">
                           <span className="tos-pay-card__label">Bank card</span>
-                          <span className="tos-pay-card__sub">Bank authentication via Hubtel</span>
+                          <span className="tos-pay-card__sub">
+                            Secure card authentication by {gatewayName}
+                          </span>
                         </span>
                       </button>
                     </div>
                     <p role="status" style={{fontSize:13}}>
                       {paymentMethod==="MOMO"?
-                        "Hubtel asks for the customer's mobile number and network; the customer approves the prompt on their phone.":
-                        "Only Hubtel collects card details and bank authorization. Never type card details into TradeOS."}
+                        gatewayName+" collects the customer's mobile number and network, then requests the customer to authorize payment on their phone.":
+                        "Card details and bank approval must be handled only by the selected secure provider. Never enter card details in TradeOS."}
                     </p>
                     {!hubtelAvailable?<p role="alert" className="tos-callout">
-                      Electronic collection is not enabled for this business.
-                      No prompt or card charge will be sent. Ask your administrator
-                      to confirm merchant status access and payment permissions.
+                      {gatewayName} electronic collection is not enabled for
+                      this business. No prompt or card charge will be sent.
+                      Open Settings → Payment providers to review your selection
+                      and complete merchant verification.
                     </p>:null}
                   </div>
                 </section>:null}

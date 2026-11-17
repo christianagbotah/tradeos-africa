@@ -10,6 +10,7 @@ import {
 import { withTransaction } from "../db.js";
 import { createCustomerCreditObligation } from "./credit-obligations.js";
 import { requireHubtelPosConnection } from "./hubtel-pos-config.js";
+import {requireHubtelPreference} from "../payment-providers/service.js";
 import {resolveCustomerPrice} from "./price-rules.js";
 import {consumeApprovedDiscount} from "./discount-approvals.js";
 
@@ -100,6 +101,9 @@ export async function applySaleMutationInTransaction(
         throw new SaleMutationError("Hubtel requires a single full-amount electronic payment",
           "SALE_HUBTEL_PAYMENT_INVALID");
       }
+      // Switching preferred gateway must not silently fall back to Hubtel
+      // for NEW sales. Existing pending Hubtel attempts still reconcile.
+      await requireHubtelPreference(client,context.businessId);
       await requireHubtelPosConnection(client,context.businessId);
     }
 

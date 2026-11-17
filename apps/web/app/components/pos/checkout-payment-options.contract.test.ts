@@ -11,6 +11,12 @@ describe("POS cash / electronic checkout",()=>{
     expect(checkout).not.toContain('value: "OTHER", label: "Other"');
     expect(checkout).not.toContain('value: "BANK", label: "Bank transfer"');
   });
+  it("uses the merchant's selected provider for the electronic display",()=>{
+    expect(checkout).toContain('setPreferredGateway(data.preferredProvider??"HUBTEL")');
+    expect(checkout).toContain("gatewayName");
+    expect(checkout).toContain("Settings → Payment providers");
+    expect(checkout).toContain("!hubtelAvailable");
+  });
   it("uses pending Hubtel for both MoMo and card",()=>{
     expect(checkout).toContain('onClick={()=>chooseTender("MOMO")}');
     expect(checkout).toContain('onClick={()=>chooseTender("CARD")}');
@@ -20,6 +26,6 @@ describe("POS cash / electronic checkout",()=>{
     expect(checkout).toContain('resultData?.status!=="AWAITING_PAYMENT"');
     expect(checkout).toContain('target.hostname!=="pay.hubtel.com"');
     expect(checkout).toContain('independent Hubtel');
-    expect(checkout).toContain('Only Hubtel collects card details');
+    expect(checkout).toContain('Card details and bank approval must be handled only');
   });
 });

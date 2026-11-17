@@ -26,6 +26,7 @@ describe("settings navigation model", () => {
       "profile",
       "security",
       "business",
+      "payments",
       "billing",
       "branches",
       "team",
@@ -33,6 +34,7 @@ describe("settings navigation model", () => {
     ]);
     expect(normalizeSettingsSection("security")).toBe("security");
     expect(normalizeSettingsSection("billing")).toBe("billing");
+    expect(normalizeSettingsSection("payments")).toBe("payments");
     expect(normalizeSettingsSection("unknown")).toBe("profile");
   });
 

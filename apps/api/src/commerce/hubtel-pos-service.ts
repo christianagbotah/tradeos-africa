@@ -7,6 +7,7 @@ import {
 } from "./hubtel-pos-config.js";
 import { HubtelCheckoutClient } from "../platform-admin/hubtel-checkout-client.js";
 import { HubtelStatusClient } from "../platform-admin/hubtel-status-client.js";
+import {selectedGateway} from "../payment-providers/service.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type SaleRow={id:string;business_id:string;branch_id:string;status:string;
@@ -30,8 +31,15 @@ export interface SaleHubtelVerification {
 }
 function requireId(id:string){if(!UUID.test(id))posFail("Invalid sale identifier.","HUBTEL_POS_ID_INVALID");}
 export async function getHubtelPosReadiness(pool:DatabasePool,businessId:string){
-  return {businessId,enabled:(await hubtelPosConnection(pool,businessId))!==null,
-    notice:"Hubtel sales payments require a separately verified merchant collection account. A checkout request is never proof of payment."};
+  const [connection,preferred]=await Promise.all([
+    hubtelPosConnection(pool,businessId),selectedGateway(pool,businessId)]);
+  return {businessId,enabled:connection!==null && preferred==="HUBTEL",
+    existingCheckoutEnabled:connection!==null,
+    preferredProvider:preferred,
+    notice:preferred!=="HUBTEL"?
+      "This business selected "+preferred+". New Hubtel sales are blocked. "+
+      "Earlier Hubtel payments may still be verified.":
+      "Hubtel needs verified merchant collection access. A checkout link is never proof of payment."};
 }
 async function saleAndPayment(pool:Pick<DatabasePool,"query">|Pick<DatabaseClient,"query">,
   businessId:string,saleId:string){

@@ -7,7 +7,8 @@ import { Button } from "../ui/button";
 
 type Checkout={saleId:string;attemptId:string;state:string;
   checkoutUrl:string|null;amountMinor:number};
-type Readiness={businessId:string;enabled:boolean;notice:string};
+type Readiness={businessId:string;enabled:boolean;
+  existingCheckoutEnabled?:boolean;preferredProvider?:string;notice:string};
 type Verification={state:"PAID"|"UNPAID"|"REFUND_REVIEW";verifiedAt:string};
 type Props={businessId:string;saleId:string;online:boolean;onPaid:()=>void};
 
@@ -95,8 +96,9 @@ export function HubtelSaleActions({businessId,saleId,online,onPaid}:Props){
     <div className="tos-section__body--padded tos-stack">
       <p role="status">This order has not been paid. Do not issue a final receipt or release goods until the provider payment is verified.</p>
       {!online?<p>Go online to verify or resume this payment.</p>:null}
-      {readiness && !readiness.enabled?<p>Hubtel is not enabled for this business. Contact your administrator for assistance.</p>:null}
-      {readiness?.enabled?<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      {readiness && !readiness.enabled?<p>{readiness.notice}</p>:null}
+      {(readiness?.enabled||(readiness?.existingCheckoutEnabled&&checkout))?
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         {checkout?.state!=="RECONCILED"?<Button variant="gold" disabled={busy||!online}
           onClick={()=>void start()}>{checkout?.checkoutUrl?"Open Hubtel checkout":"Create Hubtel checkout"}</Button>:null}
         {checkout && ["READY","PENDING_VERIFICATION","RECONCILED"].includes(checkout.state)?
