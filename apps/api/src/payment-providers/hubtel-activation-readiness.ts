@@ -15,6 +15,10 @@ type Approval={
   verified_at:Date|null;
 };
 type Counts={unsettled:string;review:string};
+type ManualReview={
+  decision:"APPROVED"|"REJECTED";credential_revision:number;
+  account_reference:string;reviewed_at:Date;
+};
 type Step={
   code:string;title:string;status:"DONE"|"NEEDS_ACTION"|"BLOCKED";
   detail:string;
@@ -31,7 +35,7 @@ export async function getHubtelMerchantActivationReadiness(
 ){
   if(!UUID.test(businessId))throw new AuthError("Invalid business identifier.",
     400,"HUBTEL_ACTIVATION_BUSINESS_INVALID");
-  const [business,creds,approval,counts,preferred,current]=await Promise.all([
+  const [business,creds,approval,counts,preferred,current,review]=await Promise.all([
     pool.query<{id:string}>("SELECT id FROM businesses WHERE id=$1",[businessId]),
     pool.query<Credential>(
       "SELECT status,revision,account_reference,verified_at,"+
@@ -49,6 +53,9 @@ export async function getHubtelMerchantActivationReadiness(
       "FROM hubtel_sale_checkout_attempts WHERE business_id=$1",[businessId]),
     selectedGateway(pool,businessId),
     hubtelPosConnection(pool,businessId),
+    pool.query<ManualReview>(
+      "SELECT decision,credential_revision,account_reference,reviewed_at "+
+      "FROM hubtel_merchant_account_reviews WHERE business_id=$1",[businessId]),
   ]);
   if(!business.rows[0])throw new AuthError("Business not found.",
     404,"HUBTEL_ACTIVATION_BUSINESS_NOT_FOUND");
@@ -56,7 +63,12 @@ export async function getHubtelMerchantActivationReadiness(
   const hasKey=Boolean(saved&&saved.status!=="REVOKED");
   const verified=Boolean(hasKey&&saved?.status==="VERIFIED"&&saved.verified_at);
   const requested=Boolean(verified&&saved?.activation_requested_at);
-  const accountMatched=Boolean(requested&&approved&&
+  const reviewCurrent=Boolean(requested&&review.rows[0]&&
+    review.rows[0].credential_revision===saved?.revision&&
+    review.rows[0].account_reference===saved?.account_reference);
+  const ownershipApproved=Boolean(reviewCurrent&&
+    review.rows[0]?.decision==="APPROVED");
+  const accountMatched=Boolean(ownershipApproved&&approved&&
     approved.collection_account===saved?.account_reference&&
     approved.approval_status==="VERIFIED"&&
     approved.enabled&&approved.verified_at);
@@ -93,11 +105,13 @@ export async function getHubtelMerchantActivationReadiness(
       detail:needsProviderChoice?
         "Select Hubtel and save it as the preferred provider.":
         "Hubtel is the currently selected payment gateway."},
-    {code:"ACCOUNT_APPROVAL",title:"Merchant collection-account approval",
-      status:accountMatched?"DONE":"BLOCKED",
-      detail:accountMatched?
-        "TradeOS has approved this matching merchant collection account.":
-        "Await TradeOS approval of the exact collection account and settlement ownership."},
+    {code:"ACCOUNT_APPROVAL",title:"Merchant collection-account ownership review",
+      status:ownershipApproved?"DONE":"BLOCKED",
+      detail:ownershipApproved?
+        "TradeOS completed its evidence-based beneficiary review. Collection is still disabled.":
+        reviewCurrent&&review.rows[0]?.decision==="REJECTED"?
+          "TradeOS did not approve this account. See support for the reason.":
+          "TradeOS must independently review beneficiary evidence for this exact account."},
     {code:"POS_RELEASE",title:"Safe collection and settlement activation",
       status:activeFromMerchantVault?"DONE":"BLOCKED",
       detail:activeFromMerchantVault?
@@ -109,7 +123,10 @@ export async function getHubtelMerchantActivationReadiness(
     merchantCredentialStatus:saved?.status??"NOT_CONFIGURED",
     credentialRevision:saved?.revision??null,
     accountReference:saved?.account_reference??null,
-    activationRequested:requested,accountApproved:accountMatched,
+    activationRequested:requested,accountApproved:ownershipApproved,
+    accountReviewStatus:reviewCurrent?review.rows[0]!.decision:"PENDING",
+    accountReviewedAt:reviewCurrent?review.rows[0]!.reviewed_at.toISOString():null,
+    approvedLegacyCollectionAccount:accountMatched,
     preferredProvider:preferred,
     merchantCollectionEnabled:activeFromMerchantVault,
     existingLegacyCollectionEnabled:current?.credentialSource==="PLATFORM_ALIAS",
