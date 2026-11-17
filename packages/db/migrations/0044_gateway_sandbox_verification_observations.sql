@@ -23,7 +23,8 @@ CREATE TABLE gateway_sandbox_verification_observations (
     OR
     (observation_kind='SANDBOX_PAID' AND provider_transaction_id IS NOT NULL
       AND provider_transaction_id ~ '^[A-Za-z0-9_-]{1,128}$'
-      AND amount_minor > 0 AND currency_code IS NOT NULL
+      AND amount_minor IS NOT NULL AND amount_minor > 0
+      AND currency_code IS NOT NULL AND payment_method IS NOT NULL
       AND payment_method IN ('MOMO','CARD'))
   )
 );
