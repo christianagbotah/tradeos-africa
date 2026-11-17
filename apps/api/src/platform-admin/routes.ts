@@ -38,6 +38,9 @@ import {
   setPlatformAdminActive,
   updatePlatformAdminRole,
 } from "./admin-user-service.js";
+import {
+  listHubtelMerchantAccountReviews,reviewHubtelMerchantAccount,
+} from "./hubtel-merchant-reviews.js";
 
 const ADMIN_COOKIE = "__Host-tradeos_admin_session";
 
@@ -244,6 +247,51 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
       return sendAdminError(request, reply, error, "ADMIN_TENANT_FAILED", "Tenant details could not be loaded.");
     }
   });
+
+  app.get<{ Querystring: { limit?: string } }>(
+    "/api/admin/payments/hubtel/merchant-accounts",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(
+          pool,readAdminCookie(request.headers.cookie));
+        return await listHubtelMerchantAccountReviews(pool,admin,{
+          limit:Number(request.query?.limit??50),
+        });
+      } catch (error) {
+        return sendAdminError(request,reply,error,
+          "ADMIN_HUBTEL_MERCHANT_REVIEWS_FAILED",
+          "Hubtel merchant account reviews could not be loaded.");
+      }
+    },
+  );
+
+  app.post<{ Params: { businessId: string }; Body: {
+    decision?:unknown;evidenceReference?:unknown;rationale?:unknown;
+    beneficiaryOwnershipConfirmed?:unknown;expectedCredentialRevision?:unknown;
+    expectedReviewVersion?:unknown;
+  } }>(
+    "/api/admin/payments/hubtel/merchant-accounts/:businessId/review",
+    {bodyLimit:4096},
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(
+          pool,readAdminCookie(request.headers.cookie));
+        return {review:await reviewHubtelMerchantAccount(
+          pool,admin,request.params.businessId,{
+            decision:request.body?.decision,
+            evidenceReference:request.body?.evidenceReference,
+            rationale:request.body?.rationale,
+            beneficiaryOwnershipConfirmed:request.body?.beneficiaryOwnershipConfirmed,
+            expectedCredentialRevision:request.body?.expectedCredentialRevision,
+            expectedReviewVersion:request.body?.expectedReviewVersion,
+          })};
+      } catch (error) {
+        return sendAdminError(request,reply,error,
+          "ADMIN_HUBTEL_MERCHANT_REVIEW_FAILED",
+          "Hubtel merchant account review could not be recorded.");
+      }
+    },
+  );
 
   app.get("/api/admin/plans", async (request, reply) => {
     try {
