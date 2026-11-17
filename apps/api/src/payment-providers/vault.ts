@@ -53,3 +53,38 @@ export function unsealTestGatewayKey(
       503,"GATEWAY_VAULT_INVALID");
   }
 }
+
+
+/** Separate authenticated-encryption domain for merchant SMS/API credentials.
+ * These credentials are never valid for payment gateway operations.
+ */
+export type SmsProvider="ARKESEL"|"NALO"|"HUBTEL_SMS"|"TWILIO";
+function smsAad(businessId:string,provider:SmsProvider):Buffer{
+  return Buffer.from("TradeOS/v1/"+businessId+"/SMS/"+provider,"utf8");
+}
+export function sealSmsProviderSecret(
+  businessId:string,provider:SmsProvider,secret:string,
+):SealedTestSecret{
+  const nonce=randomBytes(12);
+  const cipher=createCipheriv("aes-256-gcm",masterKey(),nonce);
+  cipher.setAAD(smsAad(businessId,provider));
+  const encrypted=Buffer.concat([cipher.update(secret,"utf8"),cipher.final()]);
+  return {encrypted,nonce,tag:cipher.getAuthTag(),keyVersion:1};
+}
+export function unsealSmsProviderSecret(
+  businessId:string,provider:SmsProvider,sealed:SealedTestSecret,
+):string{
+  if(sealed.keyVersion!==1||sealed.nonce.length!==12||sealed.tag.length!==16)
+    throw new AuthError("Saved messaging credential cannot be decrypted.",
+      503,"SMS_VAULT_INVALID");
+  try{
+    const decipher=createDecipheriv("aes-256-gcm",masterKey(),sealed.nonce);
+    decipher.setAAD(smsAad(businessId,provider));
+    decipher.setAuthTag(sealed.tag);
+    return Buffer.concat([decipher.update(sealed.encrypted),
+      decipher.final()]).toString("utf8");
+  }catch{
+    throw new AuthError("Saved messaging credential cannot be decrypted.",
+      503,"SMS_VAULT_INVALID");
+  }
+}
