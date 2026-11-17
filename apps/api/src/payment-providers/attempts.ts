@@ -5,7 +5,7 @@ import {AuthError} from "../auth/security.js";
 import {gatewayFor,gatewaySupported} from "./catalog.js";
 import {selectedGateway} from "./service.js";
 
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Queryable=Pick<DatabasePool,"query">|Pick<DatabaseClient,"query">;
 type AttemptRow={
   id:string;business_id:string;branch_id:string;sale_id:string;
