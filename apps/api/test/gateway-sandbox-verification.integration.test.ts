@@ -616,3 +616,133 @@ describe("one-time merchant-hosted TEST checkout initiation",()=>{
     }finally{globalThis.fetch=old;}
   });
 });
+
+type PickerMerchant=Awaited<ReturnType<typeof merchant>>;
+async function pendingTestSale(m:PickerMerchant,options?:{
+  amount?:number;method?:"MOMO"|"CARD"|"CASH";branchId?:string;
+}){
+  const mutation=randomUUID(),amount=options?.amount??8500;
+  const branch=options?.branchId??m.branchId;
+  const saleId=(await pool.query<{id:string}>(
+    "INSERT INTO sales (business_id,branch_id,status,currency_code,"+
+    "total_minor,client_mutation_id) "+
+    "VALUES($1,$2,'OPEN','GHS',$3,$4) RETURNING id",
+    [m.businessId,branch,amount,"picker-sale-"+mutation])).rows[0]!.id;
+  const paymentId=(await pool.query<{id:string}>(
+    "INSERT INTO payments (business_id,branch_id,sale_id,amount_minor,"+
+    "currency_code,method,status,client_mutation_id) "+
+    "VALUES($1,$2,$3,$4,'GHS',$5,'PENDING',$6) RETURNING id",
+    [m.businessId,branch,saleId,amount,options?.method??"MOMO",
+      "picker-payment-"+mutation])).rows[0]!.id;
+  return {saleId,paymentId};
+}
+function pickerUrl(businessId:string,query=""){
+  return "/v1/businesses/"+businessId+
+    "/payment-gateways/eligible-test-sales"+query;
+}
+
+describe("merchant TEST checkout eligible sale selection (read-only)",()=>{
+  it("shows only tenant-eligible pending sales and removes them after preparation",async()=>{
+    const m=await merchant("PAYSTACK"),other=await merchant("PAYSTACK");
+    const pending=await pendingTestSale(m);
+    const denied=await app.inject({method:"GET",url:pickerUrl(m.businessId),
+      headers:other.headers});
+    expect(denied.statusCode).toBe(403);
+    const unauth=await app.inject({method:"GET",url:pickerUrl(m.businessId)});
+    expect(unauth.statusCode).toBe(401);
+    const ready=await app.inject({method:"GET",url:pickerUrl(m.businessId),
+      headers:m.headers});
+    expect(ready.statusCode,ready.body).toBe(200);
+    expect(ready.json()).toMatchObject({
+      businessId:m.businessId,providerCode:"PAYSTACK",
+      ready:true,reason:null,collectionEnabled:false,
+      eligibleSales:[{saleId:pending.saleId,branchId:m.branchId,
+        amountMinor:"8500",currencyCode:"GHS",paymentMethod:"MOMO"}],
+    });
+    expect(ready.body).not.toContain(KEY.PAYSTACK);
+    expect(ready.body).not.toContain("provider_reference");
+    const prep=await app.inject({method:"POST",url:
+      "/v1/businesses/"+m.businessId+"/payment-gateways/attempts",
+      headers:m.headers,payload:{saleId:pending.saleId,clientRequestId:randomUUID()}});
+    expect(prep.statusCode,prep.body).toBe(200);
+    const after=await app.inject({method:"GET",url:pickerUrl(m.businessId),
+      headers:m.headers});
+    expect(after.statusCode).toBe(200);
+    expect(after.json().eligibleSales).toEqual([]);
+    expect(await financialState(pending.paymentId,pending.saleId)).toEqual({
+      payment:"PENDING",sale:"OPEN",cashbook:"0"});
+  });
+
+  it("excludes duplicate, mismatched, completed, CASH and already-attempted sales",async()=>{
+    const m=await merchant("FLUTTERWAVE");
+    const valid=await pendingTestSale(m,{method:"CARD"});
+    const wrongTotal=await pendingTestSale(m);
+    await pool.query("UPDATE payments SET amount_minor=amount_minor+1 WHERE id=$1",
+      [wrongTotal.paymentId]);
+    const secondTender=await pendingTestSale(m);
+    await pool.query("INSERT INTO payments "+
+      "(business_id,branch_id,sale_id,amount_minor,currency_code,method,"+
+      "status,client_mutation_id) "+
+      "VALUES($1,$2,$3,8500,'GHS','CASH','PENDING',$4)",
+      [m.businessId,m.branchId,secondTender.saleId,randomUUID()]);
+    const finished=await pendingTestSale(m);
+    await pool.query("UPDATE sales SET status='COMPLETED' WHERE id=$1",
+      [finished.saleId]);
+    const cash=await pendingTestSale(m,{method:"CASH"});
+    const used=await sale(m);
+    const res=await app.inject({method:"GET",url:pickerUrl(m.businessId),
+      headers:m.headers});
+    expect(res.statusCode,res.body).toBe(200);
+    const ids=res.json().eligibleSales.map((s:{saleId:string})=>s.saleId);
+    expect(ids).toEqual([valid.saleId]);
+    for(const banned of [wrongTotal.saleId,secondTender.saleId,
+      finished.saleId,cash.saleId,used.saleId]){
+      expect(ids).not.toContain(banned);
+    }
+    expect(await financialState(valid.paymentId,valid.saleId)).toEqual({
+      payment:"PENDING",sale:"OPEN",cashbook:"0"});
+  });
+
+  it("filters by an authorized branch and rejects invalid query identifiers",async()=>{
+    const m=await merchant("PAYSTACK");
+    const first=await pendingTestSale(m);
+    const secondBranch=(await pool.query<{id:string}>(
+      "INSERT INTO branches(business_id,name,code) "+
+      "VALUES($1,'Secondary branch','S2') RETURNING id",
+      [m.businessId])).rows[0]!.id;
+    const second=await pendingTestSale(m,{branchId:secondBranch});
+    const res=await app.inject({method:"GET",url:pickerUrl(m.businessId,
+      "?branchId="+secondBranch),headers:m.headers});
+    expect(res.statusCode,res.body).toBe(200);
+    expect(res.json().eligibleSales).toMatchObject([{
+      saleId:second.saleId,branchId:secondBranch,branchName:"Secondary branch"}]);
+    expect(res.body).not.toContain(first.saleId);
+    const invalid=await app.inject({method:"GET",url:pickerUrl(m.businessId,
+      "?branchId=not-a-uuid"),headers:m.headers});
+    expect(invalid.statusCode).toBe(400);
+    const huge=await app.inject({method:"GET",url:pickerUrl(m.businessId,
+      "?limit=500000"),headers:m.headers});
+    expect(huge.statusCode).toBe(400);
+  });
+
+  it("explains missing TEST key or unsupported preferred gateway without exposing sales",async()=>{
+    const m=await merchant("PAYSTACK");
+    await pendingTestSale(m);
+    await pool.query("UPDATE business_gateway_connections SET "+
+      "connection_status='REVOKED',encrypted_secret=NULL,nonce=NULL,auth_tag=NULL "+
+      "WHERE business_id=$1 AND provider_code='PAYSTACK'",[m.businessId]);
+    const missing=await app.inject({method:"GET",url:pickerUrl(m.businessId),
+      headers:m.headers});
+    expect(missing.statusCode,missing.body).toBe(200);
+    expect(missing.json()).toMatchObject({ready:false,
+      reason:"SAVE_MERCHANT_TEST_KEY",eligibleSales:[],collectionEnabled:false});
+    await pool.query("UPDATE business_payment_gateway_preferences "+
+      "SET provider_code='HUBTEL' WHERE business_id=$1",[m.businessId]);
+    const other=await app.inject({method:"GET",url:pickerUrl(m.businessId),
+      headers:m.headers});
+    expect(other.statusCode,other.body).toBe(200);
+    expect(other.json()).toMatchObject({ready:false,
+      providerCode:"HUBTEL",reason:"SELECT_PAYSTACK_OR_FLUTTERWAVE",
+      eligibleSales:[],collectionEnabled:false});
+  });
+});
