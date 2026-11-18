@@ -7,6 +7,7 @@ import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
+import {HubtelExceptionCasePanel} from "./hubtel-exception-case-panel";
 import styles from "./hubtel-reconciliation-workspace.module.css";
 
 type State = "PREPARED" | "READY" | "PENDING_VERIFICATION" |
@@ -190,6 +191,7 @@ export function HubtelReconciliationWorkspace() {
           </div>
         </article>)}
       </section>}
+    <HubtelExceptionCasePanel/>
     <footer className={styles.footer}>
       <p>Live status verification uses merchant-specific server credentials. No provider
         credentials, merchant account numbers or payment callbacks are shown here.</p>
