@@ -5,7 +5,11 @@ import {requireBusinessRole,type BusinessRole} from "../auth/authorization.js";
 import {paymentGatewayOptions,savePreferredGateway} from "./service.js";
 import {listMerchantGatewayConnections,saveMerchantGatewayTestKey,
   revokeMerchantGatewayConnection} from "./connections.js";
-import {listGatewayTestAttempts} from "./attempts.js";
+import {
+  listGatewayTestAttempts,prepareTestGatewayAttempt,closeTestGatewayAttempt,
+} from "./attempts.js";
+import {observeSandboxGatewayVerification} from "./sandbox-verification.js";
+import {GatewayAdapterError} from "./hosted-adapters.js";
 import {getHubtelMerchantActivationReadiness} from "./hubtel-activation-readiness.js";
 import {
   listMerchantGatewayCredentials,saveMerchantPaymentCredentials,
@@ -28,6 +32,94 @@ export function registerPaymentProviderRoutes(app:FastifyInstance,pool:DatabaseP
           "Invalid business ID",400,"BUSINESS_ID_INVALID");
         await requireBusinessRole(pool,auth,req.params.businessId,READ);
         return await paymentGatewayOptions(pool,req.params.businessId);
+      }catch(error){return sendError(req,reply,error);}
+    });
+  // TEST preparation only. The reference is a local audit token, not
+  // a charge or provider-initiated checkout; LIVE keys are never used.
+  app.post<{Params:{businessId:string};Body:{
+    saleId?:string;clientRequestId?:string;
+  }}>("/v1/businesses/:businessId/payment-gateways/attempts",
+    {bodyLimit:1024},async(req,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId))throw new AuthError(
+          "Invalid business ID",400,"BUSINESS_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        return await prepareTestGatewayAttempt(pool,{
+          businessId:req.params.businessId,
+          saleId:req.body?.saleId??"",
+          clientRequestId:req.body?.clientRequestId??"",
+        });
+      }catch(error){return sendError(req,reply,error);}
+    });
+  // One independent provider TEST status check per minute per attempt.
+  // The original encrypted TEST key/version and exact sale are verified by
+  // observeSandboxGatewayVerification; a test observation never posts money.
+  app.post<{Params:{businessId:string;attemptId:string};Body:{
+    providerTransactionId?:string;
+  }}>("/v1/businesses/:businessId/payment-gateways/attempts/:attemptId/verify-sandbox",
+    {bodyLimit:1024},async(req,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId)||!UUID.test(req.params.attemptId))
+          throw new AuthError("Invalid sandbox IDs",400,"GATEWAY_SANDBOX_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        const check=(await pool.query<{provider_code:string;state:string}>(
+          "SELECT provider_code,state FROM gateway_collection_attempts "+
+          "WHERE business_id=$1 AND id=$2 AND environment='TEST'",
+          [req.params.businessId,req.params.attemptId])).rows[0];
+        if(!check)throw new AuthError("TEST attempt was not found.",
+          404,"GATEWAY_SANDBOX_ATTEMPT_NOT_FOUND");
+        if(check.state!=="PREPARED")throw new AuthError(
+          "This TEST attempt is already closed.",409,
+          "GATEWAY_SANDBOX_ATTEMPT_CLOSED");
+        const providerTransactionId=req.body?.providerTransactionId;
+        if(check.provider_code==="FLUTTERWAVE"&&
+          (typeof providerTransactionId!=="string"||
+           !/^[1-9][0-9]{0,15}$/.test(providerTransactionId)))
+          throw new AuthError("Flutterwave needs a numeric TEST transaction ID.",
+            400,"GATEWAY_SANDBOX_PROVIDER_TX_REQUIRED");
+        if(check.provider_code==="PAYSTACK"&&
+           providerTransactionId!==undefined)
+          throw new AuthError("Paystack checks the original TEST reference.",
+            400,"GATEWAY_SANDBOX_PROVIDER_TX_UNEXPECTED");
+        const claimed=(await pool.query<{id:string}>(
+          "UPDATE gateway_collection_attempts SET "+
+          "last_portal_verification_at=now(),portal_verification_count=portal_verification_count+1 "+
+          "WHERE business_id=$1 AND id=$2 AND environment='TEST' AND state='PREPARED' "+
+          "AND (last_portal_verification_at IS NULL OR "+
+          "last_portal_verification_at<=now()-interval '1 minute') RETURNING id",
+          [req.params.businessId,req.params.attemptId])).rows[0];
+        if(!claimed)throw new AuthError(
+          "Only an open TEST attempt can be checked, at most once per minute.",
+          429,"GATEWAY_SANDBOX_PORTAL_CHECK_LIMITED");
+        return await observeSandboxGatewayVerification(pool,{
+          businessId:req.params.businessId,attemptId:req.params.attemptId,
+          ...(req.body?.providerTransactionId?
+            {providerTransactionId:req.body.providerTransactionId}:{}),
+        });
+      }catch(error){return sendError(req,reply,error);}
+    });
+  app.post<{Params:{businessId:string;attemptId:string};Body:{
+    decision?:"CANCELLED"|"REVIEW_REQUIRED";reasonCode?:string;
+  }}>("/v1/businesses/:businessId/payment-gateways/attempts/:attemptId/close",
+    {bodyLimit:1024},async(req,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId)||!UUID.test(req.params.attemptId))
+          throw new AuthError("Invalid sandbox IDs",400,"GATEWAY_SANDBOX_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        const decision=req.body?.decision;
+        if(decision!=="CANCELLED"&&decision!=="REVIEW_REQUIRED")
+          throw new AuthError("Choose a supported TEST attempt decision.",
+            400,"GATEWAY_SANDBOX_DECISION_REQUIRED");
+        return await closeTestGatewayAttempt(pool,{
+          businessId:req.params.businessId,attemptId:req.params.attemptId,
+          decision,reasonCode:req.body?.reasonCode??"MERCHANT_MANUAL_REVIEW",
+        });
       }catch(error){return sendError(req,reply,error);}
     });
   app.get<{Params:{businessId:string};Querystring:{branchId?:string;limit?:string}}>(
@@ -226,8 +318,9 @@ export function registerPaymentProviderRoutes(app:FastifyInstance,pool:DatabaseP
 }
 function sendError(req:{log:{error:(error:unknown)=>void}},
   reply:{code:(status:number)=>{send:(payload:unknown)=>unknown}},error:unknown){
-  if(error instanceof MerchantProbeError)return reply.code(error.statusCode).send({
-    error:error.code,message:error.message});
+  if(error instanceof MerchantProbeError||error instanceof GatewayAdapterError)
+    return reply.code(error.statusCode).send({
+      error:error.code,message:error.message});
   if(error instanceof AuthError)return reply.code(error.statusCode).send({
     error:error.code,message:error.message});
   req.log.error(error);

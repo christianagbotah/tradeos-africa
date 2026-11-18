@@ -272,3 +272,125 @@ describe("independently polled, non-posting sandbox evidence",()=>{
   });
 
 });
+
+describe("merchant-facing, no-money sandbox test workspace routes",()=>{
+  it("prepares one idempotent test reference without contacting a provider",async()=>{
+    const m=await merchant("PAYSTACK"),other=await merchant("PAYSTACK");
+    const saleId=(await pool.query<{id:string}>(
+      "INSERT INTO sales(business_id,branch_id,status,currency_code,total_minor,"+
+      "client_mutation_id) VALUES($1,$2,'OPEN','GHS',8500,$3) RETURNING id",
+      [m.businessId,m.branchId,"portal-"+randomUUID()])).rows[0]!.id;
+    const paymentId=(await pool.query<{id:string}>(
+      "INSERT INTO payments(business_id,branch_id,sale_id,amount_minor,"+
+      "currency_code,method,status,client_mutation_id) "+
+      "VALUES($1,$2,$3,8500,'GHS','MOMO','PENDING',$4) RETURNING id",
+      [m.businessId,m.branchId,saleId,"portal-pay-"+randomUUID()])).rows[0]!.id;
+    const route="/v1/businesses/"+m.businessId+"/payment-gateways/attempts";
+    const payload={saleId,clientRequestId:randomUUID()};
+    const foreign=await app.inject({method:"POST",url:route,
+      headers:other.headers,payload});
+    expect(foreign.statusCode).toBe(403);
+    const first=await app.inject({method:"POST",url:route,headers:m.headers,payload});
+    expect(first.statusCode,first.body).toBe(200);
+    expect(first.json()).toMatchObject({charged:false,replayed:false,
+      attempt:{saleId,environment:"TEST",providerCode:"PAYSTACK",state:"PREPARED"}});
+    const second=await app.inject({method:"POST",url:route,headers:m.headers,payload});
+    expect(second.statusCode,second.body).toBe(200);
+    expect(second.json()).toMatchObject({charged:false,replayed:true});
+    expect(second.json().attempt.attemptId).toBe(first.json().attempt.attemptId);
+    const conflicting=await app.inject({method:"POST",url:route,headers:m.headers,
+      payload:{saleId,clientRequestId:randomUUID()}});
+    expect(conflicting.statusCode).toBe(409);
+    expect(await financialState(paymentId,saleId)).toEqual({
+      payment:"PENDING",sale:"OPEN",cashbook:"0"});
+  });
+
+  it("independently checks Paystack TEST once/minute with exact original reference",async()=>{
+    const m=await merchant("PAYSTACK"),other=await merchant("PAYSTACK");
+    const a=await sale(m);
+    const endpoint="/v1/businesses/"+m.businessId+"/payment-gateways/attempts/"+
+      a.attemptId+"/verify-sandbox";
+    // IDs must be unique across this *entire* isolated suite. The DB correctly
+    // rejects a single provider transaction ID attributed to two sales.
+    const providerId=800000000+Math.floor(Math.random()*100000000);
+    const old=globalThis.fetch;
+    const net=vi.fn(async(uri:RequestInfo|URL,init?:RequestInit)=>{
+      expect(String(uri)).toContain("/transaction/verify/"+a.reference);
+      expect((init?.headers as Record<string,string>).authorization)
+        .toBe("Bearer "+KEY.PAYSTACK);
+      return paystackResponse(a.reference,providerId);
+    });
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const denied=await app.inject({method:"POST",url:endpoint,
+        headers:other.headers,payload:{}});
+      expect(denied.statusCode).toBe(403);
+      const paid=await app.inject({method:"POST",url:endpoint,
+        headers:m.headers,payload:{}});
+      expect(paid.statusCode,paid.body).toBe(200);
+      expect(paid.json()).toMatchObject({replayed:false,
+        evidence:{status:"TEST_PAID_OBSERVED",posted:false,collectionEnabled:false}});
+      const rate=await app.inject({method:"POST",url:endpoint,
+        headers:m.headers,payload:{}});
+      expect(rate.statusCode).toBe(429);
+      expect(net).toHaveBeenCalledTimes(1);
+      const checks=(await pool.query<{portal_verification_count:number}>(
+        "SELECT portal_verification_count FROM gateway_collection_attempts WHERE id=$1",
+        [a.attemptId])).rows[0]!;
+      expect(checks.portal_verification_count).toBe(1);
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+    }finally{globalThis.fetch=old;}
+  });
+
+  it("validates Flutterwave provider ID before consuming quota, then records TEST only",async()=>{
+    const m=await merchant("FLUTTERWAVE"),a=await sale(m);
+    const endpoint="/v1/businesses/"+m.businessId+"/payment-gateways/attempts/"+
+      a.attemptId+"/verify-sandbox";
+    const invalid=await app.inject({method:"POST",url:endpoint,
+      headers:m.headers,payload:{}});
+    expect(invalid.statusCode,invalid.body).toBe(400);
+    const quota=(await pool.query<{portal_verification_count:number}>(
+      "SELECT portal_verification_count FROM gateway_collection_attempts WHERE id=$1",
+      [a.attemptId])).rows[0]!;
+    expect(quota.portal_verification_count).toBe(0);
+    const providerId=String(800000000+Math.floor(Math.random()*100000000));
+    const old=globalThis.fetch;
+    const net=vi.fn(async(uri:RequestInfo|URL,init?:RequestInit)=>{
+      expect(String(uri)).toContain("/transactions/"+providerId+"/verify");
+      expect((init?.headers as Record<string,string>).authorization)
+        .toBe("Bearer "+KEY.FLUTTERWAVE);
+      return flutterResponse(a.reference,Number(providerId));
+    });
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const observed=await app.inject({method:"POST",url:endpoint,
+        headers:m.headers,payload:{providerTransactionId:providerId}});
+      expect(observed.statusCode,observed.body).toBe(200);
+      expect(observed.json().evidence.status).toBe("TEST_PAID_OBSERVED");
+      expect(net).toHaveBeenCalledTimes(1);
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+    }finally{globalThis.fetch=old;}
+  });
+
+  it("closes TEST attempts without refund/settlement and never reopens them",async()=>{
+    const m=await merchant(),a=await sale(m);
+    const endpoint="/v1/businesses/"+m.businessId+"/payment-gateways/attempts/"+
+      a.attemptId+"/close";
+    const first=await app.inject({method:"POST",url:endpoint,headers:m.headers,
+      payload:{decision:"REVIEW_REQUIRED",reasonCode:"MERCHANT_REQUESTED_REVIEW"}});
+    expect(first.statusCode,first.body).toBe(200);
+    expect(first.json()).toMatchObject({
+      replayed:false,charged:false,attempt:{state:"REVIEW_REQUIRED"}});
+    const again=await app.inject({method:"POST",url:endpoint,headers:m.headers,
+      payload:{decision:"REVIEW_REQUIRED",reasonCode:"MERCHANT_REQUESTED_REVIEW"}});
+    expect(again.statusCode).toBe(200);
+    expect(again.json().replayed).toBe(true);
+    const restart=await app.inject({method:"POST",url:endpoint,headers:m.headers,
+      payload:{decision:"CANCELLED",reasonCode:"MERCHANT_CANCELLED_TEST"}});
+    expect(restart.statusCode).toBe(409);
+    expect(await financialState(a.paymentId,a.saleId)).toEqual({
+      payment:"PENDING",sale:"OPEN",cashbook:"0"});
+  });
+});
