@@ -12,6 +12,10 @@ import { HubtelStatusError } from "../platform-admin/hubtel-status-client.js";
 import { getBusinessHubtelPosMonitor } from "./hubtel-pos-monitor.js";
 import {recordUntrustedHubtelNotification} from "./hubtel-pos-notification-inbox.js";
 import {reviewSettledHubtelSale} from "./hubtel-pos-settlement-review.js";
+import {
+  listHubtelExceptionReviewCases,submitHubtelExceptionReview,
+  decideHubtelExceptionReview,
+} from "./hubtel-exception-review-cases.js";
 
 const ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","CASHIER","SALES","STAFF"];
 const MONITOR_ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","ACCOUNTANT"];
@@ -84,6 +88,64 @@ export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):v
         });
       }catch(error){return errorResponse(request,reply,error);}
     });
+  app.get<{Querystring:{businessId?:string;branchId?:string;limit?:string}}>(
+    "/v1/payments/hubtel/exception-cases",async(request,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const businessId=request.query.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return await listHubtelExceptionReviewCases(pool,{
+          businessId,
+          ...(request.query.branchId?{branchId:request.query.branchId}:{}),
+          limit:Number(request.query.limit??50),
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.post<{Params:{exceptionId:string};Body:{
+    businessId?:string;expectedRevision?:number;
+    recommendedAction?:string;evidenceReference?:string;note?:string;
+  }}>(
+    "/v1/payments/hubtel/exception-cases/:exceptionId/submit",async(request,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const businessId=request.body?.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return {review:await submitHubtelExceptionReview(pool,{
+          businessId,exceptionId:request.params.exceptionId,actorUserId:auth.userId,
+          expectedRevision:request.body?.expectedRevision,
+          recommendedAction:request.body?.recommendedAction,
+          evidenceReference:request.body?.evidenceReference,
+          note:request.body?.note,
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.post<{Params:{exceptionId:string};Body:{
+    businessId?:string;expectedRevision?:number;decision?:string;note?:string;
+  }}>(
+    "/v1/payments/hubtel/exception-cases/:exceptionId/decide",async(request,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const businessId=request.body?.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,["OWNER","ADMIN"]);
+        return {review:await decideHubtelExceptionReview(pool,{
+          businessId,exceptionId:request.params.exceptionId,actorUserId:auth.userId,
+          expectedRevision:request.body?.expectedRevision,
+          decision:request.body?.decision,note:request.body?.note,
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
   app.get<{Params:{saleId:string};Querystring:{businessId?:string}}>(
     "/v1/sales/:saleId/hubtel/checkout",async(request,reply)=>{
       try{
