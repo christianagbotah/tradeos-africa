@@ -11,6 +11,7 @@ import { HubtelCheckoutError } from "../platform-admin/hubtel-checkout-client.js
 import { HubtelStatusError } from "../platform-admin/hubtel-status-client.js";
 import { getBusinessHubtelPosMonitor } from "./hubtel-pos-monitor.js";
 import {recordUntrustedHubtelNotification} from "./hubtel-pos-notification-inbox.js";
+import {reviewSettledHubtelSale} from "./hubtel-pos-settlement-review.js";
 
 const ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","CASHIER","SALES","STAFF"];
 const MONITOR_ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","ACCOUNTANT"];
@@ -98,6 +99,20 @@ export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):v
         return {checkout:await startSaleHubtelCheckout(pool,{
           businessId,saleId:request.params.saleId,
           clientRequestId:request.body?.clientRequestId??"",
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Manual, rate-bounded independent status recheck of an already-paid sale.
+  // Refund/status discrepancies are append-only alerts; NEVER automatic reversal.
+  app.post<{Params:{saleId:string};Body:{businessId?:string}}>(
+    "/v1/sales/:saleId/hubtel/settlement-review",async(request,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try {
+        const businessId=await authorize(pool,request.headers.authorization,
+          request.body?.businessId,["OWNER","ADMIN","MANAGER"]);
+        return {result:await reviewSettledHubtelSale(pool,{
+          businessId,saleId:request.params.saleId,
         })};
       }catch(error){return errorResponse(request,reply,error);}
     },
