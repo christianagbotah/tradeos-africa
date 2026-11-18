@@ -6,6 +6,7 @@ import {readApiErrorMessage} from "../../../lib/auth-fetch";
 import {Button} from "../ui/button";
 import {MoneyValue} from "../business/money-value";
 import {GatewayHostedTestCheckout} from "./gateway-hosted-test-checkout";
+import {GatewayEligibleSalePicker} from "./gateway-eligible-sale-picker";
 
 type Attempt={
   attemptId:string;saleId:string;branchId:string;providerCode:string;
@@ -131,23 +132,34 @@ export function GatewayAttemptMonitor({businessId,online}:{
     <div style={{display:"grid",gap:9,border:"1px solid #a5b3c7",
       borderRadius:10,padding:12}}>
       <strong>Prepare a Paystack / Flutterwave sandbox test</strong>
-      <p style={{margin:0,fontSize:13}}>Enter the ID of an existing OPEN sale
-        with exactly one PENDING MoMo or card payment. The currently selected gateway
-        must have your saved TEST key. Preparing this attempt creates only a
-        reference: <strong>no checkout or live collection occurs during preparation</strong>.
-        You can separately start one hosted provider TEST checkout for this
-        reference after confirming your account password.
-        A provider TEST transaction with exactly that reference must exist before
-        the independent status check can show paid evidence.</p>
-      <label htmlFor="gateway-test-sale-id">Open sale ID (UUID)</label>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",minWidth:0}}>
+      <p style={{margin:0,fontSize:13}}>Choose an eligible pending sale.
+        TradeOS displays the branch, amount and payment method and excludes
+        sales that already have a gateway attempt. Preparing this attempt creates
+        only a TEST reference: <strong>no checkout or live collection occurs
+        during preparation</strong>. A separate password-confirmed action can
+        create one provider-hosted TEST checkout.</p>
+      <GatewayEligibleSalePicker businessId={businessId} online={online}
+        revision={revision} value={saleId}
+        onChange={next=>{setSaleId(next);setRequestId(null);}}/>
+      <details>
+        <summary style={{cursor:"pointer",fontSize:13}}>
+          Advanced: use an existing sale ID directly</summary>
+        <label htmlFor="gateway-test-sale-id">
+          Open sale ID (UUID)</label>
         <input id="gateway-test-sale-id" className="tos-input"
-          style={{flex:"1 1 290px",minWidth:0}} value={saleId}
-          placeholder="Paste the open sale UUID" disabled={!online||Boolean(busyId)}
+          style={{width:"100%",maxWidth:600,display:"block",marginTop:7}}
+          value={saleId} placeholder="Paste the open sale UUID"
+          disabled={!online||Boolean(busyId)}
           onChange={e=>{setSaleId(e.target.value);setRequestId(null);}}/>
+        <small>The server validates the same restrictions for manually
+          entered IDs. A paid, closed or already-attempted sale will be rejected.</small>
+      </details>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <Button type="button" variant="primary" loading={busyId==="PREPARE"}
           disabled={!online||Boolean(busyId)||!uuid.test(saleId.trim())}
-          onClick={()=>void prepare()}>Prepare TEST attempt</Button>
+          onClick={()=>void prepare()}>Prepare selected TEST attempt</Button>
+        {uuid.test(saleId.trim())?
+          <small role="status">TEST only · no real payment or receipt</small>:null}
       </div>
     </div>
     {data?<><div style={{display:"flex",gap:16,flexWrap:"wrap"}}>

@@ -10,6 +10,7 @@ import {
 } from "./attempts.js";
 import {observeSandboxGatewayVerification} from "./sandbox-verification.js";
 import {initializeGatewaySandboxCheckout} from "./sandbox-hosted-checkout.js";
+import {listEligibleGatewayTestSales} from "./eligible-sales.js";
 import {GatewayAdapterError} from "./hosted-adapters.js";
 import {getHubtelMerchantActivationReadiness} from "./hubtel-activation-readiness.js";
 import {
@@ -33,6 +34,28 @@ export function registerPaymentProviderRoutes(app:FastifyInstance,pool:DatabaseP
           "Invalid business ID",400,"BUSINESS_ID_INVALID");
         await requireBusinessRole(pool,auth,req.params.businessId,READ);
         return await paymentGatewayOptions(pool,req.params.businessId);
+      }catch(error){return sendError(req,reply,error);}
+    });
+  app.get<{Params:{businessId:string};Querystring:{branchId?:string;limit?:string}}>(
+    "/v1/businesses/:businessId/payment-gateways/eligible-test-sales",
+    async(req,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId))throw new AuthError(
+          "Valid business ID is required.",400,"BUSINESS_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        if(req.query.branchId&&!UUID.test(req.query.branchId))throw new AuthError(
+          "Valid branch ID is required.",400,"BRANCH_ID_INVALID");
+        const limit=req.query.limit===undefined?30:Number(req.query.limit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>60)throw new AuthError(
+          "The maximum eligible sales page is 60.",400,
+          "GATEWAY_TEST_PICKER_LIMIT_INVALID");
+        return await listEligibleGatewayTestSales(pool,{
+          businessId:req.params.businessId,
+          ...(req.query.branchId?{branchId:req.query.branchId}:{}),
+          limit,
+        });
       }catch(error){return sendError(req,reply,error);}
     });
   // TEST preparation only. The reference is a local audit token, not
