@@ -9,6 +9,7 @@ import {
   listGatewayTestAttempts,prepareTestGatewayAttempt,closeTestGatewayAttempt,
 } from "./attempts.js";
 import {observeSandboxGatewayVerification} from "./sandbox-verification.js";
+import {initializeGatewaySandboxCheckout} from "./sandbox-hosted-checkout.js";
 import {GatewayAdapterError} from "./hosted-adapters.js";
 import {getHubtelMerchantActivationReadiness} from "./hubtel-activation-readiness.js";
 import {
@@ -50,6 +51,27 @@ export function registerPaymentProviderRoutes(app:FastifyInstance,pool:DatabaseP
           businessId:req.params.businessId,
           saleId:req.body?.saleId??"",
           clientRequestId:req.body?.clientRequestId??"",
+        });
+      }catch(error){return sendError(req,reply,error);}
+    });
+  // Explicit, password-confirmed merchant TEST-only checkout initiation.
+  // A pending/unknown provider response is single-use: never POST twice.
+  app.post<{Params:{businessId:string;attemptId:string};Body:{
+    customerEmail?:string;currentPassword?:string;
+  }}>("/v1/businesses/:businessId/payment-gateways/attempts/:attemptId/hosted-test-checkout",
+    {bodyLimit:1024},async(req,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        if(!UUID.test(req.params.businessId)||!UUID.test(req.params.attemptId))
+          throw new AuthError("Invalid merchant TEST checkout identifiers.",
+            400,"GATEWAY_TEST_CHECKOUT_ID_INVALID");
+        await requireBusinessRole(pool,auth,req.params.businessId,MANAGE);
+        return await initializeGatewaySandboxCheckout(pool,{
+          businessId:req.params.businessId,attemptId:req.params.attemptId,
+          actorUserId:auth.userId,
+          currentPassword:req.body?.currentPassword,
+          customerEmail:req.body?.customerEmail,
         });
       }catch(error){return sendError(req,reply,error);}
     });

@@ -4,6 +4,7 @@ import {withTransaction} from "../db.js";
 import {AuthError} from "../auth/security.js";
 import {gatewayFor,gatewaySupported} from "./catalog.js";
 import {selectedGateway} from "./service.js";
+import {listGatewaySandboxHostedCheckouts} from "./sandbox-hosted-checkout.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Queryable=Pick<DatabasePool,"query">|Pick<DatabaseClient,"query">;
@@ -158,6 +159,9 @@ export async function listGatewayTestAttempts(pool:DatabasePool,input:{
   // Only read observations already tied to this tenant's attempt IDs.
   // An independently observed sandbox payment is NOT a posted receipt.
   const attemptIds=results.rows.map(row=>row.id);
+  const hostedByAttempt=await listGatewaySandboxHostedCheckouts(pool,{
+    businessId:input.businessId,attemptIds,
+  });
   const evidence=attemptIds.length?await pool.query<{
     attempt_id:string;observation_kind:"SANDBOX_PAID"|"SANDBOX_UNPAID";
     observed_at:Date;
@@ -186,15 +190,18 @@ export async function listGatewayTestAttempts(pool:DatabasePool,input:{
   return {
     businessId:input.businessId,
     attempts:results.rows.map(row=>({...attemptView(row),
-      sandboxEvidence:evidenceByAttempt.get(row.id)??null})),
+      sandboxEvidence:evidenceByAttempt.get(row.id)??null,
+      sandboxCheckout:hostedByAttempt.get(row.id)??null})),
     summary:{
       prepared:Number(summary.rows[0]?.prepared??0),
       cancelled:Number(summary.rows[0]?.cancelled??0),
       reviewRequired:Number(summary.rows[0]?.review_required??0),
     },
     collectionEnabled:false,
-    notice:"TEST preparation only. No external provider charge, "+
-      "receipt, inventory release or financial posting is possible here.",
+    notice:"Prepared TEST attempts do not charge anyone. An optional explicit "+
+      "provider-hosted checkout uses only the merchant TEST key; simulated "+
+      "sandbox payments never complete the TradeOS sale, issue receipts, "+
+      "release inventory or post money.",
   };
 }
 
@@ -221,6 +228,16 @@ export async function closeTestGatewayAttempt(pool:DatabasePool,input:{
       "GATEWAY_ATTEMPT_NOT_FOUND");
     if(current.state===input.decision)
       return {attempt:attemptView(current),replayed:true,charged:false};
+    if(input.decision==="CANCELLED"){
+      const initiated=(await tx.query<{attempt_id:string}>(
+        "SELECT attempt_id FROM gateway_sandbox_hosted_checkouts "+
+        "WHERE attempt_id=$1 AND business_id=$2",
+        [input.attemptId,input.businessId])).rows[0];
+      if(initiated)throw new AuthError(
+        "An external TEST checkout was initiated. Flag the attempt for "+
+        "manual review instead of treating the checkout as cancelled.",
+        409,"GATEWAY_TEST_CHECKOUT_CANNOT_CANCEL");
+    }
     if(current.state!=="PREPARED")throw new AuthError(
       "This attempt has already been closed. Review it before changing state.",
       409,"GATEWAY_ATTEMPT_ALREADY_CLOSED");

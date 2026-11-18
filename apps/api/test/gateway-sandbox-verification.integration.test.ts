@@ -394,3 +394,225 @@ describe("merchant-facing, no-money sandbox test workspace routes",()=>{
       payment:"PENDING",sale:"OPEN",cashbook:"0"});
   });
 });
+
+describe("one-time merchant-hosted TEST checkout initiation",()=>{
+  const endpoint=(businessId:string,attemptId:string)=>
+    "/v1/businesses/"+businessId+"/payment-gateways/attempts/"+attemptId+
+    "/hosted-test-checkout";
+  const input={customerEmail:"sandbox.customer@example.com",
+    currentPassword:"TradeOS-Test-1234"};
+
+  it("initiates one Paystack TEST checkout, safely replays and verifies without posting",async()=>{
+    const m=await merchant("PAYSTACK"),a=await sale(m);
+    const providerTransactionId=String(850000000+Math.floor(Math.random()*10000000));
+    const old=globalThis.fetch;
+    const net=vi.fn(async(uri:RequestInfo|URL,init?:RequestInit)=>{
+      if(String(uri)==="https://api.paystack.co/transaction/initialize"){
+        expect(init?.method).toBe("POST");
+        expect((init?.headers as Record<string,string>).authorization)
+          .toBe("Bearer "+KEY.PAYSTACK);
+        const body=JSON.parse(String(init?.body)) as Record<string,unknown>;
+        expect(body).toMatchObject({reference:a.reference,amount:8500,
+          currency:"GHS",email:input.customerEmail});
+        return json({status:true,data:{reference:a.reference,
+          authorization_url:"https://checkout.paystack.com/test-hosted-"+a.attemptId}});
+      }
+      expect(String(uri)).toContain("/transaction/verify/"+a.reference);
+      return paystackResponse(a.reference,Number(providerTransactionId));
+    });
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const init=await app.inject({method:"POST",url:endpoint(m.businessId,a.attemptId),
+        headers:m.headers,payload:input});
+      expect(init.statusCode,init.body).toBe(200);
+      expect(init.json()).toMatchObject({replayed:false,checkout:{
+        state:"READY",providerCode:"PAYSTACK",charged:false,settled:false,
+        environment:"TEST"}});
+      const replay=await app.inject({method:"POST",url:endpoint(m.businessId,a.attemptId),
+        headers:m.headers,payload:input});
+      expect(replay.statusCode,replay.body).toBe(200);
+      expect(replay.json()).toMatchObject({replayed:true,
+        checkout:{state:"READY",charged:false,settled:false}});
+      expect(net).toHaveBeenCalledTimes(1);
+      const audit=await app.inject({method:"GET",headers:m.headers,
+        url:"/v1/businesses/"+m.businessId+"/payment-gateways/attempts"});
+      expect(audit.statusCode,audit.body).toBe(200);
+      const row=audit.json().attempts.find((x:{attemptId:string})=>
+        x.attemptId===a.attemptId);
+      expect(row).toMatchObject({sandboxCheckout:{state:"READY",
+        checkoutUrl:init.json().checkout.checkoutUrl,charged:false,settled:false}});
+      expect(audit.body).not.toContain(KEY.PAYSTACK);
+      const paid=await app.inject({method:"POST",headers:m.headers,
+        url:"/v1/businesses/"+m.businessId+"/payment-gateways/attempts/"+
+          a.attemptId+"/verify-sandbox",payload:{}});
+      expect(paid.statusCode,paid.body).toBe(200);
+      expect(paid.json().evidence).toMatchObject({
+        status:"TEST_PAID_OBSERVED",posted:false,collectionEnabled:false});
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+      const cancel=await app.inject({method:"POST",headers:m.headers,
+        url:"/v1/businesses/"+m.businessId+"/payment-gateways/attempts/"+
+          a.attemptId+"/close",payload:{decision:"CANCELLED",
+          reasonCode:"MERCHANT_CANCELLED_TEST"}});
+      expect(cancel.statusCode,cancel.body).toBe(409);
+    }finally{globalThis.fetch=old;}
+  });
+
+  it("creates a Flutterwave hosted TEST checkout on the original test key only",async()=>{
+    const m=await merchant("FLUTTERWAVE"),a=await sale(m);
+    const old=globalThis.fetch;
+    const net=vi.fn(async(uri:RequestInfo|URL,init?:RequestInit)=>{
+      expect(String(uri)).toBe("https://api.flutterwave.com/v3/payments");
+      expect(init?.method).toBe("POST");
+      expect((init?.headers as Record<string,string>).authorization)
+        .toBe("Bearer "+KEY.FLUTTERWAVE);
+      const body=JSON.parse(String(init?.body)) as Record<string,unknown>;
+      expect(body).toMatchObject({tx_ref:a.reference,amount:"85.00",
+        currency:"GHS",customer:{email:input.customerEmail}});
+      return json({status:"success",data:{
+        link:"https://checkout.flutterwave.com/v3/hosted/pay/flwlnk-sandbox"}});
+    });
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const started=await app.inject({method:"POST",headers:m.headers,
+        url:endpoint(m.businessId,a.attemptId),payload:input});
+      expect(started.statusCode,started.body).toBe(200);
+      expect(started.json()).toMatchObject({replayed:false,checkout:{
+        state:"READY",checkoutUrl:
+          "https://checkout.flutterwave.com/v3/hosted/pay/flwlnk-sandbox"}});
+      expect(net).toHaveBeenCalledTimes(1);
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+    }finally{globalThis.fetch=old;}
+  });
+
+  it("holds ambiguous provider outcomes with zero replays or paid receipts",async()=>{
+    const m=await merchant(),a=await sale(m);
+    const old=globalThis.fetch;
+    const net=vi.fn(async()=>{throw new Error("Synthetic provider timeout");});
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const attempt=await app.inject({method:"POST",headers:m.headers,
+        url:endpoint(m.businessId,a.attemptId),payload:input});
+      expect(attempt.statusCode,attempt.body).toBe(200);
+      expect(attempt.json()).toMatchObject({replayed:false,
+        checkout:{state:"OUTCOME_UNKNOWN",checkoutUrl:null,
+          charged:false,settled:false}});
+      const replay=await app.inject({method:"POST",headers:m.headers,
+        url:endpoint(m.businessId,a.attemptId),payload:input});
+      expect(replay.statusCode,replay.body).toBe(200);
+      expect(replay.json()).toMatchObject({replayed:true,
+        checkout:{state:"OUTCOME_UNKNOWN",checkoutUrl:null}});
+      expect(net).toHaveBeenCalledTimes(1);
+      const events=await pool.query<{event_type:string}>(
+        "SELECT event_type FROM gateway_sandbox_hosted_checkout_events "+
+        "WHERE attempt_id=$1 ORDER BY occurred_at",[a.attemptId]);
+      expect(events.rows.map(x=>x.event_type))
+        .toEqual(["INITIATED","OUTCOME_UNKNOWN"]);
+      await expect(pool.query("DELETE FROM gateway_sandbox_hosted_checkout_events "+
+        "WHERE attempt_id=$1",[a.attemptId])).rejects.toThrow();
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+    }finally{globalThis.fetch=old;}
+  });
+
+  it("blocks cross-tenant calls, wrong passwords and rotated TEST keys before any POST",async()=>{
+    const m=await merchant("PAYSTACK"),foreign=await merchant();
+    const a=await sale(m);
+    const old=globalThis.fetch;
+    const net=vi.fn(async()=>json({status:true,data:{}}));
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const url=endpoint(m.businessId,a.attemptId);
+      const forbidden=await app.inject({method:"POST",url,headers:foreign.headers,
+        payload:input});
+      expect(forbidden.statusCode).toBe(403);
+      const wrongPassword=await app.inject({method:"POST",url,headers:m.headers,
+        payload:{...input,currentPassword:"IncorrectPassword123!"}});
+      expect(wrongPassword.statusCode).toBe(403);
+      await pool.query("UPDATE business_gateway_connections "+
+        "SET revision=revision+1 WHERE business_id=$1 AND provider_code='PAYSTACK'",
+        [m.businessId]);
+      const rotated=await app.inject({method:"POST",url,headers:m.headers,
+        payload:input});
+      expect(rotated.statusCode,rotated.body).toBe(409);
+      expect(net).toHaveBeenCalledTimes(0);
+      expect((await pool.query<{c:string}>(
+        "SELECT count(*)::text AS c FROM gateway_sandbox_hosted_checkouts "+
+        "WHERE attempt_id=$1",[a.attemptId])).rows[0]?.c).toBe("0");
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+    }finally{globalThis.fetch=old;}
+  });
+
+  it("rejects a forged LIVE key even when it was encrypted into a TEST vault row",async()=>{
+    const m=await merchant("PAYSTACK"),a=await sale(m);
+    const secret=sealTestGatewayKey(m.businessId,"PAYSTACK",
+      "sk_live_SYNTHETIC_SHOULD_NEVER_BE_SENT");
+    await pool.query("UPDATE business_gateway_connections SET "+
+      "encrypted_secret=$2,nonce=$3,auth_tag=$4 WHERE business_id=$1 "+
+      "AND provider_code='PAYSTACK'",
+      [m.businessId,secret.encrypted,secret.nonce,secret.tag]);
+    const old=globalThis.fetch;
+    const net=vi.fn(async()=>json({status:true,data:{}}));
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const attempt=await app.inject({method:"POST",headers:m.headers,
+        url:endpoint(m.businessId,a.attemptId),payload:input});
+      expect(attempt.statusCode,attempt.body).toBe(403);
+      expect(attempt.json().error).toBe("GATEWAY_TEST_CHECKOUT_LIVE_KEY_BLOCKED");
+      expect(net).not.toHaveBeenCalled();
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+    }finally{globalThis.fetch=old;}
+  });
+
+  it("rejects an unsafe provider checkout URL without leaking it or retrying",async()=>{
+    const m=await merchant("PAYSTACK"),a=await sale(m);
+    const old=globalThis.fetch;
+    const net=vi.fn(async()=>json({status:true,data:{
+      reference:a.reference,authorization_url:"https://malicious.invalid/collect"}}));
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const result=await app.inject({method:"POST",headers:m.headers,
+        url:endpoint(m.businessId,a.attemptId),payload:input});
+      expect(result.statusCode,result.body).toBe(200);
+      expect(result.json().checkout).toMatchObject({
+        state:"OUTCOME_UNKNOWN",checkoutUrl:null,charged:false,settled:false});
+      expect(result.body).not.toContain("malicious.invalid");
+      const retry=await app.inject({method:"POST",headers:m.headers,
+        url:endpoint(m.businessId,a.attemptId),payload:input});
+      expect(retry.statusCode).toBe(200);
+      expect(retry.json()).toMatchObject({replayed:true,
+        checkout:{state:"OUTCOME_UNKNOWN"}});
+      expect(net).toHaveBeenCalledTimes(1);
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+    }finally{globalThis.fetch=old;}
+  });
+
+  it("does not expose a checkout link when merchant TEST credentials rotate mid-request",async()=>{
+    const m=await merchant("PAYSTACK"),a=await sale(m);
+    const old=globalThis.fetch;
+    const net=vi.fn(async(uri:RequestInfo|URL)=>{
+      expect(String(uri)).toBe("https://api.paystack.co/transaction/initialize");
+      await pool.query("UPDATE business_gateway_connections "+
+        "SET revision=revision+1 WHERE business_id=$1 AND provider_code='PAYSTACK'",
+        [m.businessId]);
+      return json({status:true,data:{reference:a.reference,
+        authorization_url:"https://checkout.paystack.com/should-not-be-shown"}});
+    });
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const response=await app.inject({method:"POST",headers:m.headers,
+        url:endpoint(m.businessId,a.attemptId),payload:input});
+      expect(response.statusCode,response.body).toBe(200);
+      expect(response.json().checkout).toMatchObject({
+        state:"OUTCOME_UNKNOWN",checkoutUrl:null,charged:false,settled:false});
+      expect(response.body).not.toContain("should-not-be-shown");
+      expect(net).toHaveBeenCalledTimes(1);
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+    }finally{globalThis.fetch=old;}
+  });
+});
