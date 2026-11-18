@@ -21,6 +21,10 @@ export interface HubtelPosMonitorItem {
   lastNotificationHint:string|null;
   lastNotificationAt:string|null;
   notificationTrust:"UNTRUSTED";
+  postSettlementCheckedAt:string|null;
+  settlementExceptionCount:number;
+  settlementExceptionKind:string|null;
+  settlementExceptionAt:string|null;
 }
 type Row = {
   id: string; sale_id: string; branch_id: string;
@@ -38,6 +42,10 @@ type Row = {
   notification_count:number;
   last_notification_hint:string|null;
   last_notification_at:Date|null;
+  last_post_settlement_checked_at:Date|null;
+  settlement_exception_count:number;
+  settlement_exception_kind:string|null;
+  settlement_exception_at:Date|null;
 };
 
 /**
@@ -50,6 +58,7 @@ export async function getBusinessHubtelPosMonitor(
   input: { businessId: string; branchId?: string; limit?: number },
 ): Promise<{ attempts: HubtelPosMonitorItem[]; summary: {
   awaiting: number; reviewRequired: number; reconciled: number;
+  settlementAlerts:number;
 } }> {
   const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 50) || 50));
   const values = [input.businessId, input.branchId ?? null, limit];
@@ -60,7 +69,11 @@ export async function getBusinessHubtelPosMonitor(
     "a.status_check_attempts,a.last_status_check_result," +
     "a.last_status_error_code,a.review_requested_at," +
     "COALESCE(n.notification_count,0) AS notification_count," +
-    "n.last_notification_hint,n.last_notification_at " +
+    "n.last_notification_hint,n.last_notification_at," +
+    "a.last_post_settlement_checked_at," +
+    "COALESCE(e.exception_count,0) AS settlement_exception_count," +
+    "e.latest_kind AS settlement_exception_kind," +
+    "e.latest_at AS settlement_exception_at " +
     "FROM hubtel_sale_checkout_attempts a " +
     "LEFT JOIN LATERAL (" +
     "SELECT count(*)::integer AS notification_count," +
@@ -69,6 +82,12 @@ export async function getBusinessHubtelPosMonitor(
     "AS last_notification_hint " +
     "FROM hubtel_pos_notification_inbox WHERE attempt_id=a.id" +
     ") n ON true " +
+    "LEFT JOIN LATERAL (" +
+    "SELECT count(*)::integer AS exception_count," +
+    "max(detected_at) AS latest_at," +
+    "(array_agg(exception_kind ORDER BY detected_at DESC,id DESC))[1] AS latest_kind " +
+    "FROM hubtel_pos_settlement_exceptions WHERE attempt_id=a.id" +
+    ") e ON true " +
     "JOIN sales s ON s.id=a.sale_id AND s.business_id=a.business_id " +
     "JOIN payments p ON p.id=a.payment_id AND p.business_id=a.business_id " +
     "WHERE a.business_id=$1 AND ($2::uuid IS NULL OR a.branch_id=$2::uuid) " +
@@ -96,13 +115,22 @@ export async function getBusinessHubtelPosMonitor(
     lastNotificationHint:row.last_notification_hint,
     lastNotificationAt:row.last_notification_at?.toISOString() ?? null,
     notificationTrust:"UNTRUSTED" as const,
+    postSettlementCheckedAt:row.last_post_settlement_checked_at?.toISOString()??null,
+    settlementExceptionCount:row.settlement_exception_count,
+    settlementExceptionKind:row.settlement_exception_kind,
+    settlementExceptionAt:row.settlement_exception_at?.toISOString()??null,
   }));
   const summary = await pool.query<{
     awaiting: string; review_required: string; reconciled: string;
+    settlement_alerts:string;
   }>(
     "SELECT COUNT(*) FILTER(WHERE state IN ('PREPARED','READY','PENDING_VERIFICATION'))::text AS awaiting," +
     "COUNT(*) FILTER(WHERE state='REVIEW_REQUIRED')::text AS review_required," +
-    "COUNT(*) FILTER(WHERE state='RECONCILED')::text AS reconciled " +
+    "COUNT(*) FILTER(WHERE state='RECONCILED')::text AS reconciled," +
+    "(SELECT count(DISTINCT e.attempt_id)::text " +
+    "FROM hubtel_pos_settlement_exceptions e " +
+    "WHERE e.business_id=$1 AND " +
+    "($2::uuid IS NULL OR e.branch_id=$2::uuid)) AS settlement_alerts " +
     "FROM hubtel_sale_checkout_attempts " +
     "WHERE business_id=$1 AND ($2::uuid IS NULL OR branch_id=$2::uuid)",
     [input.businessId, input.branchId ?? null],
@@ -113,6 +141,7 @@ export async function getBusinessHubtelPosMonitor(
       awaiting: Number(summary.rows[0]?.awaiting ?? 0),
       reviewRequired: Number(summary.rows[0]?.review_required ?? 0),
       reconciled: Number(summary.rows[0]?.reconciled ?? 0),
+      settlementAlerts:Number(summary.rows[0]?.settlement_alerts??0),
     },
   };
 }

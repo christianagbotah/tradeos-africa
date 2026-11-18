@@ -27,10 +27,15 @@ interface Item {
   lastStatusResult: string | null;
   lastErrorCode: string | null;
   reviewRequestedAt: string | null;
+  postSettlementCheckedAt:string|null;
+  settlementExceptionCount:number;
+  settlementExceptionKind:string|null;
+  settlementExceptionAt:string|null;
 }
 type Report = {
   attempts: Item[];
-  summary: { awaiting: number; reviewRequired: number; reconciled: number };
+  summary: { awaiting: number; reviewRequired: number; reconciled: number;
+    settlementAlerts:number };
 };
 type Readiness = { enabled: boolean; existingCheckoutEnabled: boolean;
   preferredProvider: string; notice: string };
@@ -71,8 +76,11 @@ export function HubtelReconciliationWorkspace() {
     setBusyId(item.attemptId);
     setMessage(null);setError(null);
     try {
+      const settled=item.state==="RECONCILED";
+      const action=settled?"settlement-review":"verify";
+      const url="/v1/sales/"+encodeURIComponent(item.saleId)+"/hubtel/"+action;
       const response = await getOfflineQueue().authenticatedFetch(
-        `/v1/sales/${encodeURIComponent(item.saleId)}/hubtel/verify`,
+        url,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -80,8 +88,16 @@ export function HubtelReconciliationWorkspace() {
         },
       );
       if (!response.ok) throw new Error(await readApiErrorMessage(response));
-      const result = await response.json() as { result: { state: string } };
-      setMessage(result.result.state === "PAID" ?
+      const result = await response.json() as { result: {
+        state:string;exceptionKind?:string|null;
+      } };
+      if(settled){
+        setMessage(result.result.exceptionKind==="REFUND_REPORTED"?
+          "Hubtel reports a refund against this previously paid sale. Manual accounting and inventory review is required. Nothing was automatically reversed.":
+          result.result.exceptionKind?
+            "Hubtel status conflicts with the original settled transaction. An auditable manual review alert was recorded. No financial reversal occurred.":
+            "Hubtel confirmed the original settled payment again. Existing review alerts, if any, remain open.");
+      }else setMessage(result.result.state === "PAID" ?
         "Hubtel independently confirmed payment. The sale is now settled." :
         result.result.state === "UNPAID" ?
         "Hubtel reports unpaid. The sale and stock remain on hold until safe resolution." :
@@ -125,6 +141,7 @@ export function HubtelReconciliationWorkspace() {
       <div><span>Awaiting checks</span><strong>{data?.summary.awaiting ?? "—"}</strong></div>
       <div><span>Needs review</span><strong>{data?.summary.reviewRequired ?? "—"}</strong></div>
       <div><span>Confirmed</span><strong>{data?.summary.reconciled ?? "—"}</strong></div>
+      <div><span>Post-settlement alerts</span><strong>{data?.summary.settlementAlerts ?? "—"}</strong></div>
     </div>
     {error ? <p role="alert" className={styles.error}>{error}</p> : null}
     {loadError ? <p role="alert" className={styles.error}>{loadError}</p> : null}
@@ -149,6 +166,14 @@ export function HubtelReconciliationWorkspace() {
             <div><span>Last checked</span><strong>{date(item.lastCheckedAt)}</strong></div>
             <div><span>Next automatic check</span><strong>{date(item.nextCheckAt)}</strong></div>
           </div>
+          {item.settlementExceptionCount>0?<p className={styles.review}>
+            <strong>Post-settlement review required</strong> — {item.settlementExceptionKind?.replaceAll("_"," ")}.
+            Last alert {date(item.settlementExceptionAt)}. This payment remains recorded
+            as completed until a separately authorized accounting review resolves it.
+            No automatic refund, cashbook reversal or stock movement has occurred.</p>:null}
+          {item.state==="RECONCILED"?<p className={styles.itemDate}>
+            Last post-settlement status check: {date(item.postSettlementCheckedAt)}.
+            Subsequent checks are limited to once every five minutes.</p>:null}
           {item.lastErrorCode ? <p className={styles.failure}>
             Provider check: <strong>{item.lastErrorCode.replaceAll("_"," ")}</strong></p> : null}
           {item.state==="REVIEW_REQUIRED"?<p className={styles.review}>
@@ -156,11 +181,12 @@ export function HubtelReconciliationWorkspace() {
             without confirming the final settlement status with Hubtel.</p>:null}
           <div className={styles.actions}>
             <Link href="/sales" className={styles.secondary}>Sales register</Link>
-            {canVerify&&item.state!=="RECONCILED" ? <button
+            {canVerify ? <button
               type="button" className={styles.primary}
               disabled={!readiness?.existingCheckoutEnabled || !queue.online || busyId!==null}
               onClick={()=>void verify(item)}>
-              {busyId===item.attemptId ? "Checking…" : "Verify with Hubtel"}</button> : null}
+              {busyId===item.attemptId ? "Checking…" :
+                  item.state==="RECONCILED"?"Recheck settlement":"Verify with Hubtel"}</button> : null}
           </div>
         </article>)}
       </section>}

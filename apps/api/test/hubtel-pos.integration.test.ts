@@ -516,3 +516,157 @@ describe("Hubtel reconciliation review-only escalation",()=>{
     expect(stopped).toMatchObject({enabled:false,acquired:false,attempted:0});
   });
 });
+
+describe("Hubtel post-settlement manual exception review",()=>{
+  async function settle(tag:string) {
+    const m=await merchant(tag,"merchant_1","111111");
+    installMock();
+    await startSaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,clientRequestId:randomUUID(),
+    });
+    const paid=await verifySaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,
+    });
+    expect(paid.state).toBe("PAID");
+    expect(await ledger(m)).toMatchObject({
+      status:"COMPLETED",payment_status:"SUCCEEDED",
+      receipt_count:"1",attempt_state:"RECONCILED",
+    });
+    const ref=(await pool.query<{client_reference:string}>(
+      "SELECT client_reference FROM hubtel_sale_checkout_attempts WHERE sale_id=$1",
+      [m.saleId])).rows[0]!.client_reference;
+    return {m,ref};
+  }
+  function statusResponse(ref:string,status:"Paid"|"Unpaid"|"Refunded",
+    transactionId="txn-confirmed-123",paymentMethod="mobilemoney") {
+    const mock=vi.fn(async (url:RequestInfo|URL)=>{
+      expect(String(url)).toContain(
+        "https://api-txnstatus.hubtel.com/transactions/111111/status");
+      expect(String(url)).toContain("clientReference="+encodeURIComponent(ref));
+      return new Response(JSON.stringify({responseCode:"0000",data:{
+        clientReference:ref,status,amount:70,
+        paymentMethod,transactionId,currencyCode:"GHS",
+        date:"2026-11-18T10:00:00Z",
+      }}),{status:200});
+    });
+    globalThis.fetch=mock as unknown as typeof fetch;
+    return mock;
+  }
+  function route(saleId:string){
+    return "/v1/sales/"+saleId+"/hubtel/settlement-review";
+  }
+
+  it("persists a confirmed refund alert without reversing the original paid sale",async()=>{
+    const {m,ref}=await settle("settlement-refund-later");
+    const foreign=await merchant("settlement-foreign","merchant_2","222222");
+    const calls=statusResponse(ref,"Refunded");
+    const forbidden=await app.inject({method:"POST",url:route(m.saleId),
+      headers:foreign.headers,payload:{businessId:m.businessId}});
+    expect(forbidden.statusCode).toBe(403);
+    const first=await app.inject({method:"POST",url:route(m.saleId),
+      headers:m.headers,payload:{businessId:m.businessId}});
+    expect(first.statusCode,first.body).toBe(200);
+    expect(first.json().result).toMatchObject({
+      state:"REVIEW_REQUIRED",exceptionKind:"REFUND_REPORTED",saleId:m.saleId});
+    expect(await ledger(m)).toMatchObject({status:"COMPLETED",
+      payment_status:"SUCCEEDED",receipt_count:"1",amount:"7000",
+      attempt_state:"RECONCILED"});
+    const monitor=await app.inject({method:"GET",
+      url:"/v1/payments/hubtel/reconciliation?businessId="+m.businessId,
+      headers:m.headers});
+    expect(monitor.statusCode,monitor.body).toBe(200);
+    expect(monitor.json().summary.settlementAlerts).toBe(1);
+    expect(monitor.json().attempts[0]).toMatchObject({
+      settlementExceptionCount:1,settlementExceptionKind:"REFUND_REPORTED",
+      state:"RECONCILED",paymentStatus:"SUCCEEDED" });
+    expect(monitor.body).not.toContain("merchant-test-secret");
+    expect(monitor.body).not.toContain("111111");
+    await expect(pool.query(
+      "INSERT INTO hubtel_pos_settlement_exceptions "+
+      "(attempt_id,business_id,branch_id,sale_id,payment_id,exception_kind,"+
+      "client_reference,original_provider_transaction_id,verified_at) "+
+      "VALUES($1,$2,$3,$4,$5,'REFUND_REPORTED',$6,'txn-confirmed-123',now())",
+      [monitor.json().attempts[0].attemptId,foreign.businessId,
+        foreign.branchId,m.saleId,m.paymentId,ref],
+    )).rejects.toMatchObject({code:"P0001"});
+    const duplicate=await app.inject({method:"POST",url:route(m.saleId),
+      headers:m.headers,payload:{businessId:m.businessId}});
+    expect(duplicate.statusCode).toBe(429);
+    expect(calls).toHaveBeenCalledTimes(1);
+    await pool.query(
+      "UPDATE hubtel_sale_checkout_attempts "+
+      "SET last_post_settlement_checked_at=now()-interval '6 minutes' "+
+      "WHERE sale_id=$1",[m.saleId]);
+    const afterCooldown=await app.inject({method:"POST",url:route(m.saleId),
+      headers:m.headers,payload:{businessId:m.businessId}});
+    expect(afterCooldown.statusCode,afterCooldown.body).toBe(200);
+    const counts=await pool.query<{exceptions:string;audits:string}>(
+      "SELECT "+
+      "(SELECT count(*)::text FROM hubtel_pos_settlement_exceptions WHERE sale_id=$1) AS exceptions,"+
+      "(SELECT count(*)::text FROM audit_events "+
+      "WHERE entity_id=$1 AND event_type='HUBTEL_POS_SETTLEMENT_EXCEPTION_OBSERVED') AS audits",
+      [m.saleId]);
+    expect(counts.rows[0]).toMatchObject({exceptions:"1",audits:"1"});
+    const existing=(await pool.query<{id:string}>(
+      "SELECT id FROM hubtel_pos_settlement_exceptions WHERE sale_id=$1",
+      [m.saleId])).rows[0]!.id;
+    await expect(pool.query(
+      "UPDATE hubtel_pos_settlement_exceptions SET exception_kind='STATUS_CONFLICT' WHERE id=$1",
+      [existing])).rejects.toMatchObject({code:"P0001"});
+    await expect(pool.query(
+      "DELETE FROM hubtel_pos_settlement_exceptions WHERE id=$1",
+      [existing])).rejects.toMatchObject({code:"P0001"});
+  });
+
+  it("treats a later Unpaid response as conflict, never unpaid cancellation",async()=>{
+    const {m,ref}=await settle("settlement-unpaid-later");
+    statusResponse(ref,"Unpaid");
+    const result=await app.inject({method:"POST",url:route(m.saleId),
+      headers:m.headers,payload:{businessId:m.businessId}});
+    expect(result.statusCode,result.body).toBe(200);
+    expect(result.json().result).toMatchObject({
+      state:"REVIEW_REQUIRED",exceptionKind:"STATUS_CONFLICT"});
+    expect(await ledger(m)).toMatchObject({
+      status:"COMPLETED",payment_status:"SUCCEEDED",receipt_count:"1"});
+  });
+
+  it("detects later tender or provider transaction conflicts without new receipts",async()=>{
+    const {m,ref}=await settle("settlement-method-mismatch");
+    statusResponse(ref,"Paid","txn-confirmed-123","card");
+    const first=await app.inject({method:"POST",url:route(m.saleId),
+      headers:m.headers,payload:{businessId:m.businessId}});
+    expect(first.statusCode,first.body).toBe(200);
+    expect(first.json().result.exceptionKind).toBe("METHOD_CONFLICT");
+    await pool.query(
+      "UPDATE hubtel_sale_checkout_attempts "+
+      "SET last_post_settlement_checked_at=now()-interval '6 minutes' "+
+      "WHERE sale_id=$1",[m.saleId]);
+    statusResponse(ref,"Paid","different-provider-transaction","mobilemoney");
+    const second=await app.inject({method:"POST",url:route(m.saleId),
+      headers:m.headers,payload:{businessId:m.businessId}});
+    expect(second.statusCode,second.body).toBe(200);
+    expect(second.json().result.exceptionKind).toBe("TRANSACTION_CONFLICT");
+    const monitor=await app.inject({method:"GET",
+      url:"/v1/payments/hubtel/reconciliation?businessId="+m.businessId,
+      headers:m.headers});
+    expect(monitor.json().attempts[0].settlementExceptionCount).toBe(2);
+    expect(monitor.json().summary.settlementAlerts).toBe(1);
+    expect(await ledger(m)).toMatchObject({
+      status:"COMPLETED",payment_status:"SUCCEEDED",receipt_count:"1"});
+  });
+
+  it("does not create exceptions when Hubtel confirms the original paid transaction",async()=>{
+    const {m,ref}=await settle("settlement-clean-recheck");
+    statusResponse(ref,"Paid");
+    const result=await app.inject({method:"POST",url:route(m.saleId),
+      headers:m.headers,payload:{businessId:m.businessId}});
+    expect(result.statusCode,result.body).toBe(200);
+    expect(result.json().result).toMatchObject({
+      state:"UNCHANGED",exceptionKind:null});
+    const rows=await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM hubtel_pos_settlement_exceptions WHERE sale_id=$1",
+      [m.saleId]);
+    expect(rows.rows[0]!.count).toBe("0");
+    expect((await ledger(m)).receipt_count).toBe("1");
+  });
+});
