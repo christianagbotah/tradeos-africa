@@ -25,6 +25,66 @@ export function GatewayAttemptMonitor({businessId,online}:{
   const [error,setError]=useState<string|null>(null);
   const [loading,setLoading]=useState(false);
   const [revision,setRevision]=useState(0);
+  const [saleId,setSaleId]=useState("");
+  const [requestId,setRequestId]=useState<string|null>(null);
+  const [providerTx,setProviderTx]=useState<Record<string,string>>({});
+  const [busyId,setBusyId]=useState<string|null>(null);
+  const [notice,setNotice]=useState<string|null>(null);
+  const [mutationError,setMutationError]=useState<string|null>(null);
+  const base="/v1/businesses/"+encodeURIComponent(businessId)+
+    "/payment-gateways/attempts";
+  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  async function mutate(url:string,payload:unknown,id:string,success:string){
+    if(!online||busyId)return;
+    setBusyId(id);setMutationError(null);setNotice(null);
+    try{
+      const response=await getOfflineQueue().authenticatedFetch(url,{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(payload),
+      });
+      if(!response.ok)throw new Error(await readApiErrorMessage(response));
+      setNotice(success);
+      setRevision(v=>v+1);
+      return true;
+    }catch(e){
+      setMutationError(e instanceof Error?e.message:"TEST attempt operation failed.");
+      return false;
+    }finally{setBusyId(null);}
+  }
+  async function prepare(){
+    const input=saleId.trim();
+    if(!uuid.test(input))return;
+    const id=requestId??crypto.randomUUID();
+    setRequestId(id);
+    const okay=await mutate(base,{
+      saleId:input,clientRequestId:id,
+    },"PREPARE","TEST attempt prepared. No checkout, charge or receipt was created. "+
+      "Use its original reference only in the provider's TEST environment.");
+    if(okay){setSaleId("");setRequestId(null);}
+  }
+  async function verify(attempt:Attempt){
+    if(attempt.state!=="PREPARED"||attempt.sandboxEvidence?.status==="TEST_PAID_OBSERVED")return;
+    const transactionId=providerTx[attempt.attemptId]?.trim()??"";
+    if(attempt.providerCode==="FLUTTERWAVE"&&!/^[1-9][0-9]{0,15}$/.test(transactionId)){
+      setMutationError("Enter the numeric Flutterwave TEST transaction ID before checking.");
+      return;
+    }
+    await mutate(base+"/"+encodeURIComponent(attempt.attemptId)+"/verify-sandbox",{
+      ...(attempt.providerCode==="FLUTTERWAVE"?
+        {providerTransactionId:transactionId}:{}),
+    },attempt.attemptId,
+    "Provider TEST status checked. Any evidence is sandbox-only; "+
+    "the original sale is still open and unpaid in TradeOS.");
+  }
+  async function close(attempt:Attempt,decision:"CANCELLED"|"REVIEW_REQUIRED"){
+    if(attempt.state!=="PREPARED"||
+       !window.confirm("Close this TEST attempt as "+decision.toLowerCase().replaceAll("_"," ")+"? "+
+         "This does not refund a customer or alter the sale."))return;
+    await mutate(base+"/"+encodeURIComponent(attempt.attemptId)+"/close",{
+      decision,reasonCode:decision==="CANCELLED"?
+        "MERCHANT_CANCELLED_TEST":"MERCHANT_REQUESTED_REVIEW",
+    },attempt.attemptId,"TEST attempt closed without changing sale or payment records.");
+  }
 
   useEffect(()=>{
     setData(null);setError(null);
@@ -51,8 +111,8 @@ export function GatewayAttemptMonitor({businessId,online}:{
       flexWrap:"wrap",alignItems:"center"}}>
       <div>
         <h3>Payment attempt audit</h3>
-        <p>Tenant-scoped TEST attempts and review queue. Preparation
-          is not proof of collection.</p>
+        <p>Tenant-scoped TEST attempts and review queue. Preparation is not proof
+          of collection; an observed sandbox payment never settles a real sale.</p>
       </div>
       <Button type="button" variant="outline"
         disabled={!online||loading}
@@ -60,7 +120,29 @@ export function GatewayAttemptMonitor({businessId,online}:{
     </div>
     {!online?<p role="status">Connect to view the verified server audit.</p>:null}
     {loading?<p role="status">Loading payment attempt records…</p>:null}
-    {error?<p role="alert" className="tos-banner tos-banner--danger">{error}</p>:null}
+    {error||mutationError?<p role="alert" className="tos-banner tos-banner--danger">
+      {error??mutationError}</p>:null}
+    {notice?<p role="status" className="tos-callout">{notice}</p>:null}
+    <div style={{display:"grid",gap:9,border:"1px solid #a5b3c7",
+      borderRadius:10,padding:12}}>
+      <strong>Prepare a Paystack / Flutterwave sandbox test</strong>
+      <p style={{margin:0,fontSize:13}}>Enter the ID of an existing OPEN sale
+        with exactly one PENDING MoMo or card payment. The currently selected gateway
+        must have your saved TEST key. Preparing this attempt creates only a
+        reference: <strong>no checkout link, test charge or live collection occurs</strong>.
+        A provider TEST transaction with exactly that reference must exist before
+        the independent status check can show paid evidence.</p>
+      <label htmlFor="gateway-test-sale-id">Open sale ID (UUID)</label>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",minWidth:0}}>
+        <input id="gateway-test-sale-id" className="tos-input"
+          style={{flex:"1 1 290px",minWidth:0}} value={saleId}
+          placeholder="Paste the open sale UUID" disabled={!online||Boolean(busyId)}
+          onChange={e=>{setSaleId(e.target.value);setRequestId(null);}}/>
+        <Button type="button" variant="primary" loading={busyId==="PREPARE"}
+          disabled={!online||Boolean(busyId)||!uuid.test(saleId.trim())}
+          onClick={()=>void prepare()}>Prepare TEST attempt</Button>
+      </div>
+    </div>
     {data?<><div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
       <span>Prepared: <strong>{data.summary.prepared}</strong></span>
       <span>Cancelled: <strong>{data.summary.cancelled}</strong></span>
@@ -69,7 +151,8 @@ export function GatewayAttemptMonitor({businessId,online}:{
     {data.attempts.length?<div style={{maxWidth:"100%",overflowX:"auto"}}>
       <table style={{width:"100%",fontSize:13}}>
         <thead><tr><th>When</th><th>Gateway</th><th>Method</th>
-          <th>Amount</th><th>State</th><th>Sandbox observation</th><th>Reference</th></tr></thead>
+          <th>Amount</th><th>State</th><th>Sandbox observation</th>
+          <th>Reference</th><th>TEST actions</th></tr></thead>
         <tbody>{data.attempts.map(attempt=>(
           <tr key={attempt.attemptId}>
             <td>{new Date(attempt.createdAt).toLocaleString("en-GB")}</td>
@@ -86,6 +169,35 @@ export function GatewayAttemptMonitor({businessId,online}:{
                   "TEST payment observed — not settled":"TEST unpaid observed"}
               </span>:"Not checked"}</td>
             <td><code>{attempt.clientReference}</code></td>
+            <td><div style={{display:"grid",gap:7,minWidth:170}}>
+              {attempt.state==="PREPARED"&&
+               attempt.sandboxEvidence?.status!=="TEST_PAID_OBSERVED"?<>
+                {attempt.providerCode==="FLUTTERWAVE"?<>
+                  <label htmlFor={"gateway-tx-"+attempt.attemptId}>
+                    Flutterwave TEST transaction ID</label>
+                  <input id={"gateway-tx-"+attempt.attemptId} className="tos-input"
+                    inputMode="numeric" style={{maxWidth:185}}
+                    placeholder="Numeric provider transaction ID"
+                    value={providerTx[attempt.attemptId]??""}
+                    disabled={!online||Boolean(busyId)}
+                    onChange={e=>setProviderTx(v=>({
+                      ...v,[attempt.attemptId]:e.target.value,
+                    }))}/>
+                </>:null}
+                <Button type="button" variant="outline"
+                  loading={busyId===attempt.attemptId}
+                  disabled={!online||Boolean(busyId)}
+                  onClick={()=>void verify(attempt)}>Check provider TEST status</Button>
+              </>:null}
+              {attempt.state==="PREPARED"?<>
+                <Button type="button" variant="outline"
+                  disabled={!online||Boolean(busyId)}
+                  onClick={()=>void close(attempt,"REVIEW_REQUIRED")}>Flag for review</Button>
+                <Button type="button" variant="outline"
+                  disabled={!online||Boolean(busyId)}
+                  onClick={()=>void close(attempt,"CANCELLED")}>Cancel TEST attempt</Button>
+              </>:null}
+            </div></td>
           </tr>
         ))}</tbody>
       </table>
