@@ -44,6 +44,9 @@ BEGIN
         AND s.status='OPEN' AND p.status='PENDING'
         AND s.total_minor=a.expected_amount_minor
         AND p.amount_minor=a.expected_amount_minor
+        AND s.currency_code=a.currency_code
+        AND p.currency_code=a.currency_code
+        AND p.method=a.payment_method
         AND c.environment='TEST' AND c.enabled=false
         AND c.connection_status='PENDING_VERIFICATION'
         AND c.revision=NEW.merchant_connection_revision

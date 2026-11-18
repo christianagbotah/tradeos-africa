@@ -590,4 +590,29 @@ describe("one-time merchant-hosted TEST checkout initiation",()=>{
         payment:"PENDING",sale:"OPEN",cashbook:"0"});
     }finally{globalThis.fetch=old;}
   });
+
+  it("does not expose a checkout link when merchant TEST credentials rotate mid-request",async()=>{
+    const m=await merchant("PAYSTACK"),a=await sale(m);
+    const old=globalThis.fetch;
+    const net=vi.fn(async(uri:RequestInfo|URL)=>{
+      expect(String(uri)).toBe("https://api.paystack.co/transaction/initialize");
+      await pool.query("UPDATE business_gateway_connections "+
+        "SET revision=revision+1 WHERE business_id=$1 AND provider_code='PAYSTACK'",
+        [m.businessId]);
+      return json({status:true,data:{reference:a.reference,
+        authorization_url:"https://checkout.paystack.com/should-not-be-shown"}});
+    });
+    globalThis.fetch=net as typeof fetch;
+    try{
+      const response=await app.inject({method:"POST",headers:m.headers,
+        url:endpoint(m.businessId,a.attemptId),payload:input});
+      expect(response.statusCode,response.body).toBe(200);
+      expect(response.json().checkout).toMatchObject({
+        state:"OUTCOME_UNKNOWN",checkoutUrl:null,charged:false,settled:false});
+      expect(response.body).not.toContain("should-not-be-shown");
+      expect(net).toHaveBeenCalledTimes(1);
+      expect(await financialState(a.paymentId,a.saleId)).toEqual({
+        payment:"PENDING",sale:"OPEN",cashbook:"0"});
+    }finally{globalThis.fetch=old;}
+  });
 });

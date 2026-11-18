@@ -84,9 +84,12 @@ export async function initializeGatewaySandboxCheckout(pool:DatabasePool,input:{
     if(paid)fail("A TEST paid observation is already recorded for this attempt.",
       "GATEWAY_TEST_CHECKOUT_PAID_EVIDENCE_EXISTS");
     const approved=(await tx.query<{sale_status:string;payment_status:string;
-      total_minor:string;amount_minor:string}>(
+      total_minor:string;amount_minor:string;sale_currency:string;
+      payment_currency:string;payment_method:string}>(
       "SELECT s.status AS sale_status,p.status AS payment_status,"+
-      "s.total_minor::text,p.amount_minor::text "+
+      "s.total_minor::text,p.amount_minor::text,"+
+      "s.currency_code AS sale_currency,p.currency_code AS payment_currency,"+
+      "p.method AS payment_method "+
       "FROM sales s JOIN payments p "+
       "ON p.id=$3 AND p.business_id=s.business_id AND p.sale_id=s.id "+
       "WHERE s.business_id=$1 AND s.id=$2 FOR UPDATE OF s,p",
@@ -94,7 +97,10 @@ export async function initializeGatewaySandboxCheckout(pool:DatabasePool,input:{
     if(!approved||approved.sale_status!=="OPEN"||
        approved.payment_status!=="PENDING"||
        approved.total_minor!==attempt.expected_amount_minor||
-       approved.amount_minor!==attempt.expected_amount_minor)
+       approved.amount_minor!==attempt.expected_amount_minor||
+       approved.sale_currency.trim()!==attempt.currency_code.trim()||
+       approved.payment_currency.trim()!==attempt.currency_code.trim()||
+       approved.payment_method!==attempt.payment_method)
       fail("Original sale and electronic payment must remain open and unchanged.",
         "GATEWAY_TEST_CHECKOUT_SALE_CHANGED");
     const connection=(await tx.query<{
@@ -170,6 +176,10 @@ export async function initializeGatewaySandboxCheckout(pool:DatabasePool,input:{
       "ON c.business_id=a.business_id AND c.provider_code=a.provider_code "+
       "WHERE a.id=$1 AND a.business_id=$2 AND a.state='PREPARED' "+
       "AND a.environment='TEST' AND s.status='OPEN' AND p.status='PENDING' "+
+      "AND s.total_minor=a.expected_amount_minor "+
+      "AND p.amount_minor=a.expected_amount_minor "+
+      "AND s.currency_code=a.currency_code AND p.currency_code=a.currency_code "+
+      "AND p.method=a.payment_method "+
       "AND c.environment='TEST' AND c.connection_status='PENDING_VERIFICATION' "+
       "AND c.enabled=false AND c.revision=a.merchant_connection_revision "+
       "AND NOT EXISTS(SELECT 1 FROM gateway_sandbox_verification_observations o "+
