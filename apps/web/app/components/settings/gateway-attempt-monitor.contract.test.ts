@@ -13,7 +13,9 @@ describe("merchant test payment attempt monitoring",()=>{
     expect(content).toContain("verify-sandbox");
     expect(content).toContain("prepare()");
     expect(content).toContain("providerTransactionId");
-    expect(content).toContain("no checkout link, test charge or live collection");
+    expect(content).toContain("no checkout or live collection occurs during preparation");
+    expect(content).toContain("GatewayHostedTestCheckout");
+    expect(content).toContain("sandboxCheckout");
     expect(content).toContain("the original sale is still open and unpaid");
     expect(content).not.toContain('method:"PUT"');
     expect(content).not.toContain("authorization_url");

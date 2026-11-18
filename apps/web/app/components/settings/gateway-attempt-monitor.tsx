@@ -5,6 +5,7 @@ import {getOfflineQueue} from "../../../lib/offline-sync";
 import {readApiErrorMessage} from "../../../lib/auth-fetch";
 import {Button} from "../ui/button";
 import {MoneyValue} from "../business/money-value";
+import {GatewayHostedTestCheckout} from "./gateway-hosted-test-checkout";
 
 type Attempt={
   attemptId:string;saleId:string;branchId:string;providerCode:string;
@@ -12,6 +13,10 @@ type Attempt={
   currencyCode:string;paymentMethod:string;state:string;createdAt:string;
   sandboxEvidence:{status:"TEST_PAID_OBSERVED"|"TEST_UNPAID_OBSERVED";
     observedAt:string;posted:false}|null;
+  sandboxCheckout:{
+    state:"INITIATING"|"READY"|"OUTCOME_UNKNOWN";
+    checkoutUrl:string|null;environment:"TEST";charged:false;settled:false;
+  }|null;
 };
 type Monitor={
   businessId:string;collectionEnabled:false;notice:string;
@@ -129,7 +134,9 @@ export function GatewayAttemptMonitor({businessId,online}:{
       <p style={{margin:0,fontSize:13}}>Enter the ID of an existing OPEN sale
         with exactly one PENDING MoMo or card payment. The currently selected gateway
         must have your saved TEST key. Preparing this attempt creates only a
-        reference: <strong>no checkout link, test charge or live collection occurs</strong>.
+        reference: <strong>no checkout or live collection occurs during preparation</strong>.
+        You can separately start one hosted provider TEST checkout for this
+        reference after confirming your account password.
         A provider TEST transaction with exactly that reference must exist before
         the independent status check can show paid evidence.</p>
       <label htmlFor="gateway-test-sale-id">Open sale ID (UUID)</label>
@@ -184,6 +191,12 @@ export function GatewayAttemptMonitor({businessId,online}:{
                       ...v,[attempt.attemptId]:e.target.value,
                     }))}/>
                 </>:null}
+                <GatewayHostedTestCheckout
+                  businessId={businessId} attemptId={attempt.attemptId}
+                  provider={attempt.providerCode}
+                  checkout={attempt.sandboxCheckout} online={online}
+                  disabled={Boolean(busyId)}
+                  onChanged={()=>setRevision(v=>v+1)}/>
                 <Button type="button" variant="outline"
                   loading={busyId===attempt.attemptId}
                   disabled={!online||Boolean(busyId)}
@@ -193,9 +206,9 @@ export function GatewayAttemptMonitor({businessId,online}:{
                 <Button type="button" variant="outline"
                   disabled={!online||Boolean(busyId)}
                   onClick={()=>void close(attempt,"REVIEW_REQUIRED")}>Flag for review</Button>
-                <Button type="button" variant="outline"
+                {!attempt.sandboxCheckout?<Button type="button" variant="outline"
                   disabled={!online||Boolean(busyId)}
-                  onClick={()=>void close(attempt,"CANCELLED")}>Cancel TEST attempt</Button>
+                  onClick={()=>void close(attempt,"CANCELLED")}>Cancel TEST attempt</Button>:null}
               </>:null}
             </div></td>
           </tr>
