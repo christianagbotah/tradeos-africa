@@ -2,7 +2,7 @@ import type {DatabasePool} from "../db.js";
 import {withTransaction} from "../db.js";
 import {posFail} from "./hubtel-pos-config.js";
 
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type ReviewAction="ACCOUNTING_REVIEW"|"PROVIDER_INVESTIGATION";
 export type ReviewStatus="OPEN"|"AWAITING_APPROVAL"|
   "APPROVED_ACCOUNTING_REVIEW"|"APPROVED_PROVIDER_INVESTIGATION";
