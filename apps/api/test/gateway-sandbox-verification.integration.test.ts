@@ -310,12 +310,15 @@ describe("merchant-facing, no-money sandbox test workspace routes",()=>{
     const a=await sale(m);
     const endpoint="/v1/businesses/"+m.businessId+"/payment-gateways/attempts/"+
       a.attemptId+"/verify-sandbox";
+    // IDs must be unique across this *entire* isolated suite. The DB correctly
+    // rejects a single provider transaction ID attributed to two sales.
+    const providerId=800000000+Math.floor(Math.random()*100000000);
     const old=globalThis.fetch;
     const net=vi.fn(async(uri:RequestInfo|URL,init?:RequestInit)=>{
       expect(String(uri)).toContain("/transaction/verify/"+a.reference);
       expect((init?.headers as Record<string,string>).authorization)
         .toBe("Bearer "+KEY.PAYSTACK);
-      return paystackResponse(a.reference);
+      return paystackResponse(a.reference,providerId);
     });
     globalThis.fetch=net as typeof fetch;
     try{
@@ -351,17 +354,18 @@ describe("merchant-facing, no-money sandbox test workspace routes",()=>{
       "SELECT portal_verification_count FROM gateway_collection_attempts WHERE id=$1",
       [a.attemptId])).rows[0]!;
     expect(quota.portal_verification_count).toBe(0);
+    const providerId=String(800000000+Math.floor(Math.random()*100000000));
     const old=globalThis.fetch;
     const net=vi.fn(async(uri:RequestInfo|URL,init?:RequestInit)=>{
-      expect(String(uri)).toContain("/transactions/123456/verify");
+      expect(String(uri)).toContain("/transactions/"+providerId+"/verify");
       expect((init?.headers as Record<string,string>).authorization)
         .toBe("Bearer "+KEY.FLUTTERWAVE);
-      return flutterResponse(a.reference);
+      return flutterResponse(a.reference,Number(providerId));
     });
     globalThis.fetch=net as typeof fetch;
     try{
       const observed=await app.inject({method:"POST",url:endpoint,
-        headers:m.headers,payload:{providerTransactionId:"123456"}});
+        headers:m.headers,payload:{providerTransactionId:providerId}});
       expect(observed.statusCode,observed.body).toBe(200);
       expect(observed.json().evidence.status).toBe("TEST_PAID_OBSERVED");
       expect(net).toHaveBeenCalledTimes(1);

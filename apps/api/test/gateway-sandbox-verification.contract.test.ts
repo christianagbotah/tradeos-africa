@@ -24,7 +24,13 @@ describe("sandbox evidence cannot become a receipt",()=>{
     expect(service).not.toContain("UPDATE sales SET status=");
     expect(service).not.toContain("recordCashbookEntry");
     expect(service).not.toContain("INSERT INTO inventory_movements");
-    expect(api).not.toContain("observeSandboxGatewayVerification");
+    // The owner-only TEST portal now explicitly exposes verification while
+    // preserving the isolated evidence-only service and its DB guards.
+    expect(api).toContain("observeSandboxGatewayVerification");
+    expect(api).toContain("verify-sandbox");
+    expect(api).toContain("GATEWAY_SANDBOX_PORTAL_CHECK_LIMITED");
+    expect(api).toContain("requireBusinessRole(pool,auth,req.params.businessId,MANAGE)");
+    expect(api).not.toContain("HubtelRefundClient");
   });
   it("enforces immutable tenant payment evidence and cross-provider sale locks",()=>{
     expect(migration).toContain("UNIQUE (attempt_id,observation_kind)");
