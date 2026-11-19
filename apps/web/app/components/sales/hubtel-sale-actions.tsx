@@ -4,6 +4,7 @@ import { useCallback,useEffect,useState } from "react";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { Button } from "../ui/button";
+import { notifyAction } from "../ui/action-feedback";
 
 type Checkout={saleId:string;attemptId:string;state:string;
   checkoutUrl:string|null;amountMinor:number};
@@ -79,14 +80,23 @@ export function HubtelSaleActions({businessId,saleId,online,onPaid}:Props){
         {businessId}) as {result:Verification};
       if(data.result.state==="PAID"){
         setMessage("Hubtel independently confirmed payment. The sale receipt is now finalized.");
+        notifyAction({tone:"success",title:"Payment verified",
+          message:"Hubtel independently confirmed payment. The sale receipt is now finalized."});
         onPaid();
       }else if(data.result.state==="UNPAID"){
         setMessage("Payment is not confirmed. The sale remains pending.");
+        notifyAction({tone:"warning",title:"Payment still pending",
+          message:"Payment is not confirmed. The sale remains pending; do not issue a receipt."});
       }else{
         setMessage("Hubtel reports a refund. Contact the billing team for reconciliation.");
+        notifyAction({tone:"warning",title:"Refund requires review",
+          message:"Hubtel reports a refund. Contact the billing team for reconciliation."});
       }
       await load();
-    }catch(e){setError(e instanceof Error?e.message:"Cannot verify payment.");}
+    }catch(e){
+      const message=e instanceof Error?e.message:"Cannot verify payment.";
+      setError(message);notifyAction({tone:"error",message});
+    }
     finally{setBusy(false);}
   }
   return <div className="tos-section">

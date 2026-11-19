@@ -3,6 +3,7 @@ import {useState} from "react";
 import {Button} from "../ui/button";
 import {getOfflineQueue} from "../../../lib/offline-sync";
 import {readApiErrorMessage} from "../../../lib/auth-fetch";
+import {notifyAction} from "../ui/action-feedback";
 
 type Hosted={
   state:"INITIATING"|"READY"|"OUTCOME_UNKNOWN";
@@ -39,12 +40,16 @@ export function GatewayHostedTestCheckout({businessId,attemptId,provider,checkou
       if(result.checkout.environment!=="TEST"||
          result.checkout.charged!==false||result.checkout.settled!==false)
         throw new Error("Unexpected provider TEST response.");
-      setMessage(result.checkout.state==="READY"?
+      const status=result.checkout.state==="READY"?
         "Provider TEST checkout prepared. Open the link below after refreshing.":
-        "Provider outcome requires manual review. Do not initiate again.");
+        "Provider outcome requires manual review. Do not initiate again.";
+      setMessage(status);
+      notifyAction({tone:result.checkout.state==="READY"?"info":"warning",
+        title:"TEST checkout — no real payment",message:status});
       onChanged();
     }catch(e){
-      setError(e instanceof Error?e.message:"Could not initiate TEST checkout.");
+      const message=e instanceof Error?e.message:"Could not initiate TEST checkout.";
+      setError(message);notifyAction({tone:"error",message});
     }finally{
       setBusy(false);setPassword("");
     }

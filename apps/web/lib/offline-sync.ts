@@ -358,8 +358,15 @@ export class WebOfflineQueue {
       publishInteractiveMutationFeedback("error", message);
       throw new Error(message);
     }
-    if (summary.applied > 0 || summary.received > 0) {
-      publishInteractiveMutationFeedback("success", "Changes saved successfully.");
+    if (summary.applied > 0 && summary.pending === 0) {
+      publishInteractiveMutationFeedback("success",
+        "Changes saved successfully.");
+    } else if (summary.applied > 0 && summary.pending > 0) {
+      publishInteractiveMutationFeedback("warning",
+        `${summary.applied} change(s) saved; ${summary.pending} still awaiting server processing or sync.`);
+    } else if (summary.received > 0) {
+      publishInteractiveMutationFeedback("warning",
+        "The server has not confirmed this change as applied. It remains pending; check status before retrying.");
     } else if (summary.pending > 0) {
       publishInteractiveMutationFeedback("warning",
         "Change saved on this device. Sync is pending; it is not yet confirmed by the server.");

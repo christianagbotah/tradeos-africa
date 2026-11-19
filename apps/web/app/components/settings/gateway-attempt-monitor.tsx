@@ -3,6 +3,7 @@
 import {useEffect,useState} from "react";
 import {getOfflineQueue} from "../../../lib/offline-sync";
 import {readApiErrorMessage} from "../../../lib/auth-fetch";
+import {notifyAction} from "../ui/action-feedback";
 import {Button} from "../ui/button";
 import {MoneyValue} from "../business/money-value";
 import {GatewayHostedTestCheckout} from "./gateway-hosted-test-checkout";
@@ -53,10 +54,12 @@ export function GatewayAttemptMonitor({businessId,online}:{
       });
       if(!response.ok)throw new Error(await readApiErrorMessage(response));
       setNotice(success);
+      notifyAction({tone:"info",title:"TEST-only action",message:success});
       setRevision(v=>v+1);
       return true;
     }catch(e){
-      setMutationError(e instanceof Error?e.message:"TEST attempt operation failed.");
+      const message=e instanceof Error?e.message:"TEST attempt operation failed.";
+      setMutationError(message);notifyAction({tone:"error",message});
       return false;
     }finally{setBusyId(null);}
   }

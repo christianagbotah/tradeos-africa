@@ -2,6 +2,7 @@
 import { useEffect,useRef,useState } from "react";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
+import { notifyAction } from "../ui/action-feedback";
 
 type Checkout={id:string;businessId:string;invoiceId:string;clientRequestId:string;
   checkoutUrl:string|null;state:string};
@@ -53,7 +54,8 @@ export function HubtelCheckoutActions({
       // A redirect is NOT evidence of payment.
       window.location.assign(url.toString());
     }catch(error){
-      setNotice(error instanceof Error?error.message:"Checkout could not start.");
+      const message=error instanceof Error?error.message:"Checkout could not start.";
+      setNotice(message);notifyAction({tone:"error",message});
     }finally{setBusy(false);}
   }
   async function verify(){
@@ -69,14 +71,21 @@ export function HubtelCheckoutActions({
       const {result}=await res.json() as {result:Result};
       if(result.state==="RECONCILED"&&result.status==="PAID"){
         setNotice("Hubtel verified this subscription payment. Billing records refreshed.");
+        notifyAction({tone:"success",title:"Subscription payment verified",
+          message:"Hubtel verified this subscription payment. Billing records refreshed."});
         onReconciled();
       }else if(result.state==="REQUIRES_REFUND_RECONCILIATION"){
         setNotice("Hubtel reports a refund. Contact billing support for reconciliation.");
+        notifyAction({tone:"warning",title:"Refund requires review",
+          message:"Hubtel reports a refund. Contact billing support for reconciliation."});
       }else{
         setNotice("Payment is not confirmed yet. Retry verification after a few minutes.");
+        notifyAction({tone:"warning",title:"Payment not yet verified",
+          message:"Payment is not confirmed. Do not treat the invoice as paid."});
       }
     }catch(error){
-      setNotice(error instanceof Error?error.message:"Verification is unavailable.");
+      const message=error instanceof Error?error.message:"Verification is unavailable.";
+      setNotice(message);notifyAction({tone:"error",message});
     }finally{setBusy(false);}
   }
   return <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
