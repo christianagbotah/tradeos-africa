@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { useWorkspace } from "../workspace/use-workspace";
 import { primarySellableUnit } from "../../../lib/catalog-read-model";
@@ -8,6 +8,8 @@ import { MoneyValue } from "../business/money-value";
 import { Button } from "../ui/button";
 import { IconBanknote, IconClose, IconCreditCard, IconRefresh, IconShield, IconSmartphone, IconWallet } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { enqueueAndConfirmMutation, PendingMutationConfirmationError } from "../../../lib/confirmed-financial-mutation";
+import { notifyAction } from "../ui/action-feedback";
 
 interface SaleDetailLine {
   id: string;
@@ -127,6 +129,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
   const [customReason, setCustomReason] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const pendingPostingRef = useRef<{ targetId: string; mutationId: string } | null>(null);
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "CASHIER"].includes(role);
 
@@ -197,10 +200,29 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
           replacementLines: [{ itemId: newItem.id, saleUnitCode: newUnit.code, quantity: newQty }],
         },
       });
-      await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await enqueueAndConfirmMutation(queue, mutation, {
+        businessId: session.businessId,
+        branchId: session.branchId,
+        mutationTypes: ["RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE"],
+        targetField: "originalSaleId",
+        targetId: data.sale.id,
+      }, typeof navigator !== "undefined" ? navigator.onLine : true,
+      pendingPostingRef.current?.targetId === mutation.payload.originalSaleId ?
+        pendingPostingRef.current.mutationId : null);
+      pendingPostingRef.current = null;
       onComplete();
     } catch (err) {
+      if (err instanceof PendingMutationConfirmationError) {
+        pendingPostingRef.current = {
+          targetId: data.sale.id,
+          mutationId: err.mutationId,
+        };
+        // The first queued attempt already issued a global pending toast.
+        // Only alert again if this is a repeated attempt against that queue.
+        if (err.existing) notifyAction({
+          tone: "warning", title: "Awaiting server confirmation", message: err.message,
+        });
+      }
       setSubmitError(err instanceof Error ? err.message : "Could not submit exchange.");
     } finally {
       setBusy(false);
@@ -215,7 +237,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
 
   return (
     <>
-      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet-scrim" onClick={() => { if (!busy) onClose(); }} aria-hidden="true" />
       <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label="Exchange">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
@@ -223,7 +245,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
             <h2 className="tos-sheet__title">Process exchange</h2>
             <p className="tos-sheet__sub">Receipt #{saleId.slice(0, 8)} · swap returned goods for a different item</p>
           </div>
-          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="tos-sheet__close" onClick={onClose} disabled={busy} aria-label="Close">
             <IconClose style={{ width: 18, height: 18 }} />
           </button>
         </div>

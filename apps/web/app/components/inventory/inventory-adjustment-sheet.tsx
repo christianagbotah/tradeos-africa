@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { Button } from "../ui/button";
 import { IconClose, IconShield } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { enqueueAndConfirmMutation, PendingMutationConfirmationError } from "../../../lib/confirmed-financial-mutation";
+import { notifyAction } from "../ui/action-feedback";
 import {
   buildInventoryAdjustmentPayload,
   INVENTORY_ADJUSTMENT_CREATE_TYPE,
@@ -57,11 +59,13 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pendingPostingRef = useRef<{ targetId: string; mutationId: string } | null>(null);
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
 
   useEffect(() => {
     if (row) {
+      if (pendingPostingRef.current?.targetId !== row.item.id) pendingPostingRef.current = null;
       setReason("COUNT_CORRECTION");
       setCountedQuantity(row.available);
       setMoveQuantity(null);
@@ -143,11 +147,30 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
         mutationType: INVENTORY_ADJUSTMENT_CREATE_TYPE,
         payload: buildInventoryAdjustmentPayload(payload),
       });
-      await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await enqueueAndConfirmMutation(queue, mutation, {
+        businessId: session.businessId,
+        branchId: session.branchId,
+        mutationTypes: [INVENTORY_ADJUSTMENT_CREATE_TYPE],
+        targetField: "itemId",
+        targetId: row.item.id,
+      }, typeof navigator !== "undefined" ? navigator.onLine : true,
+      pendingPostingRef.current?.targetId === mutation.payload.itemId ?
+        pendingPostingRef.current?.mutationId ?? null : null);
+      pendingPostingRef.current = null;
       await refreshInventory();
       onSaved();
     } catch (err) {
+      if (err instanceof PendingMutationConfirmationError) {
+        pendingPostingRef.current = {
+          targetId: row.item.id,
+          mutationId: err.mutationId,
+        };
+        // The first queued attempt already issued a global pending toast.
+        // Only alert again if this is a repeated attempt against that queue.
+        if (err.existing) notifyAction({
+          tone: "warning", title: "Awaiting server confirmation", message: err.message,
+        });
+      }
       setError(err instanceof Error ? err.message : "Could not post adjustment.");
     } finally {
       setBusy(false);
@@ -156,7 +179,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
 
   return (
     <>
-      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet-scrim" onClick={() => { if (!busy) onClose(); }} aria-hidden="true" />
       <div className="tos-sheet" role="dialog" aria-label="Inventory adjustment">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
@@ -164,7 +187,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
             <h2 className="tos-sheet__title">Adjust stock</h2>
             <p className="tos-sheet__sub">{row.item.name}</p>
           </div>
-          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="tos-sheet__close" onClick={onClose} disabled={busy} aria-label="Close">
             <IconClose style={{ width: 18, height: 18 }} />
           </button>
         </div>
