@@ -1264,6 +1264,66 @@
   white-space: nowrap;
 }
 
+/* Receipt/transaction summaries: each definition item owns its own label and
+   value. The legacy two-column grid used to put whole pairs side-by-side,
+   truncate IDs and names, and squeeze phone screens. Leave checkout's
+   inline .tos-kv label/value fields unchanged. */
+dl.tos-kv {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--tos-space-5);
+  margin: 0;
+  min-width: 0;
+}
+
+dl.tos-kv > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--tos-space-2);
+  min-width: 0;
+  padding: var(--tos-space-3) 0;
+  border-bottom: 1px solid var(--tos-border);
+}
+
+dl.tos-kv .tos-kv__key {
+  align-self: auto;
+}
+
+dl.tos-kv .tos-kv__val {
+  min-width: 0;
+  margin: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  dl.tos-kv {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  dl.tos-kv > div:last-child {
+    border-bottom: 0;
+  }
+
+  .tos-sheet--purchase-detail .tos-section__body--padded {
+    padding: var(--tos-space-4);
+  }
+
+  .tos-sheet--purchase-detail .tos-purchase-stats .tos-stat {
+    padding: var(--tos-space-4);
+    gap: var(--tos-space-2);
+  }
+
+  .tos-sheet--purchase-detail .tos-purchase-stats .tos-stat__value {
+    font-size: clamp(20px, 5vw, 24px);
+    overflow-wrap: anywhere;
+  }
+}
+
 /* --- Spinner ------------------------------------------------------------- */
 .tos-spinner {
   width: 24px;
@@ -1367,6 +1427,60 @@
   .tos-callout--label-and-content > .tos-callout__content {
     flex: none;
     width: 100%;
+  }
+}
+
+/* Payment provider information cards use a real facts + supporting-copy
+   structure instead of the flexed fragments that made mobile text unreadable. */
+.tos-payment-details {
+  display: grid;
+  gap: var(--tos-space-3);
+  min-width: 0;
+  font-size: var(--tos-text-supporting);
+  line-height: 1.5;
+}
+
+.tos-payment-details__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-space-3);
+}
+
+.tos-payment-details__fact {
+  display: grid;
+  align-content: start;
+  gap: var(--tos-space-1);
+  min-width: 0;
+}
+
+.tos-payment-details__label {
+  font-size: var(--tos-text-meta);
+  font-weight: 600;
+  color: var(--tos-text-muted);
+}
+
+.tos-payment-details__value {
+  font-size: var(--tos-text-supporting);
+  font-weight: 750;
+  color: var(--tos-text-strong);
+  overflow-wrap: anywhere;
+}
+
+.tos-payment-details__value--ready {
+  color: var(--tos-positive);
+}
+
+.tos-payment-details__note {
+  margin: 0;
+  padding-top: var(--tos-space-3);
+  border-top: 1px solid var(--tos-border);
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 640px) {
+  .tos-payment-details__facts {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
