@@ -28,7 +28,7 @@ describe("receipt correction and inventory posting only close after APPLIED", ()
     for (const code of [returnSheet, exchangeSheet, adjustmentSheet]) {
       expect(code).toContain("const awaitingConfirmation = pendingPostingRef.current?.targetId");
       expect(code).toContain('"Check posting status"');
-      expect(code).toContain('awaitingConfirmation ? "warning" : "danger"');
+      expect(code).toContain('awaitingConfirmation ? "tos-banner tos-banner--warning" : "tos-banner tos-banner--danger"');
     }
   });
   it("locks all corrections to a receipt even when mutation type changes", () => {

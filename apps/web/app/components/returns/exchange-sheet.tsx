@@ -470,7 +470,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                 </span>
               </div>
 
-              {submitError ? <div className={`tos-banner tos-banner--${awaitingConfirmation ? "warning" : "danger"}`} role="status">
+              {submitError ? <div className={awaitingConfirmation ? "tos-banner tos-banner--warning" : "tos-banner tos-banner--danger"} role="status">
                 <span className="tos-banner__title">{submitError}</span>
                 {awaitingConfirmation ? <span>The original queued exchange will be checked; changed form values do not modify it.</span> : null}
               </div> : null}

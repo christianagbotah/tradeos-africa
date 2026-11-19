@@ -512,7 +512,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                 </span>
               </div>
 
-              {submitError ? <div className={`tos-banner tos-banner--${awaitingConfirmation ? "warning" : "danger"}`} role="status">
+              {submitError ? <div className={awaitingConfirmation ? "tos-banner tos-banner--warning" : "tos-banner tos-banner--danger"} role="status">
                 <span className="tos-banner__title">{submitError}</span>
                 {awaitingConfirmation ? <span>The original queued details are fixed. Selecting Check posting status will only recheck that transaction.</span> : null}
               </div> : null}

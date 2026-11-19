@@ -346,7 +346,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
             </span>
           </div>
 
-          {error ? <div className={`tos-banner tos-banner--${awaitingConfirmation ? "warning" : "danger"}`} role="status">
+          {error ? <div className={awaitingConfirmation ? "tos-banner tos-banner--warning" : "tos-banner tos-banner--danger"} role="status">
             <span className="tos-banner__title">{error}</span>
             {awaitingConfirmation ? <span>The original queued stock adjustment will be checked; changes to this form do not alter it.</span> : null}
           </div> : null}
