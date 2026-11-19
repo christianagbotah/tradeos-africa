@@ -141,7 +141,7 @@ export function PurchaseDetailSheet({ purchaseId, onClose, onMutated }: Purchase
   return (
     <>
       <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
-      <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label="Purchase detail">
+      <div className="tos-sheet tos-sheet--wide tos-sheet--purchase-detail" role="dialog" aria-label="Purchase detail">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Purchase</span>
