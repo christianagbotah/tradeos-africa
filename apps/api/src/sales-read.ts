@@ -16,6 +16,66 @@ const REFUND_REVIEW_ROLES: readonly BusinessRole[] = [
 
 
 export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  // Authoritative branch-wide payment status totals, independent of the
+  // receipt list limit and paging. Currency groups are never mixed.
+  app.get<{ Querystring: { businessId?: string; branchId?: string } }>(
+    "/v1/refunds/branch-summary",
+    async (request, reply) => {
+      try {
+        const auth = await authenticateAccessToken(pool, request.headers.authorization);
+        const businessId = required(request.query.businessId, "businessId");
+        const branchId = required(request.query.branchId, "branchId");
+        await requireBusinessRole(pool, auth, businessId,
+          ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "CASHIER"]);
+        await requireBranch(pool, businessId, branchId);
+        const result = await pool.query<{
+          currency_code: string;
+          pending_count: string | number; pending_minor: string | number;
+          settled_count: string | number; settled_minor: string | number;
+          failed_count: string | number; failed_minor: string | number;
+        }>(
+          `SELECT rt.currency_code,
+                  COUNT(*) FILTER (WHERE rt.status='PENDING') AS pending_count,
+                  COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='PENDING'),0) AS pending_minor,
+                  COUNT(*) FILTER (WHERE rt.status='SUCCEEDED') AS settled_count,
+                  COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='SUCCEEDED'),0) AS settled_minor,
+                  COUNT(*) FILTER (WHERE rt.status='FAILED') AS failed_count,
+                  COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='FAILED'),0) AS failed_minor
+             FROM refund_transactions rt
+             JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
+            WHERE rt.business_id=$1 AND rc.branch_id=$2
+            GROUP BY rt.currency_code
+            ORDER BY rt.currency_code`,
+          [businessId, branchId],
+        );
+        // PostgreSQL BIGINT is often serialized as text. Reject amounts that
+        // cannot be represented exactly in JavaScript minor units.
+        const asSafeCount = (raw: string | number): number => {
+          const value = Number(raw);
+          if (!Number.isSafeInteger(value) || value < 0) {
+            throw new SalesReadError("Refund amount exceeds supported precision.",
+              500, "REFUND_AMOUNT_UNREPRESENTABLE");
+          }
+          return value;
+        };
+        return reply.header("Cache-Control", "private, no-store, max-age=0").send({
+          scope: "BRANCH_ALL_TIME",
+          balances: result.rows.map((row) => ({
+            currencyCode: row.currency_code,
+            pendingCount: asSafeCount(row.pending_count),
+            pendingMinor: asSafeCount(row.pending_minor),
+            settledCount: asSafeCount(row.settled_count),
+            settledMinor: asSafeCount(row.settled_minor),
+            failedCount: asSafeCount(row.failed_count),
+            failedMinor: asSafeCount(row.failed_minor),
+          })),
+        });
+      } catch (error) {
+        return sendReadError(request, reply, error);
+      }
+    },
+  );
+
   // An independent, paginated settlement worklist prevents older outstanding
   // refunds from vanishing when the most-recent-50 sales list is full.
   // Read-only by design: merchant/operator claims are not proof of payout.
