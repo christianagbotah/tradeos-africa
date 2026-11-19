@@ -8,6 +8,7 @@ import { ReturnRefundSheet } from "./return-refund-sheet";
 import { RefundSettlementWorklist } from "./refund-settlement-worklist";
 import { ExchangeSheet } from "./exchange-sheet";
 import { MoneyValue } from "../business/money-value";
+import { sumKnownMinorAmounts } from "./refund-amounts";
 import { StatePanel } from "../ui/state-panel";
 import { Button } from "../ui/button";
 import {
@@ -95,13 +96,25 @@ export function ReturnRefundWorkspace() {
 
   const stats = useMemo(() => {
     const total = allSales.length;
-    const correctionCount = allSales.filter((s) => s.refundTotalMinor > 0).length;
-    const refundSettledMinor = allSales.reduce((sum, s) => sum + s.refundSettledMinor, 0);
-    const refundPendingMinor = allSales.reduce((sum, s) => sum + s.refundPendingMinor, 0);
-    const refundFailedMinor = allSales.reduce((sum, s) => sum + s.refundFailedMinor, 0);
-    const revenueMinor = allSales.reduce((sum, s) => sum + s.totalMinor, 0);
+    // Keep missing settlement fields distinct from a verified zero. Older or
+    // cached API responses may omit these fields even for valid receipts.
+    const correctionCount = allSales.every((sale) => Number.isSafeInteger(sale.refundTotalMinor))
+      ? allSales.filter((s) => s.refundTotalMinor > 0).length
+      : null;
+    const refundSettledMinor = sumKnownMinorAmounts(allSales, (s) => s.refundSettledMinor);
+    const refundPendingMinor = sumKnownMinorAmounts(allSales, (s) => s.refundPendingMinor);
+    const refundFailedMinor = sumKnownMinorAmounts(allSales, (s) => s.refundFailedMinor);
+    const revenueMinor = sumKnownMinorAmounts(allSales, (s) => s.totalMinor);
     return { total, correctionCount, refundSettledMinor, refundPendingMinor, refundFailedMinor, revenueMinor };
   }, [allSales]);
+
+  const hasUnverifiedTotals = [
+    stats.correctionCount,
+    stats.refundSettledMinor,
+    stats.refundPendingMinor,
+    stats.refundFailedMinor,
+    stats.revenueMinor,
+  ].some((amount) => amount === null);
 
   const onCorrectionComplete = () => {
     setSelectedSaleId(null);
@@ -160,28 +173,37 @@ export function ReturnRefundWorkspace() {
         <StatCard
           label="Returns accepted"
           icon={<IconReturns className="tos-stat__icon-tile-svg" />}
-          iconTone={stats.correctionCount > 0 ? "warning" : "positive"}
-          value={<span className="tos-stat__value">{stats.correctionCount}</span>}
-          hint={stats.correctionCount > 0 ? "Receipts with corrections" : "No corrections"}
-          hintTone={stats.correctionCount > 0 ? "warning" : "positive"}
+          iconTone={stats.correctionCount !== null && stats.correctionCount > 0 ? "warning" : "positive"}
+          value={<span className="tos-stat__value">{stats.correctionCount ?? "—"}</span>}
+          hint={stats.correctionCount === null ? "Correction count unavailable" : stats.correctionCount > 0 ? "Receipts with corrections" : "No corrections"}
+          hintTone={stats.correctionCount !== null && stats.correctionCount > 0 ? "warning" : "positive"}
         />
         <StatCard
           label="Refunds awaiting payout"
           icon={<IconTrendingDown className="tos-stat__icon-tile-svg" />}
-          iconTone={stats.refundPendingMinor > 0 ? "warning" : "neutral"}
+          iconTone={stats.refundPendingMinor !== null && stats.refundPendingMinor > 0 ? "warning" : "neutral"}
           value={<MoneyValue minor={stats.refundPendingMinor} currencyCode={currencyCode} className="tos-stat__value" />}
-          hint={stats.refundPendingMinor > 0 ? "Not yet confirmed paid" : "No outstanding payouts"}
-          hintTone={stats.refundPendingMinor > 0 ? "warning" : "positive"}
+          hint={stats.refundPendingMinor === null ? "Payout data unavailable" : stats.refundPendingMinor > 0 ? "Not yet confirmed paid" : "No outstanding payouts"}
+          hintTone={stats.refundPendingMinor !== null && stats.refundPendingMinor > 0 ? "warning" : "positive"}
         />
       </div>
 
       <div className="tos-callout tos-callout--info">
         <span className="tos-callout__body">
-          Confirmed refund payouts: <MoneyValue minor={stats.refundSettledMinor} currencyCode={currencyCode} />.
-          {stats.refundFailedMinor > 0 ? <> Failed payouts requiring review: <MoneyValue minor={stats.refundFailedMinor} currencyCode={currencyCode} />.</> : null}
+          Confirmed refund payouts: {stats.refundSettledMinor === null
+            ? <strong>Unavailable</strong>
+            : <MoneyValue minor={stats.refundSettledMinor} currencyCode={currencyCode} />}.
+          {stats.refundFailedMinor !== null && stats.refundFailedMinor > 0 ? <> Failed payouts requiring review: <MoneyValue minor={stats.refundFailedMinor} currencyCode={currencyCode} />.</> : null}
           {" "}Accepted returns and exchange credits are not proof of a paid refund. Pending provider refunds remain outstanding until verified.
         </span>
       </div>
+
+      {hasUnverifiedTotals ? (
+        <div className="tos-callout tos-callout--info" role="status">
+          Some receipt totals could not be verified. Refresh to retrieve the latest
+          amounts; do not treat an unavailable payout balance as a confirmed zero.
+        </div>
+      ) : null}
 
       <RefundSettlementWorklist refreshToken={settlementRefresh} />
 
