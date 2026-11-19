@@ -74,6 +74,7 @@ export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):v
   );
   app.get<{Querystring:{businessId?:string;branchId?:string;limit?:string}}>(
     "/v1/payments/hubtel/reconciliation",async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
       try{
         const businessId=request.query.businessId;
         const branchId=request.query.branchId;

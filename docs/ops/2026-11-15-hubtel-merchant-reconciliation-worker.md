@@ -50,3 +50,24 @@ until a safe late-payment/cancellation state machine is completed under issue
 
 The global live merchant POS switch remains disabled by default. Provider
 HTTP 403 is an access/authorization failure, never proof of failed payment.
+
+## Overdue unpaid checkout visibility (19 November 2026)
+
+The merchant reconciliation page now shows unverified open checkouts older than
+24 hours, using database time rather than an untrusted browser clock. It also
+shows *pending checkout face value*, grouped by currency, for the whole selected
+branch including attempts outside the recent-50 display. This is **not inventory
+valuation**, settled cash, or an instruction to refund the customer.
+
+Only OPEN sales with PENDING payments and non-reconciled Hubtel attempts are
+included. The summary deliberately includes cases already escalated to
+REVIEW_REQUIRED. Staff can independently verify a transaction with Hubtel, or
+escalate for review; a provider timeout, 403 response, or an UNPAID status does
+not prove funds cannot arrive later. Neither the report nor the visibility
+feature cancels sales or releases stock.
+
+The remaining release gate is a provider-confirmed finality contract and an
+audited, exactly-once reversal implementation covering simple stock, multi-part
+recipes, valuations, COGS, concurrent verification and late provider success.
+**Keep live merchant collections disabled until that gate and merchant pilot
+are passed.**

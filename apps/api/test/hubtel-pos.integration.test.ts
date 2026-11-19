@@ -318,6 +318,46 @@ describe("Hubtel provider switch preserves original payment ownership",()=>{
 });
 
 describe("Hubtel five-minute reconciliation worker and merchant monitoring",()=>{
+  it("flags overdue unpaid checkouts without reversing stock or confusing tenant totals",async()=>{
+    const aged=await merchant("hold-overdue","merchant_1","111111");
+    const foreign=await merchant("hold-foreign","merchant_2","222222");
+    installMock();
+    await startSaleHubtelCheckout(pool,{businessId:aged.businessId,saleId:aged.saleId,
+      clientRequestId:randomUUID()});
+    await pool.query(
+      "UPDATE hubtel_sale_checkout_attempts SET created_at=now()-interval '26 hours' "+
+      "WHERE business_id=$1 AND sale_id=$2",[aged.businessId,aged.saleId]);
+    const owner=await app.inject({method:"GET",
+      url:`/v1/payments/hubtel/reconciliation?businessId=${aged.businessId}&branchId=${aged.branchId}&limit=1`,
+      headers:aged.headers});
+    expect(owner.statusCode,owner.body).toBe(200);
+    expect(owner.json().summary).toMatchObject({
+      overdueUnverified24h:1,
+      pendingCheckoutsByCurrency:[
+        {currencyCode:"GHS",pendingCount:1,overdue24hCount:1,pendingMinor:7000},
+      ],
+    });
+    expect(owner.json().attempts[0]).toMatchObject({
+      saleId:aged.saleId,overdue24h:true,paymentStatus:"PENDING",saleStatus:"OPEN",
+    });
+    expect(await ledger(aged)).toMatchObject({
+      status:"OPEN",payment_status:"PENDING",receipt_count:"0",
+      attempt_state:"READY",
+    });
+    expect(owner.body).not.toContain("merchant-test-secret");
+    expect(owner.body).not.toContain("111111");
+    const foreignView=await app.inject({method:"GET",
+      url:`/v1/payments/hubtel/reconciliation?businessId=${aged.businessId}`,
+      headers:foreign.headers});
+    expect(foreignView.statusCode).toBe(403);
+    const otherBranch=await app.inject({method:"GET",
+      url:`/v1/payments/hubtel/reconciliation?businessId=${aged.businessId}&branchId=${foreign.branchId}`,
+      headers:aged.headers});
+    expect(otherBranch.statusCode).toBe(200);
+    expect(otherBranch.json().summary.pendingCheckoutsByCurrency).toEqual([]);
+    expect(otherBranch.json().summary.overdueUnverified24h).toBe(0);
+  });
+
   it("does not check a checkout before five minutes, then settles confirmed payment once",async()=>{
     const m=await merchant("reconciler-paid","merchant_1","111111");
     installMock();
