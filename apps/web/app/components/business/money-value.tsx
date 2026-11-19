@@ -32,6 +32,11 @@ export function MoneyValue({
   signed = false,
   className,
 }: MoneyValueProps) {
+  // A missing API amount must never appear as “NaN” or be silently presented as zero.
+  // Surface an explicit unavailable state so financial reconciliation stays trustworthy.
+  if (typeof minor !== "number" || !Number.isFinite(minor)) {
+    return <span className={`tos-money-value${className ? ` ${className}` : ""}`} title="Amount unavailable">—</span>;
+  }
   const meta = getCurrencyMeta(currencyCode);
   const formatted = formatMoney(minor, currencyCode);
   const toneClass =
