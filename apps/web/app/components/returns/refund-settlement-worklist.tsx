@@ -24,12 +24,13 @@ interface SettlementItem {
   createdAt: string;
 }
 interface SettlementWorklist {
-  summary: {
+  summaryByCurrency: Array<{
+    currencyCode: string;
     pendingCount: number;
     pendingMinor: number;
     failedCount: number;
     failedMinor: number;
-  };
+  }>;
   items: SettlementItem[];
   offset: number;
   hasMore: boolean;
@@ -64,8 +65,20 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
   }, [refreshToken, refetch]);
 
   if (!allowed) return null;
-  const summary = data?.summary;
   const currencyCode = session?.currencyCode ?? "GHS";
+  const rawBalances = data?.summaryByCurrency;
+  // The older API returned a single mixed-currency sum. An incomplete or old
+  // response must show 'unavailable', never a fabricated zero liability.
+  const validBalances = Array.isArray(rawBalances) && rawBalances.every((balance) =>
+    balance && typeof balance.currencyCode === "string" && balance.currencyCode.length === 3 &&
+    [balance.pendingCount, balance.pendingMinor, balance.failedCount, balance.failedMinor]
+      .every((value) => Number.isSafeInteger(value) && value >= 0),
+  );
+  const currencyBalances = validBalances
+    ? rawBalances.length > 0 ? rawBalances : [{
+        currencyCode, pendingCount: 0, pendingMinor: 0, failedCount: 0, failedMinor: 0,
+      }]
+    : null;
   const filterOptions: readonly { value: SettlementFilter; label: string }[] = [
     { value: "ALL", label: "All unresolved" },
     { value: "PENDING", label: "Pending payout" },
@@ -84,16 +97,25 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
         </div>
         <Button size="sm" variant="outline" onClick={() => refetch()}>Refresh</Button>
       </div>
-      <div className="tos-row" style={{ gap: 18, flexWrap: "wrap", marginTop: 12 }}>
-        <span>
-          <strong>Pending ({summary?.pendingCount ?? "—"})</strong>{" "}
-          {summary ? <MoneyValue minor={summary.pendingMinor} currencyCode={currencyCode} /> : null}
-        </span>
-        <span>
-          <strong>Needs review ({summary?.failedCount ?? "—"})</strong>{" "}
-          {summary ? <MoneyValue minor={summary.failedMinor} currencyCode={currencyCode} /> : null}
-        </span>
-      </div>
+      {currencyBalances ? currencyBalances.map((summary) => (
+        <div className="tos-row" key={summary.currencyCode}
+          style={{ gap: 18, flexWrap: "wrap", marginTop: 12 }}>
+          <strong className="tos-section__sub">{summary.currencyCode === "GHS" ? "₵" : summary.currencyCode}</strong>
+          <span>
+            <strong>Pending ({summary.pendingCount})</strong>{" "}
+            <MoneyValue minor={summary.pendingMinor} currencyCode={summary.currencyCode} />
+          </span>
+          <span>
+            <strong>Needs review ({summary.failedCount})</strong>{" "}
+            <MoneyValue minor={summary.failedMinor} currencyCode={summary.currencyCode} />
+          </span>
+        </div>
+      )) : data && !loading && !error ? (
+        <p role="alert" className="tos-section__sub">
+          Refund summaries are unavailable. Refresh to verify the amounts; missing
+          payment data must not be interpreted as a confirmed zero.
+        </p>
+      ) : null}
       <div className="tos-filter-row" style={{ marginTop: 12, marginBottom: 12 }}>
         {filterOptions.map((option) => (
           <Button

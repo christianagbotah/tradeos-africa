@@ -99,18 +99,22 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
         throw new SalesReadError("Refund offset must be a nonnegative integer up to 100000.",
           400, "REFUND_OFFSET_INVALID");
       }
-      const summary = await pool.query<{
+      // Never combine refund liabilities denominated in different currencies.
+      // The worklist is independent of the current 10-item page and status filter.
+      const summaryByCurrency = await pool.query<{
+        currency_code: string;
         pending_count: string | number; pending_minor: string | number;
         failed_count: string | number; failed_minor: string | number;
       }>(
-        `SELECT
+        `SELECT rt.currency_code,
            COUNT(*) FILTER (WHERE rt.status='PENDING') AS pending_count,
            COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='PENDING'),0) AS pending_minor,
            COUNT(*) FILTER (WHERE rt.status='FAILED') AS failed_count,
            COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='FAILED'),0) AS failed_minor
          FROM refund_transactions rt
          JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
-         WHERE rt.business_id=$1 AND rc.branch_id=$2 AND rt.status IN ('PENDING','FAILED')`,
+         WHERE rt.business_id=$1 AND rc.branch_id=$2 AND rt.status IN ('PENDING','FAILED')
+         GROUP BY rt.currency_code ORDER BY rt.currency_code`,
         [businessId, branchId],
       );
       const result = await pool.query<{
@@ -131,21 +135,29 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
          ORDER BY rt.created_at ASC,rt.id ASC LIMIT $4 OFFSET $5`,
         [businessId, branchId, status, limit + 1, parsedOffset],
       );
-      const pending = summary.rows[0];
+      const safeMinor = (raw: string | number): number => {
+        const value = Number(raw);
+        if (!Number.isSafeInteger(value) || value < 0) {
+          throw new SalesReadError("Refund amount exceeds supported precision.",
+            500, "REFUND_AMOUNT_UNREPRESENTABLE");
+        }
+        return value;
+      };
       return reply.header("Cache-Control", "private, no-store, max-age=0").send({
-        summary: {
-          pendingCount: Number(pending?.pending_count ?? 0),
-          pendingMinor: Number(pending?.pending_minor ?? 0),
-          failedCount: Number(pending?.failed_count ?? 0),
-          failedMinor: Number(pending?.failed_minor ?? 0),
-        },
+        summaryByCurrency: summaryByCurrency.rows.map((row) => ({
+          currencyCode: row.currency_code,
+          pendingCount: safeMinor(row.pending_count),
+          pendingMinor: safeMinor(row.pending_minor),
+          failedCount: safeMinor(row.failed_count),
+          failedMinor: safeMinor(row.failed_minor),
+        })),
         items: result.rows.slice(0, limit).map((row) => ({
           id: row.id,
           returnCaseId: row.return_case_id,
           saleId: row.sale_id,
           status: row.status,
           method: row.method,
-          amountMinor: Number(row.amount_minor),
+          amountMinor: safeMinor(row.amount_minor),
           currencyCode: row.currency_code,
           providerReference: row.provider_reference,
           reason: row.reason,
