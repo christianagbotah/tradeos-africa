@@ -101,7 +101,7 @@ export async function getBusinessHubtelPosMonitor(
     "JOIN sales s ON s.id=a.sale_id AND s.business_id=a.business_id " +
     "JOIN payments p ON p.id=a.payment_id AND p.business_id=a.business_id " +
     "WHERE a.business_id=$1 AND ($2::uuid IS NULL OR a.branch_id=$2::uuid) " +
-    "ORDER BY (a.state='REVIEW_REQUIRED') DESC,a.created_at DESC,a.id DESC " +
+    "ORDER BY (a.state='REVIEW_REQUIRED') DESC,(a.created_at <= now()-interval '24 hours' AND s.status='OPEN' AND p.status='PENDING') DESC,a.created_at DESC,a.id DESC " +
     "LIMIT $3::integer",
     values,
   );
