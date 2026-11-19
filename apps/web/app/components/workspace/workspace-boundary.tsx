@@ -61,7 +61,9 @@ export function WorkspaceBoundary({ children }: { children: React.ReactNode }) {
           <div className="tos-boundary__actions">
             <Button variant="primary" icon={<IconRefresh className="tos-btn__icon" />}
               loading={contextBusy} disabled={contextBusy}
-              onClick={() => void refreshWorkspaceContext()}>
+              onClick={() => void refreshWorkspaceContext().catch(() => {
+                // Workspace provider displays the authoritative error state.
+              })}>
               Retry access check
             </Button>
             <Button variant="outline" onClick={() => { signOut(); router.replace("/"); }}>

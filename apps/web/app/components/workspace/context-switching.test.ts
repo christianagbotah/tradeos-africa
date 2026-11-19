@@ -3,6 +3,8 @@ import type { WebSession } from "../../../lib/offline-sync";
 import {
   buildBusinessSwitchSession,
   buildBranchSwitchSession,
+  mergeConfirmedBranch,
+  mergeConfirmedBusiness,
   type WorkspaceBusinessContext,
   type WorkspaceMembership,
 } from "./workspace-provider";
@@ -160,5 +162,32 @@ describe("workspace branch switching", () => {
     expect(() => buildBranchSwitchSession(businessBSession, inactive, "branch-tema-b")).toThrow("BRANCH_NOT_ACTIVE");
     expect(() => buildBranchSwitchSession(businessBSession, context(), "missing")).toThrow("BRANCH_NOT_ACTIVE");
     expect(() => buildBranchSwitchSession(CURRENT, context(), "branch-main-b")).toThrow("BUSINESS_CONTEXT_MISMATCH");
+  });
+});
+
+describe("confirmed CRUD updates shared business and branch views", () => {
+  it("replaces a renamed branch immediately without losing other branches", () => {
+    const before = context();
+    const renamed = { ...before.branches[1]!, name: "Tema East Branch",
+      updatedAt: "2026-11-19T08:55:00.000Z" };
+    const after = mergeConfirmedBranch(before, "business-b", renamed);
+    expect(after?.branches.find((b) => b.id === renamed.id)?.name).toBe("Tema East Branch");
+    expect(after?.branches[0]).toEqual(before.branches[0]);
+    expect(before.branches[1]?.name).toBe("Tema");
+  });
+  it("adds a newly created branch and retains tenant isolation", () => {
+    const before = context();
+    const newBranch = { ...before.branches[0]!, id: "branch-takoradi", name: "Takoradi" };
+    expect(mergeConfirmedBranch(before, "business-b", newBranch)?.branches).toHaveLength(3);
+    expect(mergeConfirmedBranch(before, "another-business", newBranch)).toBe(before);
+    expect(mergeConfirmedBranch(null, "business-b", newBranch)).toBeNull();
+  });
+  it("updates active flags and business names only within the current business", () => {
+    const before = context();
+    const deactivated = { ...before.branches[1]!, active: false };
+    expect(mergeConfirmedBranch(before, "business-b", deactivated)?.branches[1]?.active).toBe(false);
+    const renamed = { ...before.business, name: "Business B New Name" };
+    expect(mergeConfirmedBusiness(before, renamed)?.business.name).toBe("Business B New Name");
+    expect(mergeConfirmedBusiness(before, { ...renamed, id: "business-a" })).toBe(before);
   });
 });

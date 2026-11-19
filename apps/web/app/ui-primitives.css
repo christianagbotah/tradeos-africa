@@ -2217,17 +2217,34 @@ dl.tos-kv .tos-kv__val {
   .tos-dashboard-actions .tos-quick-action__chevron { display: none; }
 }
 
-/* Global, viewport-fixed feedback for confirmed user actions. This is outside
-   scrolling cards/sheets and remains visible after save, update or delete. */
+/* Global, viewport-fixed action dialog and its real, dimmed backdrop.
+   Fixed outside scrollable cards so updates are visible on mobile. */
 .tos-action-feedback {
   position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 90px);
-  right: 18px;
-  width: min(430px, calc(100vw - 32px));
+  inset: 0;
   z-index: 2147482000;
   display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px
+    max(16px, env(safe-area-inset-bottom, 0px));
+}
+.tos-action-feedback__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 20, 38, 0.58);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.tos-action-feedback__dialog {
+  position: relative;
+  z-index: 1;
+  display: grid;
   gap: 10px;
-  pointer-events: none;
+  width: min(430px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 16px;
 }
 .tos-action-feedback__toast {
   display: flex;
@@ -2286,10 +2303,7 @@ dl.tos-kv .tos-kv__val {
   outline-offset: 2px;
 }
 @media (max-width: 640px) {
-  .tos-action-feedback {
-    top: calc(env(safe-area-inset-top, 0px) + 78px);
-    right: 12px;
-    width: calc(100vw - 24px);
-  }
-  .tos-action-feedback__toast { padding: 12px; gap: 9px; }
+  .tos-action-feedback { padding: 12px; }
+  .tos-action-feedback__dialog { width: min(430px, 100%); }
+  .tos-action-feedback__toast { padding: 14px; gap: 10px; }
 }

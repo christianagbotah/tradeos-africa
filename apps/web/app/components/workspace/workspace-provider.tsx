@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { getOfflineQueue, type WebSession } from "../../../lib/offline-sync";
 import {
@@ -130,6 +130,8 @@ export interface WorkspaceContextValue {
   signIn: (session: WebSession) => void;
   signOut: () => void;
   refreshWorkspaceContext: () => Promise<void>;
+  applyConfirmedBranch: (businessId: string, branch: WorkspaceBranch) => void;
+  applyConfirmedBusiness: (business: WorkspaceBusinessProfile) => void;
   switchBusiness: (businessId: string) => Promise<void>;
   switchBranch: (branchId: string) => Promise<void>;
   refreshCatalog: () => Promise<void>;
@@ -181,6 +183,27 @@ export function buildBusinessSwitchSession(
   };
 }
 
+/** Merge a server-confirmed CRUD response immediately into the same read model
+ * that supplies the branch list and topbar. Never cross tenant boundaries. */
+export function mergeConfirmedBranch(
+  current: WorkspaceBusinessContext | null,
+  businessId: string,
+  branch: WorkspaceBranch,
+): WorkspaceBusinessContext | null {
+  if (!current || current.business.id !== businessId) return current;
+  const exists = current.branches.some((item) => item.id === branch.id);
+  return { ...current, branches: exists
+    ? current.branches.map((item) => item.id === branch.id ? branch : item)
+    : [...current.branches, branch] };
+}
+
+export function mergeConfirmedBusiness(
+  current: WorkspaceBusinessContext | null,
+  business: WorkspaceBusinessProfile,
+): WorkspaceBusinessContext | null {
+  return current?.business.id === business.id ? { ...current, business } : current;
+}
+
 /** Switches branch only inside the already-authoritative current business. */
 export function buildBranchSwitchSession(
   current: WebSession,
@@ -204,6 +227,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const [memberships, setMemberships] = useState<readonly WorkspaceMembership[]>([]);
   const [businessContext, setBusinessContext] = useState<WorkspaceBusinessContext | null>(null);
   const [contextBusy, setContextBusy] = useState(false);
+  // Only the newest context request may update workspace labels and branch lists.
+  // This prevents a slow pre-mutation request replacing the refreshed response.
+  const contextRequestSeq = useRef(0);
+  const hasLoadedWorkspace = useRef(false);
   const [catalog, setCatalog] = useState<readonly CatalogItem[]>([]);
   const [inventory, setInventory] = useState<readonly InventoryItem[]>([]);
   const [customers, setCustomers] = useState<readonly Customer[]>([]);
@@ -235,7 +262,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, []);
 
   const loadIdentity = useCallback(async (): Promise<WorkspaceIdentityResponse> => {
-    const response = await offlineQueue.authenticatedFetch("/v1/me");
+    const response = await offlineQueue.authenticatedFetch("/v1/me", { cache: "no-store" });
     if (!response.ok) throw new Error(await readApiErrorMessage(response, "Account context could not be loaded"));
     const value = await response.json() as WorkspaceIdentityResponse;
     if (!value.user || !Array.isArray(value.memberships)) throw new Error("Server returned incomplete account context.");
@@ -243,7 +270,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, [offlineQueue]);
 
   const loadBusiness = useCallback(async (businessId: string): Promise<WorkspaceBusinessContext> => {
-    const response = await offlineQueue.authenticatedFetch(`/v1/businesses/${encodeURIComponent(businessId)}/context`);
+    const response = await offlineQueue.authenticatedFetch(
+      `/v1/businesses/${encodeURIComponent(businessId)}/context`,
+      { cache: "no-store" },
+    );
     if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business context could not be loaded"));
     const value = await response.json() as WorkspaceBusinessContext;
     if (!value.business || !value.membership || !Array.isArray(value.branches)) {
@@ -254,7 +284,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
 
   const refreshWorkspaceContext = useCallback(async () => {
     const current = offlineQueue.sessions.load() ?? session;
-    if (!current) return;
+    if (!current) throw new Error("You are signed out.");
+    const requestId = ++contextRequestSeq.current;
     setContextBusy(true);
     try {
       const identity = await loadIdentity();
@@ -271,23 +302,36 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         context,
         current.branchId,
       );
+      // A slow earlier request must never overwrite newer committed CRUD data.
+      if (requestId !== contextRequestSeq.current) return;
       setAccount(identity.user);
       setMemberships(identity.memberships);
       setBusinessContext(context);
+      hasLoadedWorkspace.current = true;
       setFatal(null);
       if (!sessionsEquivalent(current, normalized)) {
         offlineQueue.sessions.save(normalized);
         setSession(normalized);
       }
     } catch (error) {
-      setFatal(error instanceof Error ? error.message : "Workspace context could not be loaded.");
+      if (requestId !== contextRequestSeq.current) return;
+      if (!hasLoadedWorkspace.current) {
+        // Only an initial access failure is fatal. A transient reload failure
+        // after a confirmed CRUD write must not blank the entire workspace.
+        setFatal(error instanceof Error ? error.message : "Workspace context could not be loaded.");
+      }
+      // Never report a successful settings refresh when the authoritative
+      // server reload actually failed. CRUD handlers must see the failure.
+      throw error;
     } finally {
-      setContextBusy(false);
+      if (requestId === contextRequestSeq.current) setContextBusy(false);
     }
   }, [loadBusiness, loadIdentity, offlineQueue, session]);
 
   useEffect(() => {
-    if (session) void refreshWorkspaceContext();
+    if (session) void refreshWorkspaceContext().catch(() => {
+      // The provider already recorded the error for WorkspaceBoundary.
+    });
     else {
       setAccount(null);
       setMemberships([]);
@@ -296,6 +340,23 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   // refreshWorkspaceContext intentionally changes when session changes; the
   // normalizer avoids re-saving an equivalent session and therefore loops.
   }, [session, refreshWorkspaceContext]);
+
+  // Server writes return the confirmed entity. Apply it to the shared
+  // workspace immediately; the subsequent no-store context read reconciles
+  // permissions, branch lists and other server-derived fields.
+  const applyConfirmedBranch = useCallback((businessId: string, branch: WorkspaceBranch) => {
+    setBusinessContext((current) => mergeConfirmedBranch(current, businessId, branch));
+  }, []);
+
+  const applyConfirmedBusiness = useCallback((business: WorkspaceBusinessProfile) => {
+    setBusinessContext((current) => mergeConfirmedBusiness(current, business));
+    const currentSession = offlineQueue.sessions.load();
+    if (currentSession?.businessId === business.id && currentSession.businessName !== business.name) {
+      const nextSession = { ...currentSession, businessName: business.name };
+      offlineQueue.sessions.save(nextSession);
+      setSession(nextSession);
+    }
+  }, [offlineQueue]);
 
   const switchBusiness = useCallback(async (businessId: string) => {
     const current = offlineQueue.sessions.load() ?? session;
@@ -480,6 +541,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     signIn,
     signOut,
     refreshWorkspaceContext,
+    applyConfirmedBranch,
+    applyConfirmedBusiness,
     switchBusiness,
     switchBranch,
     refreshCatalog,

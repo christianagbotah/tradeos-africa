@@ -48,6 +48,9 @@ export function registerBusinessRoutes(app: FastifyInstance, pool: DatabasePool)
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const access = await requireBusinessRole(pool, auth, request.params.businessId, READ_ROLES);
       const context = await loadBusinessContext(pool, access.businessId);
+      // After PATCH/POST/DELETE the next context GET must not reuse a cached
+      // branch name or business profile, including in mobile browser webviews.
+      reply.header("Cache-Control", "private, no-store, max-age=0");
       return {
         business: context.business,
         membership: { role: access.role, staffId: access.staffId },

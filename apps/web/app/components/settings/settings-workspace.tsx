@@ -444,7 +444,7 @@ function BusinessSection({
   requestedAction: string | null;
   onActionConsumed: () => void;
 }) {
-  const { businessContext, session } = useWorkspace();
+  const { businessContext, session, applyConfirmedBusiness } = useWorkspace();
   const business = businessContext?.business;
   const [form, setForm] = useState<BusinessFormState>(() => businessToForm(business));
   const [newBusiness, setNewBusiness] = useState<NewBusinessFormState>(() => defaultNewBusiness());
@@ -511,6 +511,7 @@ function BusinessSection({
     if (!business || !session || !online || !canManage || busy) return;
     setBusy(true);
     setFeedback(null);
+    let confirmed = false;
     try {
       const response = await getOfflineQueue().authenticatedFetch(`/v1/businesses/${encodeURIComponent(session.businessId)}`, {
         method: "PATCH",
@@ -534,11 +535,17 @@ function BusinessSection({
         }),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business could not be updated"));
+      const result = await response.json() as { business?: WorkspaceBusinessProfile };
+      if (result.business?.id !== session.businessId || !result.business?.name) {
+        throw new Error("The server did not return the updated business.");
+      }
+      applyConfirmedBusiness(result.business);
+      confirmed = true;
       await onRefresh();
       setBusinessMode("view");
       setFeedback({ tone: "success", text: "Business details have been updated." });
     } catch (error) {
-      setFeedback({ tone: "error", text: errorMessage(error) });
+      setFeedback(confirmed ? { tone: "info", text: "Business details were saved on the server and are shown here, but refreshing the rest of the workspace failed. Please retry the refresh." } : { tone: "error", text: errorMessage(error) });
     } finally {
       setBusy(false);
     }
@@ -680,7 +687,7 @@ function BranchesSection({
   requestedAction: string | null;
   onActionConsumed: () => void;
 }) {
-  const { businessContext, session } = useWorkspace();
+  const { businessContext, session, applyConfirmedBranch } = useWorkspace();
   const branches = businessContext?.branches ?? [];
   const [branchMode, setBranchMode] = useState<BranchEditorMode>({ kind: "view" });
   const creating = branchMode.kind === "create";
@@ -715,6 +722,7 @@ function BranchesSection({
     if (!session || !online || !canManage || busyId) return;
     setBusyId("create");
     setFeedback(null);
+    let confirmed = false;
     try {
       const response = await getOfflineQueue().authenticatedFetch(`/v1/businesses/${encodeURIComponent(session.businessId)}/branches`, {
         method: "POST",
@@ -722,12 +730,16 @@ function BranchesSection({
         body: JSON.stringify(branchPayload(draft, true)),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Branch could not be created"));
+      const result = await response.json() as { branch?: WorkspaceBranch };
+      if (!result.branch?.id || !result.branch.name) throw new Error("The server did not return the new branch.");
+      applyConfirmedBranch(session.businessId, result.branch);
+      confirmed = true;
       setDraft(defaultBranchDraft(businessContext?.business.timezone ?? session.timezone));
       setBranchMode({ kind: "view" });
       await onRefresh();
       setFeedback({ tone: "success", text: "Branch created. It is now available in the workspace switcher." });
     } catch (error) {
-      setFeedback({ tone: "error", text: errorMessage(error) });
+      setFeedback(confirmed ? { tone: "info", text: "Branch changes were confirmed by the server and are visible, but the full workspace reload failed. Please retry the refresh." } : { tone: "error", text: errorMessage(error) });
     } finally {
       setBusyId(null);
     }
@@ -738,6 +750,7 @@ function BranchesSection({
     if (!session || !editingId || !online || !canManage || busyId) return;
     setBusyId(editingId);
     setFeedback(null);
+    let confirmed = false;
     try {
       const response = await getOfflineQueue().authenticatedFetch(`/v1/businesses/${encodeURIComponent(session.businessId)}/branches/${encodeURIComponent(editingId)}`, {
         method: "PATCH",
@@ -745,11 +758,17 @@ function BranchesSection({
         body: JSON.stringify(branchPayload(editDraft, false)),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Branch could not be updated"));
+      const result = await response.json() as { branch?: WorkspaceBranch };
+      if (result.branch?.id !== editingId || !result.branch?.name) {
+        throw new Error("The server did not return the updated branch.");
+      }
+      applyConfirmedBranch(session.businessId, result.branch);
+      confirmed = true;
       await onRefresh();
       setBranchMode({ kind: "view" });
       setFeedback({ tone: "success", text: "Branch details updated." });
     } catch (error) {
-      setFeedback({ tone: "error", text: errorMessage(error) });
+      setFeedback(confirmed ? { tone: "info", text: "Branch changes were confirmed by the server and are visible, but the full workspace reload failed. Please retry the refresh." } : { tone: "error", text: errorMessage(error) });
     } finally {
       setBusyId(null);
     }
@@ -759,15 +778,22 @@ function BranchesSection({
     if (!session || !online || !canManage || busyId) return;
     setBusyId(branch.id);
     setFeedback(null);
+    let confirmed = false;
     try {
       const basePath = `/v1/businesses/${encodeURIComponent(session.businessId)}/branches/${encodeURIComponent(branch.id)}`;
       const actionPath = active ? `${basePath}/reactivate` : `${basePath}/deactivate`;
       const response = await getOfflineQueue().authenticatedFetch(actionPath, { method: "POST" });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, `Branch could not be ${active ? "reactivated" : "deactivated"}`));
+      const result = await response.json() as { branch?: WorkspaceBranch };
+      if (result.branch?.id !== branch.id || result.branch.active !== active) {
+        throw new Error("The server did not confirm the new branch status.");
+      }
+      applyConfirmedBranch(session.businessId, result.branch);
+      confirmed = true;
       await onRefresh();
-      setFeedback({ tone: "success", text: `${branch.name} was ${active ? "reactivated" : "deactivated"}.` });
+      setFeedback({ tone: "success", text: `${result.branch.name} was ${active ? "reactivated" : "deactivated"}.` });
     } catch (error) {
-      setFeedback({ tone: "error", text: errorMessage(error) });
+      setFeedback(confirmed ? { tone: "info", text: "Branch changes were confirmed by the server and are visible, but the full workspace reload failed. Please retry the refresh." } : { tone: "error", text: errorMessage(error) });
     } finally {
       setBusyId(null);
     }

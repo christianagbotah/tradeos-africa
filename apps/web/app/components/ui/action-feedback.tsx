@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type ActionFeedbackTone = "success" | "error" | "info" | "warning";
 export interface ActionFeedback {
@@ -45,6 +45,21 @@ const toneClass: Record<ActionFeedbackTone, string> = {
 
 export function ActionFeedbackViewport() {
   const [toasts, setToasts] = useState<FeedbackToast[]>([]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const hasFeedback = toasts.length > 0;
+
+  useEffect(() => {
+    if (!hasFeedback || typeof document === "undefined") return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus();
+    };
+  }, [hasFeedback]);
 
   useEffect(() => {
     const receive = (event: Event) => {
@@ -92,21 +107,42 @@ export function ActionFeedbackViewport() {
   if (!toasts.length) return null;
   return (
     <div className="tos-action-feedback" aria-label="Action notifications">
-      {toasts.map((toast) => (
-        <div key={toast.id} className={"tos-action-feedback__toast " + toneClass[toast.tone]}
-          role={toast.tone === "error" ? "alert" : "status"}>
-          <span className="tos-action-feedback__symbol" aria-hidden="true">
-            {symbol[toast.tone]}
-          </span>
-          <div className="tos-action-feedback__text">
-            <strong>{toast.title ?? defaultTitle[toast.tone]}</strong>
-            <p>{toast.message}</p>
+      <div className="tos-action-feedback__backdrop" aria-hidden="true"
+        onClick={() => setToasts([])} />
+      <div className="tos-action-feedback__dialog" ref={dialogRef}
+        role="dialog" aria-modal="true" aria-label="Action result"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setToasts([]);
+          } else if (event.key === "Tab") {
+            const buttons = Array.from(
+              dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+            );
+            if (!buttons.length) return;
+            if (event.shiftKey && document.activeElement === buttons[0]) {
+              event.preventDefault(); buttons[buttons.length - 1]?.focus();
+            } else if (!event.shiftKey && document.activeElement === buttons[buttons.length - 1]) {
+              event.preventDefault(); buttons[0]?.focus();
+            }
+          }
+        }}>
+        {toasts.map((toast) => (
+          <div key={toast.id} className={"tos-action-feedback__toast " + toneClass[toast.tone]}
+            role={toast.tone === "error" ? "alert" : "status"}>
+            <span className="tos-action-feedback__symbol" aria-hidden="true">
+              {symbol[toast.tone]}
+            </span>
+            <div className="tos-action-feedback__text">
+              <strong>{toast.title ?? defaultTitle[toast.tone]}</strong>
+              <p>{toast.message}</p>
+            </div>
+            <button type="button" className="tos-action-feedback__close"
+              onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))}
+              aria-label="Dismiss notification">×</button>
           </div>
-          <button type="button" className="tos-action-feedback__close"
-            onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))}
-            aria-label="Dismiss notification">×</button>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
