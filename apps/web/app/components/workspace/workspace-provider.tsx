@@ -11,6 +11,12 @@ import {
   type InventoryItem,
 } from "../../../lib/catalog-read-model";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
+import {
+  reconcileConfirmedCustomers,
+  registerConfirmedCustomerUpdate,
+  type ConfirmedCustomerRevision,
+  type CustomerConfirmedFields,
+} from "../customers/customer-reconciliation";
 import type { WorkspaceRole } from "./workspace-navigation";
 
 export type { CatalogItem, InventoryItem } from "../../../lib/catalog-read-model";
@@ -137,6 +143,7 @@ export interface WorkspaceContextValue {
   refreshCatalog: () => Promise<void>;
   refreshInventory: () => Promise<void>;
   refreshCustomers: () => Promise<void>;
+  applyConfirmedCustomerUpdate: (businessId: string, customer: Customer, fields: CustomerConfirmedFields) => void;
   flushQueue: () => Promise<void>;
   bump: () => void;
 }
@@ -307,6 +314,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const hasLoadedWorkspace = useRef(false);
   const confirmedBranches = useRef(new Map<string, ConfirmedBranchRevision>());
   const confirmedBusinesses = useRef(new Map<string, ConfirmedBusinessRevision>());
+  const confirmedCustomers = useRef(new Map<string, ConfirmedCustomerRevision>());
+  const customersRequestSeq = useRef(0);
   const [catalog, setCatalog] = useState<readonly CatalogItem[]>([]);
   const [inventory, setInventory] = useState<readonly InventoryItem[]>([]);
   const [customers, setCustomers] = useState<readonly Customer[]>([]);
@@ -467,6 +476,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       );
       // Clear business-scoped read models before changing identity so no frame
       // can present another tenant's catalog/customer/stock data under the new header.
+      ++customersRequestSeq.current;
       setCatalog([]);
       setInventory([]);
       setCustomers([]);
@@ -531,7 +541,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const refreshCatalog = useCallback(async () => {
     if (!session) return;
     try {
-      const res = await offlineQueue.authenticatedFetch(`/v1/catalog/items?businessId=${encodeURIComponent(session.businessId)}`);
+      const res = await offlineQueue.authenticatedFetch(
+        `/v1/catalog/items?businessId=${encodeURIComponent(session.businessId)}`,
+        { cache: "no-store" },
+      );
       if (!res.ok) {
         setFatal(`Could not load catalog (${res.status}).`);
         return;
@@ -548,6 +561,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     try {
       const res = await offlineQueue.authenticatedFetch(
         `/v1/inventory?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}`,
+        { cache: "no-store" },
       );
       if (!res.ok) {
         setInventory([]);
@@ -562,15 +576,36 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
 
   const refreshCustomers = useCallback(async () => {
     if (!session) return;
+    const requestId = ++customersRequestSeq.current;
+    const businessId = session.businessId;
     try {
-      const res = await offlineQueue.authenticatedFetch(`/v1/customers?businessId=${encodeURIComponent(session.businessId)}`);
+      const res = await offlineQueue.authenticatedFetch(
+        `/v1/customers?businessId=${encodeURIComponent(businessId)}`,
+        { cache: "no-store" },
+      );
       if (!res.ok) return;
       const json = await res.json() as { customers: Customer[] };
-      setCustomers(json.customers ?? []);
+      // A slow response from a prior business, or from a pre-update request,
+      // must not replace a confirmed customer rename.
+      if (requestId !== customersRequestSeq.current
+        || offlineQueue.sessions.load()?.businessId !== businessId) return;
+      setCustomers(reconcileConfirmedCustomers(
+        json.customers ?? [], businessId, confirmedCustomers.current,
+      ));
     } catch {
       // Customers are non-blocking.
     }
   }, [offlineQueue, session]);
+
+  const applyConfirmedCustomerUpdate = useCallback((
+    businessId: string, customer: Customer, fields: CustomerConfirmedFields,
+  ) => {
+    if (offlineQueue.sessions.load()?.businessId !== businessId) return;
+    registerConfirmedCustomerUpdate(confirmedCustomers.current, businessId, customer, fields);
+    ++customersRequestSeq.current;
+    setCustomers((previous) => previous.map((item) =>
+      item.id === customer.id ? { ...item, ...fields } : item));
+  }, [offlineQueue]);
 
   useEffect(() => {
     if (!session) {
@@ -591,8 +626,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, [offlineQueue]);
 
   const signOut = useCallback(() => {
+    ++customersRequestSeq.current;
     confirmedBranches.current.clear();
     confirmedBusinesses.current.clear();
+    confirmedCustomers.current.clear();
     offlineQueue.sessions.clear();
     // Do NOT erase business queues here. Unsynced work belongs to the business
     // and must survive logout/business switching on this device.
@@ -638,6 +675,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     refreshCatalog,
     refreshInventory,
     refreshCustomers,
+    applyConfirmedCustomerUpdate,
     flushQueue,
     bump,
   };

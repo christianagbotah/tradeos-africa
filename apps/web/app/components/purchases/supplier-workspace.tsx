@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { SupplierSheet, SupplierFormSheet, type Supplier } from "./supplier-sheet";
+import {
+  reconcileSupplierRows,
+  registerSupplierMutation,
+  type SupplierGuard,
+  type SupplierMutationEvent,
+} from "./supplier-reconciliation";
 import { PurchaseReceiptBuilder } from "./purchase-receipt-builder";
 import { PurchaseDetailSheet } from "./purchase-detail-sheet";
 import { MoneyValue } from "../business/money-value";
@@ -86,7 +92,7 @@ export function SupplierWorkspace() {
   const [formOpen, setFormOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [purchaseDetailId, setPurchaseDetailId] = useState<string | null>(null);
-  const [nonce, setNonce] = useState(0);
+  const confirmedSupplierGuards = useRef(new Map<string, SupplierGuard>());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkDeleteArmed, setBulkDeleteArmed] = useState(false);
@@ -94,16 +100,40 @@ export function SupplierWorkspace() {
 
   const suppliersPath = session ? `/v1/suppliers?businessId=${encodeURIComponent(session.businessId)}` : null;
   const purchasesPath = session ? `/v1/purchases?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}` : null;
-  const { data: suppliersData, loading: suppliersLoading, error: suppliersError, refetch: refetchSuppliers } = useApiFetch<SuppliersResponse>(suppliersPath);
+  const {
+    data: suppliersData,
+    loading: suppliersLoading,
+    error: suppliersError,
+    refetch: refetchSuppliers,
+    setData: setSuppliersData,
+  } = useApiFetch<SuppliersResponse>(suppliersPath, {
+    reconcile: (incoming) => session
+      ? { ...incoming, suppliers: reconcileSupplierRows(
+          incoming.suppliers ?? [], session.businessId, confirmedSupplierGuards.current,
+        ) }
+      : incoming,
+  });
   const { data: purchasesData, loading: purchasesLoading, error: purchasesError, refetch: refetchPurchases } = useApiFetch<PurchasesResponse>(purchasesPath);
 
-  useEffect(() => {
-    // re-fetch when nonce changes
-    if (nonce > 0) {
-      refetchSuppliers();
-      refetchPurchases();
-    }
-  }, [nonce, refetchSuppliers, refetchPurchases]);
+  const refreshSupplierViews = () => {
+    refetchSuppliers();
+    refetchPurchases();
+  };
+
+  const applySupplierMutation = (event: SupplierMutationEvent) => {
+    if (!session) return;
+    registerSupplierMutation(confirmedSupplierGuards.current, session.businessId, event);
+    // The saved supplier must be visible immediately. A follow-up GET still
+    // runs, but its stale response cannot undo the confirmed mutation.
+    setSuppliersData((previous) => previous
+      ? { ...previous, suppliers: reconcileSupplierRows(
+          previous.suppliers ?? [], session.businessId, confirmedSupplierGuards.current,
+        ) }
+      : previous);
+    if (event.kind !== "refresh") setSelected(null);
+    refreshSupplierViews();
+    bump();
+  };
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "INVENTORY"].includes(role);
   const canDelete = ["OWNER", "ADMIN"].includes(role);
@@ -227,12 +257,19 @@ export function SupplierWorkspace() {
           if (!response.ok) {
             failures.push({ id: supplier.id, name: supplier.name, message: await readApiErrorMessage(response, "Supplier status could not be changed") });
           } else {
+            registerSupplierMutation(confirmedSupplierGuards.current, session.businessId, {
+              kind: "updated", supplier, changes: { active },
+            });
             changed += 1;
           }
         } catch (error) {
           failures.push({ id: supplier.id, name: supplier.name, message: networkFailureMessage(error) });
         }
       }
+      setSuppliersData((previous) => previous
+        ? { ...previous, suppliers: reconcileSupplierRows(
+            previous.suppliers ?? [], session.businessId, confirmedSupplierGuards.current,
+          ) } : previous);
       refetchSuppliers();
       bump();
       setSelectedIds(new Set(failures.map((failure) => failure.id)));
@@ -268,12 +305,19 @@ export function SupplierWorkspace() {
           if (!response.ok) {
             failures.push({ id: supplier.id, name: supplier.name, message: await readApiErrorMessage(response, "Supplier could not be deleted") });
           } else {
+            registerSupplierMutation(confirmedSupplierGuards.current, session.businessId, {
+              kind: "deleted", supplier,
+            });
             deleted += 1;
           }
         } catch (error) {
           failures.push({ id: supplier.id, name: supplier.name, message: networkFailureMessage(error) });
         }
       }
+      setSuppliersData((previous) => previous
+        ? { ...previous, suppliers: reconcileSupplierRows(
+            previous.suppliers ?? [], session.businessId, confirmedSupplierGuards.current,
+          ) } : previous);
       refetchSuppliers();
       bump();
       setSelectedIds(new Set(failures.map((failure) => failure.id)));
@@ -300,7 +344,7 @@ export function SupplierWorkspace() {
         </div>
         <div className="tos-page__actions">
           <Link href="/purchase-orders" className="tos-btn tos-btn--outline">Purchase orders</Link>
-          <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => setNonce((n) => n + 1)}>Refresh</Button>
+          <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={refreshSupplierViews}>Refresh</Button>
           {canWrite ? (
             <>
               <Button variant="outline" icon={<IconPurchases className="tos-btn__icon" />} onClick={openAddSupplier}>Add supplier</Button>
@@ -679,10 +723,10 @@ export function SupplierWorkspace() {
         </div>
       ) : null}
 
-      <SupplierSheet supplier={selected} onClose={() => setSelected(null)} onMutated={() => { bump(); setNonce((n) => n + 1); }} />
-      <SupplierFormSheet open={formOpen} onClose={() => setFormOpen(false)} onCreated={() => { setFormOpen(false); bump(); setNonce((n) => n + 1); }} />
-      <PurchaseReceiptBuilder open={receiptOpen} suppliers={suppliers} onClose={() => setReceiptOpen(false)} onComplete={() => { setReceiptOpen(false); bump(); setNonce((n) => n + 1); }} />
-      <PurchaseDetailSheet purchaseId={purchaseDetailId} onClose={() => setPurchaseDetailId(null)} onMutated={() => { bump(); setNonce((n) => n + 1); }} />
+      <SupplierSheet supplier={selected} onClose={() => setSelected(null)} onMutated={applySupplierMutation} />
+      <SupplierFormSheet open={formOpen} onClose={() => setFormOpen(false)} onCreated={() => { setFormOpen(false); bump(); refreshSupplierViews(); }} />
+      <PurchaseReceiptBuilder open={receiptOpen} suppliers={suppliers} onClose={() => setReceiptOpen(false)} onComplete={() => { setReceiptOpen(false); bump(); refreshSupplierViews(); }} />
+      <PurchaseDetailSheet purchaseId={purchaseDetailId} onClose={() => setPurchaseDetailId(null)} onMutated={() => { bump(); refreshSupplierViews(); }} />
     </div>
   );
 }

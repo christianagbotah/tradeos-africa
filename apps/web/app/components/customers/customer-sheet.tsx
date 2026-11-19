@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
+import type { CustomerMutationEvent } from "./customer-reconciliation";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
 import { Button } from "../ui/button";
@@ -40,7 +41,7 @@ interface CustomerSheetProps {
   customer: Customer | null;
   onClose: () => void;
   /** Called after a CUSTOMER_UPDATE or CUSTOMER_PAYMENT_CREATE enqueues successfully. */
-  onMutated?: () => void;
+  onMutated?: (event: CustomerMutationEvent) => void;
 }
 
 const PAYMENT_METHODS: ReadonlyArray<{ value: PaymentMethod; label: string }> = [
@@ -270,7 +271,15 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
                   online: typeof navigator !== "undefined" ? navigator.onLine : true,
                 });
                 bump();
-                onMutated?.();
+                onMutated?.({
+                  kind: "updated",
+                  customer,
+                  fields: {
+                    name: payload.name as string,
+                    phone: payload.phone as string | null,
+                    email: payload.email as string | null,
+                  },
+                });
                 setEditOpen(false);
               }}
             />
@@ -297,7 +306,7 @@ export function CustomerSheet({ customer, onClose, onMutated }: CustomerSheetPro
                   online: typeof navigator !== "undefined" ? navigator.onLine : true,
                 });
                 bump();
-                onMutated?.();
+                onMutated?.({ kind: "refresh" });
                 setPaymentOpen(false);
               }}
             />
