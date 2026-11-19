@@ -25,5 +25,6 @@ describe("untrusted TEST checkout return handoff",()=>{
     expect(sandboxSettingsUrl(parsed!)).not.toContain("test_tx=");
     expect(sandboxSettingsUrl(parsed!)).toContain("test_ref_conflict=1");
     expect(readSandboxReturn(basic+"&transaction_id=4%0A5")?.transactionId).toBeNull();
+    expect(readSandboxReturn(basic+"&tx_ref=TSP_20261119_1234&reference=wrong_ref")?.referenceConflict).toBe(true);
   });
 });
