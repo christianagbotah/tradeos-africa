@@ -21,6 +21,7 @@ interface Item {
   paymentStatus: string;
   amountMinor: number;
   currencyCode: string;
+  overdue24h: boolean;
   createdAt: string;
   lastCheckedAt: string | null;
   nextCheckAt: string | null;
@@ -36,7 +37,10 @@ interface Item {
 type Report = {
   attempts: Item[];
   summary: { awaiting: number; reviewRequired: number; reconciled: number;
-    settlementAlerts:number };
+    settlementAlerts:number;overdueUnverified24h:number;
+    pendingCheckoutsByCurrency:Array<{
+      currencyCode:string;pendingCount:number;overdue24hCount:number;pendingMinor:number;
+    }> };
 };
 type Readiness = { enabled: boolean; existingCheckoutEnabled: boolean;
   preferredProvider: string; notice: string };
@@ -143,7 +147,28 @@ export function HubtelReconciliationWorkspace() {
       <div><span>Needs review</span><strong>{data?.summary.reviewRequired ?? "—"}</strong></div>
       <div><span>Confirmed</span><strong>{data?.summary.reconciled ?? "—"}</strong></div>
       <div><span>Post-settlement alerts</span><strong>{data?.summary.settlementAlerts ?? "—"}</strong></div>
+      <div><span>Unverified over 24 hours</span>
+        <strong>{data?.summary.overdueUnverified24h ?? "—"}</strong></div>
     </div>
+    {data?.summary.pendingCheckoutsByCurrency ? (
+      <section className={styles.exposure} aria-label="Unverified checkout amounts by currency">
+        <div>
+          <h2>Unverified checkout amounts</h2>
+          <p>Across the entire selected branch, including older checkouts not shown below.
+            These are pending payment amounts, not stock valuation or received cash.
+            Do not restore stock based on age or an unverified payment status.</p>
+        </div>
+        {data.summary.pendingCheckoutsByCurrency.length === 0 ? (
+          <p>No unverified Hubtel checkouts currently hold an open sale.</p>
+        ) : data.summary.pendingCheckoutsByCurrency.map((balance) => (
+          <div className={styles.exposureRow} key={balance.currencyCode}>
+            <strong>{formatMoney(balance.pendingMinor, balance.currencyCode)}</strong>
+            <span>{balance.pendingCount} open checkout{balance.pendingCount===1?"":"s"}
+              {" · "}{balance.overdue24hCount} over 24 hours</span>
+          </div>
+        ))}
+      </section>
+    ) : null}
     {error ? <p role="alert" className={styles.error}>{error}</p> : null}
     {loadError ? <p role="alert" className={styles.error}>{loadError}</p> : null}
     {message ? <p role="status" className={styles.success}>{message}</p> : null}
@@ -172,6 +197,11 @@ export function HubtelReconciliationWorkspace() {
             Last alert {date(item.settlementExceptionAt)}. This payment remains recorded
             as completed until a separately authorized accounting review resolves it.
             No automatic refund, cashbook reversal or stock movement has occurred.</p>:null}
+          {item.overdue24h ? <p className={styles.review}>
+            <strong>Overdue payment hold (24h+).</strong> This sale is still open and
+            payment is pending. Confirm the provider's final settlement before any
+            authorized stock release or reversal. Age alone is not cancellation proof.
+          </p> : null}
           {item.state==="RECONCILED"?<p className={styles.itemDate}>
             Last post-settlement status check: {date(item.postSettlementCheckedAt)}.
             Subsequent checks are limited to once every five minutes.</p>:null}
