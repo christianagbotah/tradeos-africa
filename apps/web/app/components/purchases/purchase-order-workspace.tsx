@@ -19,12 +19,15 @@ import type { Supplier } from "./supplier-sheet";
 import {VoicePurchaseOrderAssistant,type VoicePOReviewLine}
   from "./voice-purchase-order-assistant";
 import styles from "./purchase-order-workspace.module.css";
+import {
+  rememberPurchaseOrder,
+  reconcilePurchaseOrders,
+  type PurchaseOrderRow,
+  type ConfirmedPurchaseOrder,
+} from "./purchase-order-reconciliation";
 
 type Status = "DRAFT" | "ISSUED" | "CANCELLED";
-interface Order {
-  id:string;orderNumber:string;status:Status;totalMinor:number;currencyCode:string;
-  supplierName:string;createdAt:string;expectedDeliveryDate:string|null;
-}
+type Order = PurchaseOrderRow;
 type DraftLine=PurchaseOrderDraftLine;
 const makeLine=():DraftLine=>({
   key:crypto.randomUUID(),itemId:"",purchaseUnitCode:"",quantity:"1",unitCostMinor:null,
@@ -48,13 +51,33 @@ export function PurchaseOrderWorkspace(){
   const [issueCandidate,setIssueCandidate]=useState<Order|null>(null);
   const issueCancelButton=useRef<HTMLButtonElement>(null);
   const requestId=useRef<string|null>(null);
+  const confirmedOrders=useRef(new Map<string, ConfirmedPurchaseOrder>());
+  const orderScope=session?session.businessId+":"+session.branchId:"";
   const canWrite=["OWNER","ADMIN","MANAGER","INVENTORY"].includes(role);
   const canIssue=["OWNER","ADMIN","MANAGER"].includes(role);
   const currency=session?.currencyCode??"GHS";
   const supplierPath=session?`/v1/suppliers?businessId=${encodeURIComponent(session.businessId)}&limit=100`:null;
   const orderPath=session?`/v1/purchase-orders?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=100`:null;
   const {data:suppliersData,loading:suppliersLoading,error:supplierError}=useApiFetch<{suppliers:Supplier[]}>(supplierPath);
-  const {data:ordersData,loading:ordersLoading,error:ordersError,refetch}=useApiFetch<{orders:Order[]}>(orderPath);
+  const {
+    data: ordersData,
+    loading: ordersLoading,
+    error: ordersError,
+    refetch,
+    setData: setOrdersData,
+  } = useApiFetch<{orders: Order[]}>(orderPath, {
+    reconcile: (incoming) => ({
+      ...incoming,
+      orders: reconcilePurchaseOrders(incoming.orders ?? [], confirmedOrders.current, orderScope),
+    }),
+  });
+  const displayConfirmedOrder=(order:Order)=>{
+    if(!session)return;
+    rememberPurchaseOrder(confirmedOrders.current,orderScope,order);
+    setOrdersData(previous=>previous?{
+      ...previous,orders:reconcilePurchaseOrders(previous.orders??[],confirmedOrders.current,orderScope),
+    }:{orders:[order]});
+  };
   const suppliers=useMemo(()=>suppliersData?.suppliers.filter(s=>s.active)??[],[suppliersData]);
   const items=useMemo(()=>catalog.filter(i=>i.active&&i.kind==="PRODUCT"&&
     i.trackStock&&purchasableUnits(i).length>0),[catalog]);
@@ -90,6 +113,9 @@ export function PurchaseOrderWorkspace(){
       });
       if(!response.ok)throw new Error(await readApiErrorMessage(response));
       const result=await response.json() as {order:Order;idempotentReplay:boolean};
+      if(!result.order?.id||result.order.status!=="DRAFT")throw new Error(
+        "The server did not confirm a saved draft purchase order.");
+      displayConfirmedOrder(result.order);
       setNotice(`${result.order.orderNumber} saved as a draft. Review and issue it before sending to the supplier.`);
       setLines([makeLine()]);setSupplierId("");setExpectedDeliveryDate("");setNotes("");
       requestId.current=null;refetch();
@@ -109,6 +135,12 @@ export function PurchaseOrderWorkspace(){
           body:JSON.stringify({businessId:session.businessId}),
         });
       if(!response.ok)throw new Error(await readApiErrorMessage(response));
+      const result=await response.json() as {order:Order};
+      const expectedStatus:Status=action==="issue"?"ISSUED":"CANCELLED";
+      if(result.order?.id!==order.id||result.order.status!==expectedStatus){
+        throw new Error("The server did not confirm the purchase-order status change.");
+      }
+      displayConfirmedOrder(result.order);
       setNotice(`${order.orderNumber} ${action==="issue"?"issued":"cancelled"}.`);
       setIssueCandidate(null);
       refetch();

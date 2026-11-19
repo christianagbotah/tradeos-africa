@@ -123,7 +123,7 @@ function unitRowFrom(unit: CatalogUnit): UnitRow {
 }
 
 export function CatalogItemSheet({ item, open = false, onClose, onSaved }: CatalogItemSheetProps) {
-  const { session, role, refreshCatalog } = useWorkspace();
+  const { session, role, refreshCatalog, applyConfirmedCatalogUpdate } = useWorkspace();
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
   const [kind, setKind] = useState<CatalogItem["kind"]>("PRODUCT");
@@ -297,7 +297,32 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
         payload,
       });
       await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      const summary = await queue.flushOrThrow({
+        activeBusinessId: session.businessId,
+        online: typeof navigator !== "undefined" ? navigator.onLine : true,
+      });
+      const snapshot = await queue.getSnapshot(session.businessId);
+      const confirmed = summary.applied > 0
+        && !snapshot.pending.some((entry) => entry.clientMutationId === mutation.clientMutationId)
+        && !snapshot.failed.some((entry) => entry.mutation.clientMutationId === mutation.clientMutationId);
+      if (confirmed && item) {
+        applyConfirmedCatalogUpdate(session.businessId, item, {
+          name: base.name,
+          sku: base.sku,
+          kind: base.kind,
+          trackStock: base.trackStock,
+          stockUnitCode: base.stockUnitCode,
+          units: base.units.map((unit) => ({
+            code: unit.code,
+            label: unit.label,
+            canPurchase: unit.canPurchase === true,
+            canSell: unit.canSell === true,
+            canStock: unit.canStock === true,
+            defaultSalePriceMinor: unit.defaultSalePriceMinor ?? null,
+          })),
+          conversions: base.conversions,
+        });
+      }
       await refreshCatalog();
       onSaved();
     } catch (err) {
@@ -324,7 +349,19 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
         payload,
       });
       await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      const summary = await queue.flushOrThrow({
+        activeBusinessId: session.businessId,
+        online: typeof navigator !== "undefined" ? navigator.onLine : true,
+      });
+      const snapshot = await queue.getSnapshot(session.businessId);
+      const confirmed = summary.applied > 0
+        && !snapshot.pending.some((entry) => entry.clientMutationId === mutation.clientMutationId)
+        && !snapshot.failed.some((entry) => entry.mutation.clientMutationId === mutation.clientMutationId);
+      if (confirmed) {
+        applyConfirmedCatalogUpdate(session.businessId, item, {
+          active: mutationType === "CATALOG_ITEM_REACTIVATE",
+        });
+      }
       await refreshCatalog();
       onSaved();
     } catch (err) {

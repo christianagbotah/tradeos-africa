@@ -61,7 +61,7 @@ function paymentLabelFor(method: string): string {
 }
 
 export function ReturnRefundWorkspace() {
-  const { session, role } = useWorkspace();
+  const { session, role, refreshInventory, refreshCustomers } = useWorkspace();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
@@ -94,6 +94,17 @@ export function ReturnRefundWorkspace() {
     const revenueMinor = allSales.reduce((sum, s) => sum + s.totalMinor, 0);
     return { total, refundCount, refundTotalMinor, revenueMinor };
   }, [allSales]);
+
+  const onCorrectionComplete = () => {
+    setSelectedSaleId(null);
+    // Corrections are immutable financial events: re-read the authoritative
+    // receipt balances rather than estimating refunded money in the browser.
+    // Inventory can change for restocked returns/exchanges, and customer
+    // balances can change if the refund produces an account credit.
+    refetch();
+    void refreshInventory();
+    void refreshCustomers();
+  };
 
   const open = (saleId: string, m: Mode) => {
     setSelectedSaleId(saleId);
@@ -358,14 +369,14 @@ export function ReturnRefundWorkspace() {
           saleId={selectedSaleId}
           mode={mode}
           onClose={() => setSelectedSaleId(null)}
-          onComplete={() => setSelectedSaleId(null)}
+          onComplete={onCorrectionComplete}
         />
       ) : null}
       {selectedSaleId && mode === "exchange" ? (
         <ExchangeSheet
           saleId={selectedSaleId}
           onClose={() => setSelectedSaleId(null)}
-          onComplete={() => setSelectedSaleId(null)}
+          onComplete={onCorrectionComplete}
         />
       ) : null}
     </div>

@@ -17,6 +17,14 @@ import {
   type ConfirmedCustomerRevision,
   type CustomerConfirmedFields,
 } from "../customers/customer-reconciliation";
+import {
+  reconcileConfirmedCatalog,
+  registerConfirmedCatalogUpdate,
+  registerConfirmedCatalogDeletion,
+  type ConfirmedCatalogDeletion,
+  type ConfirmedCatalogRevision,
+  type ConfirmedCatalogFields,
+} from "../catalog/catalog-reconciliation";
 import type { WorkspaceRole } from "./workspace-navigation";
 
 export type { CatalogItem, InventoryItem } from "../../../lib/catalog-read-model";
@@ -141,6 +149,8 @@ export interface WorkspaceContextValue {
   switchBusiness: (businessId: string) => Promise<void>;
   switchBranch: (branchId: string) => Promise<void>;
   refreshCatalog: () => Promise<void>;
+  applyConfirmedCatalogUpdate: (businessId: string, item: CatalogItem, fields: ConfirmedCatalogFields) => void;
+  applyConfirmedCatalogDeletion: (businessId: string, itemId: string) => void;
   refreshInventory: () => Promise<void>;
   refreshCustomers: () => Promise<void>;
   applyConfirmedCustomerUpdate: (businessId: string, customer: Customer, fields: CustomerConfirmedFields) => void;
@@ -316,6 +326,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const confirmedBusinesses = useRef(new Map<string, ConfirmedBusinessRevision>());
   const confirmedCustomers = useRef(new Map<string, ConfirmedCustomerRevision>());
   const customersRequestSeq = useRef(0);
+  const catalogRequestSeq = useRef(0);
+  const inventoryRequestSeq = useRef(0);
+  const confirmedCatalog = useRef(new Map<string, ConfirmedCatalogRevision>());
+  const confirmedCatalogDeletions = useRef(new Map<string, ConfirmedCatalogDeletion>());
   const [catalog, setCatalog] = useState<readonly CatalogItem[]>([]);
   const [inventory, setInventory] = useState<readonly InventoryItem[]>([]);
   const [customers, setCustomers] = useState<readonly Customer[]>([]);
@@ -477,6 +491,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       // Clear business-scoped read models before changing identity so no frame
       // can present another tenant's catalog/customer/stock data under the new header.
       ++customersRequestSeq.current;
+      ++catalogRequestSeq.current;
+      ++inventoryRequestSeq.current;
       setCatalog([]);
       setInventory([]);
       setCustomers([]);
@@ -495,6 +511,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     const current = offlineQueue.sessions.load() ?? session;
     if (!current || !businessContext) throw new Error("Business context is not ready.");
     const next = buildBranchSwitchSession(current, businessContext, branchId);
+    ++inventoryRequestSeq.current;
     setInventory([]);
     offlineQueue.sessions.save(next);
     setSession(next);
@@ -540,37 +557,73 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
 
   const refreshCatalog = useCallback(async () => {
     if (!session) return;
+    const requestId = ++catalogRequestSeq.current;
+    const businessId = session.businessId;
+    const isCurrent = () => requestId === catalogRequestSeq.current
+      && offlineQueue.sessions.load()?.businessId === businessId;
     try {
       const res = await offlineQueue.authenticatedFetch(
-        `/v1/catalog/items?businessId=${encodeURIComponent(session.businessId)}`,
+        `/v1/catalog/items?businessId=${encodeURIComponent(businessId)}`,
         { cache: "no-store" },
       );
+      if (!isCurrent()) return;
       if (!res.ok) {
         setFatal(`Could not load catalog (${res.status}).`);
         return;
       }
       const json = await res.json() as { items?: unknown[] };
-      setCatalog((json.items ?? []).map((item) => mapCatalogItem(item)));
+      if (!isCurrent()) return;
+      setCatalog(reconcileConfirmedCatalog(
+        (json.items ?? []).map((item) => mapCatalogItem(item)),
+        businessId, confirmedCatalog.current, Date.now(), confirmedCatalogDeletions.current,
+      ));
     } catch (error) {
-      setFatal(error instanceof Error ? error.message : "Could not load catalog.");
+      if (isCurrent()) setFatal(error instanceof Error ? error.message : "Could not load catalog.");
     }
   }, [offlineQueue, session]);
 
+  const applyConfirmedCatalogUpdate = useCallback((
+    businessId: string, item: CatalogItem, fields: ConfirmedCatalogFields,
+  ) => {
+    if (offlineQueue.sessions.load()?.businessId !== businessId) return;
+    registerConfirmedCatalogUpdate(confirmedCatalog.current, businessId, item, fields);
+    ++catalogRequestSeq.current;
+    setCatalog((previous) => previous.map((entry) =>
+      entry.id === item.id ? { ...entry, ...fields } : entry));
+  }, [offlineQueue]);
+
+  const applyConfirmedCatalogDeletion = useCallback((businessId: string, itemId: string) => {
+    if (offlineQueue.sessions.load()?.businessId !== businessId) return;
+    registerConfirmedCatalogDeletion(confirmedCatalogDeletions.current, businessId, itemId);
+    confirmedCatalog.current.delete(businessId + ":" + itemId);
+    ++catalogRequestSeq.current;
+    setCatalog((previous) => previous.filter((item) => item.id !== itemId));
+  }, [offlineQueue]);
+
   const refreshInventory = useCallback(async () => {
     if (!session) return;
+    const requestId = ++inventoryRequestSeq.current;
+    const businessId = session.businessId;
+    const branchId = session.branchId;
+    const isCurrent = () => {
+      const active = offlineQueue.sessions.load();
+      return requestId === inventoryRequestSeq.current
+        && active?.businessId === businessId && active?.branchId === branchId;
+    };
     try {
       const res = await offlineQueue.authenticatedFetch(
-        `/v1/inventory?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}`,
+        `/v1/inventory?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`,
         { cache: "no-store" },
       );
+      if (!isCurrent()) return;
       if (!res.ok) {
         setInventory([]);
         return;
       }
       const json = await res.json() as { items?: unknown[] };
-      setInventory((json.items ?? []).map((item) => mapInventoryItem(item)));
+      if (isCurrent()) setInventory((json.items ?? []).map((item) => mapInventoryItem(item)));
     } catch {
-      setInventory([]);
+      if (isCurrent()) setInventory([]);
     }
   }, [offlineQueue, session]);
 
@@ -620,6 +673,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, [session, refreshCatalog, refreshInventory, refreshCustomers]);
 
   const signIn = useCallback((next: WebSession) => {
+    ++catalogRequestSeq.current;
+    ++inventoryRequestSeq.current;
+    ++customersRequestSeq.current;
     offlineQueue.sessions.save(next);
     setSession(next);
     setFatal(null);
@@ -627,6 +683,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
 
   const signOut = useCallback(() => {
     ++customersRequestSeq.current;
+    ++catalogRequestSeq.current;
+    ++inventoryRequestSeq.current;
+    confirmedCatalog.current.clear();
+    confirmedCatalogDeletions.current.clear();
     confirmedBranches.current.clear();
     confirmedBusinesses.current.clear();
     confirmedCustomers.current.clear();
@@ -673,6 +733,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     switchBusiness,
     switchBranch,
     refreshCatalog,
+    applyConfirmedCatalogUpdate,
+    applyConfirmedCatalogDeletion,
     refreshInventory,
     refreshCustomers,
     applyConfirmedCustomerUpdate,

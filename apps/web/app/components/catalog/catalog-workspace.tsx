@@ -81,7 +81,10 @@ function networkFailureMessage(error: unknown): string {
 }
 
 export function CatalogWorkspace() {
-  const { catalog, inventory, role, refreshCatalog, session } = useWorkspace();
+  const {
+    catalog, inventory, role, refreshCatalog, applyConfirmedCatalogUpdate,
+    applyConfirmedCatalogDeletion, session,
+  } = useWorkspace();
   const [query, setQuery] = useState("");
   const [kindFilter, setKindFilter] = useState<KindFilter>("ALL");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
@@ -201,6 +204,7 @@ export function CatalogWorkspace() {
           if (!response.ok) {
             failures.push({ id: item.id, name: item.name, message: await readApiErrorMessage(response, "Status could not be changed") });
           } else {
+            applyConfirmedCatalogUpdate(session.businessId, item, { active });
             changed += 1;
           }
         } catch (error) {
@@ -241,6 +245,7 @@ export function CatalogWorkspace() {
           if (!response.ok) {
             failures.push({ id: item.id, name: item.name, message: await readApiErrorMessage(response, "Item could not be deleted") });
           } else {
+            applyConfirmedCatalogDeletion(session.businessId, item.id);
             deleted += 1;
           }
         } catch (error) {
