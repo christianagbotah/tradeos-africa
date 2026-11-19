@@ -136,14 +136,16 @@ export function PaymentProviderPanel(){
           <p style={{margin:0}}>Connection:
             <strong>{" "+(selected.integrationStage==="PLANNED"?
               "Planned / gated":"Existing gated integration")}</strong></p>
-          {selected.code==="HUBTEL"?<p className="tos-callout" style={{margin:0}}>
-            <strong>Hubtel Online Checkout is integrated.</strong> Connect your
-            Payment API ID, API Key and Collection Account in the secure form
-            below. Once authorized, the POS creates a hosted Hubtel checkout
-            link for Mobile Money or card payments. The checkout redirect and
-            callback alone never mark a sale paid: TradeOS verifies it directly
-            through Hubtel Transaction Status before posting a receipt.
-          </p>:<a href={selected.docsUrl} target="_blank" rel="noopener noreferrer">
+          {selected.code==="HUBTEL"?<div className="tos-callout tos-callout--label-and-content"
+            style={{margin:0}}>
+            <strong className="tos-callout__label">Hubtel Online Checkout is integrated.</strong>
+            <p className="tos-callout__content">Connect your Payment API ID, API Key
+              and Collection Account in the secure form below. Once authorized,
+              the POS creates a hosted Hubtel checkout link for Mobile Money or
+              card payments. The checkout redirect and callback alone never
+              mark a sale paid: TradeOS verifies it directly through Hubtel
+              Transaction Status before posting a receipt.</p>
+          </div>:<a href={selected.docsUrl} target="_blank" rel="noopener noreferrer">
             View provider setup instructions</a>}
         </div>:null}
       </div>
@@ -170,13 +172,14 @@ export function PaymentProviderPanel(){
 
       {canManage&&businessId?<GatewayAttemptMonitor
         businessId={businessId} online={online}/>:null}
-      <p className="tos-callout" role="status">
-        <strong>Payment security:</strong> {snapshot.notice} Provider API keys,
-        webhook secrets and merchant verification must be handled through
-        a secure connection process. Never enter a secret in an ordinary text field
-        or send it in chat. Existing outstanding payments remain tied to
-        the provider that originally created them.
-      </p></>:null}
+      <div className="tos-callout tos-callout--label-and-content" role="status">
+        <strong className="tos-callout__label">Payment security:</strong>
+        <p className="tos-callout__content">{snapshot.notice} Provider API keys,
+          webhook secrets and merchant verification must be handled through
+          a secure connection process. Never enter a secret in an ordinary text field
+          or send it in chat. Existing outstanding payments remain tied to
+          the provider that originally created them.</p>
+      </div></>:null}
     </section>
   );
 }
