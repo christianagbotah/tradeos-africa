@@ -831,7 +831,7 @@ describe("Hubtel cancellation stock impact preflight (read only)", () => {
     expect(paid.statusCode).toBe(200);
     expect(paid.json().assessment.blockers).toContain("SALE_OR_PAYMENT_ALREADY_SETTLED");
     expect(paid.json().assessment.canReleaseStock).toBe(false);
-    expect((await ledger(m)).toMatchObject({status:"COMPLETED",
+    expect(await ledger(m)).toMatchObject({status:"COMPLETED",
       payment_status:"SUCCEEDED",receipt_count:"1",attempt_state:"RECONCILED"});
   });
 });
