@@ -281,6 +281,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
   const eyebrow = mode === "return" ? "Return" : "Refund";
   const title = mode === "return" ? "Process return" : "Issue refund";
   const submitLabel = mode === "return" ? "Post return" : "Post refund";
+  const awaitingConfirmation = pendingPostingRef.current?.targetId === data?.sale.id;
 
   return (
     <>
@@ -362,7 +363,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                                 className="tos-return-line__stepper-btn"
                                 onClick={() => setQuantities((p) => ({ ...p, [line.id]: Math.max(0, qty - 1) }))}
                                 aria-label={`Decrease return quantity for ${line.itemName}`}
-                                disabled={busy || qty <= 0}
+                                disabled={busy || awaitingConfirmation || qty <= 0}
                               >−</button>
                               <span className="tos-return-line__stepper-val">{qty}</span>
                               <button
@@ -370,7 +371,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                                 className="tos-return-line__stepper-btn"
                                 onClick={() => setQuantities((p) => ({ ...p, [line.id]: Math.min(line.quantityReturnable, qty + 1) }))}
                                 aria-label={`Increase return quantity for ${line.itemName}`}
-                                disabled={busy || qty >= line.quantityReturnable}
+                                disabled={busy || awaitingConfirmation || qty >= line.quantityReturnable}
                               >+</button>
                             </div>
                           </div>
@@ -407,7 +408,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                         role="radio"
                         aria-checked={restockChoice === opt.value}
                         onClick={() => setRestockChoice(opt.value)}
-                        disabled={busy}
+                        disabled={busy || awaitingConfirmation}
                       >
                         <span className="tos-restock-option__label">{opt.label}</span>
                         <span className="tos-restock-option__hint">{opt.hint}</span>
@@ -428,7 +429,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                   className="tos-select"
                   value={refundMethod}
                   onChange={(e) => setRefundMethod(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || awaitingConfirmation}
                 >
                   {REFUND_METHODS.map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
@@ -445,7 +446,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                   className="tos-select"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || awaitingConfirmation}
                 >
                   {RETURN_REASONS.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -459,7 +460,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                     placeholder="Describe the reason…"
                     value={customReason}
                     onChange={(e) => setCustomReason(e.target.value)}
-                    disabled={busy}
+                    disabled={busy || awaitingConfirmation}
                   />
                 ) : null}
               </div>
@@ -511,14 +512,17 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                 </span>
               </div>
 
-              {submitError ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{submitError}</span></div> : null}
+              {submitError ? <div className={`tos-banner tos-banner--${awaitingConfirmation ? "warning" : "danger"}`} role="status">
+                <span className="tos-banner__title">{submitError}</span>
+                {awaitingConfirmation ? <span>The original queued details are fixed. Selecting Check posting status will only recheck that transaction.</span> : null}
+              </div> : null}
             </>
           ) : null}
         </div>
         <div className="tos-sheet__foot">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button variant="danger" onClick={handleSubmit} loading={busy} disabled={!canWrite || !data || impact.refundMinor <= 0}>
-            {canWrite ? `${submitLabel} (${impact.selectedCount} line${impact.selectedCount === 1 ? "" : "s"})` : "No permission"}
+          <Button variant="danger" onClick={handleSubmit} loading={busy} disabled={!canWrite || !data || (!awaitingConfirmation && impact.refundMinor <= 0)}>
+            {canWrite ? (awaitingConfirmation ? "Check posting status" : `${submitLabel} (${impact.selectedCount} line${impact.selectedCount === 1 ? "" : "s"})`) : "No permission"}
           </Button>
         </div>
       </div>

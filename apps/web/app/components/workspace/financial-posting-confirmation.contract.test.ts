@@ -24,6 +24,13 @@ describe("receipt correction and inventory posting only close after APPLIED", ()
     expect(code).toContain("disabled={busy} aria-label=\"Close\"");
     expect(code).toContain("if (!busy) onClose()");
   });
+  it("shows an amber pending status and checks existing posting without creating another", () => {
+    for (const code of [returnSheet, exchangeSheet, adjustmentSheet]) {
+      expect(code).toContain("const awaitingConfirmation = pendingPostingRef.current?.targetId");
+      expect(code).toContain('"Check posting status"');
+      expect(code).toContain('awaitingConfirmation ? "warning" : "danger"');
+    }
+  });
   it("locks all corrections to a receipt even when mutation type changes", () => {
     for (const code of [returnSheet, exchangeSheet]) {
       expect(code).toContain('["RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE"]');

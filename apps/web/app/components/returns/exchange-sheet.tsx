@@ -229,6 +229,8 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
     }
   };
 
+  const awaitingConfirmation = pendingPostingRef.current?.targetId === data?.sale.id;
+
   const netCls = customerPays
     ? "tos-exchange-net__val tos-exchange-net__val--customer-pays"
     : refundDue
@@ -282,7 +284,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                       className="tos-select"
                       value={returnLineId ?? ""}
                       onChange={(e) => setReturnLineId(e.target.value)}
-                      disabled={busy}
+                      disabled={busy || awaitingConfirmation}
                     >
                       {data.sale.lines.map((l) => (
                         <option key={l.id} value={l.id}>{l.itemName} ({l.quantityReturnable} returnable)</option>
@@ -299,7 +301,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                       className="tos-input"
                       value={returnQty}
                       onChange={(e) => setReturnQty(Math.max(1, Number(e.target.value)))}
-                      disabled={busy}
+                      disabled={busy || awaitingConfirmation}
                     />
                     <span className="tos-field__hint">
                       {returnLine ? `${returnLine.quantityReturnable} returnable of ${returnLine.quantity} sold` : ""}
@@ -326,7 +328,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                       className="tos-select"
                       value={newItemId ?? ""}
                       onChange={(e) => setNewItemId(e.target.value || null)}
-                      disabled={busy}
+                      disabled={busy || awaitingConfirmation}
                     >
                       <option value="">Select…</option>
                       {activeCatalog.map((c) => (
@@ -346,7 +348,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                       className="tos-input"
                       value={newQty}
                       onChange={(e) => setNewQty(Math.max(1, Number(e.target.value)))}
-                      disabled={busy}
+                      disabled={busy || awaitingConfirmation}
                     />
                   </div>
                   <div className="tos-exchange-side__amount">
@@ -375,7 +377,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                         role="radio"
                         aria-checked={restockChoice === opt.value}
                         onClick={() => setRestockChoice(opt.value)}
-                        disabled={busy}
+                        disabled={busy || awaitingConfirmation}
                       >
                         <span className="tos-restock-option__label">{opt.label}</span>
                         <span className="tos-restock-option__hint">{opt.hint}</span>
@@ -393,7 +395,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                   className="tos-select"
                   value={settlementMethod}
                   onChange={(e) => setSettlementMethod(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || awaitingConfirmation}
                 >
                   {SETTLEMENT_METHODS.map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
@@ -432,7 +434,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                   className="tos-select"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || awaitingConfirmation}
                 >
                   {EXCHANGE_REASONS.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -446,7 +448,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                     placeholder="Describe the reason…"
                     value={customReason}
                     onChange={(e) => setCustomReason(e.target.value)}
-                    disabled={busy}
+                    disabled={busy || awaitingConfirmation}
                   />
                 ) : null}
               </div>
@@ -468,14 +470,17 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                 </span>
               </div>
 
-              {submitError ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{submitError}</span></div> : null}
+              {submitError ? <div className={`tos-banner tos-banner--${awaitingConfirmation ? "warning" : "danger"}`} role="status">
+                <span className="tos-banner__title">{submitError}</span>
+                {awaitingConfirmation ? <span>The original queued exchange will be checked; changed form values do not modify it.</span> : null}
+              </div> : null}
             </>
           ) : null}
         </div>
         <div className="tos-sheet__foot">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button variant="primary" icon={<IconRefresh className="tos-btn__icon" />} onClick={handleSubmit} loading={busy} disabled={!canWrite || !returnLine || !newItem}>
-            {canWrite ? "Post exchange" : "No permission"}
+          <Button variant="primary" icon={<IconRefresh className="tos-btn__icon" />} onClick={handleSubmit} loading={busy} disabled={!canWrite || (!awaitingConfirmation && (!returnLine || !newItem))}>
+            {canWrite ? (awaitingConfirmation ? "Check posting status" : "Post exchange") : "No permission"}
           </Button>
         </div>
       </div>

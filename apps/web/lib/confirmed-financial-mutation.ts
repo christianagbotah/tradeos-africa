@@ -9,6 +9,19 @@ export type MutationTarget = {
   targetId: string;
 };
 
+/** In-process guard for two taps before the first queue write becomes visible.
+ * Durable queue collision detection still applies after the first attempt.
+ */
+const inFlightTargets = new Set<string>();
+
+export class FinancialMutationInFlightError extends Error {
+  readonly code = "FINANCIAL_MUTATION_IN_FLIGHT";
+  constructor() {
+    super("This transaction is already being submitted. Check its status before trying again.");
+    this.name = "FinancialMutationInFlightError";
+  }
+}
+
 export class PendingMutationConfirmationError extends Error {
   readonly code = "MUTATION_AWAITING_CONFIRMATION";
   constructor(readonly mutationId: string, readonly existing: boolean) {
@@ -48,56 +61,66 @@ export async function enqueueAndConfirmMutation(
   previousPendingMutationId: string | null = null,
 ): Promise<void> {
   if (!matchesTarget(mutation, target)) throw new Error("Mutation scope does not match the selected record.");
-  const before = await queue.getSnapshot(target.businessId);
-  const earlierFailure = previousPendingMutationId
-    ? before.failed.find((entry) => entry.mutation.clientMutationId === previousPendingMutationId)
-    : null;
-  if (earlierFailure) {
-    throw new Error(earlierFailure.result.errorMessage ??
-      earlierFailure.result.errorCode ?? "The previous transaction was rejected.");
-  }
-  if (previousPendingMutationId) {
-    const earlierPending = before.pending.find((entry) => entry.clientMutationId === previousPendingMutationId);
-    if (!earlierPending) {
-      // The same persisted mutation was APPLIED by background sync while the
-      // dialog stayed open. Do not create a second correction on retry.
+  const lockKey = JSON.stringify([
+    target.businessId, target.branchId, target.targetField, target.targetId,
+    [...target.mutationTypes].sort(),
+  ]);
+  if (inFlightTargets.has(lockKey)) throw new FinancialMutationInFlightError();
+  inFlightTargets.add(lockKey);
+  try {
+    const before = await queue.getSnapshot(target.businessId);
+    const earlierFailure = previousPendingMutationId
+      ? before.failed.find((entry) => entry.mutation.clientMutationId === previousPendingMutationId)
+      : null;
+    if (earlierFailure) {
+      throw new Error(earlierFailure.result.errorMessage ??
+        earlierFailure.result.errorCode ?? "The previous transaction was rejected.");
+    }
+    if (previousPendingMutationId) {
+      const earlierPending = before.pending.find((entry) => entry.clientMutationId === previousPendingMutationId);
+      if (!earlierPending) {
+        // The same persisted mutation was APPLIED by background sync while the
+        // dialog stayed open. Do not create a second correction on retry.
+        return;
+      }
+      if (!matchesTarget(earlierPending, target)) {
+        throw new Error("The pending transaction belongs to a different record or branch.");
+      }
+    } else {
+      const alreadyPending = findPendingTarget(before.pending, target);
+      if (alreadyPending) throw new PendingMutationConfirmationError(alreadyPending.clientMutationId, true);
+
+      const enqueued = await queue.enqueue(mutation);
+      if (!enqueued) throw new Error("This transaction is already in the queue.");
+    }
+    const checkedMutationId = previousPendingMutationId ?? mutation.clientMutationId;
+
+    let flushError: unknown = null;
+    try {
+      await queue.flushOrThrow({ activeBusinessId: target.businessId, online });
+    } catch (error) {
+      flushError = error;
+    }
+
+    const after = await queue.getSnapshot(target.businessId);
+    const failed = after.failed.find((entry) =>
+      entry.mutation.clientMutationId === checkedMutationId);
+    if (failed) {
+      throw new Error(failed.result.errorMessage ??
+        failed.result.errorCode ?? "The server rejected this transaction.");
+    }
+
+    // A pending mutation MUST NOT produce a 'completed' result or close the form.
+    if (after.pending.some((entry) => entry.clientMutationId === checkedMutationId)) {
+      throw new PendingMutationConfirmationError(checkedMutationId, false);
+    }
+    if (flushError) {
+      // A different operation in the batch may have been rejected, while this
+      // one was confirmed. A removed mutation is APPLIED in the core queue.
+      // Do not blindly resend it or mistake a batch-level error for failure.
       return;
     }
-    if (!matchesTarget(earlierPending, target)) {
-      throw new Error("The pending transaction belongs to a different record or branch.");
-    }
-  } else {
-    const alreadyPending = findPendingTarget(before.pending, target);
-    if (alreadyPending) throw new PendingMutationConfirmationError(alreadyPending.clientMutationId, true);
-
-    const enqueued = await queue.enqueue(mutation);
-    if (!enqueued) throw new Error("This transaction is already in the queue.");
-  }
-  const checkedMutationId = previousPendingMutationId ?? mutation.clientMutationId;
-
-  let flushError: unknown = null;
-  try {
-    await queue.flushOrThrow({ activeBusinessId: target.businessId, online });
-  } catch (error) {
-    flushError = error;
-  }
-
-  const after = await queue.getSnapshot(target.businessId);
-  const failed = after.failed.find((entry) =>
-    entry.mutation.clientMutationId === checkedMutationId);
-  if (failed) {
-    throw new Error(failed.result.errorMessage ??
-      failed.result.errorCode ?? "The server rejected this transaction.");
-  }
-
-  // A pending mutation MUST NOT produce a 'completed' result or close the form.
-  if (after.pending.some((entry) => entry.clientMutationId === checkedMutationId)) {
-    throw new PendingMutationConfirmationError(checkedMutationId, false);
-  }
-  if (flushError) {
-    // A different operation in the batch may have been rejected, while this
-    // one was confirmed. A removed mutation is APPLIED in the core queue.
-    // Do not blindly resend it or mistake a batch-level error for failure.
-    return;
+  } finally {
+    inFlightTargets.delete(lockKey);
   }
 }

@@ -133,6 +133,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
   if (!row || !session) return null;
 
   const available = row.available;
+  const awaitingConfirmation = pendingPostingRef.current?.targetId === row.item.id;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -249,7 +250,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
                   role="radio"
                   aria-checked={reason === r.value}
                   onClick={() => setReason(r.value)}
-                  disabled={!canWrite || busy}
+                  disabled={!canWrite || busy || awaitingConfirmation}
                 >
                   <span className="tos-reason-chip__label">{r.label}</span>
                   <span className="tos-reason-chip__hint">{r.hint}</span>
@@ -293,7 +294,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
                   min={0}
                   step="any"
                   required
-                  disabled={!canWrite || busy}
+                  disabled={!canWrite || busy || awaitingConfirmation}
                 />
                 <span className="tos-field__hint">Enter the physical count in {unitCode}. The movement is derived from the difference vs. the last-known available balance.</span>
               </div>
@@ -310,7 +311,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
                 min={0}
                 step="any"
                 required
-                disabled={!canWrite || busy}
+                disabled={!canWrite || busy || awaitingConfirmation}
               />
               <span className="tos-field__hint">
                 {reason === "OTHER"
@@ -328,7 +329,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
               className="tos-textarea"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              disabled={!canWrite || busy}
+              disabled={!canWrite || busy || awaitingConfirmation}
               placeholder="Add context for this adjustment — e.g. 'Cycle count, week 12' or 'Spillage in storage'."
               rows={3}
             />
@@ -345,13 +346,16 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
             </span>
           </div>
 
-          {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
+          {error ? <div className={`tos-banner tos-banner--${awaitingConfirmation ? "warning" : "danger"}`} role="status">
+            <span className="tos-banner__title">{error}</span>
+            {awaitingConfirmation ? <span>The original queued stock adjustment will be checked; changes to this form do not alter it.</span> : null}
+          </div> : null}
         </form>
 
         <div className="tos-sheet__foot">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button variant="primary" onClick={handleSubmit} loading={busy} disabled={!payload || !canWrite || busy}>
-            {canWrite ? "Record adjustment" : "No permission"}
+            {canWrite ? (awaitingConfirmation ? "Check posting status" : "Record adjustment") : "No permission"}
           </Button>
         </div>
       </div>

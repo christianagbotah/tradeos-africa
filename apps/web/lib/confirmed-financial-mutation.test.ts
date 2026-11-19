@@ -4,6 +4,7 @@ import {
   enqueueAndConfirmMutation,
   findPendingTarget,
   PendingMutationConfirmationError,
+  FinancialMutationInFlightError,
   type MutationTarget,
 } from "./confirmed-financial-mutation";
 
@@ -128,6 +129,43 @@ describe("transaction confirmation protects refunds, returns and exchanges",()=>
       .resolves.toBeUndefined();
     expect(requests).toBe(2); // no third sync or enqueue after background completion
     expect((await queue.getSnapshot(businessId)).pending).toHaveLength(0);
+  });
+
+  it("rejects overlapping submissions before the first durable queue write finishes",async()=>{
+    const {queue,mutation,target}=create();
+    let started!:()=>void;
+    let release!:()=>void;
+    const startedPromise=new Promise<void>(resolve=>{started=resolve;});
+    const releasePromise=new Promise<void>(resolve=>{release=resolve;});
+    let requests=0;
+    vi.stubGlobal("fetch",vi.fn(async(_url:string,init?:RequestInit)=>{
+      requests++;
+      started();
+      await releasePromise;
+      const {mutations}=JSON.parse(String(init?.body)) as {mutations:Array<{clientMutationId:string}>};
+      return new Response(JSON.stringify({mutationResults:mutations.map(m=>({
+        clientMutationId:m.clientMutationId,status:"APPLIED",
+      }))}),{status:200});
+    }));
+    const first=enqueueAndConfirmMutation(queue,mutation(),target,true);
+    await startedPromise;
+    await expect(enqueueAndConfirmMutation(queue,mutation(),target,true))
+      .rejects.toBeInstanceOf(FinancialMutationInFlightError);
+    expect((await queue.getSnapshot(businessId)).pending).toHaveLength(1);
+    release();
+    await first;
+    expect(requests).toBe(1);
+    expect((await queue.getSnapshot(businessId)).pending).toHaveLength(0);
+  });
+  it("releases in-flight protection after an offline attempt or rejection",async()=>{
+    const {queue,mutation,target}=create();
+    const first=mutation();
+    await expect(enqueueAndConfirmMutation(queue,first,target,false))
+      .rejects.toBeInstanceOf(PendingMutationConfirmationError);
+    const next=mutation();
+    await expect(enqueueAndConfirmMutation(queue,next,target,false))
+      .rejects.toMatchObject({existing:true});
+    expect((await queue.getSnapshot(businessId)).pending).toHaveLength(1);
   });
 
   it("scopes conflict checks by both business and branch",()=>{
