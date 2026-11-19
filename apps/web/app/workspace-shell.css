@@ -4650,7 +4650,8 @@
 
 .tos-purchase-line {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  min-width: 0;
   gap: var(--tos-space-3);
   align-items: start;
   padding: var(--tos-space-3) var(--tos-space-4);
@@ -4672,15 +4673,17 @@
   font-size: var(--tos-text-supporting);
   font-weight: 700;
   color: var(--tos-text-strong);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.42;
 }
 
 .tos-purchase-line__sub {
   font-size: var(--tos-text-meta);
   color: var(--tos-text-muted);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .tos-purchase-line__chips {
@@ -5281,7 +5284,8 @@
 /* --- Return line editor with qty stepper ------------------------------ */
 .tos-return-line {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  min-width: 0;
   gap: var(--tos-space-3);
   align-items: start;
   padding: var(--tos-space-3) var(--tos-space-4);
@@ -5303,15 +5307,17 @@
   font-size: var(--tos-text-supporting);
   font-weight: 700;
   color: var(--tos-text-strong);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.42;
 }
 
 .tos-return-line__sub {
   font-size: var(--tos-text-meta);
   color: var(--tos-text-muted);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .tos-return-line__stepper {
@@ -9277,4 +9283,28 @@
     border-radius: 12px;
   }
   .tos-sale-detail-actions .tos-sale-action__label { display: none; }
+}
+
+/* Purchase and return line cards: readable at narrow phone widths.
+   Keep the item name fully visible rather than clipping it to "T...".
+   At very narrow widths use a separate monetary row to preserve readable text. */
+@media (max-width: 380px) {
+  .tos-purchase-line,
+  .tos-return-line {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--tos-space-2);
+    padding: 12px;
+  }
+  .tos-purchase-line__cost,
+  .tos-return-line__total {
+    grid-column: 1;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    max-width: 100%;
+    min-width: 0;
+  }
 }
