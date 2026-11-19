@@ -45,6 +45,10 @@ describe("exchange domain engine", () => {
     const replay = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", payload);
     expect(replay.status).toBe("APPLIED");
     expect(replay.result).toMatchObject({ exchangeCaseId: result.exchangeCaseId, returnCaseId: result.returnCaseId, replacementSaleId: result.replacementSaleId });
+    const changed = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", {
+      ...payload, reason: "Different exchange reason under a reused ID",
+    });
+    expect(changed).toMatchObject({ status: "REJECTED", errorCode: "FINANCIAL_REPLAY_CONFLICT" });
 
     const replacement = (await pool.query<{ customer_id: string | null; total_minor: string }>(`SELECT customer_id,total_minor FROM sales WHERE id=$1`, [result.replacementSaleId])).rows[0]!;
     expect(replacement).toEqual({ customer_id: null, total_minor: "1700" });

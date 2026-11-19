@@ -51,6 +51,11 @@ const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER
 const CATALOG_MUTATIONS = new Set(["CATALOG_ITEM_CREATE", "CATALOG_ITEM_UPDATE", "CATALOG_ITEM_ARCHIVE", "CATALOG_ITEM_REACTIVATE"]);
 const CUSTOMER_MUTATIONS = new Set(["CUSTOMER_CREATE", "CUSTOMER_UPDATE"]);
 const SUPPLIER_MUTATIONS = new Set(["SUPPLIER_CREATE", "SUPPLIER_UPDATE"]);
+// Once accepted, a refund, exchange or stock adjustment must never be
+// silently reinterpreted as a *different* financial request with the same ID.
+const STRICT_FINANCIAL_REPLAY_TYPES = new Set([
+  "RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE", "INVENTORY_ADJUSTMENT_CREATE",
+]);
 type StoredStatus = "RECEIVED" | "APPLIED" | "REJECTED";
 
 class MasterDataSyncError extends Error {
@@ -105,6 +110,30 @@ function poLinkedReplaySignature(payload:unknown):string|null {
   ]);
 }
 
+/** Stable financial payload comparison despite PostgreSQL jsonb key ordering
+ * and changes to server-enriched, authenticated staff attribution on retry.
+ * Unlike occurredAt or actor IDs, amounts, quantities, dispositions, methods,
+ * targets and note/reason fields are part of the immutable transaction.
+ */
+function financialReplaySignature(mutationType: string, payload: unknown): string | null {
+  if (!STRICT_FINANCIAL_REPLAY_TYPES.has(mutationType)) return null;
+  const excluded = mutationType === "INVENTORY_ADJUSTMENT_CREATE"
+    ? new Set(["actorStaffId"])
+    : new Set(["initiatedByStaffId", "approvedByStaffId", "actorStaffId"]);
+  const sorted = (value: unknown, depth = 0): unknown => {
+    if (depth > 32) throw new SyncRequestError("Financial mutation payload nesting exceeds limit");
+    if (Array.isArray(value)) return value.map((part) => sorted(part, depth + 1));
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !excluded.has(key))
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, part]) => [key, sorted(part, depth + 1)]),
+    );
+  };
+  return JSON.stringify(sorted(payload));
+}
+
 async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Promise<MutationResult> {
   assertMutationShape(mutation);
   const serverReceivedAt = new Date().toISOString();
@@ -145,10 +174,18 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       const changedLinkedPO=(existingPO!==null||incomingPO!==null) &&
         (existingPO!==incomingPO || prior.mutation_type!==mutation.mutationType ||
           prior.branch_id!==(mutation.branchId??null));
+      const previousFinancial = financialReplaySignature(prior.mutation_type, prior.request_payload?.payload);
+      const incomingFinancial = financialReplaySignature(mutation.mutationType, mutation.payload);
+      const changedFinancial = (previousFinancial !== null || incomingFinancial !== null) &&
+        (previousFinancial !== incomingFinancial || prior.mutation_type !== mutation.mutationType ||
+          prior.branch_id !== (mutation.branchId ?? null));
       await client.query("COMMIT");
       if(changedLinkedPO)return rejection(mutation.clientMutationId,serverReceivedAt,
         "PURCHASE_REPLAY_CONFLICT",
         new Error("A supplier-order receipt with this mutation ID was already submitted with different content"));
+      if(changedFinancial)return rejection(mutation.clientMutationId,serverReceivedAt,
+        "FINANCIAL_REPLAY_CONFLICT",
+        new Error("This refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
       return {
         clientMutationId: mutation.clientMutationId,
         status: prior.status,

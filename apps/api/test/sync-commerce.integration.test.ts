@@ -217,6 +217,123 @@ describe("offline commerce mutations", () => {
     expect(Number(returned.rows[0]?.quantity_delta)).toBe(50);
   });
 
+  it("reconciles repeated partial CASH returns through final refund without duplicating stock, money or audit", async () => {
+    // A single sale of two glasses (2 × 50 ml) is refunded in two separate,
+    // legitimate partial returns. This runs against the CI-only PostgreSQL DB.
+    const saleMutation = {
+      clientId: "multi-return-device",
+      clientMutationId: "multi-return-sale-001",
+      businessId, branchId,
+      mutationType: "SALE_CREATE",
+      occurredAt: new Date().toISOString(),
+      payload: {
+        currencyCode: "GHS",
+        customerId,
+        paymentMethod: "CASH",
+        lines: [{ itemId: whiskyId, quantity: 2, saleUnitCode: "glass" }],
+      },
+    };
+    const postedSale = await ingestSyncBatch(pool, { mutations: [saleMutation] });
+    expect(postedSale.mutationResults[0]?.status).toBe("APPLIED");
+    const saleId = (postedSale.mutationResults[0]?.result as { saleId: string }).saleId;
+    const saleLineId = (await pool.query<{ id: string }>(
+      `SELECT id FROM sale_lines WHERE sale_id=$1`, [saleId],
+    )).rows[0]!.id;
+    expect(await availableStock()).toBe(650);
+
+    const correction = (id: string) => ({
+      clientId: "multi-return-device",
+      clientMutationId: id,
+      businessId, branchId,
+      mutationType: "RETURN_CREATE",
+      occurredAt: new Date().toISOString(),
+      payload: {
+        originalSaleId: saleId,
+        reason: "Customer returned one glass",
+        refundMethod: "ORIGINAL_METHOD",
+        lines: [{ saleLineId, quantity: 1, disposition: "RESTOCK" }],
+      },
+    });
+    const first = correction("multi-return-1");
+    const one = await ingestSyncBatch(pool, { mutations: [first] });
+    expect(one.mutationResults[0]?.status).toBe("APPLIED");
+    const firstCase = (one.mutationResults[0]?.result as { returnCaseId: string }).returnCaseId;
+    expect(await availableStock()).toBe(700);
+    expect((await pool.query<{ status: string }>(
+      `SELECT status FROM sales WHERE id=$1`, [saleId],
+    )).rows[0]?.status).toBe("PARTIALLY_REFUNDED");
+
+    // Re-sending the same device+mutation ID is an idempotent query, not
+    // another refund. Both return and cashbook ledger remain unchanged.
+    const replay = await ingestSyncBatch(pool, { mutations: [first] });
+    expect(replay.mutationResults[0]?.status).toBe("APPLIED");
+    expect((replay.mutationResults[0]?.result as { returnCaseId: string }).returnCaseId).toBe(firstCase);
+    expect(await availableStock()).toBe(700);
+    const alteredReplay = {
+      ...first,
+      payload: {
+        ...first.payload,
+        reason: "A changed reason must not be accepted as the original posting",
+      },
+    };
+    const conflicting = await ingestSyncBatch(pool, { mutations: [alteredReplay] });
+    expect(conflicting.mutationResults[0]).toMatchObject({
+      status: "REJECTED", errorCode: "FINANCIAL_REPLAY_CONFLICT",
+    });
+    expect(await availableStock()).toBe(700);
+
+    const second = await ingestSyncBatch(pool, { mutations: [correction("multi-return-2")] });
+    expect(second.mutationResults[0]?.status).toBe("APPLIED");
+    expect(await availableStock()).toBe(750);
+    expect((await pool.query<{ status: string }>(
+      `SELECT status FROM sales WHERE id=$1`, [saleId],
+    )).rows[0]?.status).toBe("REFUNDED");
+    expect((await pool.query<{ status: string }>(
+      `SELECT status FROM payments WHERE sale_id=$1`, [saleId],
+    )).rows[0]?.status).toBe("REVERSED");
+
+    const third = await ingestSyncBatch(pool, { mutations: [correction("multi-return-3")] });
+    expect(third.mutationResults[0]?.status).toBe("REJECTED");
+    expect(await availableStock()).toBe(750);
+
+    const refundCases = await pool.query<{ id: string; refund_total_minor: string; status: string }>(
+      `SELECT id,refund_total_minor,status FROM return_cases WHERE original_sale_id=$1 ORDER BY id`, [saleId],
+    );
+    expect(refundCases.rows).toHaveLength(2);
+    expect(refundCases.rows.every((row) => row.status === "COMPLETED")).toBe(true);
+    expect(refundCases.rows.reduce((sum, row) => sum + Number(row.refund_total_minor), 0)).toBe(3600);
+    const refunds = await pool.query<{ status: string; amount_minor: string; method: string }>(
+      `SELECT status,amount_minor,method FROM refund_transactions WHERE return_case_id=ANY($1::uuid[])`,
+      [refundCases.rows.map((row) => row.id)],
+    );
+    expect(refunds.rows).toHaveLength(2);
+    expect(refunds.rows.every((row) => row.status === "SUCCEEDED" && row.method === "CASH")).toBe(true);
+    expect(refunds.rows.reduce((sum, row) => sum + Number(row.amount_minor), 0)).toBe(3600);
+
+    const movements = await pool.query<{ quantity_delta: string }>(
+      `SELECT quantity_delta FROM inventory_movements
+       WHERE business_id=$1 AND item_id=$2 AND reason='SALE_RETURN'`, [businessId, whiskyId],
+    );
+    expect(movements.rows).toHaveLength(2);
+    expect(movements.rows.map((row) => Number(row.quantity_delta)).sort()).toEqual([50, 50]);
+
+    const cashbook = await pool.query<{ entry_type: string; amount_delta_minor: string }>(
+      `SELECT entry_type,amount_delta_minor FROM cashbook_entries
+       WHERE business_id=$1 AND source_type IN ('PAYMENT','REFUND_TRANSACTION')
+       ORDER BY entry_type,amount_delta_minor`, [businessId],
+    );
+    expect(cashbook.rows.map((row) => [row.entry_type, Number(row.amount_delta_minor)]).sort())
+      .toEqual([["SALE_RECEIPT", 3600], ["SALE_REFUND", -1800], ["SALE_REFUND", -1800]].sort());
+    expect(cashbook.rows.reduce((sum, row) => sum + Number(row.amount_delta_minor), 0)).toBe(0);
+
+    const audited = await pool.query<{ event_type: string }>(
+      `SELECT event_type FROM audit_events WHERE business_id=$1 AND entity_type='RETURN_CASE'
+       AND entity_id=ANY($2::uuid[])`, [businessId, refundCases.rows.map((row) => row.id)],
+    );
+    expect(audited.rows).toHaveLength(2);
+    expect(audited.rows.every((row) => row.event_type === "RETURN_ACCEPTED")).toBe(true);
+  });
+
   it("keeps MoMo refunds pending instead of pretending the provider already reversed money", async () => {
     const saleMutation = {
       clientId: "test-device",
