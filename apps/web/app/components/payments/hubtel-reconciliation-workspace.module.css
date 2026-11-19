@@ -45,3 +45,24 @@
   flex-wrap:wrap;border-top:1px solid var(--tos-border,#dfe4eb);padding-top:10px}
 .exposureRow strong{font-size:17px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .exposureRow span{font-size:13px;color:var(--tos-text-muted,#637083)}
+
+.impact{margin-top:4px;padding:14px;border:1px solid var(--tos-border,#dfe4eb);
+  border-radius:11px;background:var(--tos-surface-secondary,#f1f6fc);
+  display:grid;gap:12px;min-width:0}
+.impactHead{display:flex;align-items:flex-start;justify-content:space-between;
+  flex-wrap:wrap;gap:12px}
+.impactHead h3{font-size:16px;font-weight:750;margin:0 0 6px}
+.impactHead p,.impact p{font-size:13px;line-height:1.5}
+.impactTotals{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));
+  gap:10px}
+.impactTotals span{display:flex;flex-direction:column;gap:5px;font-size:12px;
+  padding:10px;border:1px solid var(--tos-border,#dfe4eb);border-radius:8px;
+  background:var(--tos-surface,#fff)}
+.impactTotals strong{font-size:16px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.impact h4{font-size:14px;font-weight:750;margin:0}
+.impactList{display:grid;gap:8px;max-height:280px;overflow:auto}
+.impactRow{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;
+  border-bottom:1px solid var(--tos-border,#dfe4eb);padding:6px 0;
+  font-size:12px;overflow-wrap:anywhere}
+.impactRow span{text-align:right}
+.impactBlockers{margin:0;padding-left:18px;display:grid;gap:5px;font-size:12px;line-height:1.5}

@@ -71,3 +71,32 @@ audited, exactly-once reversal implementation covering simple stock, multi-part
 recipes, valuations, COGS, concurrent verification and late provider success.
 **Keep live merchant collections disabled until that gate and merchant pilot
 are passed.**
+
+## Read-only cancellation impact preflight (19 November 2026)
+
+An authorized owner, administrator, manager or accountant can inspect a
+specific Hubtel checkout from the merchant reconciliation page via
+`GET /v1/sales/:saleId/hubtel/cancellation-preflight?businessId=...`.
+The response is private, no-store and strictly business-scoped.
+
+The preview reads the original sale line costs, and exact eight-decimal stock
+movement quantities referencing those sale lines. It includes the original
+consumption for stock products and each recorded service/recipe component,
+identifies source movement mismatches and flags component-specific valuation
+review. It is a current **read-only assessment**, not a guaranteed immutable
+reversal plan; a concurrent payment verification can change the sale state.
+
+**Every assessment returns `canReleaseStock: false` and
+`permission: REVIEW_ONLY`.** No checkout cancellation, inventory or valuation
+restoration, cashbook posting, payment mutation, or new Hubtel network call is
+performed. The provider status API does not by itself prove that an old
+`UNPAID` checkout can never settle later. A sale being old or in
+`REVIEW_REQUIRED` is not cancellation proof.
+
+Remaining implementation gates: obtain explicit provider-guaranteed finality
+or a documented void/expiry mechanism, then design an idempotent,
+transactional full reversal of source stock movements, their historical
+valuation/COGS (including individual recipe components), the pending payment,
+and OPEN sale. Validate concurrent verifier/canceller races and post-cancel
+late-settlement handling. Do not enable live collections or stock-release
+controls until those gates and a merchant pilot pass.
