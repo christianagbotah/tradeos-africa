@@ -213,18 +213,18 @@ export function ReturnRefundWorkspace() {
           hint="Last 50 receipts"
         />
         <StatCard
-          label="Revenue"
+          label="Recent receipt value"
           icon={<IconBanknote className="tos-stat__icon-tile-svg" />}
           iconTone="positive"
           value={<MoneyValue minor={stats.revenueMinor} currencyCode={currencyCode} className="tos-stat__value" />}
-          hint="Sum of receipt totals"
+          hint="Gross receipts · latest 50"
         />
         <StatCard
           label="Returns accepted"
           icon={<IconReturns className="tos-stat__icon-tile-svg" />}
           iconTone={stats.correctionCount !== null && stats.correctionCount > 0 ? "warning" : "positive"}
           value={<span className="tos-stat__value">{stats.correctionCount ?? "—"}</span>}
-          hint={stats.correctionCount === null ? "Correction count unavailable" : stats.correctionCount > 0 ? "Receipts with corrections" : "No corrections"}
+          hint={stats.correctionCount === null ? "Correction count unavailable" : stats.correctionCount > 0 ? "Corrections in latest 50" : "None in latest 50"}
           hintTone={stats.correctionCount !== null && stats.correctionCount > 0 ? "warning" : "positive"}
         />
         <StatCard
