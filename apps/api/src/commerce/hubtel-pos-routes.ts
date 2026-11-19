@@ -12,6 +12,7 @@ import { HubtelStatusError } from "../platform-admin/hubtel-status-client.js";
 import { getBusinessHubtelPosMonitor } from "./hubtel-pos-monitor.js";
 import {recordUntrustedHubtelNotification} from "./hubtel-pos-notification-inbox.js";
 import {reviewSettledHubtelSale} from "./hubtel-pos-settlement-review.js";
+import {getHubtelCancellationPreflight} from "./hubtel-pos-cancellation-preflight.js";
 import {
   listHubtelExceptionReviewCases,submitHubtelExceptionReview,
   decideHubtelExceptionReview,
@@ -143,6 +144,21 @@ export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):v
           businessId,exceptionId:request.params.exceptionId,actorUserId:auth.userId,
           expectedRevision:request.body?.expectedRevision,
           decision:request.body?.decision,note:request.body?.note,
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Read-only impact preview; no inventory/cashbook mutations and no implied
+  // provider cancellation finality. Kept available for existing checkouts
+  // even when new Hubtel collection is disabled.
+  app.get<{Params:{saleId:string};Querystring:{businessId?:string}}>(
+    "/v1/sales/:saleId/hubtel/cancellation-preflight",async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,
+          request.query.businessId,MONITOR_ROLES);
+        return {assessment:await getHubtelCancellationPreflight(pool,{
+          businessId,saleId:request.params.saleId,
         })};
       }catch(error){return errorResponse(request,reply,error);}
     },
