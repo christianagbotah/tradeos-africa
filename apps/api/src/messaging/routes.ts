@@ -4,6 +4,7 @@ import {authenticateAccessToken,AuthError} from "../auth/security.js";
 import {requireBusinessRole} from "../auth/authorization.js";
 import {listMerchantSmsConnections,saveMerchantSmsConnection,
   revokeMerchantSmsConnection} from "./connections.js";
+import {sendHubtelSmsConnectionTest} from "./hubtel-sms-test.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function badId(id:string){
@@ -19,6 +20,25 @@ export function registerSmsProviderRoutes(app:FastifyInstance,pool:DatabasePool)
         badId(req.params.businessId);
         await requireBusinessRole(pool,auth,req.params.businessId,["OWNER","ADMIN"]);
         return await listMerchantSmsConnections(pool,req.params.businessId);
+      }catch(error){return sendError(req,reply,error);}
+    });
+  app.post<{Params:{businessId:string};Body:{
+    clientRequestId?:string;recipient?:string;currentPassword?:string;
+    confirmOwnership?:boolean;
+  }}>("/v1/businesses/:businessId/sms-providers/HUBTEL_SMS/test-send",
+    {bodyLimit:1024},async(req,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const auth=await authenticateAccessToken(pool,req.headers.authorization);
+        badId(req.params.businessId);
+        await requireBusinessRole(pool,auth,req.params.businessId,["OWNER","ADMIN"]);
+        return await sendHubtelSmsConnectionTest(pool,{
+          businessId:req.params.businessId,actorUserId:auth.userId,
+          clientRequestId:req.body?.clientRequestId??"",
+          recipient:req.body?.recipient,
+          confirmOwnership:req.body?.confirmOwnership,
+          currentPassword:req.body?.currentPassword,
+        });
       }catch(error){return sendError(req,reply,error);}
     });
   app.put<{Params:{businessId:string;providerCode:string};Body:{

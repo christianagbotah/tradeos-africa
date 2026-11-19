@@ -110,7 +110,8 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
     style={{border:"1px solid var(--tos-color-border,#cbd5e1)",
       borderRadius:12,padding:16,display:"grid",gap:12,maxWidth:760,minWidth:0}}>
     <div>
-      <h3>Connect & activate your merchant account</h3>
+      <h3>{providerCode==="HUBTEL"?
+        "Connect Hubtel Online Checkout":"Connect & activate your merchant account"}</h3>
       <p>Enter the credentials issued to your own business. They are
         encrypted securely by TradeOS and cannot be viewed after saving.</p>
     </div>
@@ -191,8 +192,10 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
       {message?<p role="status" className="tos-callout">{message}</p>:null}
       <p className="tos-callout">{snapshot.notice}</p>
       {providerCode==="HUBTEL"?<p className="tos-callout">
-        Hubtel Payment API ID + API Key + Collection Account Number are needed
-        to accept sales. Disbursement Account is separate for payouts.
+        Hubtel Online Checkout uses your Payment API ID, API Key and Collection
+        Account Number. TradeOS has implemented the hosted checkout (Mobile
+        Money and cards); once the account and transaction-status access are
+        independently approved it can accept sales safely. Disbursement Account is separate for payouts.
         Hubtel SMS uses separate credentials under SMS & messaging.
         A successful account check verifies read-only collection access;
         it is not permission to charge customers.</p>:null}

@@ -48,7 +48,8 @@ export function PaymentProviderPanel(){
         "Payment settings do not match the selected business.");
       if(active){
         setSnapshot(data);
-        setChoice(data.preferredProvider??data.effectiveLegacyProvider??"");
+        setChoice(data.preferredProvider??data.effectiveLegacyProvider??
+          (data.countryCode==="GH"&&data.currencyCode==="GHS"?"HUBTEL":""));
       }
     }).catch(e=>{
       if(active)setError(e instanceof Error?e.message:"Payment options cannot be loaded.");
@@ -135,8 +136,15 @@ export function PaymentProviderPanel(){
           <p style={{margin:0}}>Connection:
             <strong>{" "+(selected.integrationStage==="PLANNED"?
               "Planned / gated":"Existing gated integration")}</strong></p>
-          <a href={selected.docsUrl} target="_blank" rel="noopener noreferrer">
-            View provider setup instructions</a>
+          {selected.code==="HUBTEL"?<p className="tos-callout" style={{margin:0}}>
+            <strong>Hubtel Online Checkout is integrated.</strong> Connect your
+            Payment API ID, API Key and Collection Account in the secure form
+            below. Once authorized, the POS creates a hosted Hubtel checkout
+            link for Mobile Money or card payments. The checkout redirect and
+            callback alone never mark a sale paid: TradeOS verifies it directly
+            through Hubtel Transaction Status before posting a receipt.
+          </p>:<a href={selected.docsUrl} target="_blank" rel="noopener noreferrer">
+            View provider setup instructions</a>}
         </div>:null}
       </div>
       {selected&&canManage&&businessId?

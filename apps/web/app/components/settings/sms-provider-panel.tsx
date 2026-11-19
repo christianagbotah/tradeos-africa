@@ -37,7 +37,7 @@ export function SmsProviderPanel(){
   const businessId=session?.businessId??null;
   const online=queue.online;
   const canManage=role==="OWNER"||role==="ADMIN";
-  const [provider,setProvider]=useState<Provider>("ARKESEL");
+  const [provider,setProvider]=useState<Provider>("HUBTEL_SMS");
   const [data,setData]=useState<Snapshot|null>(null);
   const [apiSecret,setApiSecret]=useState("");
   const [senderId,setSenderId]=useState("");
@@ -49,6 +49,11 @@ export function SmsProviderPanel(){
   const [refresh,setRefresh]=useState(0);
   const [error,setError]=useState<string|null>(null);
   const [message,setMessage]=useState<string|null>(null);
+  const [testNumber,setTestNumber]=useState("");
+  const [confirmNumber,setConfirmNumber]=useState(false);
+  const [testBusy,setTestBusy]=useState(false);
+  const [testRequestId,setTestRequestId]=useState<string|null>(null);
+  const [testResult,setTestResult]=useState<string|null>(null);
   const selected=PROVIDERS.find(x=>x.code===provider)!;
   const current=data?.connections.find(x=>x.providerCode===provider);
 
@@ -68,6 +73,11 @@ export function SmsProviderPanel(){
         "Could not load SMS settings.");}).finally(()=>{if(active)setLoading(false);});
     return ()=>{active=false;};
   },[businessId,online,canManage,refresh]);
+
+  useEffect(()=>{
+    setTestNumber("");setConfirmNumber(false);setTestRequestId(null);
+    setTestResult(null);
+  },[businessId,provider]);
 
   useEffect(()=>{
     const record=data?.connections.find(x=>x.providerCode===provider);
@@ -104,6 +114,36 @@ export function SmsProviderPanel(){
       "Could not save SMS connection.");}
     finally{setBusy(false);setApiSecret("");setPassword("");}
   }
+  async function sendOneHubtelSmsTest(){
+    if(provider!=="HUBTEL_SMS"||!businessId||!online||!canManage||
+       !current||current.status!=="SAVED_UNVERIFIED"||testBusy||busy||
+       !confirmNumber||!testNumber.trim()||!password)return;
+    if(!window.confirm("Send ONE Hubtel SMS to your own test number? "+
+      "Hubtel may charge your SMS account. This does not enable bulk SMS."))return;
+    const id=testRequestId??crypto.randomUUID();
+    setTestRequestId(id);setTestBusy(true);setError(null);setTestResult(null);
+    try{
+      const response=await getOfflineQueue().authenticatedFetch(
+        "/v1/businesses/"+encodeURIComponent(businessId)+
+        "/sms-providers/HUBTEL_SMS/test-send",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({clientRequestId:id,recipient:testNumber,
+            confirmOwnership:true,currentPassword:password}),
+        });
+      if(!response.ok)throw new Error(await readApiErrorMessage(response));
+      const payload=await response.json() as {test:{state:string;
+        providerMessageId:string|null;delivered:false};replayed:boolean};
+      setTestResult(payload.test.state==="ACCEPTED"?
+        "Hubtel accepted one SMS for delivery"+
+        (payload.test.providerMessageId?
+          " (message ID: "+payload.test.providerMessageId+")":"")+
+        ". Delivery is not yet confirmed.":
+        "Provider outcome unknown. Do not send again; check Hubtel SMS portal.");
+      setPassword("");
+    }catch(e){setError(e instanceof Error?e.message:
+      "Hubtel SMS test could not be completed. Avoid retrying until reviewed.");}
+    finally{setTestBusy(false);}
+  }
   if(!session)return null;
   return <section className="tos-settings__panel" aria-label="SMS and messaging providers"
     style={{display:"grid",gap:16,minWidth:0}}>
@@ -127,8 +167,13 @@ export function SmsProviderPanel(){
         onChange={e=>setProvider(e.target.value as Provider)}>
         {PROVIDERS.map(x=><option value={x.code} key={x.code}>{x.name}</option>)}
       </select>
-      <p>{selected.hint} <a href={selected.docs} target="_blank"
-        rel="noopener noreferrer">Open provider instructions</a></p>
+      {provider==="HUBTEL_SMS"?<p className="tos-callout">
+        <strong>Hubtel SMS setup is here, not on a help page.</strong>
+        Enter your Hubtel SMS Client ID, SMS Client Secret and approved Sender ID.
+        Save the encrypted connection, then use the one-message test below.
+        Payment API credentials are separate under Settings → Payment providers.
+      </p>:<p>{selected.hint} <a href={selected.docs} target="_blank"
+        rel="noopener noreferrer">Open provider instructions</a></p>}
       <p>Status: <strong>{!current?"No credentials saved":
         current.status==="REVOKED"?"Revoked":
           "Credentials saved — account not verified"}</strong>.
@@ -180,10 +225,41 @@ export function SmsProviderPanel(){
         <Button type="button" variant="outline"
           disabled={busy||!online} onClick={()=>setRefresh(x=>x+1)}>Refresh</Button>
       </div>
+      {provider==="HUBTEL_SMS"&&current?.status==="SAVED_UNVERIFIED"?
+        <div style={{border:"1px solid var(--tos-color-border,#cbd5e1)",
+          borderRadius:10,padding:14,display:"grid",gap:10,minWidth:0}}>
+          <strong>Verify Hubtel SMS by sending one test</strong>
+          <p style={{margin:0}}>Enter a mobile number you control.
+            This sends one real SMS using the saved Hubtel credentials,
+            and Hubtel may charge your SMS account. It does not enable
+            customer notifications or bulk messaging.</p>
+          <label htmlFor="hubtel-sms-test-number">Your Ghana test mobile number</label>
+          <input className="tos-input" id="hubtel-sms-test-number"
+            type="tel" inputMode="tel" autoComplete="off"
+            placeholder="024XXXXXXX or +23324XXXXXXX"
+            value={testNumber} onChange={e=>{setTestNumber(e.target.value);
+              setTestRequestId(null);}}
+            disabled={!online||testBusy||busy} maxLength={20}/>
+          <label style={{display:"flex",gap:9,alignItems:"start"}}>
+            <input type="checkbox" checked={confirmNumber}
+              onChange={e=>setConfirmNumber(e.target.checked)}
+              disabled={!online||testBusy||busy}/>
+            <span>I own or control this number and authorize one SMS test.</span>
+          </label>
+          <small>Enter your current TradeOS password in the field above
+            to authorize the test. One attempt per ten minutes; uncertain
+            provider outcomes must be reviewed, not retried.</small>
+          <div><Button type="button" variant="outline" loading={testBusy}
+            disabled={!online||busy||testBusy||!confirmNumber||
+              !testNumber.trim()||!password}
+            onClick={()=>void sendOneHubtelSmsTest()}>
+            Send one Hubtel SMS test</Button></div>
+          {testResult?<p className="tos-callout" role="status">{testResult}</p>:null}
+        </div>:null}
       {message?<p className="tos-callout" role="status">{message}</p>:null}
-      <p className="tos-callout">{data.notice} No SMS will be sent by saving
-        a credential. Sender approval, recipient consent, delivery logs
-        and real API verification are required before sending is activated.</p>
+      <p className="tos-callout">{data.notice} Saving never sends an SMS.
+        Only the separate confirmed one-message Hubtel test can send a message;
+        automated messaging requires its own authorization and delivery controls.</p>
     </div>:null}
   </section>;
 }
