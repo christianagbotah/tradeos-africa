@@ -31,7 +31,9 @@ const EMPTY_SNAPSHOT: QueueSnapshot = { pending: [], failed: [] };
  * or server-approved.
  */
 function publishInteractiveMutationFeedback(tone: "success" | "error" | "warning", message: string) {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" ||
+      typeof window.dispatchEvent !== "function" ||
+      typeof CustomEvent !== "function") return;
   window.dispatchEvent(new CustomEvent("tradeos:action-feedback", {
     detail: { tone, message },
   }));

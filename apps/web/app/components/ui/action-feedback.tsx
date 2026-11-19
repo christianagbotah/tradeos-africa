@@ -36,6 +36,12 @@ const defaultTitle: Record<ActionFeedbackTone, string> = {
 const symbol: Record<ActionFeedbackTone, string> = {
   success: "✓", error: "!", info: "i", warning: "!",
 };
+const toneClass: Record<ActionFeedbackTone, string> = {
+  success: "tos-action-feedback__toast--success",
+  error: "tos-action-feedback__toast--error",
+  info: "tos-action-feedback__toast--info",
+  warning: "tos-action-feedback__toast--warning",
+};
 
 export function ActionFeedbackViewport() {
   const [toasts, setToasts] = useState<FeedbackToast[]>([]);
@@ -87,7 +93,7 @@ export function ActionFeedbackViewport() {
   return (
     <div className="tos-action-feedback" aria-label="Action notifications">
       {toasts.map((toast) => (
-        <div key={toast.id} className={`tos-action-feedback__toast tos-action-feedback__toast--${toast.tone}`}
+        <div key={toast.id} className={"tos-action-feedback__toast " + toneClass[toast.tone]}
           role={toast.tone === "error" ? "alert" : "status"}>
           <span className="tos-action-feedback__symbol" aria-hidden="true">
             {symbol[toast.tone]}
