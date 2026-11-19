@@ -201,7 +201,7 @@ export function ReturnRefundWorkspace() {
       {hasUnverifiedTotals ? (
         <div className="tos-callout tos-callout--info" role="status">
           Some receipt totals could not be verified. Refresh to retrieve the latest
-          amounts; do not treat an unavailable payout balance as ₵0.00.
+          amounts; do not treat an unavailable payout balance as a confirmed zero.
         </div>
       ) : null}
 
