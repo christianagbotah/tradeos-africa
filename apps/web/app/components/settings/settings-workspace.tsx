@@ -114,7 +114,7 @@ export function SettingsWorkspace() {
 
   const consumeRequestedAction = () => {
     if (typeof window === "undefined" || !requestedAction) return;
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     params.delete("action");
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
@@ -123,7 +123,7 @@ export function SettingsWorkspace() {
   const chooseSection = (next: SettingsSectionId) => {
     setSection(next);
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     params.set("section", next);
     params.delete("action");
     const query = params.toString();

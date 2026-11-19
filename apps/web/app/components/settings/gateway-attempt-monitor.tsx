@@ -7,6 +7,8 @@ import {Button} from "../ui/button";
 import {MoneyValue} from "../business/money-value";
 import {GatewayHostedTestCheckout} from "./gateway-hosted-test-checkout";
 import {GatewayEligibleSalePicker} from "./gateway-eligible-sale-picker";
+import {readGatewayTestHandoff,matchingTestReturn,
+  type TestHandoff} from "./gateway-test-handoff";
 
 type Attempt={
   attemptId:string;saleId:string;branchId:string;providerCode:string;
@@ -34,6 +36,7 @@ export function GatewayAttemptMonitor({businessId,online}:{
   const [saleId,setSaleId]=useState("");
   const [requestId,setRequestId]=useState<string|null>(null);
   const [providerTx,setProviderTx]=useState<Record<string,string>>({});
+  const [handoff,setHandoff]=useState<TestHandoff|null>(null);
   const [busyId,setBusyId]=useState<string|null>(null);
   const [notice,setNotice]=useState<string|null>(null);
   const [mutationError,setMutationError]=useState<string|null>(null);
@@ -93,6 +96,27 @@ export function GatewayAttemptMonitor({businessId,online}:{
   }
 
   useEffect(()=>{
+    const hint=readGatewayTestHandoff(window.location.search);
+    if(!hint)return;
+    setHandoff(hint);
+    const params=new URLSearchParams(window.location.search);
+    ["test_attempt","test_ref","test_tx","test_ref_conflict"].forEach(
+      key=>params.delete(key));
+    const query=params.toString();
+    window.history.replaceState(null,"",window.location.pathname+
+      (query?"?"+query:""));
+  },[businessId]);
+
+  const returned=handoff&&data?
+    matchingTestReturn(data.attempts,handoff):null;
+  useEffect(()=>{
+    if(!handoff||!returned?.match||!returned.prefill)return;
+    const id=returned.match.attemptId;
+    setProviderTx(values=>values[id]===returned.prefill?values:
+      {...values,[id]:returned.prefill!});
+  },[handoff,returned?.match?.attemptId,returned?.prefill]);
+
+  useEffect(()=>{
     setData(null);setError(null);
     if(!online){setLoading(false);return;}
     let active=true;setLoading(true);
@@ -129,6 +153,19 @@ export function GatewayAttemptMonitor({businessId,online}:{
     {error||mutationError?<p role="alert" className="tos-banner tos-banner--danger">
       {error??mutationError}</p>:null}
     {notice?<p role="status" className="tos-callout">{notice}</p>:null}
+    {returned?<p role={returned.match?"status":"alert"}
+      className={returned.match?"tos-callout":"tos-banner tos-banner--danger"}>
+      {returned.match?
+        "Returned from provider TEST checkout. The browser result is unverified. "+
+        (returned.prefill?"Flutterwave transaction ID was filled in below. ":"")+
+        "Select ‘Check provider TEST status’ on the matching attempt to "+
+        "independently verify it. No payment has been posted.":
+        "TEST return did not match an open attempt for this business, or "+
+        "the provider reference disagreed. Do not retry or mark it paid. "+
+        "Review the provider TEST portal and flag the attempt if needed."}
+      {returned.match?<a style={{display:"inline-block",marginLeft:8}}
+        href={"#gateway-attempt-"+returned.match.attemptId}>Go to matching TEST attempt</a>:null}
+    </p>:null}
     <div style={{display:"grid",gap:9,border:"1px solid #a5b3c7",
       borderRadius:10,padding:12}}>
       <strong>Prepare a Paystack / Flutterwave sandbox test</strong>
@@ -173,7 +210,9 @@ export function GatewayAttemptMonitor({businessId,online}:{
           <th>Amount</th><th>State</th><th>Sandbox observation</th>
           <th>Reference</th><th>TEST actions</th></tr></thead>
         <tbody>{data.attempts.map(attempt=>(
-          <tr key={attempt.attemptId}>
+          <tr key={attempt.attemptId} id={"gateway-attempt-"+attempt.attemptId}
+            style={returned?.match?.attemptId===attempt.attemptId?
+              {outline:"2px solid #2f668e",outlineOffset:-2}:undefined}>
             <td>{new Date(attempt.createdAt).toLocaleString("en-GB")}</td>
             <td>{attempt.providerCode}</td>
             <td>{attempt.paymentMethod}</td>
