@@ -2,6 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import type { DatabasePool } from "./db.js";
+import {
+  parseReceiptPaper, receiptPdfFilename, renderVerifiedSaleReceiptPdf,
+  type VerifiedReceiptSnapshot,
+} from "./sale-receipt-pdf.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
@@ -196,6 +200,102 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
       } catch (error) {
         return sendReadError(request, reply, error);
       }
+    },
+  );
+
+  // The PDF is generated from current authenticated, tenant-scoped server
+  // records. A redirect, local queue or pending Hubtel transaction is NOT
+  // sufficient to release a receipt.
+  app.get<{Params:{saleId:string};Querystring:{businessId?:string;paper?:string}}>(
+    "/v1/sales/:saleId/receipt.pdf",async(request,reply)=>{
+      try {
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        const businessId=required(request.query.businessId,"businessId");
+        await requireBusinessRole(pool,auth,businessId,READ_ROLES);
+        const saleId=request.params.saleId;
+        if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saleId)){
+          throw new SalesReadError("Invalid receipt ID",400,"RECEIPT_ID_INVALID");
+        }
+        let paper:ReturnType<typeof parseReceiptPaper>;
+        try { paper=parseReceiptPaper(request.query.paper); }
+        catch {throw new SalesReadError("Select A5, 80mm or 58mm receipt paper",400,"RECEIPT_PAPER_INVALID");}
+        const found=await pool.query<{
+          id:string;status:string;completed_at:Date|null;
+          total_minor:string|number;currency_code:string;
+          business_name:string;branch_name:string|null;timezone:string|null;
+          address:string|null;phone:string|null;customer_name:string|null;
+          customer_phone:string|null;cashier_name:string|null;
+        }>(
+          `SELECT s.id,s.status,s.completed_at,s.total_minor,s.currency_code,
+                  b.name AS business_name,br.name AS branch_name,
+                  COALESCE(br.timezone,b.timezone) AS timezone,
+                  CONCAT_WS(', ',NULLIF(COALESCE(br.address_line1,b.address_line1), ''),
+                             NULLIF(COALESCE(br.city,b.city), '')) AS address,
+                  COALESCE(br.phone,b.phone) AS phone,
+                  c.name AS customer_name,c.phone AS customer_phone,
+                  st.display_name AS cashier_name
+           FROM sales s JOIN businesses b ON b.id=s.business_id
+           LEFT JOIN branches br ON br.id=s.branch_id AND br.business_id=s.business_id
+           LEFT JOIN customers c ON c.id=s.customer_id AND c.business_id=s.business_id
+           LEFT JOIN staff st ON st.id=s.cashier_staff_id AND st.business_id=s.business_id
+           WHERE s.id=$1 AND s.business_id=$2`,
+          [saleId,businessId],
+        );
+        const sale=found.rows[0];
+        if(!sale)throw new SalesReadError("Sale was not found",404,"SALE_NOT_FOUND");
+        if(!["COMPLETED","PARTIALLY_REFUNDED","REFUNDED"].includes(sale.status)||
+            !sale.completed_at)throw new SalesReadError(
+          "A final receipt is available only for a completed, verified sale.",
+          409,"SALE_NOT_COMPLETED");
+        const lines=await pool.query<{
+          item_name_snapshot:string;quantity:string|number;sale_unit_code:string;
+          unit_net_minor:string|number;line_tax_minor:string|number;
+          line_total_minor:string|number;
+        }>(`SELECT item_name_snapshot,quantity,sale_unit_code,
+                   unit_net_minor,line_tax_minor,line_total_minor
+            FROM sale_lines WHERE sale_id=$1 AND business_id=$2
+            ORDER BY created_at,id`,[saleId,businessId]);
+        const payments=await pool.query<{
+          method:string;amount_minor:string|number;status:string;
+          refunded_minor:string|number;
+        }>(`SELECT p.method,p.amount_minor,p.status,
+                   COALESCE((SELECT SUM(rt.amount_minor) FROM refund_transactions rt
+                     WHERE rt.original_payment_id=p.id AND rt.status IN ('PENDING','SUCCEEDED')),0) AS refunded_minor
+            FROM payments p WHERE p.sale_id=$1 AND p.business_id=$2
+            ORDER BY p.created_at,p.id`,[saleId,businessId]);
+        if(lines.rows.length===0 || payments.rows.some(p=>p.status==="PENDING")){
+          throw new SalesReadError("This sale has pending payment or missing items.",
+            409,"RECEIPT_NOT_VERIFIED");
+        }
+        const snapshot:VerifiedReceiptSnapshot={
+          saleId:sale.id,
+          status:sale.status as VerifiedReceiptSnapshot["status"],
+          completedAt:sale.completed_at.toISOString(),
+          businessName:sale.business_name,branchName:sale.branch_name??"",
+          address:sale.address??"",phone:sale.phone??"",timezone:sale.timezone??"Africa/Accra",
+          customerName:sale.customer_name??sale.customer_phone??"Walk-in customer",
+          cashierName:sale.cashier_name??"",currencyCode:sale.currency_code,
+          totalMinor:Number(sale.total_minor),
+          lines:lines.rows.map(line=>({
+            name:line.item_name_snapshot,quantity:Number(line.quantity),
+            unitCode:line.sale_unit_code,unitNetMinor:Number(line.unit_net_minor),
+            lineTaxMinor:Number(line.line_tax_minor),
+            lineTotalMinor:Number(line.line_total_minor),
+          })),
+          payments:payments.rows.map(payment=>({
+            method:payment.method,amountMinor:Number(payment.amount_minor),
+            refundedMinor:Number(payment.refunded_minor),status:payment.status,
+          })),
+        };
+        const pdf=await renderVerifiedSaleReceiptPdf(snapshot,paper);
+        const filename=receiptPdfFilename(saleId,paper);
+        return reply.header("Content-Type","application/pdf")
+          .header("Content-Disposition",'attachment; filename="'+filename+'"')
+          .header("Cache-Control","private, no-store")
+          .header("X-Content-Type-Options","nosniff")
+          .header("Content-Length",String(pdf.length))
+          .send(pdf);
+      }catch(error){return sendReadError(request,reply,error);}
     },
   );
 }

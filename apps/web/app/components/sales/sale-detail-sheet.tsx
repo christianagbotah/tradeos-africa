@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { receiptUrl } from "../../../lib/receipt-document";
+import { loadReceiptPaper,shareVerifiedReceiptPdf } from "../../../lib/receipt-pdf";
+import { notifyAction } from "../ui/action-feedback";
 import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
 import { HubtelSaleActions } from "./hubtel-sale-actions";
@@ -123,11 +125,18 @@ export function SaleDetailSheet({ saleId, onClose,onPaid }: SaleDetailSheetProps
               // webviews that suppress window.open/popups.
               if (path) window.location.assign(path);
             }}>View / print receipt</Button>:null}
-          {data?.sale.status==="COMPLETED"?<Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
-            if (typeof navigator !== "undefined" && navigator.share) {
-              try { await navigator.share({ title: "TradeOS receipt", text: `Receipt ${saleId}` }); } catch { /* cancelled */ }
-            }
-          }}>Share</Button>:null}
+          {data?.sale.completedAt && ["COMPLETED","PARTIALLY_REFUNDED","REFUNDED"].includes(data.sale.status) &&
+            session?<Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
+              try{
+                const outcome=await shareVerifiedReceiptPdf(data.sale.id,session.businessId,loadReceiptPaper());
+                if(outcome==="downloaded")notifyAction({tone:"info",title:"Receipt PDF downloaded",
+                  message:"Attach the downloaded PDF in your preferred sharing app."});
+                else if(outcome==="shared")notifyAction({tone:"success",title:"PDF ready for sharing",
+                  message:"The verified receipt PDF was handed to the sharing app."});
+              }catch(error){
+                notifyAction({tone:"error",message:error instanceof Error?error.message:"Could not share receipt PDF."});
+              }
+            }}>Share PDF</Button>:null}
           {data?.sale.status==="COMPLETED"?<Button variant="gold" icon={<IconReturns className="tos-btn__icon" />} onClick={() => { window.location.href = "/returns"; }}>Process return</Button>:null}
           <Button variant="primary" onClick={onClose}>Close</Button>
         </div>

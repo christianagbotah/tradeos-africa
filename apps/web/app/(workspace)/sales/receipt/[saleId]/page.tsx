@@ -1,6 +1,12 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { useEffect,useState } from "react";
+import { notifyAction } from "../../../../components/ui/action-feedback";
+import {
+  RECEIPT_PAPER_OPTIONS,loadReceiptPaper,saveReceiptPaper,
+  downloadVerifiedReceiptPdf,shareVerifiedReceiptPdf,type ReceiptPaper,
+} from "../../../../../lib/receipt-pdf";
 import { formatMoney } from "@tradeos/contracts";
 import { useWorkspace } from "../../../../components/workspace/use-workspace";
 import { useApiFetch } from "../../../../../lib/use-api-fetch";
@@ -26,6 +32,34 @@ export default function VerifiedSaleReceiptPage() {
   const business = businessContext?.business;
   const branch = businessContext?.branches.find(item => item.id === sale?.branchId);
   const complete = canIssueReceipt(sale);
+  const [paper,setPaper] = useState<ReceiptPaper>("80mm");
+  const [busy,setBusy] = useState(false);
+  const [pdfError,setPdfError] = useState<string|null>(null);
+  useEffect(()=>setPaper(loadReceiptPaper()),[]);
+  function selectPaper(value:ReceiptPaper){
+    setPaper(value);
+    saveReceiptPaper(value);
+  }
+  async function pdfAction(share:boolean){
+    if(!session || !complete || busy)return;
+    setBusy(true);setPdfError(null);
+    try {
+      if(share){
+        const outcome=await shareVerifiedReceiptPdf(sale!.id,session.businessId,paper);
+        if(outcome==="downloaded")notifyAction({tone:"info",title:"PDF downloaded",
+          message:"Your device cannot share PDF files directly. Attach the downloaded PDF in WhatsApp, email or another app."});
+        else if(outcome==="shared")notifyAction({tone:"success",title:"PDF handed to sharing app",
+          message:"The receipt PDF was handed to your chosen sharing app."});
+      } else {
+        await downloadVerifiedReceiptPdf(sale!.id,session.businessId,paper);
+        notifyAction({tone:"success",title:"PDF ready",
+          message:"Receipt downloaded in "+paper+" paper format."});
+      }
+    }catch(error){
+      const message=error instanceof Error?error.message:"Could not prepare receipt PDF.";
+      setPdfError(message);notifyAction({tone:"error",message});
+    }finally{setBusy(false);}
+  }
   const date = sale?.completedAt ? receiptTimestamp(sale.completedAt, branch?.timezone || session?.timezone) : "—";
 
   if (!valid) return <StatePanel variant="error" title="Invalid receipt reference" text="Open a completed sale from Sales." />;
@@ -52,11 +86,27 @@ export default function VerifiedSaleReceiptPage() {
     <div className={styles.wrapper}>
       <div className={styles.actions}>
         <a href="/sales" className={styles.link}>Back to sales</a>
-        <button type="button" className={styles.printButton} onClick={() => window.print()}>
-          Print / Save as PDF
-        </button>
+        <div className={styles.controls}>
+          <label htmlFor="tradeos-receipt-paper">Receipt paper
+            <select id="tradeos-receipt-paper" className={styles.paperSelect}
+              value={paper} onChange={e=>selectPaper(e.target.value as ReceiptPaper)}>
+              {RECEIPT_PAPER_OPTIONS.map(option=>
+                <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <button type="button" className={styles.printButton} onClick={() => window.print()}>
+            Print receipt
+          </button>
+          <button type="button" className={styles.downloadButton} disabled={busy}
+            onClick={()=>void pdfAction(false)}>{busy?"Preparing…":"Download PDF"}</button>
+          <button type="button" className={styles.downloadButton} disabled={busy}
+            onClick={()=>void pdfAction(true)}>{busy?"Preparing…":"Share PDF"}</button>
+        </div>
       </div>
-      <article id="tos-verified-receipt" className={`tos-print-document ${styles.receipt}`} aria-label="Verified sales receipt">
+      {pdfError?<p role="alert" className={styles.error}>{pdfError}</p>:null}
+      <article id="tos-verified-receipt"
+        className={`tos-print-document ${styles.receipt} ${paper==="A5"?styles.paperA5:paper==="80mm"?styles.paper80:styles.paper58}`}
+        aria-label="Verified sales receipt">
         <header className={styles.header}>
           <div className={styles.brand}>{business?.name || session?.businessName || "Business"}</div>
           {branch ? <div className={styles.muted}>{branch.name} branch</div> : null}
@@ -87,6 +137,17 @@ export default function VerifiedSaleReceiptPage() {
             ))}
           </tbody>
         </table>
+        <div className={styles.thermalItems} aria-label="Purchased items">
+          {sale.lines.map(line=>(
+            <div key={line.id} className={styles.thermalItem}>
+              <strong className={styles.thermalName}>{line.itemName}</strong>
+              <div className={styles.thermalPriceRow}>
+                <span>{line.quantity.toLocaleString("en-GH")} × {money(line.unitNetMinor)} / {line.saleUnitCode}</span>
+                <strong>{money(line.lineTotalMinor)}</strong>
+              </div>
+            </div>
+          ))}
+        </div>
         <div className={styles.totals}>
           {totals.taxMinor > 0 ? <div><span>Included tax</span><span>{money(totals.taxMinor)}</span></div> : null}
           <div className={styles.grand}><span>Sale total</span><strong>{money(sale.totalMinor)}</strong></div>

@@ -6,6 +6,8 @@ import type { SyncResponse } from "@tradeos/contracts";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { receiptUrl } from "../../../lib/receipt-document";
+import { loadReceiptPaper,shareVerifiedReceiptPdf } from "../../../lib/receipt-pdf";
+import { notifyAction } from "../ui/action-feedback";
 import { buildSaleCreatePayload, type PaymentMethod } from "../../../lib/mutation-builders";
 import type { CartLine } from "./cart-panel";
 import type { VoicePayment,VoiceCheckoutSuggestion } from "../../../lib/voice-transaction-draft";
@@ -420,14 +422,15 @@ export function CheckoutSheet({
   };
 
   const handleShare = async () => {
-    if (typeof navigator === "undefined" || !navigator.share) return;
+    if(result?.status!=="completed" || !result.receiptAvailable)return;
     try {
-      await navigator.share({
-        title: "TradeOS receipt",
-        text: `Receipt ${result?.reference ?? ""}`,
-      });
-    } catch {
-      // user cancelled — ignore
+      const outcome=await shareVerifiedReceiptPdf(result.reference,businessId,loadReceiptPaper());
+      if(outcome==="downloaded")notifyAction({tone:"info",title:"Receipt PDF downloaded",
+        message:"Attach the downloaded PDF in your preferred sharing app."});
+      else if(outcome==="shared")notifyAction({tone:"success",title:"PDF ready for sharing",
+        message:"The verified receipt PDF was handed to the sharing app."});
+    } catch(error){
+      notifyAction({tone:"error",message:error instanceof Error?error.message:"Could not share receipt PDF."});
     }
   };
 
