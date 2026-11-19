@@ -29,5 +29,8 @@ describe("branch-wide refund financial totals", () => {
     expect(screen).toContain("currencies are not combined");
     expect(screen).toContain('Latest 50 receipts only');
     expect(screen).toContain("all branch receipts");
+    expect(screen).toContain('label="Recent receipt value"');
+    expect(screen).toContain("Gross receipts · latest 50");
+    expect(screen).toContain("Corrections in latest 50");
   });
 });
