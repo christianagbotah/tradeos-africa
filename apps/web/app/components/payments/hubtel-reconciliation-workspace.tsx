@@ -8,6 +8,7 @@ import { useApiFetch } from "../../../lib/use-api-fetch";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import {HubtelExceptionCasePanel} from "./hubtel-exception-case-panel";
+import {HubtelCancellationPreflightPanel} from "./hubtel-cancellation-preflight-panel";
 import styles from "./hubtel-reconciliation-workspace.module.css";
 
 type State = "PREPARED" | "READY" | "PENDING_VERIFICATION" |
@@ -61,6 +62,7 @@ function stateName(state: State): string {
 export function HubtelReconciliationWorkspace() {
   const { session, role, queue } = useWorkspace();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [preflightSaleId, setPreflightSaleId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canRead = ["OWNER","ADMIN","MANAGER","ACCOUNTANT"].includes(role);
@@ -218,6 +220,12 @@ export function HubtelReconciliationWorkspace() {
             without confirming the final settlement status with Hubtel.</p>:null}
           <div className={styles.actions}>
             <Link href="/sales" className={styles.secondary}>Sales register</Link>
+            {session && item.saleStatus==="OPEN" && item.paymentStatus==="PENDING" ?
+              <button type="button" className={styles.secondary}
+                onClick={() => setPreflightSaleId((current) =>
+                  current===item.saleId ? null : item.saleId)}>
+                {preflightSaleId===item.saleId ? "Close stock review" : "Review stock impact"}
+              </button> : null}
             {canVerify ? <button
               type="button" className={styles.primary}
               disabled={!readiness?.existingCheckoutEnabled || !queue.online || busyId!==null}
@@ -225,6 +233,11 @@ export function HubtelReconciliationWorkspace() {
               {busyId===item.attemptId ? "Checking…" :
                   item.state==="RECONCILED"?"Recheck settlement":"Verify with Hubtel"}</button> : null}
           </div>
+          {session && preflightSaleId===item.saleId ? (
+            <HubtelCancellationPreflightPanel
+              saleId={item.saleId} businessId={session.businessId}
+              onClose={() => setPreflightSaleId(null)} />
+          ) : null}
         </article>)}
       </section>}
     <HubtelExceptionCasePanel/>
