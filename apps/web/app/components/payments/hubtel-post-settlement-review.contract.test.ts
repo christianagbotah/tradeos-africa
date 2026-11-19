@@ -14,7 +14,9 @@ describe("Hubtel post-settlement review and non-financial safeguards",()=>{
     expect(ui).toContain("settlementAlerts");
     expect(ui).toContain("No automatic refund, cashbook reversal or stock movement");
     expect(ui).toContain("once every five minutes");
-    expect(css).toContain("repeat(4,minmax(0,1fr))");
+    expect(css).toContain("repeat(auto-fit,minmax(min(100%,170px),1fr))");
+    expect(css).toContain(".exposureRow");
+    expect(css).toContain("@media(max-width:700px)");
   });
   it("restricts merchant review endpoint to owner/admin/manager",()=>{
     expect(api).toContain('"/v1/sales/:saleId/hubtel/settlement-review"');
