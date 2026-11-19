@@ -41,6 +41,12 @@ describe("financial summary reports", () => {
     expect(cashSale.status).toBe("APPLIED");
     const cashSaleLine = (await pool.query(`SELECT id FROM sale_lines WHERE sale_id=$1`,[cashSale.result.saleId])).rows[0].id;
     expect((await sync("return-one","RETURN_CREATE",{ originalSaleId:cashSale.result.saleId, reason:"One returned", refundMethod:"ORIGINAL_METHOD", lines:[{ saleLineId:cashSaleLine, quantity:1, disposition:"RESTOCK" }] })).status).toBe("APPLIED");
+    const cashList = await app.inject({ method:"GET", url:`/v1/sales?businessId=${businessId}&branchId=${branchId}`, headers });
+    expect(cashList.statusCode, cashList.body).toBe(200);
+    const cashRecord = cashList.json().sales.find((row:{id:string})=>row.id===cashSale.result.saleId);
+    expect(cashRecord).toMatchObject({
+      refundTotalMinor:500,refundSettledMinor:500,refundPendingMinor:0,refundFailedMinor:0,
+    });
     expect((await sync("sale-credit","SALE_CREATE",{ customerId, paymentMethod:"CUSTOMER_CREDIT", lines:[{ itemId, saleUnitCode:"piece", quantity:1 }] })).status).toBe("APPLIED");
     expect((await sync("purchase-credit","PURCHASE_RECEIVE_CREATE",{ supplierId, settlementMethod:"SUPPLIER_CREDIT", lines:[{ itemId, purchaseUnitCode:"piece", quantity:2, unitCostMinor:200 }] })).status).toBe("APPLIED");
     const categoryId = (await pool.query(`SELECT id FROM expense_categories WHERE business_id=$1 ORDER BY name LIMIT 1`,[businessId])).rows[0].id;

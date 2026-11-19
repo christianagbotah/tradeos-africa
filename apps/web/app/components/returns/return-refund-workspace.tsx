@@ -23,12 +23,14 @@ interface SalesResponse { sales: SaleSummary[] }
 
 type Mode = "return" | "refund" | "exchange";
 
-type StatusFilter = "ALL" | "COMPLETED" | "REFUNDED" | "RETURNED";
+type StatusFilter = "ALL" | "COMPLETED" | "REFUNDED" | "PENDING" | "FAILED" | "RETURNED";
 
 const STATUS_FILTERS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
   { value: "ALL", label: "All" },
   { value: "COMPLETED", label: "Completed" },
-  { value: "REFUNDED", label: "Refunded" },
+  { value: "REFUNDED", label: "Refund paid" },
+  { value: "PENDING", label: "Payout pending" },
+  { value: "FAILED", label: "Needs review" },
   { value: "RETURNED", label: "Returned" },
 ];
 
@@ -80,7 +82,9 @@ export function ReturnRefundWorkspace() {
     return allSales.filter((s) => {
       if (statusFilter !== "ALL") {
         if (statusFilter === "COMPLETED" && s.status !== "COMPLETED") return false;
-        if (statusFilter === "REFUNDED" && s.refundTotalMinor <= 0) return false;
+        if (statusFilter === "REFUNDED" && s.refundSettledMinor <= 0) return false;
+        if (statusFilter === "PENDING" && s.refundPendingMinor <= 0) return false;
+        if (statusFilter === "FAILED" && s.refundFailedMinor <= 0) return false;
         if (statusFilter === "RETURNED" && s.refundTotalMinor <= 0) return false;
       }
       return true;
@@ -89,10 +93,12 @@ export function ReturnRefundWorkspace() {
 
   const stats = useMemo(() => {
     const total = allSales.length;
-    const refundCount = allSales.filter((s) => s.refundTotalMinor > 0).length;
-    const refundTotalMinor = allSales.reduce((sum, s) => sum + s.refundTotalMinor, 0);
+    const correctionCount = allSales.filter((s) => s.refundTotalMinor > 0).length;
+    const refundSettledMinor = allSales.reduce((sum, s) => sum + s.refundSettledMinor, 0);
+    const refundPendingMinor = allSales.reduce((sum, s) => sum + s.refundPendingMinor, 0);
+    const refundFailedMinor = allSales.reduce((sum, s) => sum + s.refundFailedMinor, 0);
     const revenueMinor = allSales.reduce((sum, s) => sum + s.totalMinor, 0);
-    return { total, refundCount, refundTotalMinor, revenueMinor };
+    return { total, correctionCount, refundSettledMinor, refundPendingMinor, refundFailedMinor, revenueMinor };
   }, [allSales]);
 
   const onCorrectionComplete = () => {
@@ -149,21 +155,29 @@ export function ReturnRefundWorkspace() {
           hint="Sum of receipt totals"
         />
         <StatCard
-          label="Refunds issued"
+          label="Returns accepted"
           icon={<IconReturns className="tos-stat__icon-tile-svg" />}
-          iconTone={stats.refundCount > 0 ? "warning" : "positive"}
-          value={<span className="tos-stat__value">{stats.refundCount}</span>}
-          hint={stats.refundCount > 0 ? "Receipts with refunds" : "No refunds"}
-          hintTone={stats.refundCount > 0 ? "warning" : "positive"}
+          iconTone={stats.correctionCount > 0 ? "warning" : "positive"}
+          value={<span className="tos-stat__value">{stats.correctionCount}</span>}
+          hint={stats.correctionCount > 0 ? "Receipts with corrections" : "No corrections"}
+          hintTone={stats.correctionCount > 0 ? "warning" : "positive"}
         />
         <StatCard
-          label="Refund value"
+          label="Refunds awaiting payout"
           icon={<IconTrendingDown className="tos-stat__icon-tile-svg" />}
-          iconTone={stats.refundTotalMinor > 0 ? "warning" : "neutral"}
-          value={<MoneyValue minor={stats.refundTotalMinor} currencyCode={currencyCode} className="tos-stat__value" />}
-          hint={stats.refundTotalMinor > 0 ? "Revenue reversed" : "None reversed"}
-          hintTone={stats.refundTotalMinor > 0 ? "warning" : "default"}
+          iconTone={stats.refundPendingMinor > 0 ? "warning" : "neutral"}
+          value={<MoneyValue minor={stats.refundPendingMinor} currencyCode={currencyCode} className="tos-stat__value" />}
+          hint={stats.refundPendingMinor > 0 ? "Not yet confirmed paid" : "No outstanding payouts"}
+          hintTone={stats.refundPendingMinor > 0 ? "warning" : "positive"}
         />
+      </div>
+
+      <div className="tos-callout tos-callout--info">
+        <span className="tos-callout__body">
+          Confirmed refund payouts: <MoneyValue minor={stats.refundSettledMinor} currencyCode={currencyCode} />.
+          {stats.refundFailedMinor > 0 ? <> Failed payouts requiring review: <MoneyValue minor={stats.refundFailedMinor} currencyCode={currencyCode} />.</> : null}
+          {" "}Accepted returns and exchange credits are not proof of a paid refund. Pending provider refunds remain outstanding until verified.
+        </span>
       </div>
 
       {!canWrite ? (
@@ -250,7 +264,22 @@ export function ReturnRefundWorkspace() {
                         <MoneyValue minor={sale.totalMinor} currencyCode={sale.currencyCode} className="tos-returnable-card__total" />
                         {refunded ? (
                           <span className="tos-returnable-card__refund-flag">
-                            −<MoneyValue minor={sale.refundTotalMinor} currencyCode={sale.currencyCode} />
+                            Return value: <MoneyValue minor={sale.refundTotalMinor} currencyCode={sale.currencyCode} />
+                          </span>
+                        ) : null}
+                        {sale.refundPendingMinor > 0 ? (
+                          <span className="tos-returnable-card__sub">
+                            Pending payout: <MoneyValue minor={sale.refundPendingMinor} currencyCode={sale.currencyCode} />
+                          </span>
+                        ) : null}
+                        {sale.refundSettledMinor > 0 ? (
+                          <span className="tos-returnable-card__sub">
+                            Refund paid: <MoneyValue minor={sale.refundSettledMinor} currencyCode={sale.currencyCode} />
+                          </span>
+                        ) : null}
+                        {sale.refundFailedMinor > 0 ? (
+                          <span className="tos-returnable-card__sub">
+                            Payout needs review: <MoneyValue minor={sale.refundFailedMinor} currencyCode={sale.currencyCode} />
                           </span>
                         ) : null}
                         <span className={`tos-badge ${sale.status === "COMPLETED" ? "tos-badge--positive" : "tos-badge--neutral"}`}>
@@ -307,7 +336,8 @@ export function ReturnRefundWorkspace() {
                     <th>When</th>
                     <th>Payment</th>
                     <th data-align="right">Total</th>
-                    <th data-align="right">Refunded</th>
+                    <th data-align="right">Return value</th>
+                    <th data-align="right">Refund payout</th>
                     <th data-align="center">Status</th>
                     {canWrite ? <th data-align="center">Actions</th> : null}
                   </tr>
@@ -332,6 +362,20 @@ export function ReturnRefundWorkspace() {
                           ) : (
                             <span className="tos-table__muted">—</span>
                           )}
+                        </td>
+                        <td data-align="right" className="tos-table__num">
+                          {sale.refundSettledMinor > 0 ? (
+                            <div>Paid: <MoneyValue minor={sale.refundSettledMinor} currencyCode={sale.currencyCode} /></div>
+                          ) : null}
+                          {sale.refundPendingMinor > 0 ? (
+                            <div>Pending: <MoneyValue minor={sale.refundPendingMinor} currencyCode={sale.currencyCode} /></div>
+                          ) : null}
+                          {sale.refundFailedMinor > 0 ? (
+                            <div>Review: <MoneyValue minor={sale.refundFailedMinor} currencyCode={sale.currencyCode} /></div>
+                          ) : null}
+                          {sale.refundSettledMinor + sale.refundPendingMinor + sale.refundFailedMinor === 0 ? (
+                            <span className="tos-table__muted">—</span>
+                          ) : null}
                         </td>
                         <td data-align="center">
                           <span className={`tos-badge ${sale.status === "COMPLETED" ? "tos-badge--positive" : "tos-badge--neutral"}`}>

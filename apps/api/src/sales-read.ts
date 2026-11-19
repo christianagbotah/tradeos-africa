@@ -36,6 +36,9 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
           customer_phone: string | null;
           cashier_name: string | null;
           refund_total_minor: string | number;
+          refund_settled_minor: string | number;
+          refund_pending_minor: string | number;
+          refund_failed_minor: string | number;
           payment_summary: unknown;
         }>(
           `SELECT s.id,s.status,s.currency_code,s.total_minor,s.completed_at,s.created_at,
@@ -43,7 +46,23 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
                   st.display_name AS cashier_name,
                   COALESCE((SELECT SUM(rc.refund_total_minor) FROM return_cases rc
                     WHERE rc.original_sale_id=s.id
+                      AND rc.business_id=s.business_id
                       AND rc.status IN ('APPROVED','PROCESSING','COMPLETED')),0) AS refund_total_minor,
+                  COALESCE((SELECT SUM(rt.amount_minor)
+                    FROM refund_transactions rt
+                    JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
+                    WHERE rc.original_sale_id=s.id AND rt.business_id=s.business_id
+                      AND rt.status='SUCCEEDED'),0) AS refund_settled_minor,
+                  COALESCE((SELECT SUM(rt.amount_minor)
+                    FROM refund_transactions rt
+                    JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
+                    WHERE rc.original_sale_id=s.id AND rt.business_id=s.business_id
+                      AND rt.status='PENDING'),0) AS refund_pending_minor,
+                  COALESCE((SELECT SUM(rt.amount_minor)
+                    FROM refund_transactions rt
+                    JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
+                    WHERE rc.original_sale_id=s.id AND rt.business_id=s.business_id
+                      AND rt.status='FAILED'),0) AS refund_failed_minor,
                   COALESCE((SELECT jsonb_agg(jsonb_build_object(
                     'method',p.method,'amountMinor',p.amount_minor,'status',p.status
                   ) ORDER BY p.created_at) FROM payments p WHERE p.sale_id=s.id),'[]'::jsonb) AS payment_summary
@@ -68,6 +87,9 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
             currencyCode: sale.currency_code,
             totalMinor: Number(sale.total_minor),
             refundTotalMinor: Number(sale.refund_total_minor),
+            refundSettledMinor: Number(sale.refund_settled_minor),
+            refundPendingMinor: Number(sale.refund_pending_minor),
+            refundFailedMinor: Number(sale.refund_failed_minor),
             completedAt: sale.completed_at?.toISOString() ?? null,
             createdAt: sale.created_at.toISOString(),
             customer: sale.customer_name || sale.customer_phone ? { name: sale.customer_name, phone: sale.customer_phone } : null,

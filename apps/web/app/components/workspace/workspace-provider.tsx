@@ -46,7 +46,14 @@ export interface SaleSummary {
   status: string;
   currencyCode: string;
   totalMinor: number;
+  /** Total accepted return/correction value; may include exchange credit. */
   refundTotalMinor: number;
+  /** Refund payments with confirmed settlement, not mere return acceptance. */
+  refundSettledMinor: number;
+  /** Provider-side payments not yet confirmed settled. */
+  refundPendingMinor: number;
+  /** Failed refund payment attempts needing review. */
+  refundFailedMinor: number;
   completedAt: string | null;
   createdAt: string;
   customer: { name: string | null; phone: string | null } | null;

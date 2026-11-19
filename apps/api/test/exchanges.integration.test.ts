@@ -59,6 +59,23 @@ describe("exchange domain engine", () => {
     expect(Number((await pool.query(`SELECT COUNT(*) FROM return_cases WHERE business_id=$1`, [f.businessId])).rows[0].count)).toBe(1);
     expect(Number((await pool.query(`SELECT COUNT(*) FROM sales WHERE business_id=$1`, [f.businessId])).rows[0].count)).toBe(2);
 
+    // The returned stock has a value used as an exchange credit, not
+    // an external payout. Do not mislabel that credit as a paid refund.
+    const saleList = await app.inject({
+      method: "GET",
+      url: `/v1/sales?businessId=${f.businessId}&branchId=${f.branchId}`,
+      headers: bearer(f.accessToken),
+    });
+    expect(saleList.statusCode, saleList.body).toBe(200);
+    const originalSummary = saleList.json<{ sales: Array<{
+      id: string; refundTotalMinor: number; refundSettledMinor: number;
+      refundPendingMinor: number; refundFailedMinor: number;
+    }> }>().sales.find((row) => row.id === original.saleId);
+    expect(originalSummary).toMatchObject({
+      refundTotalMinor: 1000, refundSettledMinor: 0,
+      refundPendingMinor: 0, refundFailedMinor: 0,
+    });
+
     const audit = await pool.query<{ event_type: string; actor_staff_id: string | null; payload: Record<string, unknown> }>(
       `SELECT event_type,actor_staff_id,payload FROM audit_events WHERE business_id=$1 AND entity_type='EXCHANGE_CASE' AND entity_id=$2`,
       [f.businessId, result.exchangeCaseId],
@@ -100,6 +117,20 @@ describe("exchange domain engine", () => {
     expect(pending.result).toMatchObject({ netDifferenceMinor: -800, status: "PROCESSING" });
     const pendingResult = pending.result as { returnCaseId: string };
     expect((await pool.query<{ method: string; status: string; amount_minor: string }>(`SELECT method,status,amount_minor FROM refund_transactions WHERE return_case_id=$1`, [pendingResult.returnCaseId])).rows[0]).toEqual({ method: "MOMO", status: "PENDING", amount_minor: "800" });
+    const pendingRead = await app.inject({
+      method: "GET",
+      url: `/v1/sales?businessId=${momoFixture.businessId}&branchId=${momoFixture.branchId}`,
+      headers: bearer(momoFixture.accessToken),
+    });
+    expect(pendingRead.statusCode, pendingRead.body).toBe(200);
+    const pendingSummary = pendingRead.json<{ sales: Array<{
+      id: string; refundTotalMinor: number; refundSettledMinor: number;
+      refundPendingMinor: number; refundFailedMinor: number;
+    }> }>().sales.find((row) => row.id === momoOriginal.saleId);
+    expect(pendingSummary).toMatchObject({
+      refundTotalMinor: 2000, refundSettledMinor: 0,
+      refundPendingMinor: 800, refundFailedMinor: 0,
+    });
   });
 
   it("handles zero difference, prevents over-return and rejects unauthorized exchange ingestion", async () => {
