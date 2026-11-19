@@ -101,17 +101,39 @@ export function PaymentProviderPanel(){
       </p>:null}
       {loading?<p role="status">Checking supported gateways for your business…</p>:null}
       {error?<p className="tos-banner tos-banner--danger" role="alert">{error}</p>:null}
-      {snapshot?<><p className="tos-callout" role="status">
-        Registered country: <strong>{snapshot.countryCode}</strong> · Currency:
-        <strong> {snapshot.currencyCode}</strong>. Availability refers to your
-        business registration, not where a cardholder happens to live.
-        Changing currency or country may change your available providers.
-      </p>
-      <p className="tos-callout" role="status">
-        Current collection status: <strong>{snapshot.collectionReady?
-          "Verified merchant connection enabled":"Not enabled"}</strong>.
-        Your preferred provider is a separate configuration choice.
-      </p>
+      {snapshot?<><div className="tos-callout tos-payment-details" role="status">
+        <div className="tos-payment-details__facts">
+          <div className="tos-payment-details__fact">
+            <span className="tos-payment-details__label">Registered country</span>
+            <strong className="tos-payment-details__value">{snapshot.countryCode}</strong>
+          </div>
+          <div className="tos-payment-details__fact">
+            <span className="tos-payment-details__label">Currency</span>
+            <strong className="tos-payment-details__value">
+              {snapshot.currencyCode==="GHS"?"₵ (GHS)":snapshot.currencyCode}
+            </strong>
+          </div>
+        </div>
+        <p className="tos-payment-details__note">
+          Available payment providers depend on the registered business,
+          not the cardholder’s location. Changing your country or currency
+          can change the available providers.
+        </p>
+      </div>
+      <div className="tos-callout tos-payment-details" role="status">
+        <div className="tos-payment-details__fact">
+          <span className="tos-payment-details__label">Collection status</span>
+          <strong className={"tos-payment-details__value"+(snapshot.collectionReady?
+            " tos-payment-details__value--ready":"")}>
+            {snapshot.collectionReady?
+              "Verified merchant connection enabled":"Not enabled"}
+          </strong>
+        </div>
+        <p className="tos-payment-details__note">
+          Your preferred payment provider is a separate configuration choice.
+          Connect and verify your merchant account to enable collections.
+        </p>
+      </div>
       <div style={{display:"grid",gap:12,maxWidth:720,minWidth:0}}>
         <label htmlFor="tradeos-selected-payment-provider">
           Choose payment provider</label>
