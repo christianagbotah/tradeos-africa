@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const screen = read("../returns/return-refund-workspace.tsx");
 const provider = read("./workspace-provider.tsx");
+const money = read("../business/money-value.tsx");
+const salesApi = read("../../../../api/src/sales-read.ts");
 
 describe("refund settlement presentation contracts", () => {
   it("never labels accepted returns as paid-out refunds", () => {
@@ -29,5 +31,12 @@ describe("refund settlement presentation contracts", () => {
       expect(screen).toContain("sale." + field);
     }
     expect(screen).toContain("Pending provider refunds remain outstanding until verified");
+    expect(screen).toContain("refundAmountsVerified");
+    expect(screen).toContain("Payout totals unavailable");
+    expect(screen).toContain("No missing refund amount has been treated as a confirmed payout.");
+    expect(money).toContain('!Number.isFinite(minor)');
+    for (const field of ["refundTotalMinor", "refundSettledMinor", "refundPendingMinor", "refundFailedMinor"]) {
+      expect(salesApi).toContain(field + ": Number(sale.");
+    }
   });
 });
