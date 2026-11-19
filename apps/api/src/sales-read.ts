@@ -10,8 +10,96 @@ import {
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
+const REFUND_REVIEW_ROLES: readonly BusinessRole[] = [
+  "OWNER", "ADMIN", "MANAGER", "ACCOUNTANT",
+];
+
 
 export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  // An independent, paginated settlement worklist prevents older outstanding
+  // refunds from vanishing when the most-recent-50 sales list is full.
+  // Read-only by design: merchant/operator claims are not proof of payout.
+  app.get<{ Querystring: {
+    businessId?: string; branchId?: string; status?: string; limit?: string; offset?: string;
+  } }>("/v1/refunds/settlement-queue", async (request, reply) => {
+    try {
+      const auth = await authenticateAccessToken(pool, request.headers.authorization);
+      const businessId = required(request.query.businessId, "businessId");
+      const branchId = required(request.query.branchId, "branchId");
+      await requireBusinessRole(pool, auth, businessId, REFUND_REVIEW_ROLES);
+      await requireBranch(pool, businessId, branchId);
+      const status = request.query.status ?? "ALL";
+      if (!["ALL", "PENDING", "FAILED"].includes(status)) {
+        throw new SalesReadError("Refund status filter must be ALL, PENDING or FAILED.",
+          400, "REFUND_STATUS_INVALID");
+      }
+      const limit = clampLimit(request.query.limit);
+      const parsedOffset = Number(request.query.offset ?? 0);
+      if (!Number.isSafeInteger(parsedOffset) || parsedOffset < 0 || parsedOffset > 100000) {
+        throw new SalesReadError("Refund offset must be a nonnegative integer up to 100000.",
+          400, "REFUND_OFFSET_INVALID");
+      }
+      const summary = await pool.query<{
+        pending_count: string | number; pending_minor: string | number;
+        failed_count: string | number; failed_minor: string | number;
+      }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE rt.status='PENDING') AS pending_count,
+           COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='PENDING'),0) AS pending_minor,
+           COUNT(*) FILTER (WHERE rt.status='FAILED') AS failed_count,
+           COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='FAILED'),0) AS failed_minor
+         FROM refund_transactions rt
+         JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
+         WHERE rt.business_id=$1 AND rc.branch_id=$2 AND rt.status IN ('PENDING','FAILED')`,
+        [businessId, branchId],
+      );
+      const result = await pool.query<{
+        id: string; return_case_id: string; sale_id: string; status: "PENDING" | "FAILED";
+        method: string; amount_minor: string | number; currency_code: string;
+        provider_reference: string | null; reason: string;
+        customer_name: string | null; created_at: Date;
+      }>(
+        `SELECT rt.id,rt.return_case_id,rc.original_sale_id AS sale_id,rt.status,
+                rt.method,rt.amount_minor,rt.currency_code,rt.provider_reference,
+                rc.reason,c.name AS customer_name,rt.created_at
+         FROM refund_transactions rt
+         JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
+         LEFT JOIN customers c ON c.id=rc.customer_id AND c.business_id=rt.business_id
+         WHERE rt.business_id=$1 AND rc.branch_id=$2
+           AND rt.status IN ('PENDING','FAILED')
+           AND ($3='ALL' OR rt.status=$3)
+         ORDER BY rt.created_at ASC,rt.id ASC LIMIT $4 OFFSET $5`,
+        [businessId, branchId, status, limit + 1, parsedOffset],
+      );
+      const pending = summary.rows[0];
+      return reply.header("Cache-Control", "private, no-store, max-age=0").send({
+        summary: {
+          pendingCount: Number(pending?.pending_count ?? 0),
+          pendingMinor: Number(pending?.pending_minor ?? 0),
+          failedCount: Number(pending?.failed_count ?? 0),
+          failedMinor: Number(pending?.failed_minor ?? 0),
+        },
+        items: result.rows.slice(0, limit).map((row) => ({
+          id: row.id,
+          returnCaseId: row.return_case_id,
+          saleId: row.sale_id,
+          status: row.status,
+          method: row.method,
+          amountMinor: Number(row.amount_minor),
+          currencyCode: row.currency_code,
+          providerReference: row.provider_reference,
+          reason: row.reason,
+          customerName: row.customer_name,
+          createdAt: row.created_at.toISOString(),
+        })),
+        offset: parsedOffset,
+        hasMore: result.rows.length > limit,
+      });
+    } catch (error) {
+      return sendReadError(request, reply, error);
+    }
+  });
+
   app.get<{ Querystring: { businessId?: string; branchId?: string; query?: string; limit?: string } }>(
     "/v1/sales",
     async (request, reply) => {

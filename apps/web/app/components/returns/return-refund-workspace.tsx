@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { ReturnRefundSheet } from "./return-refund-sheet";
+import { RefundSettlementWorklist } from "./refund-settlement-worklist";
 import { ExchangeSheet } from "./exchange-sheet";
 import { MoneyValue } from "../business/money-value";
 import { StatePanel } from "../ui/state-panel";
@@ -67,6 +68,7 @@ export function ReturnRefundWorkspace() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+  const [settlementRefresh, setSettlementRefresh] = useState(0);
   const [mode, setMode] = useState<Mode>("return");
   const path = session
     ? `/v1/sales?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=50${query ? `&query=${encodeURIComponent(query)}` : ""}`
@@ -103,6 +105,7 @@ export function ReturnRefundWorkspace() {
 
   const onCorrectionComplete = () => {
     setSelectedSaleId(null);
+    setSettlementRefresh((previous) => previous + 1);
     // Corrections are immutable financial events: re-read the authoritative
     // receipt balances rather than estimating refunded money in the browser.
     // Inventory can change for restocked returns/exchanges, and customer
@@ -179,6 +182,8 @@ export function ReturnRefundWorkspace() {
           {" "}Accepted returns and exchange credits are not proof of a paid refund. Pending provider refunds remain outstanding until verified.
         </span>
       </div>
+
+      <RefundSettlementWorklist refreshToken={settlementRefresh} />
 
       {!canWrite ? (
         <div className="tos-callout tos-callout--info">
