@@ -1336,6 +1336,40 @@
   line-height: 1.5;
 }
 
+/* Heading + copy callouts keep two readable columns on wide screens and
+   stack into full-width rows on phones. The default icon callouts are unchanged. */
+.tos-callout--label-and-content {
+  align-items: flex-start;
+  gap: var(--tos-space-3);
+}
+
+.tos-callout__label {
+  flex: 0 0 30%;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.tos-callout__content {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 640px) {
+  .tos-callout--label-and-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--tos-space-2);
+  }
+
+  .tos-callout--label-and-content > .tos-callout__label,
+  .tos-callout--label-and-content > .tos-callout__content {
+    flex: none;
+    width: 100%;
+  }
+}
+
 .tos-callout--positive {
   background: var(--tos-positive-soft);
   border-color: #c3e6d3;
