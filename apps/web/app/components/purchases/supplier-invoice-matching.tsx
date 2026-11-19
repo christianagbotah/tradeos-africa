@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackMessages } from "../ui/action-feedback";
 
 import { useMemo, useRef, useState } from "react";
 import { formatMoney } from "@tradeos/contracts";
@@ -74,6 +75,7 @@ export function SupplierInvoiceMatching({
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState<string|null>(null);
   const [error,setError]=useState<string|null>(null);
+  useActionFeedbackMessages(notice,error);
   const requestId=useRef<string|null>(null);
   const money=(value:number)=>formatMoney(value,currencyCode);
   const path=session?

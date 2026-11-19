@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackMessages } from "../ui/action-feedback";
 import {useEffect,useState} from "react";
 import {getOfflineQueue} from "../../../lib/offline-sync";
 import {readApiErrorMessage} from "../../../lib/auth-fetch";
@@ -19,6 +20,7 @@ export function GatewayConnectionsPanel({businessId,online,providerCode}:{
   const [password,setPassword]=useState("");
   const [error,setError]=useState<string|null>(null);
   const [message,setMessage]=useState<string|null>(null);
+  useActionFeedbackMessages(message,error);
   const [reload,setReload]=useState(0);
 
   useEffect(()=>{

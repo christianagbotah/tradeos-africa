@@ -1,5 +1,6 @@
 "use client";
 
+import { useActionFeedbackMessages } from "../ui/action-feedback";
 import {useEffect,useState} from "react";
 import {getOfflineQueue} from "../../../lib/offline-sync";
 import {readApiErrorMessage} from "../../../lib/auth-fetch";
@@ -32,6 +33,7 @@ export function PaymentProviderPanel(){
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [success,setSuccess]=useState<string|null>(null);
+  useActionFeedbackMessages(success,error);
   const [refreshKey,setRefreshKey]=useState(0);
 
   useEffect(()=>{

@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackMessages } from "../ui/action-feedback";
 
 import {useEffect,useState} from "react";
 import {getOfflineQueue} from "../../../lib/offline-sync";
@@ -49,6 +50,7 @@ export function SmsProviderPanel(){
   const [refresh,setRefresh]=useState(0);
   const [error,setError]=useState<string|null>(null);
   const [message,setMessage]=useState<string|null>(null);
+  useActionFeedbackMessages(message,error);
   const [testNumber,setTestNumber]=useState("");
   const [confirmNumber,setConfirmNumber]=useState(false);
   const [testBusy,setTestBusy]=useState(false);

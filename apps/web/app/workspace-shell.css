@@ -1607,10 +1607,11 @@
 }
 .tos-pos-voice-button:hover { background: #113c5d; }
 .tos-pos-voice-button:focus-visible { outline: 3px solid var(--tos-gold); outline-offset: 2px; }
-@media (max-width: 440px) {
+@media (max-width: 640px) {
+  /* On phones, the microphone action comes first on its own row. */
   .tos-pos-search-row { flex-wrap: wrap; }
-  .tos-pos-search-row .tos-pos-search { flex-basis: 100%; }
-  .tos-pos-voice-button { min-height: 42px; width: 100%; }
+  .tos-pos-search-row .tos-pos-search { flex: 1 1 100%; min-width: 0; }
+  .tos-pos-voice-button { min-height: 48px; width: 100%; }
 }
 
 /* Desktop cart wrapper — static right pane. On tablet/phone this is hidden

@@ -26,6 +26,18 @@ const SESSION_KEY = "tradeos.web.session.v1";
 const LAST_CONTEXT_KEY = "tradeos.web.lastContext.v1";
 const EMPTY_SNAPSHOT: QueueSnapshot = { pending: [], failed: [] };
 
+/** User-initiated queue flushes share the same fixed, accessible notification
+ * surface as online CRUD forms. Never label a pending offline mutation as paid
+ * or server-approved.
+ */
+function publishInteractiveMutationFeedback(tone: "success" | "error" | "warning", message: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("tradeos:action-feedback", {
+    detail: { tone, message },
+  }));
+}
+
+
 export class OfflinePersistenceError extends Error {
   readonly cause: unknown;
 
@@ -330,12 +342,25 @@ export class WebOfflineQueue {
     const runtime = this.queueFor(options.activeBusinessId);
     const before = await runtime.queue.getSnapshot();
     const candidateIds = new Set(before.pending.map((mutation) => mutation.clientMutationId));
-    const summary = await this.flush(options);
+    let summary: FlushSummary;
+    try {
+      summary = await this.flush(options);
+    } catch (error) {
+      publishInteractiveMutationFeedback("error", error instanceof Error ? error.message : "Changes could not be synced.");
+      throw error;
+    }
     if (summary.rejected > 0) {
       const after = await runtime.queue.getSnapshot();
       const failed = after.failed.find((entry) => candidateIds.has(entry.mutation.clientMutationId));
       const message = failed?.result.errorMessage ?? failed?.result.errorCode ?? "The server rejected this change.";
+      publishInteractiveMutationFeedback("error", message);
       throw new Error(message);
+    }
+    if (summary.applied > 0 || summary.received > 0) {
+      publishInteractiveMutationFeedback("success", "Changes saved successfully.");
+    } else if (summary.pending > 0) {
+      publishInteractiveMutationFeedback("warning",
+        "Change saved on this device. Sync is pending; it is not yet confirmed by the server.");
     }
     return summary;
   }

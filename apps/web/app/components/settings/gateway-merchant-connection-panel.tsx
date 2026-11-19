@@ -1,5 +1,6 @@
 "use client";
 
+import { useActionFeedbackMessages } from "../ui/action-feedback";
 import {useEffect,useState} from "react";
 import {Button} from "../ui/button";
 import {getOfflineQueue} from "../../../lib/offline-sync";
@@ -29,6 +30,7 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
   const [refresh,setRefresh]=useState(0);
   const [error,setError]=useState<string|null>(null);
   const [message,setMessage]=useState<string|null>(null);
+  useActionFeedbackMessages(message,error);
   const schema=snapshot?.schemas.find(x=>x.providerCode===providerCode);
   const current=snapshot?.connections.find(x=>
     x.providerCode===providerCode&&x.environment===environment);

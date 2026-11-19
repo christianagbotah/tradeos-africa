@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackState } from "../ui/action-feedback";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
@@ -238,6 +239,7 @@ function ProfileSection({ online, onRefresh }: { online: boolean; onRefresh: () 
   const [busy, setBusy] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   useEffect(() => {
     setDisplayName(account?.displayName ?? session?.displayName ?? "");
@@ -357,6 +359,7 @@ function SecuritySection({ online }: { online: boolean }) {
   const [revokeOthers, setRevokeOthers] = useState(true);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -452,6 +455,7 @@ function BusinessSection({
   const creating = businessMode === "create";
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   useEffect(() => {
     setForm(businessToForm(business));
@@ -685,6 +689,7 @@ function BranchesSection({
   const [editDraft, setEditDraft] = useState<BranchDraft>(() => defaultBranchDraft(businessContext?.business.timezone ?? "Africa/Accra"));
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   useEffect(() => {
     if (businessContext?.business.timezone) {
@@ -832,6 +837,7 @@ function DevicesSection({ online }: { online: boolean }) {
   const [busy, setBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   const load = async () => {
     if (!online) return;

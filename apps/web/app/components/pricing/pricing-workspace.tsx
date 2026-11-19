@@ -1,5 +1,6 @@
 "use client";
 
+import { useActionFeedbackMessages } from "../ui/action-feedback";
 import {useCallback,useEffect,useMemo,useState} from "react";
 import {formatMoney} from "@tradeos/contracts";
 import {useWorkspace} from "../workspace/use-workspace";
@@ -44,6 +45,7 @@ export function PricingWorkspace(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [notice,setNotice]=useState<string|null>(null);
+  useActionFeedbackMessages(notice,error);
   const item=sellable.find(s=>s.key===itemKey);
   const requestItem=sellable.find(s=>s.key===requestItemKey);
   const activeCustomers=customers.filter(c=>c.active);
@@ -184,13 +186,14 @@ export function PricingWorkspace(){
               if(!sellableItem)return;
               setItemKey(sellableItem.key);setPriceMinor(r.priceMinor);
               if(window.confirm("Deactivate this negotiated price for this customer?")){
-                setBusy(true);
+                setBusy(true);setNotice(null);setError(null);
                 void fetchJson("/v1/pricing/customer-rates",{method:"PUT",
                   headers:{"Content-Type":"application/json"},
                   body:JSON.stringify({businessId,customerId,itemId:r.itemId,
                     unitCode:r.unitCode,priceMinor:r.priceMinor,active:false})})
-                  .then(()=>loadRates()).catch(e=>
-                    setError(e instanceof Error?e.message:"Could not deactivate"))
+                  .then(()=>loadRates())
+                  .then(()=>setNotice("Customer-specific price deactivated."))
+                  .catch(e=>setError(e instanceof Error?e.message:"Could not deactivate"))
                   .finally(()=>setBusy(false));
               }
             }}>Deactivate</button>:null}

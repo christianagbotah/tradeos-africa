@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackMessages } from "../ui/action-feedback";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -42,6 +43,7 @@ export function PurchaseOrderWorkspace(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [notice,setNotice]=useState<string|null>(null);
+  useActionFeedbackMessages(notice,error);
   const [voiceOpen,setVoiceOpen]=useState(false);
   const [issueCandidate,setIssueCandidate]=useState<Order|null>(null);
   const issueCancelButton=useRef<HTMLButtonElement>(null);

@@ -92,6 +92,10 @@ export function ProductBrowser({ items, currencyCode, onPick, onSpeak, cartQuant
   return (
     <div className="tos-pos__browser">
       <div className="tos-pos-search-row">
+        {onSpeak ? <button type="button" className="tos-pos-voice-button"
+          onClick={onSpeak} aria-label="Speak a sale using the microphone">
+          <span aria-hidden="true">🎙</span> Speak a sale
+        </button> : null}
         <div className="tos-pos-search">
           <IconSearch className="tos-pos-search__icon" />
         <input
@@ -119,10 +123,6 @@ export function ProductBrowser({ items, currencyCode, onPick, onSpeak, cartQuant
           </span>
         )}
         </div>
-        {onSpeak ? <button type="button" className="tos-pos-voice-button"
-          onClick={onSpeak} aria-label="Speak a sale using the microphone">
-          <span aria-hidden="true">🎙</span> Speak a sale
-        </button> : null}
       </div>
 
       {searchResult.approximate&&hasMatches?<p className="tos-pos-similar-note" role="status">

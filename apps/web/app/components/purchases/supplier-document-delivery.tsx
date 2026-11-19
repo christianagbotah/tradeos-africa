@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackMessages } from "../ui/action-feedback";
 
 import { useRef, useState } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
@@ -65,6 +66,7 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState<string|null>(null);
   const [error,setError]=useState<string|null>(null);
+  useActionFeedbackMessages(notice,error);
   const [confirmedRecipients,setConfirmedRecipients]=useState<Record<string,boolean>>({});
   const [confirmedConsent,setConfirmedConsent]=useState<Record<string,boolean>>({});
   const [confirmedNoDelivery,setConfirmedNoDelivery]=useState<Record<string,boolean>>({});

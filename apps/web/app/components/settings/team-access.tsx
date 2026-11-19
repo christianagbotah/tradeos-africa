@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackState } from "../ui/action-feedback";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BusinessRole, StaffDirectoryItem } from "@tradeos/contracts";
@@ -39,6 +40,7 @@ export function TeamAccess({ online }: { online: boolean }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<TeamFeedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
   const [oneTimeInvite, setOneTimeInvite] = useState<OneTimeInvite>(null);
 
   const editingStaff = useMemo(
