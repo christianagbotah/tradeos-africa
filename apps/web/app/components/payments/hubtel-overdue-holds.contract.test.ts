@@ -13,6 +13,8 @@ describe("unverified Hubtel payment hold visibility", () => {
     expect(monitor).toContain("GROUP BY a.currency_code ORDER BY a.currency_code");
     expect(monitor).toContain("s.status='OPEN' AND p.status='PENDING'");
     expect(monitor).toContain("interval '24 hours'");
+    expect(monitor).toContain("DESC,a.created_at DESC,a.id DESC");
+    expect(ui).toContain("Unverified checkout hold totals could not be loaded");
     expect(monitor).toContain("Number.isSafeInteger(parsed)");
     expect(route).toContain('"Cache-Control","private, no-store, max-age=0"');
   });
