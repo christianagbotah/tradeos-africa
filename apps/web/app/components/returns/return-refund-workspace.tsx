@@ -95,12 +95,19 @@ export function ReturnRefundWorkspace() {
 
   const stats = useMemo(() => {
     const total = allSales.length;
+    // A staggered API deployment may omit newly added refund balance fields.
+    // Never mistake missing financial data for a confirmed zero balance.
+    const refundAmountsVerified = allSales.every((s) =>
+      [s.refundTotalMinor, s.refundSettledMinor, s.refundPendingMinor, s.refundFailedMinor]
+        .every((amount) => typeof amount === "number" && Number.isFinite(amount)),
+    );
+    const safeMinor = (amount: number) => Number.isFinite(amount) ? amount : 0;
     const correctionCount = allSales.filter((s) => s.refundTotalMinor > 0).length;
-    const refundSettledMinor = allSales.reduce((sum, s) => sum + s.refundSettledMinor, 0);
-    const refundPendingMinor = allSales.reduce((sum, s) => sum + s.refundPendingMinor, 0);
-    const refundFailedMinor = allSales.reduce((sum, s) => sum + s.refundFailedMinor, 0);
-    const revenueMinor = allSales.reduce((sum, s) => sum + s.totalMinor, 0);
-    return { total, correctionCount, refundSettledMinor, refundPendingMinor, refundFailedMinor, revenueMinor };
+    const refundSettledMinor = allSales.reduce((sum, s) => sum + safeMinor(s.refundSettledMinor), 0);
+    const refundPendingMinor = allSales.reduce((sum, s) => sum + safeMinor(s.refundPendingMinor), 0);
+    const refundFailedMinor = allSales.reduce((sum, s) => sum + safeMinor(s.refundFailedMinor), 0);
+    const revenueMinor = allSales.reduce((sum, s) => sum + safeMinor(s.totalMinor), 0);
+    return { total, correctionCount, refundSettledMinor, refundPendingMinor, refundFailedMinor, revenueMinor, refundAmountsVerified };
   }, [allSales]);
 
   const onCorrectionComplete = () => {
@@ -161,27 +168,39 @@ export function ReturnRefundWorkspace() {
           label="Returns accepted"
           icon={<IconReturns className="tos-stat__icon-tile-svg" />}
           iconTone={stats.correctionCount > 0 ? "warning" : "positive"}
-          value={<span className="tos-stat__value">{stats.correctionCount}</span>}
-          hint={stats.correctionCount > 0 ? "Receipts with corrections" : "No corrections"}
+          value={<span className="tos-stat__value">{stats.refundAmountsVerified ? stats.correctionCount : "—"}</span>}
+          hint={!stats.refundAmountsVerified ? "Return totals unavailable" : stats.correctionCount > 0 ? "Receipts with corrections" : "No corrections"}
           hintTone={stats.correctionCount > 0 ? "warning" : "positive"}
         />
         <StatCard
           label="Refunds awaiting payout"
           icon={<IconTrendingDown className="tos-stat__icon-tile-svg" />}
           iconTone={stats.refundPendingMinor > 0 ? "warning" : "neutral"}
-          value={<MoneyValue minor={stats.refundPendingMinor} currencyCode={currencyCode} className="tos-stat__value" />}
-          hint={stats.refundPendingMinor > 0 ? "Not yet confirmed paid" : "No outstanding payouts"}
+          value={stats.refundAmountsVerified
+            ? <MoneyValue minor={stats.refundPendingMinor} currencyCode={currencyCode} className="tos-stat__value" />
+            : <span className="tos-stat__value" title="Refund balances unavailable">—</span>}
+          hint={!stats.refundAmountsVerified ? "Payout totals unavailable" : stats.refundPendingMinor > 0 ? "Not yet confirmed paid" : "No outstanding payouts"}
           hintTone={stats.refundPendingMinor > 0 ? "warning" : "positive"}
         />
       </div>
 
       <div className="tos-callout tos-callout--info">
         <span className="tos-callout__body">
-          Confirmed refund payouts: <MoneyValue minor={stats.refundSettledMinor} currencyCode={currencyCode} />.
+          Confirmed refund payouts: {stats.refundAmountsVerified
+            ? <MoneyValue minor={stats.refundSettledMinor} currencyCode={currencyCode} />
+            : <span title="Refund balances unavailable">—</span>}.
           {stats.refundFailedMinor > 0 ? <> Failed payouts requiring review: <MoneyValue minor={stats.refundFailedMinor} currencyCode={currencyCode} />.</> : null}
           {" "}Accepted returns and exchange credits are not proof of a paid refund. Pending provider refunds remain outstanding until verified.
         </span>
       </div>
+
+      {!loading && !error && allSales.length > 0 && !stats.refundAmountsVerified ? (
+        <div className="tos-callout tos-callout--warning" role="alert">
+          Refund balance details are unavailable from the sales API. These amounts cannot be verified until the
+          API and web application versions match. Please refresh or contact your administrator.
+          No missing refund amount has been treated as a confirmed payout.
+        </div>
+      ) : null}
 
       <RefundSettlementWorklist refreshToken={settlementRefresh} />
 
