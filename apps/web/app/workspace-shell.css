@@ -9190,6 +9190,8 @@
 }
 
 
+/* Dedicated sales sheet scope (also prevents horizontal flex overflow). */
+.tos-sheet--sale-detail { min-width: 0; }
 /* Sales receipt detail must NOT inherit the purchase-receipt editing grid.
    The old .tos-receipt-line selector is owned by the purchase builder. */
 .tos-sale-items {
