@@ -23,6 +23,19 @@ import type { SaleSummary } from "../workspace/workspace-provider";
 
 interface SalesResponse { sales: SaleSummary[] }
 
+interface BranchRefundSummary {
+  scope: "BRANCH_ALL_TIME";
+  balances: Array<{
+    currencyCode: string;
+    pendingCount: number;
+    pendingMinor: number;
+    settledCount: number;
+    settledMinor: number;
+    failedCount: number;
+    failedMinor: number;
+  }>;
+}
+
 type Mode = "return" | "refund" | "exchange";
 
 type StatusFilter = "ALL" | "COMPLETED" | "REFUNDED" | "PENDING" | "FAILED" | "RETURNED";
@@ -75,6 +88,12 @@ export function ReturnRefundWorkspace() {
     ? `/v1/sales?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&limit=50${query ? `&query=${encodeURIComponent(query)}` : ""}`
     : null;
   const { data, loading, error, refetch } = useApiFetch<SalesResponse>(path);
+  const canViewBranchPayouts = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT", "CASHIER"].includes(role);
+  const summaryPath = session && canViewBranchPayouts
+    ? `/v1/refunds/branch-summary?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}`
+    : null;
+  const { data: branchRefundData, loading: summaryLoading, error: summaryError, refetch: refetchSummary } =
+    useApiFetch<BranchRefundSummary>(summaryPath);
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "CASHIER"].includes(role);
 
@@ -116,6 +135,31 @@ export function ReturnRefundWorkspace() {
     stats.revenueMinor,
   ].some((amount) => amount === null);
 
+  // All-time branch payouts must never be derived from the latest-50 list.
+  // Financial amounts are grouped by currency on the server.
+  const selectedBranchBalance = useMemo(() => {
+    if (!branchRefundData || branchRefundData.scope !== "BRANCH_ALL_TIME" ||
+      !Array.isArray(branchRefundData.balances)) return null;
+    const values = branchRefundData.balances;
+    if (!values.every((balance) =>
+      balance && typeof balance.currencyCode === "string" &&
+      [balance.pendingCount, balance.pendingMinor, balance.settledCount,
+        balance.settledMinor, balance.failedCount, balance.failedMinor]
+        .every((amount) => Number.isSafeInteger(amount) && amount >= 0))) return null;
+    return values.find((balance) => balance.currencyCode === currencyCode) ??
+      { currencyCode, pendingCount: 0, pendingMinor: 0, settledCount: 0,
+        settledMinor: 0, failedCount: 0, failedMinor: 0 };
+  }, [branchRefundData, currencyCode]);
+  const pendingPayoutMinor = canViewBranchPayouts
+    ? selectedBranchBalance?.pendingMinor ?? null : stats.refundPendingMinor;
+  const settledPayoutMinor = canViewBranchPayouts
+    ? selectedBranchBalance?.settledMinor ?? null : stats.refundSettledMinor;
+  const failedPayoutMinor = canViewBranchPayouts
+    ? selectedBranchBalance?.failedMinor ?? null : stats.refundFailedMinor;
+  const otherCurrencyCount = branchRefundData?.balances?.filter(
+    (balance) => balance.currencyCode !== currencyCode,
+  ).length ?? 0;
+
   const onCorrectionComplete = () => {
     setSelectedSaleId(null);
     setSettlementRefresh((previous) => previous + 1);
@@ -124,6 +168,7 @@ export function ReturnRefundWorkspace() {
     // Inventory can change for restocked returns/exchanges, and customer
     // balances can change if the refund produces an account credit.
     refetch();
+    refetchSummary();
     void refreshInventory();
     void refreshCustomers();
   };
@@ -149,7 +194,11 @@ export function ReturnRefundWorkspace() {
           </p>
         </div>
         <div className="tos-page__actions">
-          <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => refetch()}>Refresh</Button>
+          <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => {
+            refetch();
+            refetchSummary();
+            setSettlementRefresh((previous) => previous + 1);
+          }}>Refresh</Button>
         </div>
       </header>
 
@@ -181,19 +230,24 @@ export function ReturnRefundWorkspace() {
         <StatCard
           label="Refunds awaiting payout"
           icon={<IconTrendingDown className="tos-stat__icon-tile-svg" />}
-          iconTone={stats.refundPendingMinor !== null && stats.refundPendingMinor > 0 ? "warning" : "neutral"}
-          value={<MoneyValue minor={stats.refundPendingMinor} currencyCode={currencyCode} className="tos-stat__value" />}
-          hint={stats.refundPendingMinor === null ? "Payout data unavailable" : stats.refundPendingMinor > 0 ? "Not yet confirmed paid" : "No outstanding payouts"}
-          hintTone={stats.refundPendingMinor !== null && stats.refundPendingMinor > 0 ? "warning" : "positive"}
+          iconTone={pendingPayoutMinor !== null && pendingPayoutMinor > 0 ? "warning" : "neutral"}
+          value={<MoneyValue minor={pendingPayoutMinor} currencyCode={currencyCode} className="tos-stat__value" />}
+          hint={canViewBranchPayouts
+            ? summaryLoading && !branchRefundData ? "Checking all branch receipts"
+              : pendingPayoutMinor === null ? "Branch payout data unavailable"
+              : pendingPayoutMinor > 0 ? "Outstanding across all receipts" : "No outstanding branch payouts"
+            : pendingPayoutMinor === null ? "Payout data unavailable"
+              : "Latest 50 receipts only"}
+          hintTone={pendingPayoutMinor !== null && pendingPayoutMinor > 0 ? "warning" : "positive"}
         />
       </div>
 
       <div className="tos-callout tos-callout--info">
         <span className="tos-callout__body">
-          Confirmed refund payouts: {stats.refundSettledMinor === null
+          Confirmed refund payouts ({canViewBranchPayouts ? "all branch receipts" : "latest 50 receipts"}): {settledPayoutMinor === null
             ? <strong>Unavailable</strong>
-            : <MoneyValue minor={stats.refundSettledMinor} currencyCode={currencyCode} />}.
-          {stats.refundFailedMinor !== null && stats.refundFailedMinor > 0 ? <> Failed payouts requiring review: <MoneyValue minor={stats.refundFailedMinor} currencyCode={currencyCode} />.</> : null}
+            : <MoneyValue minor={settledPayoutMinor} currencyCode={currencyCode} />}.
+          {failedPayoutMinor !== null && failedPayoutMinor > 0 ? <> Failed payouts requiring review: <MoneyValue minor={failedPayoutMinor} currencyCode={currencyCode} />.</> : null}
           {" "}Accepted returns and exchange credits are not proof of a paid refund. Pending provider refunds remain outstanding until verified.
         </span>
       </div>
@@ -202,6 +256,21 @@ export function ReturnRefundWorkspace() {
         <div className="tos-callout tos-callout--info" role="status">
           Some receipt totals could not be verified. Refresh to retrieve the latest
           amounts; do not treat an unavailable payout balance as a confirmed zero.
+        </div>
+      ) : null}
+
+      {canViewBranchPayouts && !summaryLoading && (!selectedBranchBalance || summaryError) ? (
+        <div className="tos-callout tos-callout--warning" role="alert">
+          Branch refund totals could not be verified. No unknown payment has been
+          counted as zero or as a confirmed payout.
+          <Button size="sm" variant="outline" onClick={() => refetchSummary()}>Retry totals</Button>
+        </div>
+      ) : null}
+      {otherCurrencyCount > 0 ? (
+        <div className="tos-callout tos-callout--info" role="status">
+          This branch has refund records in {otherCurrencyCount} other
+          {otherCurrencyCount === 1 ? " currency" : " currencies"}. Amounts in different
+          currencies are not combined with {currencyCode}.
         </div>
       ) : null}
 
