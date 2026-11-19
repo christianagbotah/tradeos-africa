@@ -12,14 +12,15 @@ const config: NextConfig = {
   reactStrictMode: true,
   env: { NEXT_PUBLIC_TRADEOS_CLIENT_RELEASE: clientReleaseId },
   async headers() {
-    return [{
-      source: "/reset-password",
+    // Sensitive redirect arguments must not be cached or sent as referrers.
+    return ["/reset-password", "/gateway-test-return"].map(source => ({
+      source,
       headers: [
         { key: "Referrer-Policy", value: "no-referrer" },
         { key: "Cache-Control", value: "no-store, max-age=0" },
         { key: "X-Robots-Tag", value: "noindex, nofollow" },
       ],
-    }];
+    }));
   },
   transpilePackages: ["@tradeos/contracts", "@tradeos/client-core"],
   async rewrites() {

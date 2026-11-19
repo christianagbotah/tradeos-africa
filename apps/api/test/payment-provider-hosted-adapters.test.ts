@@ -18,7 +18,8 @@ describe("unactivated hosted gateway clients",()=>{
         expect(init?.method).toBe("POST");
         const body=JSON.parse(String(init?.body));
         expect(body).toMatchObject({amount:15750,currency:"GHS",reference:request.reference,
-          channels:["mobile_money"],email:request.customerEmail});
+          channels:["mobile_money"],email:request.customerEmail,
+          callback_url:request.returnUrl});
         return json({status:true,data:{
           reference:request.reference,
           authorization_url:"https://checkout.paystack.com/approved123"}});
@@ -61,7 +62,8 @@ describe("unactivated hosted gateway clients",()=>{
       if(String(url).endsWith("/payments")){
         const body=JSON.parse(String(init?.body));
         expect(body).toMatchObject({tx_ref:request.reference,amount:"157.50",
-          payment_options:"mobilemoneyghana",currency:"GHS"});
+          payment_options:"mobilemoneyghana",currency:"GHS",
+          redirect_url:request.returnUrl});
         return json({status:"success",data:{
           link:"https://checkout.flutterwave.com/v3/hosted/pay/example"}});
       }

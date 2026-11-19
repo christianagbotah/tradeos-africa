@@ -40,7 +40,7 @@ async function event(tx:{query:DatabasePool["query"]},r:HostedRow,
     "(attempt_id,business_id,event_type,actor_user_id) VALUES($1,$2,$3,$4)",
     [r.attempt_id,r.business_id,verb,actorUserId]);
 }
-const RETURN_URL="https://tradeosafrica.lightworldtech.com/settings?section=payments";
+const RETURN_URL="https://tradeosafrica.lightworldtech.com/gateway-test-return";
 
 export async function initializeGatewaySandboxCheckout(pool:DatabasePool,input:{
   businessId:string;attemptId:string;actorUserId:string;
@@ -143,11 +143,14 @@ export async function initializeGatewaySandboxCheckout(pool:DatabasePool,input:{
   const {attempt,row,secret,amount}=claim;
   let checkoutUrl:string|null=null;
   try{
+    const url=new URL(RETURN_URL);
+    url.searchParams.set("attempt",attempt.id);
+    url.searchParams.set("expected_ref",attempt.client_reference);
     const req={
       reference:attempt.client_reference,amountMinor:amount,
       currencyCode:attempt.currency_code.trim(),
       method:attempt.payment_method,customerEmail:email,
-      returnUrl:RETURN_URL,
+      returnUrl:url.toString(),
     };
     const result=attempt.provider_code==="PAYSTACK"
       ?await new PaystackHostedAdapter(secret,input.fetchImpl).initialize(req)
