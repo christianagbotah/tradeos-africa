@@ -204,6 +204,80 @@ export function mergeConfirmedBusiness(
   return current?.business.id === business.id ? { ...current, business } : current;
 }
 
+/** Keep a confirmed mutation from being overwritten by an older GET.
+ * The update response comes from the primary transaction. A subsequent
+ * context GET can arrive out of order or be temporarily stale in a webview.
+ * Compare server revisions, not just request completion order.
+ */
+export interface ConfirmedBranchRevision {
+  branch: WorkspaceBranch;
+  confirmedAt: number;
+}
+const BRANCH_CONFIRMATION_GUARD_MS = 120_000;
+
+export function reconcileConfirmedBranchContext(
+  context: WorkspaceBusinessContext,
+  confirmed: Map<string, ConfirmedBranchRevision>,
+  now = Date.now(),
+): WorkspaceBusinessContext {
+  const seen = new Set<string>();
+  let changed = false;
+  const branches = context.branches.map((incoming) => {
+    const key = context.business.id + ":" + incoming.id;
+    seen.add(key);
+    const latest = confirmed.get(key);
+    if (!latest) return incoming;
+    const confirmedTime = Date.parse(latest.branch.updatedAt);
+    const incomingTime = Date.parse(incoming.updatedAt);
+    const expired = now - latest.confirmedAt >= BRANCH_CONFIRMATION_GUARD_MS;
+    const serverCaughtUp = incomingTime >= confirmedTime
+      && incoming.name === latest.branch.name
+      && incoming.active === latest.branch.active;
+    const newerMutation = Number.isFinite(incomingTime)
+      && Number.isFinite(confirmedTime) && incomingTime > confirmedTime;
+    if (expired || serverCaughtUp || newerMutation) {
+      confirmed.delete(key);
+      return incoming;
+    }
+    changed = true;
+    return latest.branch;
+  });
+  // A newly created branch can also be omitted by a stale context response.
+  for (const [key, latest] of confirmed) {
+    if (!key.startsWith(context.business.id + ":") || seen.has(key)) continue;
+    if (now - latest.confirmedAt >= BRANCH_CONFIRMATION_GUARD_MS) {
+      confirmed.delete(key);
+      continue;
+    }
+    branches.push(latest.branch);
+    changed = true;
+  }
+  return changed ? { ...context, branches } : context;
+}
+
+/** Business profiles currently have no updatedAt in the public API.
+ * A short-lived confirmed response wins over an older reload; discard the
+ * guard once the server agrees or after expiry to allow external changes.
+ */
+export interface ConfirmedBusinessRevision {
+  business: WorkspaceBusinessProfile;
+  confirmedAt: number;
+}
+export function reconcileConfirmedBusinessContext(
+  context: WorkspaceBusinessContext,
+  confirmed: Map<string, ConfirmedBusinessRevision>,
+  now = Date.now(),
+): WorkspaceBusinessContext {
+  const latest = confirmed.get(context.business.id);
+  if (!latest) return context;
+  if (now - latest.confirmedAt >= BRANCH_CONFIRMATION_GUARD_MS
+    || context.business.name === latest.business.name) {
+    confirmed.delete(context.business.id);
+    return context;
+  }
+  return { ...context, business: latest.business };
+}
+
 /** Switches branch only inside the already-authoritative current business. */
 export function buildBranchSwitchSession(
   current: WebSession,
@@ -231,6 +305,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   // This prevents a slow pre-mutation request replacing the refreshed response.
   const contextRequestSeq = useRef(0);
   const hasLoadedWorkspace = useRef(false);
+  const confirmedBranches = useRef(new Map<string, ConfirmedBranchRevision>());
+  const confirmedBusinesses = useRef(new Map<string, ConfirmedBusinessRevision>());
   const [catalog, setCatalog] = useState<readonly CatalogItem[]>([]);
   const [inventory, setInventory] = useState<readonly InventoryItem[]>([]);
   const [customers, setCustomers] = useState<readonly Customer[]>([]);
@@ -279,7 +355,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     if (!value.business || !value.membership || !Array.isArray(value.branches)) {
       throw new Error("Server returned incomplete business context.");
     }
-    return value;
+    return reconcileConfirmedBusinessContext(
+      reconcileConfirmedBranchContext(value, confirmedBranches.current),
+      confirmedBusinesses.current,
+    );
   }, [offlineQueue]);
 
   const refreshWorkspaceContext = useCallback(async () => {
@@ -345,10 +424,19 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   // workspace immediately; the subsequent no-store context read reconciles
   // permissions, branch lists and other server-derived fields.
   const applyConfirmedBranch = useCallback((businessId: string, branch: WorkspaceBranch) => {
+    // Register synchronously before the POST/PATCH handler requests a reload.
+    // State-setting alone is insufficient: the reload could immediately
+    // replace the confirmed record with a stale branch name.
+    confirmedBranches.current.set(businessId + ":" + branch.id, {
+      branch, confirmedAt: Date.now(),
+    });
     setBusinessContext((current) => mergeConfirmedBranch(current, businessId, branch));
   }, []);
 
   const applyConfirmedBusiness = useCallback((business: WorkspaceBusinessProfile) => {
+    confirmedBusinesses.current.set(business.id, {
+      business, confirmedAt: Date.now(),
+    });
     setBusinessContext((current) => mergeConfirmedBusiness(current, business));
     const currentSession = offlineQueue.sessions.load();
     if (currentSession?.businessId === business.id && currentSession.businessName !== business.name) {
@@ -503,6 +591,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, [offlineQueue]);
 
   const signOut = useCallback(() => {
+    confirmedBranches.current.clear();
+    confirmedBusinesses.current.clear();
     offlineQueue.sessions.clear();
     // Do NOT erase business queues here. Unsynced work belongs to the business
     // and must survive logout/business switching on this device.

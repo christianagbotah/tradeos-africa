@@ -5,6 +5,8 @@ import {
   buildBranchSwitchSession,
   mergeConfirmedBranch,
   mergeConfirmedBusiness,
+  reconcileConfirmedBranchContext,
+  reconcileConfirmedBusinessContext,
   type WorkspaceBusinessContext,
   type WorkspaceMembership,
 } from "./workspace-provider";
@@ -189,5 +191,74 @@ describe("confirmed CRUD updates shared business and branch views", () => {
     const renamed = { ...before.business, name: "Business B New Name" };
     expect(mergeConfirmedBusiness(before, renamed)?.business.name).toBe("Business B New Name");
     expect(mergeConfirmedBusiness(before, { ...renamed, id: "business-a" })).toBe(before);
+  });
+});
+
+describe("server-confirmed CRUD may not be rolled back by stale context GET", () => {
+  const now = Date.parse("2026-11-19T09:40:00.000Z");
+  it("preserves a committed branch rename when GET returns an old name and revision", () => {
+    const before = context();
+    const confirmed = { ...before.branches[0]!,
+      name: "Main — Updated", updatedAt: "2026-11-19T09:39:55.000Z" };
+    const revisions = new Map([[before.business.id + ":" + confirmed.id,
+      { branch: confirmed, confirmedAt: now }]]);
+    const stale = reconcileConfirmedBranchContext(before, revisions, now + 500);
+    expect(stale.branches[0]?.name).toBe("Main — Updated");
+    expect(revisions.size).toBe(1);
+    expect(before.branches[0]?.name).toBe("Main");
+  });
+  it("releases the guard only after the server catches up or returns a newer revision", () => {
+    const before = context();
+    const committed = { ...before.branches[1]!, name: "Tema Updated",
+      updatedAt: "2026-11-19T09:39:55.000Z" };
+    const key = before.business.id + ":" + committed.id;
+    const revisions = new Map([[key, { branch: committed, confirmedAt: now }]]);
+    const caughtUp = context({ branches: [before.branches[0]!, committed] });
+    expect(reconcileConfirmedBranchContext(caughtUp, revisions, now + 800))
+      .toBe(caughtUp);
+    expect(revisions.size).toBe(0);
+    const differentNewer = { ...committed, name: "Other manager changed it",
+      updatedAt: "2026-11-19T09:40:20.000Z" };
+    revisions.set(key, { branch: committed, confirmedAt: now });
+    const newer = context({ branches: [before.branches[0]!, differentNewer] });
+    expect(reconcileConfirmedBranchContext(newer, revisions, now + 22000)
+      .branches[1]?.name).toBe("Other manager changed it");
+    expect(revisions.size).toBe(0);
+  });
+  it("does not leak any confirmed branch into a different tenant", () => {
+    const before = context();
+    const committed = { ...before.branches[0]!, name: "Main Updated",
+      updatedAt: "2026-11-19T09:39:55.000Z" };
+    const revisions = new Map([[before.business.id + ":" + committed.id,
+      { branch: committed, confirmedAt: now }]]);
+    const otherBusiness = context({ business: { ...before.business, id: "another-business" } });
+    expect(reconcileConfirmedBranchContext(otherBusiness, revisions, now + 1000))
+      .toBe(otherBusiness);
+  });
+  it("preserves a newly created branch missing from a temporarily stale list", () => {
+    const before = context();
+    const created = { ...before.branches[0]!, id: "branch-new",
+      name: "New Branch", updatedAt: "2026-11-19T09:39:55.000Z" };
+    const revisions = new Map([[before.business.id + ":" + created.id,
+      { branch: created, confirmedAt: now }]]);
+    const out = reconcileConfirmedBranchContext(before, revisions, now + 200);
+    expect(out.branches.map(b => b.name)).toContain("New Branch");
+    const expired = reconcileConfirmedBranchContext(before, revisions, now + 150000);
+    expect(expired.branches.map(b => b.name)).not.toContain("New Branch");
+  });
+});
+
+describe("server-confirmed business profile is not replaced by a stale context", () => {
+  it("keeps the confirmed trading name and releases when the server catches up", () => {
+    const before = context();
+    const now = Date.parse("2026-11-19T09:40:00Z");
+    const confirmed = { ...before.business, name: "Updated Retail" };
+    const revisions = new Map([[before.business.id, { business: confirmed, confirmedAt: now }]]);
+    const stale = reconcileConfirmedBusinessContext(before, revisions, now + 1000);
+    expect(stale.business.name).toBe("Updated Retail");
+    expect(before.business.name).toBe("Business B Authoritative");
+    const fresh = context({ business: confirmed });
+    expect(reconcileConfirmedBusinessContext(fresh, revisions, now + 3000)).toBe(fresh);
+    expect(revisions.size).toBe(0);
   });
 });
