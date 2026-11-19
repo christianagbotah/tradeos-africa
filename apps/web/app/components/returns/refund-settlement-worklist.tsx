@@ -100,7 +100,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
       {currencyBalances ? currencyBalances.map((summary) => (
         <div className="tos-row" key={summary.currencyCode}
           style={{ gap: 18, flexWrap: "wrap", marginTop: 12 }}>
-          <strong className="tos-section__sub">{summary.currencyCode}</strong>
+          <strong className="tos-section__sub">{summary.currencyCode === "GHS" ? "₵" : summary.currencyCode}</strong>
           <span>
             <strong>Pending ({summary.pendingCount})</strong>{" "}
             <MoneyValue minor={summary.pendingMinor} currencyCode={summary.currencyCode} />
