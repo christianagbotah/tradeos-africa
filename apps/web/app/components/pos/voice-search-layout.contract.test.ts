@@ -22,6 +22,17 @@ describe("POS search and spoken sale UX",()=>{
     expect(browser.indexOf('className="tos-pos-search-row"')).toBeLessThan(
       browser.indexOf('className="tos-product-grid"'));
   });
+  it("stacks a visible Speak button immediately above search on phones",()=>{
+    const voice=browser.indexOf('className="tos-pos-voice-button"');
+    const search=browser.indexOf('className="tos-pos-search"');
+    expect(voice).toBeGreaterThan(0);
+    expect(voice).toBeLessThan(search);
+    expect(css).toContain('display: grid;\n  grid-template-columns: auto minmax(0, 1fr);');
+    expect(css).toContain('grid-auto-rows: max-content;');
+    expect(css).toContain('.tos-pos-voice-button {\n    display: inline-flex;');
+    expect(css).toContain('.tos-pos__browser > .tos-product-grid {\n    margin-top: 0;');
+    expect(css).toContain('  .tos-pos {\n    height: auto;\n    min-height: 0;');
+  });
   it("surfaces similar catalog results and allows manual correction before posting",()=>{
     expect(assistant).toContain("Possible matching products");
     expect(assistant).toContain("No catalog match");

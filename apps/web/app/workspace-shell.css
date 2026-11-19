@@ -1583,10 +1583,15 @@
   align-items: stretch;
 }
 .tos-pos-search-row {
-  display: flex;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  align-content: start;
   gap: var(--tos-space-2);
   flex: 0 0 auto;
+  width: 100%;
+  height: auto;
+  min-height: 0;
   min-width: 0;
 }
 .tos-pos-voice-button {
@@ -1608,10 +1613,55 @@
 .tos-pos-voice-button:hover { background: #113c5d; }
 .tos-pos-voice-button:focus-visible { outline: 3px solid var(--tos-gold); outline-offset: 2px; }
 @media (max-width: 640px) {
-  /* On phones, the microphone action comes first on its own row. */
-  .tos-pos-search-row { flex-wrap: wrap; }
-  .tos-pos-search-row .tos-pos-search { flex: 1 1 100%; min-width: 0; }
-  .tos-pos-voice-button { min-height: 48px; width: 100%; }
+  /* Two intrinsic rows, never a wrapping flex row that stretches into tall
+     blank lines on small mobile viewports. */
+  .tos-pos-search-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: max-content;
+    gap: var(--tos-space-2);
+    align-content: start;
+  }
+  .tos-pos-voice-button {
+    display: inline-flex;
+    min-height: 48px;
+    width: 100%;
+  }
+  .tos-pos-search-row .tos-pos-search {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    height: 56px;
+    min-height: 56px;
+    align-self: auto;
+  }
+}
+
+/* The desktop POS has a tall fixed-height cart. Mobile uses a bottom-sheet
+   cart, so retaining the desktop min-height leaves needless space between
+   the search/voice controls and the product grid. Do not stretch tracks. */
+@media (max-width: 768px) {
+  .tos-pos {
+    height: auto;
+    min-height: 0;
+    align-content: start;
+    grid-auto-rows: max-content;
+  }
+
+  .tos-pos__browser {
+    height: auto;
+    min-height: 0;
+    flex: none;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: var(--tos-space-2);
+  }
+
+  .tos-pos__browser > .tos-product-grid {
+    margin-top: 0;
+    flex: none;
+    align-self: stretch;
+    align-content: start;
+  }
 }
 
 /* Desktop cart wrapper — static right pane. On tablet/phone this is hidden
