@@ -202,7 +202,7 @@ describe("financial summary reports", () => {
     expect(pendingQueue.statusCode,pendingQueue.body).toBe(200);
     expect(pendingQueue.headers["cache-control"]).toContain("no-store");
     expect(pendingQueue.json()).toMatchObject({
-      summary:{pendingCount:1,pendingMinor:500,failedCount:0,failedMinor:0},
+      summaryByCurrency:[{currencyCode:"GHS",pendingCount:1,pendingMinor:500,failedCount:0,failedMinor:0}],
       offset:0,hasMore:false,
       items:[{saleId:sale.result.saleId,status:"PENDING",method:"MOMO",amountMinor:500}],
     });
@@ -237,10 +237,10 @@ describe("financial summary reports", () => {
     const pageOne=await app.inject({method:"GET",url:queueUrl+"&limit=1&offset=0",headers});
     const pageTwo=await app.inject({method:"GET",url:queueUrl+"&limit=1&offset=1",headers});
     expect(pageOne.json()).toMatchObject({
-      summary:{pendingCount:2,pendingMinor:1000},hasMore:true,offset:0,
+      summaryByCurrency:[{currencyCode:"GHS",pendingCount:2,pendingMinor:1000,failedCount:0,failedMinor:0}],hasMore:true,offset:0,
     });
     expect(pageTwo.json()).toMatchObject({
-      summary:{pendingCount:2,pendingMinor:1000},hasMore:false,offset:1,
+      summaryByCurrency:[{currencyCode:"GHS",pendingCount:2,pendingMinor:1000,failedCount:0,failedMinor:0}],hasMore:false,offset:1,
     });
     expect(pageOne.json().items).toHaveLength(1);
     expect(pageTwo.json().items).toHaveLength(1);
@@ -250,7 +250,7 @@ describe("financial summary reports", () => {
     expect(update.rowCount).toBe(1);
     const failedQueue=await app.inject({method:"GET",url:queueUrl+"&status=FAILED",headers});
     expect(failedQueue.json()).toMatchObject({
-      summary:{pendingCount:1,pendingMinor:500,failedCount:1,failedMinor:500},
+      summaryByCurrency:[{currencyCode:"GHS",pendingCount:1,pendingMinor:500,failedCount:1,failedMinor:500}],
       items:[{id:oldest.id,status:"FAILED"}],
     });
     // The worklist itself must never settle a payout, reverse stock or
