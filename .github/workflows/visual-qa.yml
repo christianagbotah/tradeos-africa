@@ -421,7 +421,7 @@ jobs:
                   await assertCleanBody(p, `${route.name}-${w}`);
                   if (route.name === "returns") {
                     const visible = await p.evaluate(() => document.body.innerText);
-                    if (/\\bNaN\\b/.test(visible)) {
+                    if (/\bNaN\b/.test(visible)) {
                       failures.push(`${route.name}-${w}: invalid monetary NaN visible`);
                     }
                   }
