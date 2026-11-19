@@ -7,7 +7,8 @@ const read = (relativePath: string) => readFileSync(join(__dirname, relativePath
 describe("mobile workspace entry and recovery safeguards", () => {
   it("retries authoritative business/session access rather than unrelated catalog data", () => {
     const boundary = read("workspace-boundary.tsx");
-    expect(boundary).toContain("onClick={() => void refreshWorkspaceContext()}");
+    expect(boundary).toContain('onClick={() => void refreshWorkspaceContext().catch(() => {');
+    expect(boundary).toContain('Workspace provider displays the authoritative error state.');
     expect(boundary).not.toContain("onClick={() => void refreshCatalog()}");
     expect(boundary).toContain("loading={contextBusy}");
   });
