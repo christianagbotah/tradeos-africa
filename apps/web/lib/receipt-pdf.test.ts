@@ -78,8 +78,28 @@ describe("receipt PDF share and download",()=>{
       getItem:(key:string)=>values.get(key)??null,
       setItem:(key:string,value:string)=>values.set(key,value),
     }});
-    expect(loadReceiptPaper()).toBe("80mm");
-    saveReceiptPaper("A5");
-    expect(loadReceiptPaper()).toBe("A5");
+    const businessA="business-a",businessB="business-b";
+    const branchA="main-branch",branchB="east-branch";
+    expect(loadReceiptPaper(businessA,branchA)).toBe("80mm");
+    saveReceiptPaper("A5",businessA,branchA);
+    expect(loadReceiptPaper(businessA,branchA)).toBe("A5");
+    // Switching branches or tenants must NOT inherit a different paper size.
+    expect(loadReceiptPaper(businessA,branchB)).toBe("80mm");
+    expect(loadReceiptPaper(businessB,branchA)).toBe("80mm");
+    saveReceiptPaper("58mm",businessB,branchA);
+    expect(loadReceiptPaper(businessB,branchA)).toBe("58mm");
+    expect(loadReceiptPaper(businessA,branchA)).toBe("A5");
+    expect([...values.keys()].every(key=>key.startsWith("tradeos.receipt.paper.v2."))).toBe(true);
+  });
+  it("ignores old global printer choice and skips saving without a branch",()=>{
+    const values=new Map<string,string>([["tradeos.receipt.paper.v1","A5"]]);
+    vi.stubGlobal("window",{localStorage:{
+      getItem:(key:string)=>values.get(key)??null,
+      setItem:(key:string,value:string)=>values.set(key,value),
+    }});
+    expect(loadReceiptPaper("new-business","main")).toBe("80mm");
+    expect(loadReceiptPaper("new-business","")).toBe("80mm");
+    saveReceiptPaper("58mm","new-business","");
+    expect(values.size).toBe(1);
   });
 });

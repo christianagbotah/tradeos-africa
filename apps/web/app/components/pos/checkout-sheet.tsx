@@ -424,7 +424,7 @@ export function CheckoutSheet({
   const handleShare = async () => {
     if(result?.status!=="completed" || !result.receiptAvailable)return;
     try {
-      const outcome=await shareVerifiedReceiptPdf(result.reference,businessId,loadReceiptPaper());
+      const outcome=await shareVerifiedReceiptPdf(result.reference,businessId,loadReceiptPaper(businessId,branchId));
       if(outcome==="downloaded")notifyAction({tone:"info",title:"Receipt PDF downloaded",
         message:"Attach the downloaded PDF in your preferred sharing app."});
       else if(outcome==="shared")notifyAction({tone:"success",title:"PDF ready for sharing",

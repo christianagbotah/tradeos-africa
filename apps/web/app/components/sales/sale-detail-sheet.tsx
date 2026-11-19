@@ -132,7 +132,7 @@ export function SaleDetailSheet({ saleId, onClose,onPaid }: SaleDetailSheetProps
               aria-label="Share receipt PDF"
               icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
               try{
-                const outcome=await shareVerifiedReceiptPdf(data.sale.id,session.businessId,loadReceiptPaper());
+                const outcome=await shareVerifiedReceiptPdf(data.sale.id,session.businessId,loadReceiptPaper(session.businessId,data.sale.branchId || session.branchId));
                 if(outcome==="downloaded")notifyAction({tone:"info",title:"Receipt PDF downloaded",
                   message:"Attach the downloaded PDF in your preferred sharing app."});
                 else if(outcome==="shared")notifyAction({tone:"success",title:"PDF ready for sharing",

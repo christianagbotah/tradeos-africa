@@ -36,10 +36,13 @@ export default function VerifiedSaleReceiptPage() {
   const [paper,setPaper] = useState<ReceiptPaper>("80mm");
   const [busy,setBusy] = useState(false);
   const [pdfError,setPdfError] = useState<string|null>(null);
-  useEffect(()=>setPaper(loadReceiptPaper()),[]);
+  const receiptBranchId=sale?.branchId || session?.branchId || "";
+  useEffect(()=>{
+    setPaper(loadReceiptPaper(session?.businessId || "",receiptBranchId));
+  },[session?.businessId,receiptBranchId]);
   function selectPaper(value:ReceiptPaper){
     setPaper(value);
-    saveReceiptPaper(value);
+    if(session)saveReceiptPaper(value,session.businessId,receiptBranchId);
   }
   async function pdfAction(share:boolean){
     if(!session || !complete || busy)return;
@@ -94,6 +97,7 @@ export default function VerifiedSaleReceiptPage() {
               {RECEIPT_PAPER_OPTIONS.map(option=>
                 <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
+            <span className={styles.paperHint}>Remembered for this branch on this device</span>
           </label>
           <div className={styles.actionButtons}>
             <button type="button" className={styles.printButton} onClick={() => window.print()}

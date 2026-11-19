@@ -11,18 +11,34 @@ export const RECEIPT_PAPER_OPTIONS:ReadonlyArray<{value:ReceiptPaper;label:strin
   {value:"58mm",label:"58 mm thermal roll"},
   {value:"A5",label:"A5 sheet"},
 ];
-const PAPER_STORAGE_KEY="tradeos.receipt.paper.v1";
-export function loadReceiptPaper():ReceiptPaper {
-  if(typeof window==="undefined")return "80mm";
+/** Local, device-specific receipt printer preference. A cashier may switch
+ * between businesses and branches in the same browser. Never read an
+ * unscoped legacy preference: that would leak shop A's paper choice to B.
+ * This is a per-device setting; it is not a server-wide printer policy.
+ */
+const PAPER_STORAGE_PREFIX="tradeos.receipt.paper.v2";
+const DEFAULT_RECEIPT_PAPER:ReceiptPaper="80mm";
+function paperPreferenceKey(businessId:string,branchId:string):string|null {
+  if(!businessId?.trim() || !branchId?.trim())return null;
+  return PAPER_STORAGE_PREFIX+"."+encodeURIComponent(businessId.trim())+
+    "."+encodeURIComponent(branchId.trim());
+}
+export function loadReceiptPaper(businessId:string,branchId:string):ReceiptPaper {
+  const key=paperPreferenceKey(businessId,branchId);
+  if(typeof window==="undefined" || !key)return DEFAULT_RECEIPT_PAPER;
   try {
-    const stored=window.localStorage.getItem(PAPER_STORAGE_KEY);
+    const stored=window.localStorage.getItem(key);
     if(stored==="A5"||stored==="80mm"||stored==="58mm")return stored;
   }catch{/* private browsing storage may be unavailable */}
-  return "80mm";
+  return DEFAULT_RECEIPT_PAPER;
 }
-export function saveReceiptPaper(paper:ReceiptPaper):void {
-  if(typeof window==="undefined")return;
-  try { window.localStorage.setItem(PAPER_STORAGE_KEY,paper); }
+export function saveReceiptPaper(
+  paper:ReceiptPaper,businessId:string,branchId:string,
+):void {
+  const key=paperPreferenceKey(businessId,branchId);
+  if(typeof window==="undefined" || !key ||
+     !RECEIPT_PAPER_OPTIONS.some(option=>option.value===paper))return;
+  try { window.localStorage.setItem(key,paper); }
   catch {/* printing does not depend on storage */}
 }
 export function receiptPdfFilename(saleId:string,paper:ReceiptPaper):string {

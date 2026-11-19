@@ -11,6 +11,7 @@
 .actionButtons svg { width: 18px; height: 18px; flex: 0 0 18px; }
 .actionLabel { display: inline; }
 .controls label { display: grid; gap: 5px; font-size: 13px; font-weight: 700; color: #303c4e; }
+.paperHint { display: block; margin-top: 2px; color: #697688; font-size: 11px; line-height: 1.2; font-weight: 500; }
 .paperSelect {
   display: block; min-height: 43px; max-width: 100%; border: 1px solid #aeb7c4;
   border-radius: 9px; padding: 8px 12px; background: #fff; color: #101e30;
