@@ -9188,3 +9188,91 @@
   font-size: 12px;
   line-height: 1.4;
 }
+
+
+/* Sales receipt detail must NOT inherit the purchase-receipt editing grid.
+   The old .tos-receipt-line selector is owned by the purchase builder. */
+.tos-sale-items {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  background: var(--tos-surface);
+}
+.tos-sale-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: start;
+  column-gap: 12px;
+  row-gap: 5px;
+  min-width: 0;
+  padding: 16px;
+  border-bottom: 1px solid var(--tos-border);
+}
+.tos-sale-item:last-child { border-bottom: 0; }
+.tos-sale-item__details {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.tos-sale-item__name {
+  display: block;
+  font-size: 15px;
+  line-height: 1.42;
+  color: var(--tos-text-strong);
+  font-weight: 750;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.tos-sale-item__meta {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--tos-text-muted);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.tos-sale-item__returned {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--tos-warning);
+}
+.tos-sale-item__amount {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.42;
+  color: var(--tos-text-strong);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .tos-sale-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 12px;
+    column-gap: 8px;
+  }
+  .tos-sale-item__name { font-size: 15px; }
+  .tos-sale-item__amount { font-size: 14px; }
+  .tos-sale-detail-actions {
+    padding: 8px 12px;
+    gap: 8px;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+  }
+  .tos-sale-detail-actions .tos-sale-action {
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
+    min-height: 46px;
+    flex: 0 0 46px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+  }
+  .tos-sale-detail-actions .tos-sale-action__label { display: none; }
+}

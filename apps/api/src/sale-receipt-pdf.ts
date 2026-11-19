@@ -221,23 +221,72 @@ function renderLayout(doc: Doc, data: ReturnType<typeof verified>,
   if(thermal) {
     centered("ITEMS",base-0.2,true);
     for(const l of data.lines){
-      const nameH=hText(l.name,content,base,true);
-      ensure(nameH+base*2.5+10);
-      text(l.name,margin,y,content,base,true);
-      gap(nameH+2);
-      const rightW=paper==="58mm"?76:100;
-      const leftW=content-rightW-4;
-      const qtyText=l.quantity.toLocaleString("en-GH")+" × "+l.unitCode;
-      const qtyH=hText(qtyText,content,base-1,false);
-      ensure(qtyH+base+9);
-      text(qtyText,margin,y,content,base-1,false,"left",MUTED);
-      gap(qtyH+1);
-      const subH=hText("1",leftW,base-1,false);
-      const amountH=hText("1",rightW,base,true);
-      text("@",margin,y,7,base-1,false,"left",MUTED);
-      drawMoney(l.unitNetMinor,margin+7,y,leftW-7,base-1,false);
-      drawMoney(l.lineTotalMinor,margin+leftW+4,y,rightW,base,true);
-      gap(Math.max(subH,amountH)+6);
+      // Ordinary thermal items appear on ONE horizontal row:
+      // item name | quantity × unit @ unit price | line total.
+      // Avoid tiny, unreadable text for genuinely long names: only those
+      // rows wrap to an extra line at the physical width of the paper.
+      const qtyText=l.quantity.toLocaleString("en-GH")+" × "+l.unitCode+" @";
+      const spacing=3;
+      const minSize=paper==="58mm"?6.1:6.6;
+      const sizes=(size:number)=>{
+        setFont(true,size);
+        const name=doc.widthOfString(l.name);
+        setFont(false,size);
+        const qty=doc.widthOfString(qtyText);
+        const price=measureMoney(l.unitNetMinor,size);
+        const total=measureMoney(l.lineTotalMinor,size);
+        return {name,qty,price,total,
+          sum:name+qty+price+total+spacing*3};
+      };
+      let size=base-0.15;
+      let measured=sizes(size);
+      while(measured.sum>content && size>minSize){
+        size=Math.max(minSize,Math.round((size-0.2)*100)/100);
+        measured=sizes(size);
+      }
+      if(measured.sum<=content){
+        const h=hText(l.name,content,size,true);
+        ensure(h+8);
+        let x=margin;
+        text(l.name,x,y,measured.name,size,true);
+        x+=measured.name+spacing;
+        text(qtyText,x,y,measured.qty,size,false,"left",MUTED);
+        x+=measured.qty+spacing;
+        drawMoney(l.unitNetMinor,x,y,measured.price,size,false);
+        x+=measured.price+spacing;
+        drawMoney(l.lineTotalMinor,x,y,content-(x-margin),size,true);
+        gap(h+8);
+      }else{
+        const nameH=hText(l.name,content,base,true);
+        ensure(nameH+base*2+11);
+        text(l.name,margin,y,content,base,true);
+        gap(nameH+2);
+        // Keep quantity, '@', unit price, and amount together on one
+        // horizontal row even when a long product name needs wrapping.
+        let subsize=Math.max(6.2,base-0.7);
+        const terms=(sz:number)=>{
+          setFont(false,sz);
+          return {
+            qty:doc.widthOfString(qtyText),
+            unit:measureMoney(l.unitNetMinor,sz),
+            total:measureMoney(l.lineTotalMinor,sz),
+          };
+        };
+        let sub=terms(subsize);
+        while(sub.qty+sub.unit+sub.total+spacing*2>content && subsize>5.9){
+          subsize=Math.max(5.9,Math.round((subsize-0.2)*100)/100);
+          sub=terms(subsize);
+        }
+        const h=hText("1",content,subsize);
+        ensure(h+8);
+        let x=margin;
+        text(qtyText,x,y,sub.qty,subsize,false,"left",MUTED);
+        x+=sub.qty+spacing;
+        drawMoney(l.unitNetMinor,x,y,sub.unit,subsize,false);
+        x+=sub.unit+spacing;
+        drawMoney(l.lineTotalMinor,x,y,content-(x-margin),subsize,true);
+        gap(h+8);
+      }
       rule(0.3);
     }
   } else {

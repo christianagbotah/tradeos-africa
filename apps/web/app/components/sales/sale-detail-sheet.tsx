@@ -89,7 +89,7 @@ export function SaleDetailSheet({ saleId, onClose,onPaid }: SaleDetailSheetProps
   return (
     <>
       <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
-      <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label="Sale detail">
+      <div className="tos-sheet tos-sheet--wide tos-sheet--sale-detail" role="dialog" aria-label="Sale detail">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">{data?.sale.status==="OPEN"?"Unpaid order":"Receipt"}</span>
@@ -116,17 +116,21 @@ export function SaleDetailSheet({ saleId, onClose,onPaid }: SaleDetailSheetProps
           ) : null}
         </div>
 
-        <div className="tos-sheet__foot">
+        <div className="tos-sheet__foot tos-sale-detail-actions">
           {data?.sale.completedAt &&
             ["COMPLETED","PARTIALLY_REFUNDED","REFUNDED"].includes(data.sale.status)?
-            <Button variant="ghost" icon={<IconPrint className="tos-btn__icon" />} onClick={() => {
+            <Button variant="ghost" className="tos-sale-action" title="View or print receipt"
+              aria-label="View or print receipt"
+              icon={<IconPrint className="tos-btn__icon" />} onClick={() => {
               const path = receiptUrl(data.sale.id);
               // Same-tab navigation works in browsers, mobile PWAs and native
               // webviews that suppress window.open/popups.
               if (path) window.location.assign(path);
-            }}>View / print receipt</Button>:null}
+            }}><span className="tos-sale-action__label">View / print receipt</span></Button>:null}
           {data?.sale.completedAt && ["COMPLETED","PARTIALLY_REFUNDED","REFUNDED"].includes(data.sale.status) &&
-            session?<Button variant="outline" icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
+            session?<Button variant="outline" className="tos-sale-action" title="Share receipt PDF"
+              aria-label="Share receipt PDF"
+              icon={<IconShare className="tos-btn__icon" />} onClick={async () => {
               try{
                 const outcome=await shareVerifiedReceiptPdf(data.sale.id,session.businessId,loadReceiptPaper());
                 if(outcome==="downloaded")notifyAction({tone:"info",title:"Receipt PDF downloaded",
@@ -136,9 +140,17 @@ export function SaleDetailSheet({ saleId, onClose,onPaid }: SaleDetailSheetProps
               }catch(error){
                 notifyAction({tone:"error",message:error instanceof Error?error.message:"Could not share receipt PDF."});
               }
-            }}>Share PDF</Button>:null}
-          {data?.sale.status==="COMPLETED"?<Button variant="gold" icon={<IconReturns className="tos-btn__icon" />} onClick={() => { window.location.href = "/returns"; }}>Process return</Button>:null}
-          <Button variant="primary" onClick={onClose}>Close</Button>
+            }}><span className="tos-sale-action__label">Share PDF</span></Button>:null}
+          {data?.sale.status==="COMPLETED"?<Button variant="gold" className="tos-sale-action" title="Process return"
+              aria-label="Process return" icon={<IconReturns className="tos-btn__icon" />}
+              onClick={() => { window.location.href = "/returns"; }}>
+                <span className="tos-sale-action__label">Process return</span>
+              </Button>:null}
+          <Button variant="primary" className="tos-sale-action" onClick={onClose}
+            aria-label="Close sale detail" title="Close sale detail"
+            icon={<IconClose className="tos-btn__icon" />}>
+            <span className="tos-sale-action__label">Close</span>
+          </Button>
         </div>
       </div>
     </>
@@ -197,21 +209,22 @@ function SaleDetailBody({ detail }: { detail: SaleDetail }) {
           <span className="tos-section__sub">{sale.lines.length} line(s)</span>
         </div>
         <div className="tos-section__body">
-          <div className="tos-receipt-lines">
+          <div className="tos-sale-items" role="list" aria-label="Sale line items">
             {sale.lines.map((line) => (
-              <div key={line.id} className="tos-receipt-line">
-                <div className="tos-receipt-line__main">
-                  <span className="tos-receipt-line__title">{line.itemName}</span>
-                  <span className="tos-receipt-line__qty">
-                    {line.quantity} × {line.saleUnitCode}
+              <div key={line.id} className="tos-sale-item" role="listitem">
+                <div className="tos-sale-item__details">
+                  <strong className="tos-sale-item__name">{line.itemName}</strong>
+                  <span className="tos-sale-item__meta">
+                    {line.quantity.toLocaleString("en-GH")} × {line.saleUnitCode} @
+                    {" "}<MoneyValue minor={line.unitNetMinor} currencyCode={sale.currencyCode} />
                   </span>
                   {line.quantityReturned > 0 ? (
-                    <span className="tos-receipt-line__returned">
-                      {line.quantityReturned} returned
+                    <span className="tos-sale-item__returned">
+                      {line.quantityReturned.toLocaleString("en-GH")} returned
                     </span>
                   ) : null}
                 </div>
-                <MoneyValue minor={line.lineTotalMinor} currencyCode={sale.currencyCode} className="tos-receipt-line__total" />
+                <MoneyValue minor={line.lineTotalMinor} currencyCode={sale.currencyCode} className="tos-sale-item__amount" />
               </div>
             ))}
           </div>

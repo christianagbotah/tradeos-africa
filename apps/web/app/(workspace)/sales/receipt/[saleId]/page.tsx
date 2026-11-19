@@ -15,6 +15,7 @@ import {
   type ReceiptSale,
 } from "../../../../../lib/receipt-document";
 import { StatePanel } from "../../../../components/ui/state-panel";
+import { IconPrint,IconDownload,IconShare } from "../../../../components/ui/icons";
 import styles from "./receipt.module.css";
 
 type SaleDetailResponse = { sale: ReceiptSale };
@@ -94,13 +95,24 @@ export default function VerifiedSaleReceiptPage() {
                 <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
-          <button type="button" className={styles.printButton} onClick={() => window.print()}>
-            Print receipt
-          </button>
-          <button type="button" className={styles.downloadButton} disabled={busy}
-            onClick={()=>void pdfAction(false)}>{busy?"Preparing…":"Download PDF"}</button>
-          <button type="button" className={styles.downloadButton} disabled={busy}
-            onClick={()=>void pdfAction(true)}>{busy?"Preparing…":"Share PDF"}</button>
+          <div className={styles.actionButtons}>
+            <button type="button" className={styles.printButton} onClick={() => window.print()}
+              aria-label="Print receipt" title="Print receipt">
+              <IconPrint aria-hidden="true" /><span className={styles.actionLabel}>Print receipt</span>
+            </button>
+            <button type="button" className={styles.downloadButton} disabled={busy}
+              onClick={()=>void pdfAction(false)} aria-label="Download receipt PDF" title="Download receipt PDF">
+              <IconDownload aria-hidden="true" /><span className={styles.actionLabel}>
+                {busy?"Preparing…":"Download PDF"}
+              </span>
+            </button>
+            <button type="button" className={styles.downloadButton} disabled={busy}
+              onClick={()=>void pdfAction(true)} aria-label="Share receipt PDF" title="Share receipt PDF">
+              <IconShare aria-hidden="true" /><span className={styles.actionLabel}>
+                {busy?"Preparing…":"Share PDF"}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
       {pdfError?<p role="alert" className={styles.error}>{pdfError}</p>:null}
@@ -140,10 +152,12 @@ export default function VerifiedSaleReceiptPage() {
         <div className={styles.thermalItems} aria-label="Purchased items">
           {sale.lines.map(line=>(
             <div key={line.id} className={styles.thermalItem}>
-              <strong className={styles.thermalName}>{line.itemName}</strong>
-              <div className={styles.thermalPriceRow}>
-                <span>{line.quantity.toLocaleString("en-GH")} × {money(line.unitNetMinor)} / {line.saleUnitCode}</span>
-                <strong>{money(line.lineTotalMinor)}</strong>
+              <div className={styles.thermalCompactRow}>
+                <strong className={styles.thermalName}>{line.itemName}</strong>
+                <span className={styles.thermalTerms}>
+                  {line.quantity.toLocaleString("en-GH")} × {line.saleUnitCode} @ {money(line.unitNetMinor)}
+                </span>
+                <strong className={styles.thermalAmount}>{money(line.lineTotalMinor)}</strong>
               </div>
             </div>
           ))}
