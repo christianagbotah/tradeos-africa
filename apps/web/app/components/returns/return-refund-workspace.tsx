@@ -156,9 +156,9 @@ export function ReturnRefundWorkspace() {
     ? selectedBranchBalance?.settledMinor ?? null : stats.refundSettledMinor;
   const failedPayoutMinor = canViewBranchPayouts
     ? selectedBranchBalance?.failedMinor ?? null : stats.refundFailedMinor;
-  const otherCurrencyCount = branchRefundData?.balances?.filter(
-    (balance) => balance.currencyCode !== currencyCode,
-  ).length ?? 0;
+  const otherCurrencyCount = Array.isArray(branchRefundData?.balances)
+    ? branchRefundData.balances.filter((balance) => balance?.currencyCode !== currencyCode).length
+    : 0;
 
   const onCorrectionComplete = () => {
     setSelectedSaleId(null);
