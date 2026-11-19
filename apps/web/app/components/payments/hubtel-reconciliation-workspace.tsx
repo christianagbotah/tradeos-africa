@@ -169,6 +169,12 @@ export function HubtelReconciliationWorkspace() {
         ))}
       </section>
     ) : null}
+    {data && !Array.isArray(data.summary?.pendingCheckoutsByCurrency) ? (
+      <p role="alert" className={styles.error}>
+        Unverified checkout hold totals could not be loaded or validated.
+        Do not assume older unpaid orders are cleared.
+      </p>
+    ) : null}
     {error ? <p role="alert" className={styles.error}>{error}</p> : null}
     {loadError ? <p role="alert" className={styles.error}>{loadError}</p> : null}
     {message ? <p role="status" className={styles.success}>{message}</p> : null}
