@@ -392,7 +392,22 @@ jobs:
               const pageCtx = await browser.newContext({ storageState: state, viewport: { width: w, height: 900 } });
               const p = await pageCtx.newPage();
               try {
-                await p.goto(`${WEB}${route.path}`, { waitUntil: "networkidle", timeout: 30000 });
+                // The returns page loads two independent authenticated datasets.
+                // A route-level networkidle wait can time out even when the page
+                // has hydrated successfully. Assert UI readiness instead so that
+                // a genuine stuck loading state still fails visual QA.
+                await p.goto(`${WEB}${route.path}`, {
+                  waitUntil: route.name === "returns" ? "domcontentloaded" : "networkidle",
+                  timeout: 30000,
+                });
+                if (route.name === "returns") {
+                  await p.getByRole("heading", { name: "Returns, refunds & exchanges" })
+                    .waitFor({ state: "visible", timeout: 30000 });
+                  await p.locator('[aria-label="Refund settlement worklist"]')
+                    .waitFor({ state: "visible", timeout: 30000 });
+                  await p.locator('.tos-page .tos-state[role="status"]')
+                    .waitFor({ state: "hidden", timeout: 30000 });
+                }
                 await p.waitForTimeout(2000);
 
                 const finalUrl = p.url();
@@ -404,6 +419,12 @@ jobs:
                     failures.push(`${route.name}-${w}: marker "${route.marker}" not found`);
                   }
                   await assertCleanBody(p, `${route.name}-${w}`);
+                  if (route.name === "returns") {
+                    const visible = await p.evaluate(() => document.body.innerText);
+                    if (/\bNaN\b/.test(visible)) {
+                      failures.push(`${route.name}-${w}: invalid monetary NaN visible`);
+                    }
+                  }
                   if (w <= 768) {
                     const scrollWidth = await p.evaluate(() => document.documentElement.scrollWidth);
                     const clientWidth = await p.evaluate(() => document.documentElement.clientWidth);

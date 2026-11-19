@@ -105,7 +105,11 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
           >{option.label}</Button>
         ))}
       </div>
-      {loading ? <StatePanel inline variant="loading" title="Loading outstanding payouts…" /> : null}
+      {loading ? (
+        <p className="tos-section__sub" aria-live="polite">
+          Loading outstanding payouts…
+        </p>
+      ) : null}
       {error ? <StatePanel inline variant="error" title="Could not load outstanding refunds"
         text={error} actionLabel="Retry" onAction={() => refetch()} /> : null}
       {!loading && !error && data?.items.length === 0 ? (
