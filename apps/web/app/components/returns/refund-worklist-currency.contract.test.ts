@@ -12,6 +12,10 @@ describe("refund worklist currency isolation", () => {
     expect(api).toContain("rc.branch_id=$2");
     expect(api).toContain("rt.status IN ('PENDING','FAILED')");
     expect(api).toContain("!Number.isSafeInteger(value)");
+    expect(api).toContain("rt.created_at < NOW() - INTERVAL '24 hours'");
+    expect(api).toContain("rt.created_at < NOW() - INTERVAL '7 days'");
+    expect(api).toContain("pending24hMinor: safeMinor(row.pending_24h_minor)");
+    expect(api).toContain("pending7dMinor: safeMinor(row.pending_7d_minor)");
   });
   it("shows separate totals, not a mixed currency aggregate or a fabricated zero", () => {
     expect(worklist).toContain("data?.summaryByCurrency");
@@ -20,6 +24,10 @@ describe("refund worklist currency isolation", () => {
     expect(worklist).toContain("key={summary.currencyCode}");
     expect(worklist).toContain("currencyCode={summary.currencyCode}");
     expect(worklist).toContain("Refund summaries are unavailable");
+    expect(worklist).toContain("Pending 24h+ ({summary.pending24hCount})");
+    expect(worklist).toContain("Pending 7d+ ({summary.pending7dCount})");
+    expect(worklist).toContain("balance.pending7dMinor <= balance.pending24hMinor");
+    expect(worklist).toContain("subsets of pending payouts, not additional liabilities");
     expect(worklist).not.toContain("data?.summary;");
     expect(worklist).not.toContain("currencyCode={currencyCode} />");
   });

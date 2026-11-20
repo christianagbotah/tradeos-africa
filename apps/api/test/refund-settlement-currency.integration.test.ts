@@ -33,7 +33,7 @@ describe("refund settlement queue currency isolation", () => {
     )).rows[0]!.id;
 
     async function seed(key: string, branch: string, currency: string,
-      status: string, amount: number) {
+      status: string, amount: number, ageHours = 0) {
       const sale = await pool.query<{ id: string }>(
         `INSERT INTO sales(business_id,branch_id,status,currency_code,
           subtotal_net_minor,total_minor,client_mutation_id)
@@ -48,17 +48,17 @@ describe("refund settlement queue currency isolation", () => {
       );
       await pool.query(
         `INSERT INTO refund_transactions(business_id,return_case_id,amount_minor,
-          currency_code,method,status,idempotency_key)
-         VALUES($1,$2,$3,$4,'CASH',$5,$6)`,
-        [businessId, returned.rows[0]!.id, amount, currency, status, key],
+          currency_code,method,status,idempotency_key,created_at)
+         VALUES($1,$2,$3,$4,'CASH',$5,$6,NOW() - ($7::int * INTERVAL '1 hour'))`,
+        [businessId, returned.rows[0]!.id, amount, currency, status, key, ageHours],
       );
     }
 
-    await seed("p-gh", branchId, "GHS", "PENDING", 1200);
-    await seed("f-gh", branchId, "GHS", "FAILED", 400);
-    await seed("p-us", branchId, "USD", "PENDING", 2500);
+    await seed("p-gh", branchId, "GHS", "PENDING", 1200, 8 * 24);
+    await seed("f-gh", branchId, "GHS", "FAILED", 400, 10 * 24);
+    await seed("p-us", branchId, "USD", "PENDING", 2500, 30);
     await seed("s-gh", branchId, "GHS", "SUCCEEDED", 700);
-    await seed("other", otherBranchId, "GHS", "PENDING", 9000);
+    await seed("other", otherBranchId, "GHS", "PENDING", 9000, 20 * 24);
 
     const result = await app.inject({
       method: "GET", headers,
@@ -69,9 +69,13 @@ describe("refund settlement queue currency isolation", () => {
     expect(result.json()).toMatchObject({
       summaryByCurrency: [
         { currencyCode: "GHS", pendingCount: 1, pendingMinor: 1200,
-          failedCount: 1, failedMinor: 400 },
+          failedCount: 1, failedMinor: 400,
+          pending24hCount: 1, pending24hMinor: 1200,
+          pending7dCount: 1, pending7dMinor: 1200 },
         { currencyCode: "USD", pendingCount: 1, pendingMinor: 2500,
-          failedCount: 0, failedMinor: 0 },
+          failedCount: 0, failedMinor: 0,
+          pending24hCount: 1, pending24hMinor: 2500,
+          pending7dCount: 0, pending7dMinor: 0 },
       ],
       hasMore: true,
     });
