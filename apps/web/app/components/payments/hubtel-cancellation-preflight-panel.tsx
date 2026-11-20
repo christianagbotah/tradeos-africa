@@ -184,7 +184,9 @@ export function HubtelCancellationPreflightPanel({ saleId, businessId, onClose, 
         {assessment.investigation ? (
           <p role="status" className={styles.review}>
             Investigation already requested. Reference: {assessment.investigation.reviewId.slice(0,8).toUpperCase()}.
-            Awaiting independent provider investigation. No checkout has been voided or stock restored.
+            {assessment.saleStatus === "COMPLETED" && assessment.paymentStatus === "SUCCEEDED" ?
+              "Payment was subsequently confirmed. The investigation record is retained for audit; no stock was restored." :
+              "Awaiting independent provider investigation. No checkout has been voided or stock restored."}
           </p>
         ) : assessment.saleStatus === "OPEN" && assessment.paymentStatus === "PENDING" ? (
           <>
