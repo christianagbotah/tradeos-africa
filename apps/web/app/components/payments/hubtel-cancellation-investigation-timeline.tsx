@@ -69,7 +69,8 @@ export function HubtelCancellationInvestigationTimeline({
       event.canReleaseStock===false && typeof event.note==="string");
   const needsProvider=kind==="PROVIDER_REPLY_RECORDED";
   const referenceValid=!needsProvider||
-    /^[A-Za-z0-9][A-Za-z0-9 _.:/-]{5,159}$/.test(reference.trim());
+    (/^[A-Za-z0-9][A-Za-z0-9 _.:/-]{5,159}$/.test(reference.trim()) &&
+      !reference.includes("://"));
   const canSubmit=online&&!busy&&note.trim().length>=20&&note.trim().length<=700&&
     referenceValid && (!reference.trim()||
     /^[A-Za-z0-9][A-Za-z0-9 _.:/-]{5,159}$/.test(reference.trim()));
