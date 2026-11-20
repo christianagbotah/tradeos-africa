@@ -14,6 +14,7 @@ import {recordUntrustedHubtelNotification} from "./hubtel-pos-notification-inbox
 import {reviewSettledHubtelSale} from "./hubtel-pos-settlement-review.js";
 import {getHubtelCancellationPreflight} from "./hubtel-pos-cancellation-preflight.js";
 import {requestHubtelCancellationInvestigation} from "./hubtel-cancellation-investigation.js";
+import {listHubtelCancellationInvestigations} from "./hubtel-cancellation-investigation-queue.js";
 import {
   listHubtelExceptionReviewCases,submitHubtelExceptionReview,
   decideHubtelExceptionReview,
@@ -161,6 +162,25 @@ export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):v
         return {assessment:await getHubtelCancellationPreflight(pool,{
           businessId,saleId:request.params.saleId,
         })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Independently paginated whole-branch investigation worklist. Current
+  // PAID outcomes are retained for audit; none of these rows permits voiding.
+  app.get<{Querystring:{businessId?:string;branchId?:string;outcome?:string;
+    limit?:string;offset?:string}}>(
+    "/v1/payments/hubtel/cancellation-investigations",async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,
+          request.query.businessId,MONITOR_ROLES);
+        const {branchId,outcome,limit,offset}=request.query;
+        return await listHubtelCancellationInvestigations(pool,{
+          businessId,...(branchId?{branchId}:{}),
+          ...(outcome?{outcome}:{}),
+          ...(limit!==undefined?{limit:Number(limit)}:{}),
+          ...(offset!==undefined?{offset:Number(offset)}:{}),
+        });
       }catch(error){return errorResponse(request,reply,error);}
     },
   );

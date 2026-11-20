@@ -68,8 +68,11 @@ function quantity(value: string): string {
   return value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
 }
 
-export function HubtelCancellationPreflightPanel({ saleId, businessId, onClose, online }: {
+export function HubtelCancellationPreflightPanel({
+  saleId, businessId, onClose, online, onInvestigationSubmitted,
+}: {
   saleId: string; businessId: string; onClose: () => void; online: boolean;
+  onInvestigationSubmitted?: () => void;
 }) {
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -101,6 +104,7 @@ export function HubtelCancellationPreflightPanel({ saleId, businessId, onClose, 
         "Provider investigation requested and recorded. Stock and payment remain unchanged.");
       setNote("");
       refetch();
+      onInvestigationSubmitted?.();
     } catch(e) {
       setRequestError(e instanceof Error ? e.message :
         "Could not submit provider investigation request");

@@ -853,6 +853,95 @@ describe("Hubtel cancellation stock impact preflight (read only)", () => {
 
 
 describe("Hubtel pending-checkout cancellation investigation requests",()=>{
+
+  it("lists current branch investigations with all-time counts, payment outcomes and pagination",async()=>{
+    const m=await merchant("investigation-list","merchant_1","111111");
+    const outsider=await merchant("investigation-list-outsider","merchant_2","222222");
+    installMock();
+    const reason="Customer left checkout unfinished and requires a provider finality investigation.";
+    const review=async(saleId:string)=>{
+      const result=await app.inject({method:"POST",headers:m.headers,
+        url:`/v1/sales/${saleId}/hubtel/cancellation-investigation`,
+        payload:{businessId:m.businessId,note:reason},
+      });
+      expect(result.statusCode,result.body).toBe(200);
+      return result.json().investigation.reviewId as string;
+    };
+    await startSaleHubtelCheckout(pool,{businessId:m.businessId,saleId:m.saleId,
+      clientRequestId:randomUUID()});
+    const first=await review(m.saleId);
+    expect((await verifySaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,
+    })).state).toBe("PAID");
+    const saleId=(await pool.query<{id:string}>(
+      "INSERT INTO sales(business_id,branch_id,status,currency_code,total_minor,"+
+      "client_mutation_id) VALUES($1,$2,'OPEN','GHS',7000,$3) RETURNING id",
+      [m.businessId,m.branchId,"investigation-list-extra-"+randomUUID()],
+    )).rows[0]!.id;
+    await pool.query(
+      "INSERT INTO payments(business_id,branch_id,sale_id,amount_minor,"+
+      "currency_code,method,status,client_mutation_id) "+
+      "VALUES($1,$2,$3,7000,'GHS','MOMO','PENDING',$4)",
+      [m.businessId,m.branchId,saleId,"investigation-list-payment-"+randomUUID()],
+    );
+    await startSaleHubtelCheckout(pool,{businessId:m.businessId,saleId,
+      clientRequestId:randomUUID()});
+    const second=await review(saleId);
+
+    const base=`/v1/payments/hubtel/cancellation-investigations?businessId=${m.businessId}&branchId=${m.branchId}`;
+    const page1=await app.inject({method:"GET",url:base+"&limit=1&offset=0",
+      headers:m.headers});
+    expect(page1.statusCode,page1.body).toBe(200);
+    expect(page1.headers["cache-control"]).toContain("no-store");
+    expect(page1.json()).toMatchObject({
+      scope:"BRANCH_ALL_TIME",summary:{total:2,pending:1,paid:1,other:0},
+      filteredCount:2,limit:1,offset:0,hasMore:true,
+      cases:[{reviewId:second,saleId,amountMinor:7000,currencyCode:"GHS",
+        outcome:"PENDING",paymentStatus:"PENDING",providerFinality:"NOT_ESTABLISHED",
+        canReleaseStock:false}],
+    });
+    const page2=await app.inject({method:"GET",url:base+"&limit=1&offset=1",
+      headers:m.headers});
+    expect(page2.statusCode,page2.body).toBe(200);
+    expect(page2.json()).toMatchObject({
+      summary:{total:2,pending:1,paid:1,other:0},
+      filteredCount:2,hasMore:false,
+      cases:[{reviewId:first,saleId:m.saleId,outcome:"PAID",
+        saleStatus:"COMPLETED",paymentStatus:"SUCCEEDED",canReleaseStock:false}],
+    });
+    const paid=await app.inject({method:"GET",url:base+"&outcome=PAID&limit=1",
+      headers:m.headers});
+    expect(paid.statusCode,paid.body).toBe(200);
+    expect(paid.json().cases).toHaveLength(1);
+    expect(paid.json().cases[0].reviewId).toBe(first);
+    expect(paid.json().filteredCount).toBe(1);
+    const pending=await app.inject({method:"GET",url:base+"&outcome=PENDING",
+      headers:m.headers});
+    expect(pending.statusCode,pending.body).toBe(200);
+    expect(pending.json().cases.map((x:{reviewId:string})=>x.reviewId))
+      .toEqual([second]);
+    const otherBranch=await app.inject({method:"GET",
+      url:base.replace("branchId="+m.branchId,"branchId="+outsider.branchId),
+      headers:m.headers});
+    expect(otherBranch.statusCode).toBe(200);
+    expect(otherBranch.json().summary.total).toBe(0);
+    expect(otherBranch.json().cases).toEqual([]);
+    const foreign=await app.inject({method:"GET",url:base,headers:outsider.headers});
+    expect(foreign.statusCode).toBe(403);
+    const anonymous=await app.inject({method:"GET",url:base});
+    expect(anonymous.statusCode).toBe(401);
+    const unknown=await app.inject({method:"GET",url:base+"&outcome=VOIDED",
+      headers:m.headers});
+    expect(unknown.statusCode).toBe(400);
+    const invalidOffset=await app.inject({method:"GET",url:base+"&offset=-1",
+      headers:m.headers});
+    expect(invalidOffset.statusCode).toBe(400);
+    expect(await ledger(m)).toMatchObject({
+      status:"COMPLETED",payment_status:"SUCCEEDED",receipt_count:"1",
+    });
+  });
+
+
   it("creates one audited merchant investigation under concurrent retries, without canceling checkout or releasing stock",async()=>{
     const m=await merchant("investigation-concurrent","merchant_1","111111");
     const request=installMock();
