@@ -31,6 +31,9 @@ describe("merchant Hubtel cancellation investigation worklist contract",()=>{
     expect(ui).toContain("Previous");
     expect(ui).toContain("Next");
     expect(ui).toContain("HubtelCancellationPreflightPanel");
+    expect(ui).toContain("onInvestigationSubmitted={refetch}");
+    expect(parent).toContain("investigationVersion");
+    expect(parent).toContain("onInvestigationSubmitted={() => setInvestigationVersion(v => v+1)}");
     expect(ui).toContain("Do not return stock or adjust payments");
     expect(css).toContain(".investigationStats");
     expect(css).toContain("@media(max-width:700px)");
