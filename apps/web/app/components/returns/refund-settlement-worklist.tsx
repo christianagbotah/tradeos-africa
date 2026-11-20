@@ -30,6 +30,10 @@ interface SettlementWorklist {
     pendingMinor: number;
     failedCount: number;
     failedMinor: number;
+    pending24hCount: number;
+    pending24hMinor: number;
+    pending7dCount: number;
+    pending7dMinor: number;
   }>;
   items: SettlementItem[];
   offset: number;
@@ -71,12 +75,18 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
   // response must show 'unavailable', never a fabricated zero liability.
   const validBalances = Array.isArray(rawBalances) && rawBalances.every((balance) =>
     balance && typeof balance.currencyCode === "string" && balance.currencyCode.length === 3 &&
-    [balance.pendingCount, balance.pendingMinor, balance.failedCount, balance.failedMinor]
-      .every((value) => Number.isSafeInteger(value) && value >= 0),
+    [balance.pendingCount, balance.pendingMinor, balance.failedCount, balance.failedMinor,
+      balance.pending24hCount, balance.pending24hMinor, balance.pending7dCount, balance.pending7dMinor]
+      .every((value) => Number.isSafeInteger(value) && value >= 0) &&
+    balance.pending7dCount <= balance.pending24hCount &&
+    balance.pending24hCount <= balance.pendingCount &&
+    balance.pending7dMinor <= balance.pending24hMinor &&
+    balance.pending24hMinor <= balance.pendingMinor,
   );
   const currencyBalances = validBalances
     ? rawBalances.length > 0 ? rawBalances : [{
         currencyCode, pendingCount: 0, pendingMinor: 0, failedCount: 0, failedMinor: 0,
+        pending24hCount: 0, pending24hMinor: 0, pending7dCount: 0, pending7dMinor: 0,
       }]
     : null;
   const filterOptions: readonly { value: SettlementFilter; label: string }[] = [
@@ -93,6 +103,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
           <p className="tos-section__sub">
             All outstanding payouts in this branch, including those older than the last 50 receipts.
             Read-only: pending refunds are not paid until the provider confirms settlement.
+            The 24h+ and 7d+ figures are subsets of pending payouts, not additional liabilities.
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => refetch()}>Refresh</Button>
@@ -108,6 +119,14 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
           <span>
             <strong>Needs review ({summary.failedCount})</strong>{" "}
             <MoneyValue minor={summary.failedMinor} currencyCode={summary.currencyCode} />
+          </span>
+          <span title="Unpaid provider refunds pending for more than 24 hours">
+            <strong>Pending 24h+ ({summary.pending24hCount})</strong>{" "}
+            <MoneyValue minor={summary.pending24hMinor} currencyCode={summary.currencyCode} />
+          </span>
+          <span title="Subset of 24h+ payouts pending for more than 7 days">
+            <strong>Pending 7d+ ({summary.pending7dCount})</strong>{" "}
+            <MoneyValue minor={summary.pending7dMinor} currencyCode={summary.currencyCode} />
           </span>
         </div>
       )) : data && !loading && !error ? (

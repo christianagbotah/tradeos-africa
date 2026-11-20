@@ -105,12 +105,18 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
         currency_code: string;
         pending_count: string | number; pending_minor: string | number;
         failed_count: string | number; failed_minor: string | number;
+        pending_24h_count: string | number; pending_24h_minor: string | number;
+        pending_7d_count: string | number; pending_7d_minor: string | number;
       }>(
         `SELECT rt.currency_code,
            COUNT(*) FILTER (WHERE rt.status='PENDING') AS pending_count,
            COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='PENDING'),0) AS pending_minor,
            COUNT(*) FILTER (WHERE rt.status='FAILED') AS failed_count,
-           COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='FAILED'),0) AS failed_minor
+           COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='FAILED'),0) AS failed_minor,
+           COUNT(*) FILTER (WHERE rt.status='PENDING' AND rt.created_at < NOW() - INTERVAL '24 hours') AS pending_24h_count,
+           COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='PENDING' AND rt.created_at < NOW() - INTERVAL '24 hours'),0) AS pending_24h_minor,
+           COUNT(*) FILTER (WHERE rt.status='PENDING' AND rt.created_at < NOW() - INTERVAL '7 days') AS pending_7d_count,
+           COALESCE(SUM(rt.amount_minor) FILTER (WHERE rt.status='PENDING' AND rt.created_at < NOW() - INTERVAL '7 days'),0) AS pending_7d_minor
          FROM refund_transactions rt
          JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
          WHERE rt.business_id=$1 AND rc.branch_id=$2 AND rt.status IN ('PENDING','FAILED')
@@ -150,6 +156,10 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
           pendingMinor: safeMinor(row.pending_minor),
           failedCount: safeMinor(row.failed_count),
           failedMinor: safeMinor(row.failed_minor),
+          pending24hCount: safeMinor(row.pending_24h_count),
+          pending24hMinor: safeMinor(row.pending_24h_minor),
+          pending7dCount: safeMinor(row.pending_7d_count),
+          pending7dMinor: safeMinor(row.pending_7d_minor),
         })),
         items: result.rows.slice(0, limit).map((row) => ({
           id: row.id,
