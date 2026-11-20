@@ -715,7 +715,7 @@ describe("Hubtel post-settlement manual exception review",()=>{
 describe("Hubtel cancellation stock impact preflight (read only)", () => {
   async function originalStock(m: Merchant, label: string,
     kind: "PRODUCT" | "SERVICE", quantity: string, costMinor: number,
-    movements: Array<{ name: string; quantity: string; reason: string }>) {
+    movements: Array<{ name: string; quantity: string; reason: string; costMinor?: number }>) {
     const itemId = (await pool.query<{ id: string }>(
       "INSERT INTO catalog_items(business_id,name,kind,track_stock,stock_unit_code) " +
       "VALUES($1,$2,$3,$4,$5) RETURNING id",
@@ -737,15 +737,25 @@ describe("Hubtel cancellation stock impact preflight (read only)", () => {
         "VALUES($1,$2,'PRODUCT',true,'piece') RETURNING id",
         [m.businessId,movement.name],
       )).rows[0]!.id;
-      await pool.query(
+      const sourceItemId=kind==="PRODUCT"?itemId:componentItemId;
+      const movementId=(await pool.query<{id:string}>(
         "INSERT INTO inventory_movements(business_id,branch_id,item_id,stock_unit_code," +
         "quantity_delta,location_type,reason,reference_type,reference_id," +
         "idempotency_key,occurred_at) " +
-        "VALUES($1,$2,$3,'piece',$4,'AVAILABLE',$5,'SALE_LINE',$6,$7,now())",
-        [m.businessId,m.branchId,kind==="PRODUCT"?itemId:componentItemId,
+        "VALUES($1,$2,$3,'piece',$4,'AVAILABLE',$5,'SALE_LINE',$6,$7,now()) RETURNING id",
+        [m.businessId,m.branchId,sourceItemId,
           "-"+movement.quantity,movement.reason,lineId,
           "original-consumption-"+m.saleId+"-"+i],
-      );
+      )).rows[0]!.id;
+      if(movement.costMinor!==undefined) {
+        await pool.query(
+          "INSERT INTO sale_stock_cost_allocations(business_id,branch_id,sale_line_id," +
+          "inventory_movement_id,item_id,stock_unit_code,consumed_quantity,consumed_cost_minor) "+
+          "VALUES($1,$2,$3,$4,$5,'piece',$6,$7)",
+          [m.businessId,m.branchId,lineId,movementId,sourceItemId,
+            movement.quantity,movement.costMinor],
+        );
+      }
     }
     return {lineId,itemId};
   }
@@ -756,7 +766,7 @@ describe("Hubtel cancellation stock impact preflight (read only)", () => {
     await startSaleHubtelCheckout(pool,{businessId:m.businessId,saleId:m.saleId,
       clientRequestId:randomUUID()});
     await originalStock(m,"Box of bolts","PRODUCT","1.25000000",1250,[
-      {name:"Box of bolts",quantity:"1.25000000",reason:"SALE"},
+      {name:"Box of bolts",quantity:"1.25000000",reason:"SALE",costMinor:1250},
     ]);
     const before=(await pool.query<{ count:string }>(
       "SELECT count(*)::text AS count FROM inventory_movements WHERE business_id=$1",
@@ -768,10 +778,11 @@ describe("Hubtel cancellation stock impact preflight (read only)", () => {
     expect(response.json().assessment).toMatchObject({
       saleId:m.saleId,currencyCode:"GHS",
       checkoutAmountMinor:7000,recordedCostBasisMinor:1250,saleLineCount:1,
+      costEvidenceComplete:true,
       saleStatus:"OPEN",paymentStatus:"PENDING",checkoutState:"READY",
       permission:"REVIEW_ONLY",canReleaseStock:false,
       stockToReview:[{itemName:"Box of bolts",stockUnitCode:"piece",
-        quantityToReview:"1.25000000",consumptionReason:"SALE"}],
+        quantityToReview:"1.25000000",consumptionReason:"SALE",consumedCostMinor:1250}],
     });
     expect(response.json().assessment.blockers).toContain("HUBTEL_PAYMENT_FINALITY_NOT_ESTABLISHED");
     expect(response.json().assessment.blockers).toContain("ATOMIC_STOCK_REVERSAL_NOT_ENABLED");
@@ -798,8 +809,8 @@ describe("Hubtel cancellation stock impact preflight (read only)", () => {
     await startSaleHubtelCheckout(pool,{businessId:m.businessId,saleId:m.saleId,
       clientRequestId:randomUUID()});
     await originalStock(m,"Preparation service","SERVICE","0",2250,[
-      {name:"Ingredient A",quantity:"2.50000000",reason:"SERVICE_CONSUMPTION"},
-      {name:"Ingredient B",quantity:"0.75000000",reason:"SERVICE_CONSUMPTION"},
+      {name:"Ingredient A",quantity:"2.50000000",reason:"SERVICE_CONSUMPTION",costMinor:1000},
+      {name:"Ingredient B",quantity:"0.75000000",reason:"SERVICE_CONSUMPTION",costMinor:1250},
     ]);
     const response=await app.inject({method:"GET",
       url:`/v1/sales/${m.saleId}/hubtel/cancellation-preflight?businessId=${m.businessId}`,
@@ -810,7 +821,11 @@ describe("Hubtel cancellation stock impact preflight (read only)", () => {
     expect(assessed.stockToReview.map((r:{quantityToReview:string})=>r.quantityToReview).sort())
       .toEqual(["0.75000000","2.50000000"]);
     expect(assessed.recordedCostBasisMinor).toBe(2250);
-    expect(assessed.blockers).toContain("COMPONENT_VALUATION_ALLOCATION_REVIEW");
+    expect(assessed.costEvidenceComplete).toBe(true);
+    expect(assessed.stockToReview.map((r:{consumedCostMinor:number})=>r.consumedCostMinor).sort())
+      .toEqual([1000,1250]);
+    expect(assessed.blockers).not.toContain("COMPONENT_VALUATION_ALLOCATION_REVIEW");
+    expect(assessed.blockers).toContain("HUBTEL_PAYMENT_FINALITY_NOT_ESTABLISHED");
     expect(assessed.canReleaseStock).toBe(false);
     expect((await ledger(m)).receipt_count).toBe("0");
   });

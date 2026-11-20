@@ -39,6 +39,14 @@ describe("purchase receiving and supplier payables", () => {
   expect(sale.status).toBe("APPLIED");
   const line=(await pool.query(`SELECT id,unit_cost_minor,line_cost_minor FROM sale_lines WHERE sale_id=$1`,[sale.result.saleId])).rows[0];
   expect(Number(line.unit_cost_minor)).toBe(1000);expect(Number(line.line_cost_minor)).toBe(2000);
+  const stockCost=(await pool.query<{
+    consumed_quantity:string;consumed_cost_minor:string;
+  }>(
+    "SELECT consumed_quantity::text,consumed_cost_minor::text "+
+    "FROM sale_stock_cost_allocations WHERE business_id=$1 AND sale_line_id=$2",
+    [businessId,line.id],
+  )).rows;
+  expect(stockCost).toEqual([{consumed_quantity:"100.00000000",consumed_cost_minor:"2000"}]);
   for(const disposition of ["RESTOCK","QUARANTINE"]) {
    expect((await sync(`return-${disposition}`,"RETURN_CREATE",{originalSaleId:sale.result.saleId,reason:"Wrong drink",refundMethod:"ORIGINAL_METHOD",lines:[{saleLineId:line.id,quantity:1,disposition}]})).status).toBe("APPLIED");
   }
@@ -120,6 +128,18 @@ describe("purchase receiving and supplier payables", () => {
   const serviceLine=(await pool.query(`SELECT unit_cost_minor,line_cost_minor FROM sale_lines WHERE sale_id=$1`,[sold.result.saleId])).rows[0];
   expect(Number(serviceLine.unit_cost_minor)).toBe(1000);
   expect(Number(serviceLine.line_cost_minor)).toBe(1000);
+  const componentBasis=(await pool.query<{
+    consumed_quantity:string;consumed_cost_minor:string;
+  }>(
+    "SELECT sc.consumed_quantity::text,sc.consumed_cost_minor::text "+
+    "FROM sale_stock_cost_allocations sc "+
+    "JOIN sale_lines sl ON sl.id=sc.sale_line_id "+
+    "WHERE sl.sale_id=$1 AND sc.business_id=$2",
+    [sold.result.saleId,businessId],
+  )).rows;
+  expect(componentBasis).toEqual([{
+    consumed_quantity:"50.00000000",consumed_cost_minor:"1000",
+  }]);
   const stock=(await pool.query(`SELECT COALESCE(SUM(quantity_delta),0) AS quantity FROM inventory_movements WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND location_type='AVAILABLE'`,[businessId,branchId,shampooId])).rows[0];
   expect(Number(stock.quantity)).toBe(950);
   const valuation=(await pool.query(`SELECT quantity,value_minor FROM inventory_valuations WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND location_type='AVAILABLE'`,[businessId,branchId,shampooId])).rows[0];
