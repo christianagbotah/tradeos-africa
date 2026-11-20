@@ -9,6 +9,7 @@ type CancellationAssessment = {
   currencyCode: string;
   checkoutAmountMinor: number;
   recordedCostBasisMinor: number;
+  costEvidenceComplete: boolean;
   saleStatus: string;
   paymentStatus: string;
   checkoutState: string;
@@ -21,6 +22,7 @@ type CancellationAssessment = {
     stockUnitCode: string;
     quantityToReview: string;
     consumptionReason: string;
+    consumedCostMinor: number | null;
   }>;
   blockers: string[];
   permission: "REVIEW_ONLY";
@@ -29,6 +31,10 @@ type CancellationAssessment = {
 
 function readableReason(value: string): string {
   const explanations: Record<string, string> = {
+    HISTORICAL_STOCK_COST_ALLOCATION_MISSING:
+      "This older sale did not record a separate historic cost for every stock item. Do not reconstruct it using today's stock valuation.",
+    SOURCE_COST_BASIS_MISMATCH:
+      "Original component costs do not add up to the sale line's historical cost.",
     HUBTEL_PAYMENT_FINALITY_NOT_ESTABLISHED:
       "Hubtel has not provided guaranteed cancellation finality; late payment is still possible.",
     ATOMIC_STOCK_REVERSAL_NOT_ENABLED:
@@ -62,7 +68,12 @@ export function HubtelCancellationPreflightPanel({ saleId, businessId, onClose }
     assessment?.permission === "REVIEW_ONLY" && assessment?.canReleaseStock === false &&
     Array.isArray(assessment.stockToReview) && Array.isArray(assessment.blockers) &&
     Number.isSafeInteger(assessment.checkoutAmountMinor) &&
-    Number.isSafeInteger(assessment.recordedCostBasisMinor);
+    Number.isSafeInteger(assessment.recordedCostBasisMinor) &&
+    typeof assessment.costEvidenceComplete === "boolean" &&
+    assessment.stockToReview.every((movement) => movement &&
+      (movement.consumedCostMinor === null ||
+        (Number.isSafeInteger(movement.consumedCostMinor) &&
+          movement.consumedCostMinor >= 0)));
   return <section className={styles.impact} aria-label="Read-only cancellation impact assessment">
     <div className={styles.impactHead}>
       <div>
@@ -92,6 +103,16 @@ export function HubtelCancellationPreflightPanel({ saleId, businessId, onClose }
       <p className={styles.review}>Status: {assessment.saleStatus} sale,
         {assessment.paymentStatus} payment, {assessment.checkoutState} checkout.
         Assessed at {assessment.assessedAt}. A subsequent provider result can change this status.</p>
+      {assessment.costEvidenceComplete ? (
+        <p role="status">Each stock movement has an original recorded cost basis
+          reconciled to the sale line. Payment cancellation remains blocked.</p>
+      ) : (
+        <p role="alert" className={styles.review}>
+          Historical stock-cost evidence is incomplete or inconsistent. Review
+          original purchase and inventory records; do not estimate past costs
+          using current stock averages.
+        </p>
+      )}
       <h4>Original stock consumption (review only)</h4>
       {assessment.stockToReview.length === 0 ? (
         <p>No original stock movement was found. This can be normal for a non-stock service,
@@ -102,7 +123,9 @@ export function HubtelCancellationPreflightPanel({ saleId, businessId, onClose }
             <div key={movement.sourceMovementId} className={styles.impactRow}>
               <strong>{movement.itemName}</strong>
               <span>{quantity(movement.quantityToReview)} {movement.stockUnitCode}
-                {" · "}{movement.consumptionReason.replaceAll("_", " ").toLowerCase()}</span>
+                {" · "}{movement.consumptionReason.replaceAll("_", " ").toLowerCase()}
+                {" · "}{movement.consumedCostMinor === null ? "Historical cost unavailable" :
+                  formatMoney(movement.consumedCostMinor, assessment.currencyCode)}</span>
             </div>
           ))}
         </div>
