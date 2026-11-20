@@ -161,3 +161,28 @@ have passed.
 
 References: https://code.hubtel.com/docs/guides/online-checkout and
 https://code.hubtel.com/docs/guides/reconciliation (retrieved November 2026).
+
+## Branch-wide cancellation investigation worklist (20 November 2026)
+
+The merchant Hubtel reconciliation page now includes a separate investigation
+worklist. It queries the **entire branch**, independently of the latest
+checkout-attempt page. Owners, admins, managers and accountants can filter
+current payment outcomes and page through old cases. Case requests are
+append-only; the original justification and reference remain visible even
+when the independent verifier later settles a valid payment.
+
+`GET /v1/payments/hubtel/cancellation-investigations?businessId=...&branchId=...&outcome=ALL|PENDING|PAID|OTHER&limit=20&offset=0`
+requires authenticated merchant role access, bounds pagination and validates
+branch IDs. It returns all-time summary counts, filtered page totals and
+one case's current sale, payment and checkout status; authorization and the
+database queries enforce tenant/branch scoping and prevent HTTP caching.
+`PAID` is a **current recorded settlement state**, never a statement that a
+checkout was voided. All cases keep `providerFinality: NOT_ESTABLISHED`
+and `canReleaseStock: false`.
+
+For operational review, open a case to see its current original stock and cost
+preflight. No worklist filter, button, case history or page navigation cancels a
+Hubtel payment or posts financial/inventory reversals. A subsequent verified
+payment continues to settle normally; the investigation remains in the audit
+trail. The provider-finality and transactional stock/valuation/cashbook
+compensation gates remain launch blockers.
