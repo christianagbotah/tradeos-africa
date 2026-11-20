@@ -15,6 +15,7 @@ import {reviewSettledHubtelSale} from "./hubtel-pos-settlement-review.js";
 import {getHubtelCancellationPreflight} from "./hubtel-pos-cancellation-preflight.js";
 import {requestHubtelCancellationInvestigation} from "./hubtel-cancellation-investigation.js";
 import {listHubtelCancellationInvestigations} from "./hubtel-cancellation-investigation-queue.js";
+import {appendHubtelCancellationInvestigationEvent,listHubtelCancellationInvestigationEvents} from "./hubtel-cancellation-investigation-events.js";
 import {
   listHubtelExceptionReviewCases,submitHubtelExceptionReview,
   decideHubtelExceptionReview,
@@ -180,6 +181,51 @@ export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):v
           ...(outcome?{outcome}:{}),
           ...(limit!==undefined?{limit:Number(limit)}:{}),
           ...(offset!==undefined?{offset:Number(offset)}:{}),
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Human-provided support references are strictly investigative notes.
+  // They are not provider-authenticated payment/cancellation finality.
+  app.get<{Params:{investigationId:string};Querystring:{
+    businessId?:string;limit?:string;offset?:string;
+  }}>(
+    "/v1/payments/hubtel/cancellation-investigations/:investigationId/events",
+    async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,
+          request.query.businessId,MONITOR_ROLES);
+        return await listHubtelCancellationInvestigationEvents(pool,{
+          businessId,investigationId:request.params.investigationId,
+          ...(request.query.limit!==undefined?{limit:Number(request.query.limit)}:{}),
+          ...(request.query.offset!==undefined?{offset:Number(request.query.offset)}:{}),
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.post<{Params:{investigationId:string};Body:{
+    businessId?:string;clientRequestId?:string;eventKind?:string;
+    providerReport?:string;evidenceReference?:string;note?:string;
+  }}>(
+    "/v1/payments/hubtel/cancellation-investigations/:investigationId/events",
+    async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=request.body?.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return await appendHubtelCancellationInvestigationEvent(pool,{
+          businessId,investigationId:request.params.investigationId,
+          actorUserId:auth.userId,clientRequestId:request.body?.clientRequestId??"",
+          eventKind:request.body?.eventKind,
+          ...(request.body?.providerReport!==undefined?{
+            providerReport:request.body.providerReport}:{}),
+          ...(request.body?.evidenceReference!==undefined?{
+            evidenceReference:request.body.evidenceReference}:{}),
+          note:request.body?.note,
         });
       }catch(error){return errorResponse(request,reply,error);}
     },
