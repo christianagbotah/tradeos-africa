@@ -936,7 +936,7 @@ describe("Hubtel pending-checkout cancellation investigation requests",()=>{
     const invalidOffset=await app.inject({method:"GET",url:base+"&offset=-1",
       headers:m.headers});
     expect(invalidOffset.statusCode).toBe(400);
-    expect((await ledger(m)).toMatchObject({
+    expect(await ledger(m)).toMatchObject({
       status:"COMPLETED",payment_status:"SUCCEEDED",receipt_count:"1",
     });
   });
