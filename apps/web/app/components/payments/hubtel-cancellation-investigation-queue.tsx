@@ -7,17 +7,21 @@ import { HubtelCancellationPreflightPanel } from "./hubtel-cancellation-prefligh
 import { HubtelCancellationInvestigationTimeline } from "./hubtel-cancellation-investigation-timeline";
 import styles from "./hubtel-reconciliation-workspace.module.css";
 
-type Outcome = "ALL" | "PENDING" | "PAID" | "OTHER";
+type Outcome = "ALL" | "PENDING" | "PAID" | "OTHER" | "FOLLOW_UP_DUE";
 type Investigation = {
   reviewId:string;saleId:string;branchId:string;requestedAt:string;
   reason:string;saleStatus:string;paymentStatus:string;checkoutState:string;
   amountMinor:number;currencyCode:string;outcome:Exclude<Outcome,"ALL">;
   providerFinality:"NOT_ESTABLISHED";canReleaseStock:false;
+  caseAgeDays:number;followUpDue24h:boolean;
+  lastFollowUpAt:string|null;lastActivityAt:string;
+  lastProviderStatusCheckAt:string|null;
+  lastProviderStatusResult:string|null;lastProviderStatusError:string|null;
 };
 type Worklist = {
   scope:"BRANCH_ALL_TIME";
   cases:Investigation[];
-  summary:{total:number;pending:number;paid:number;other:number};
+  summary:{total:number;pending:number;paid:number;other:number;followUpDue24h:number};
   outcome:Outcome;offset:number;limit:number;filteredCount:number;hasMore:boolean;
 };
 const PAGE_SIZE=10;
@@ -26,6 +30,7 @@ const outcomeNames:Record<Outcome,string>={
   PENDING:"Payment still pending",
   PAID:"Payment confirmed after request",
   OTHER:"Other payment status",
+  FOLLOW_UP_DUE:"Follow-up overdue (24h)",
 };
 function shortDate(value:string):string {
   const parsed=new Date(value);
@@ -50,9 +55,14 @@ export function HubtelCancellationInvestigationQueue({
   const valid=data?.scope==="BRANCH_ALL_TIME" &&
     data.outcome===outcome && data.offset===offset &&
     data.limit===PAGE_SIZE && Array.isArray(data.cases) &&
-    data.summary && ["total","pending","paid","other"].every(key=>
+    data.summary && ["total","pending","paid","other","followUpDue24h"].every(key=>
       Number.isSafeInteger(data.summary[key as keyof Worklist["summary"]]) &&
-      data.summary[key as keyof Worklist["summary"]]>=0);
+      data.summary[key as keyof Worklist["summary"]]>=0) &&
+    data.cases.every(item=>item.providerFinality==="NOT_ESTABLISHED" &&
+      item.canReleaseStock===false &&
+      Number.isSafeInteger(item.caseAgeDays) && item.caseAgeDays>=0 &&
+      typeof item.followUpDue24h==="boolean" &&
+      typeof item.lastActivityAt==="string");
   return <section className={styles.investigations} aria-label="Provider cancellation investigations">
     <header className={styles.impactHead}>
       <div>
@@ -69,6 +79,8 @@ export function HubtelCancellationInvestigationQueue({
         <div><span>Still unpaid</span><strong>{data.summary.pending}</strong></div>
         <div><span>Payment since confirmed</span><strong>{data.summary.paid}</strong></div>
         <div><span>Other states</span><strong>{data.summary.other}</strong></div>
+        <div><span>Follow-up overdue 24h</span>
+          <strong>{data.summary.followUpDue24h}</strong></div>
       </div>
     ) : null}
     <div className={styles.investigationFilters}>
@@ -103,8 +115,10 @@ export function HubtelCancellationInvestigationQueue({
                     Sale {item.saleId.slice(0,8).toUpperCase()} · {shortDate(item.requestedAt)}
                   </span>
                 </div>
-                <span className={item.outcome==="PENDING" ? styles.warning : styles.state}>
+                <span className={item.followUpDue24h ? styles.warning :
+                    item.outcome==="PENDING" ? styles.warning : styles.state}>
                   {item.outcome==="PAID"?"Payment confirmed" :
+                    item.followUpDue24h?"Follow-up overdue" :
                     item.outcome==="PENDING"?"Unresolved payment":"Needs status review"}
                 </span>
               </div>
@@ -112,6 +126,18 @@ export function HubtelCancellationInvestigationQueue({
                 <span><strong>{formatMoney(item.amountMinor,item.currencyCode)}</strong>
                   {" · "}{item.saleStatus} sale / {item.paymentStatus} payment</span>
                 <span>Checkout: {item.checkoutState.replaceAll("_"," ").toLowerCase()}</span>
+                <span>Case age: {item.caseAgeDays} {item.caseAgeDays===1?"day":"days"}</span>
+              </div>
+              <div className={styles.investigationFollowup}>
+                <span>Last follow-up: {item.lastFollowUpAt?
+                  shortDate(item.lastFollowUpAt):"Not yet recorded"}</span>
+                <span>Last authenticated provider status check: {item.lastProviderStatusCheckAt?
+                  shortDate(item.lastProviderStatusCheckAt):"Not recorded"}</span>
+                {item.lastProviderStatusError?<span>Provider check issue:
+                  {" "}{item.lastProviderStatusError.replaceAll("_"," ").toLowerCase()}</span>:null}
+                {item.followUpDue24h?<strong role="status">
+                  Follow up with the provider. Time elapsed is not payment cancellation proof.
+                </strong>:null}
               </div>
               <p className={styles.investigationReason}>{item.reason}</p>
               <p className={styles.review}>
