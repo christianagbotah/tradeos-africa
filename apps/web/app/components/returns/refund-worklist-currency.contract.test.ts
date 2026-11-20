@@ -16,6 +16,9 @@ describe("refund worklist currency isolation", () => {
     expect(api).toContain("rt.created_at < NOW() - INTERVAL '7 days'");
     expect(api).toContain("pending24hMinor: safeMinor(row.pending_24h_minor)");
     expect(api).toContain("pending7dMinor: safeMinor(row.pending_7d_minor)");
+    expect(api).toContain("($3='PENDING_24H' AND rt.status='PENDING'");
+    expect(api).toContain("($3='PENDING_7D' AND rt.status='PENDING'");
+    expect(api).toContain("ORDER BY rt.created_at ASC,rt.id ASC LIMIT $4 OFFSET $5");
   });
   it("shows separate totals, not a mixed currency aggregate or a fabricated zero", () => {
     expect(worklist).toContain("data?.summaryByCurrency");
@@ -26,6 +29,10 @@ describe("refund worklist currency isolation", () => {
     expect(worklist).toContain("Refund summaries are unavailable");
     expect(worklist).toContain("Pending 24h+ ({summary.pending24hCount})");
     expect(worklist).toContain("Pending 7d+ ({summary.pending7dCount})");
+    expect(worklist).toContain('{ value: "PENDING_24H", label: "Pending 24h+" }');
+    expect(worklist).toContain('{ value: "PENDING_7D", label: "Pending 7d+" }');
+    expect(worklist).toContain('aria-label="Refund review priority filters"');
+    expect(worklist).toContain('setFilter(option.value); setOffset(0);');
     expect(worklist).toContain("balance.pending7dMinor <= balance.pending24hMinor");
     expect(worklist).toContain("subsets of pending payouts, not additional liabilities");
     expect(worklist).not.toContain("data?.summary;");

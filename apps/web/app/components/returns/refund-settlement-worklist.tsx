@@ -9,7 +9,7 @@ import { Button } from "../ui/button";
 import { StatePanel } from "../ui/state-panel";
 
 type SettlementStatus = "PENDING" | "FAILED";
-type SettlementFilter = "ALL" | SettlementStatus;
+type SettlementFilter = "ALL" | SettlementStatus | "PENDING_24H" | "PENDING_7D";
 interface SettlementItem {
   id: string;
   returnCaseId: string;
@@ -58,7 +58,10 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
   const [filter, setFilter] = useState<SettlementFilter>("ALL");
   const [offset, setOffset] = useState(0);
   // Never carry a pagination cursor from a different branch/business.
-  useEffect(() => { setOffset(0); }, [session?.businessId, session?.branchId]);
+  useEffect(() => {
+    setOffset(0);
+    setFilter("ALL");
+  }, [session?.businessId, session?.branchId]);
   const path = allowed && session
     ? `/v1/refunds/settlement-queue?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&status=${filter}&limit=${PAGE_SIZE}&offset=${offset}`
     : null;
@@ -92,6 +95,8 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
   const filterOptions: readonly { value: SettlementFilter; label: string }[] = [
     { value: "ALL", label: "All unresolved" },
     { value: "PENDING", label: "Pending payout" },
+    { value: "PENDING_24H", label: "Pending 24h+" },
+    { value: "PENDING_7D", label: "Pending 7d+" },
     { value: "FAILED", label: "Needs review" },
   ];
 
@@ -104,6 +109,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
             All outstanding payouts in this branch, including those older than the last 50 receipts.
             Read-only: pending refunds are not paid until the provider confirms settlement.
             The 24h+ and 7d+ figures are subsets of pending payouts, not additional liabilities.
+            Select an age filter below to see only the overdue pending records.
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => refetch()}>Refresh</Button>
@@ -135,7 +141,8 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
           payment data must not be interpreted as a confirmed zero.
         </p>
       ) : null}
-      <div className="tos-filter-row" style={{ marginTop: 12, marginBottom: 12 }}>
+      <div className="tos-filter-row" aria-label="Refund review priority filters"
+        style={{ marginTop: 12, marginBottom: 12 }}>
         {filterOptions.map((option) => (
           <Button
             key={option.value}
@@ -155,7 +162,9 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
         text={error} actionLabel="Retry" onAction={() => refetch()} /> : null}
       {!loading && !error && data?.items.length === 0 ? (
         <StatePanel inline variant="empty" title="No outstanding refunds"
-          text="There are no pending or failed refund payouts for this filter." />
+          text={filter === "PENDING_24H" || filter === "PENDING_7D"
+            ? "No pending payouts match this ageing threshold in the selected branch."
+            : "There are no pending or failed refund payouts for this filter."} />
       ) : null}
       {!loading && !error && data?.items.length ? (
         <ul className="tos-list-cards" aria-label="Unresolved refund payouts">
