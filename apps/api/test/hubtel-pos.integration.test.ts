@@ -896,6 +896,31 @@ describe("Hubtel pending-checkout cancellation investigation requests",()=>{
       reviewId:ids[0],status:"AWAITING_PROVIDER_INVESTIGATION",
       providerFinality:"NOT_ESTABLISHED",canReleaseStock:false,
     });
+    // Hubtel may still settle AFTER a merchant's cancellation investigation.
+    // The case must never prevent a genuine paid confirmation or cause a
+    // second stock movement, refund or receipt.
+    const paid=await verifySaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,
+    });
+    expect(paid.state).toBe("PAID");
+    expect(await ledger(m)).toMatchObject({
+      status:"COMPLETED",payment_status:"SUCCEEDED",receipt_count:"1",
+      attempt_state:"RECONCILED",
+    });
+    const afterPaidReplay=await app.inject({
+      method:"POST",url:route,headers:m.headers,payload:body,
+    });
+    expect(afterPaidReplay.statusCode,afterPaidReplay.body).toBe(200);
+    expect(afterPaidReplay.json().investigation).toMatchObject({
+      reviewId:ids[0],idempotentReplay:true,canReleaseStock:false,
+    });
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM audit_events "+
+      "WHERE business_id=$1 AND event_type='HUBTEL_CANCELLATION_INVESTIGATION_REQUESTED'",
+      [m.businessId])).rows[0]!.count).toBe("1");
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM inventory_movements WHERE business_id=$1",
+      [m.businessId])).rows[0]!.count).toBe("0");
     // An immutable investigation can never be silently edited into a 'void'.
     await expect(pool.query(
       "UPDATE hubtel_pos_cancellation_investigations SET reason='fraud' WHERE business_id=$1",
