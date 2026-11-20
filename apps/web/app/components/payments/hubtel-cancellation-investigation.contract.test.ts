@@ -6,7 +6,7 @@ const service=read("../../../../api/src/commerce/hubtel-cancellation-investigati
 const routes=read("../../../../api/src/commerce/hubtel-pos-routes.ts");
 const preflight=read("../../../../api/src/commerce/hubtel-pos-cancellation-preflight.ts");
 const panel=read("./hubtel-cancellation-preflight-panel.tsx");
-const migration=read("../../../../../../packages/db/migrations/0056_hubtel_cancellation_investigations.sql");
+const migration=read("../../../../../packages/db/migrations/0056_hubtel_cancellation_investigations.sql");
 
 describe("Hubtel provider cancellation investigation",()=>{
   it("cannot void a payment, release inventory or bypass provider finality",()=>{
