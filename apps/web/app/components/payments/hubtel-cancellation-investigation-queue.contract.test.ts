@@ -13,8 +13,14 @@ describe("merchant Hubtel cancellation investigation worklist contract",()=>{
     expect(api).toContain("AND ($2::uuid IS NULL OR c.branch_id=$2::uuid)");
     expect(api).toContain("s.status='COMPLETED' AND p.status='SUCCEEDED'");
     expect(api).toContain("s.status='OPEN' AND p.status='PENDING'");
-    expect(api).toContain("ORDER BY c.created_at DESC,c.id DESC");
+    expect(api).toContain(' DESC,c.created_at DESC,c.id DESC');
     expect(api).toContain("LIMIT $4::integer OFFSET $5::integer");
+    expect(api).toContain('FOLLOW_UP_DUE');
+    expect(api).toContain("hubtel_pos_cancellation_investigation_events e");
+    expect(api).toContain("MAX(e.created_at)");
+    expect(api).toContain("now()-interval '24 hours'");
+    expect(api).toContain("followUpDue24h");
+    expect(api).toContain("lastProviderStatusCheckAt");
     expect(api).toContain('"NOT_ESTABLISHED" as const');
     expect(api).toContain("canReleaseStock:false as const");
     expect(api).not.toContain("UPDATE payments");
@@ -35,7 +41,11 @@ describe("merchant Hubtel cancellation investigation worklist contract",()=>{
     expect(parent).toContain("investigationVersion");
     expect(parent).toContain("onInvestigationSubmitted={() => setInvestigationVersion(v => v+1)}");
     expect(ui).toContain("Do not return stock or adjust payments");
+    expect(ui).toContain("Follow-up overdue (24h)");
+    expect(ui).toContain("Last authenticated provider status check");
+    expect(ui).toContain("Time elapsed is not payment cancellation proof.");
     expect(css).toContain(".investigationStats");
+    expect(css).toContain(".investigationFollowup");
     expect(css).toContain("@media(max-width:700px)");
   });
 });
