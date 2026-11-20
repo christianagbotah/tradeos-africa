@@ -126,3 +126,38 @@ of UNPAID alone is not an irrevocable provider void. Before any future
 cancellation button or job is enabled, require the provider's verified
 finality contract, dual-path concurrency/idempotency testing and the full
 transactional compensation protocol. Keep live POS merchant collections gated.
+
+## Provider cancellation investigation requests (20 November 2026)
+
+Hubtel's currently published v1 Online Checkout documents the checkout-creation
+operation and a status-check API but does **not** document a guaranteed
+merchant-side hosted-checkout void/expiry operation. Its status guide says
+`Unpaid` alone does not distinguish a payment that is pending, failed or
+expired. The hosted-checkout `cancellationUrl` only sends a customer's
+browser back to a page; it is **not** payment cancellation proof.
+
+For a pending sale, an authorized business OWNER, ADMIN, MANAGER or ACCOUNTANT
+can open the stock-impact assessment and submit a reasoned request for provider
+investigation (20–700 characters). The server endpoint is
+`POST /v1/sales/:saleId/hubtel/cancellation-investigation`, with the
+authenticated `businessId` and `note`. The server locks sale, payment and
+checkout in the same order as the independent paid verifier, checks strict
+tenant/branch/payment consistency and records at most one immutable case per
+sale. Concurrent retries and repeated calls return the same case, and the
+request is audited once. The request appears in the preflight.
+
+**This is an investigation request, not a checkout cancellation.** No provider
+cancellation is claimed, no inventory or valuation changes are posted, and no
+cashbook or payment status is changed. A paid sale cannot open a new case.
+A prior request is a historical record even when Hubtel later confirms payment.
+
+Outstanding launch gate: Hubtel must document or expressly supply an
+authenticated provider-side cancellation/expiry confirmation that guarantees
+the reference cannot subsequently settle, with a late-settlement recovery
+policy. Only then can a separately controlled exact-once stock/valuation/COGS
+compensation module be considered for rollout. Global Hubtel POS collection
+must remain disabled until production-grade reconciliation and merchant pilot
+have passed.
+
+References: https://code.hubtel.com/docs/guides/online-checkout and
+https://code.hubtel.com/docs/guides/reconciliation (retrieved November 2026).
