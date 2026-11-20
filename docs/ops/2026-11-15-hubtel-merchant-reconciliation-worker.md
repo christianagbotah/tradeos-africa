@@ -186,3 +186,35 @@ Hubtel payment or posts financial/inventory reversals. A subsequent verified
 payment continues to settle normally; the investigation remains in the audit
 trail. The provider-finality and transactional stock/valuation/cashbook
 compensation gates remain launch blockers.
+
+## Immutable provider investigation case timeline (20 November 2026)
+
+Operations teams can record follow-up events inside each cancellation
+investigation from the merchant reconciliation worklist. Event categories
+cover contacting provider support, recording what a representative reports,
+customer follow-up and internal notes. A provider-reply event requires a
+non-secret external Hubtel support/document reference and an explicit
+reported value: unpaid, paid or inconclusive.
+
+The server stores these events in an append-only, tenant/branch-scoped journal
+with an authorized actor, unique client-generated request ID and timestamp.
+A repeated request with the exact same contents returns the original event
+without adding an extra audit entry; an attempted change under that key is
+rejected. Requests remain readable after a genuine independent PAID
+settlement. Human-entered notes must not contain API keys, passwords or
+customer secrets.
+
+Endpoints (all require owner, admin, manager or accountant):
+- `GET /v1/payments/hubtel/cancellation-investigations/:investigationId/events?businessId=...&limit=25&offset=0` (historical paginated timeline).
+- `POST /v1/payments/hubtel/cancellation-investigations/:investigationId/events`
+  with `businessId`, UUID `clientRequestId`, `eventKind`, optional
+  `providerReport`, optional `evidenceReference`, and `note`.
+
+The backend applies `Cache-Control: private, no-store`; notes and references
+are user-supplied, **not authenticated Hubtel data**. A support agent's
+`UNPAID_REPORTED` is not a provider-signed irrevocable void. A representative
+reporting payment is also not an independently authenticated PAID result.
+Neither case overrides the verified payment state, and no case note may
+release inventory, reverse COGS/cashbook or create a receipt. The provider's
+finality contract and exact-once cancellation accounting remain open launch
+blockers (#134).
