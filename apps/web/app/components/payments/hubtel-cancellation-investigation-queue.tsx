@@ -4,6 +4,7 @@ import { useState } from "react";
 import { formatMoney } from "@tradeos/contracts";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { HubtelCancellationPreflightPanel } from "./hubtel-cancellation-preflight-panel";
+import { HubtelCancellationInvestigationTimeline } from "./hubtel-cancellation-investigation-timeline";
 import styles from "./hubtel-reconciliation-workspace.module.css";
 
 type Outcome = "ALL" | "PENDING" | "PAID" | "OTHER";
@@ -126,10 +127,16 @@ export function HubtelCancellationInvestigationQueue({
                 </button>
               </div>
               {expandedSaleId===item.saleId ? (
-                <HubtelCancellationPreflightPanel
-                  businessId={businessId} saleId={item.saleId} online={online}
-                  onClose={()=>setExpandedSaleId(null)}
-                  onInvestigationSubmitted={refetch}/>
+                <div className={styles.investigationExpanded}>
+                  <HubtelCancellationPreflightPanel
+                    businessId={businessId} saleId={item.saleId} online={online}
+                    onClose={()=>setExpandedSaleId(null)}
+                    onInvestigationSubmitted={refetch}/>
+                  <HubtelCancellationInvestigationTimeline
+                    key={item.reviewId}
+                    businessId={businessId} investigationId={item.reviewId}
+                    online={online}/>
+                </div>
               ) : null}
             </article>
           ))}
