@@ -32,6 +32,7 @@ type StockRow = {
   quantity_delta: string;
   reason: string;
   location_type: string;
+  consumed_cost_minor: string | null;
 };
 
 /** Exact decimal arithmetic prevents loss of stock precision (numeric(24,8)). */
@@ -87,12 +88,17 @@ export async function getHubtelCancellationPreflight(
   const movements = (await pool.query<StockRow>(
     `SELECT im.id,im.reference_id,im.item_id,ci.name AS item_name,
             im.stock_unit_code,im.quantity_delta::text,
-            im.reason,im.location_type
+            im.reason,im.location_type,
+            sc.consumed_cost_minor::text
        FROM inventory_movements im
        JOIN sale_lines sl ON sl.id=im.reference_id
                          AND sl.business_id=im.business_id
        JOIN catalog_items ci ON ci.id=im.item_id
                             AND ci.business_id=im.business_id
+       LEFT JOIN sale_stock_cost_allocations sc
+         ON sc.inventory_movement_id=im.id
+        AND sc.business_id=im.business_id
+        AND sc.branch_id=im.branch_id
       WHERE im.business_id=$1 AND im.branch_id=$2
         AND sl.sale_id=$3 AND im.reference_type='SALE_LINE'
       ORDER BY im.id`,
@@ -115,6 +121,18 @@ export async function getHubtelCancellationPreflight(
   for (const line of lines) {
     totalCost += BigInt(safeMinor(line.line_cost_minor, "cost basis"));
     const source = movements.filter((m) => m.reference_id === line.id);
+    // Compare summed historical per-movement valuation with the recorded
+    // original sale-line cost. Missing allocations on legacy sales are
+    // reported as unavailable, never fabricated from a current average cost.
+    if (source.some((m) => m.consumed_cost_minor === null)) {
+      blockers.add("HISTORICAL_STOCK_COST_ALLOCATION_MISSING");
+    } else {
+      const allocatedMinor = source.reduce((sum, m) =>
+        sum + BigInt(safeMinor(m.consumed_cost_minor!, "source cost")), 0n);
+      if (allocatedMinor !== BigInt(safeMinor(line.line_cost_minor, "line cost"))) {
+        blockers.add("SOURCE_COST_BASIS_MISMATCH");
+      }
+    }
     if (line.item_kind === "PRODUCT" && line.stock_quantity !== null) {
       const expected = units(line.stock_quantity);
       let actual = 0n;
@@ -142,7 +160,9 @@ export async function getHubtelCancellationPreflight(
           blockers.add("SOURCE_STOCK_JOURNAL_MISMATCH");
         }
       }
-      if (source.length > 0) blockers.add("COMPONENT_VALUATION_ALLOCATION_REVIEW");
+      if (source.length > 0 && source.some((m) => m.consumed_cost_minor === null)) {
+        blockers.add("COMPONENT_VALUATION_ALLOCATION_REVIEW");
+      }
       if (source.length === 0 && safeMinor(line.line_cost_minor, "line cost") > 0) {
         blockers.add("SOURCE_STOCK_JOURNAL_MISMATCH");
       }
@@ -161,6 +181,8 @@ export async function getHubtelCancellationPreflight(
       stockUnitCode: m.stock_unit_code,
       quantityToReview: m.quantity_delta.slice(1),
       consumptionReason: m.reason,
+      consumedCostMinor: m.consumed_cost_minor === null
+        ? null : safeMinor(m.consumed_cost_minor, "component cost"),
     }));
   const recordedCostBasisMinor = safeMinor(totalCost.toString(), "total cost");
   blockers.add("HUBTEL_PAYMENT_FINALITY_NOT_ESTABLISHED");
@@ -171,6 +193,9 @@ export async function getHubtelCancellationPreflight(
     currencyCode: checkout.currency_code,
     checkoutAmountMinor: safeMinor(checkout.amount_minor, "amount"),
     recordedCostBasisMinor,
+    costEvidenceComplete: !blockers.has("HISTORICAL_STOCK_COST_ALLOCATION_MISSING") &&
+      !blockers.has("SOURCE_COST_BASIS_MISMATCH") &&
+      !blockers.has("SOURCE_STOCK_JOURNAL_MISMATCH"),
     saleStatus: checkout.sale_status,
     paymentStatus: checkout.payment_status,
     checkoutState: checkout.attempt_state,
