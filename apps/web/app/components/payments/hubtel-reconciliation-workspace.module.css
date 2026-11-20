@@ -77,3 +77,35 @@
 .impactInvestigation textarea:focus-visible{outline:2px solid var(--tos-accent,#1d4ed8);
   outline-offset:2px}
 .impactInvestigation small{align-self:center;color:var(--tos-text-muted,#637083)}
+
+.investigations{background:var(--tos-surface,#fff);border:1px solid var(--tos-border,#dfe4eb);
+ border-radius:14px;padding:17px;margin:24px 0;display:grid;gap:16px;min-width:0}
+.investigations h2{font-size:18px;font-weight:800;margin:0 0 6px}
+.investigations header p{font-size:13px;line-height:1.55;color:var(--tos-text-muted,#637083);margin:0}
+.investigationStats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr));gap:10px}
+.investigationStats>div{display:grid;gap:5px;padding:12px;border:1px solid var(--tos-border,#dfe4eb);
+ border-radius:9px;background:var(--tos-surface-secondary,#f1f6fc)}
+.investigationStats span{font-size:12px;color:var(--tos-text-muted,#637083)}
+.investigationStats strong{font-size:22px;font-variant-numeric:tabular-nums}
+.investigationFilters{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.investigationFilters label{font-size:13px;font-weight:700}
+.investigationFilters select{padding:9px 11px;border-radius:8px;
+ border:1px solid var(--tos-border,#dfe4eb);background:var(--tos-surface,#fff);
+ color:inherit;font-size:13px;min-height:40px;max-width:100%}
+.investigationList{display:grid;gap:12px}
+.investigationCase{display:grid;gap:10px;min-width:0;padding:15px;
+ border:1px solid var(--tos-border,#dfe4eb);border-radius:11px}
+.investigationDetails{display:flex;justify-content:space-between;align-items:flex-start;
+ flex-wrap:wrap;gap:6px 14px;font-size:13px;overflow-wrap:anywhere}
+.investigationDetails strong{font-size:15px;font-variant-numeric:tabular-nums}
+.investigationReason{font-size:13px;line-height:1.6;margin:0;overflow-wrap:anywhere}
+.investigationCase .review{margin:0}
+.investigationPagination{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;
+ gap:12px;font-size:12px;color:var(--tos-text-muted,#637083)}
+@media(max-width:700px){
+ .investigations{padding:12px}
+ .investigationStats{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .investigationCase{padding:12px}
+ .investigationDetails{display:grid}
+}
+@media(max-width:340px){.investigationStats{grid-template-columns:1fr}}
