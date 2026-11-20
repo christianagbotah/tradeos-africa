@@ -6,6 +6,7 @@ import { Button } from "../ui/button";
 import { MoneyValue } from "../business/money-value";
 import { StatePanel } from "../ui/state-panel";
 import { RefundHubtelOriginalOrderChecks } from "./refund-hubtel-original-order-checks";
+import { RefundProviderEvidencePanel } from "./refund-provider-evidence-panel";
 
 type Check = boolean | null;
 type RefundPreflight = {
@@ -148,6 +149,7 @@ export function RefundReconciliationPanel({ refundId }: { refundId: string }) {
           {snapshot.hubtel.checkoutLinked ? (
             <RefundHubtelOriginalOrderChecks refundId={refundId} />
           ) : null}
+          <RefundProviderEvidencePanel refundId={refundId} />
         </>
       ) : null}
     </section>
