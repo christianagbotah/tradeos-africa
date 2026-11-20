@@ -42,7 +42,7 @@ describe("merchant Hubtel cancellation investigation worklist contract",()=>{
     expect(parent).toContain("onInvestigationSubmitted={() => setInvestigationVersion(v => v+1)}");
     expect(ui).toContain("Do not return stock or adjust payments");
     expect(ui).toContain("Follow-up overdue (24h)");
-    expect(ui).toContain("Last server-side provider check attempt");
+    expect(ui).toContain("Last Hubtel status check attempt");
     expect(ui).toContain("onNewEvent={refetch}");
     expect(ui).toContain("Time elapsed is not payment cancellation proof.");
     expect(css).toContain(".investigationStats");
