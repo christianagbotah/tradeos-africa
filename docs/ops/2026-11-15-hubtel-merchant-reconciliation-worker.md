@@ -100,3 +100,29 @@ valuation/COGS (including individual recipe components), the pending payment,
 and OPEN sale. Validate concurrent verifier/canceller races and post-cancel
 late-settlement handling. Do not enable live collections or stock-release
 controls until those gates and a merchant pilot pass.
+
+## Exact original stock-cost allocations (20 November 2026)
+
+Migration 0055 introduces immutable `sale_stock_cost_allocations` records
+(one original inventory movement per row), with the source quantity and
+historical cost at the moment stock was consumed. Every new product sale and
+every stock-consuming service/recipe component writes its allocation in the
+same database transaction as the sale and inventory movement. A database
+trigger rejects records that do not match the original business, branch,
+sale line, item, unit, quantity and negative stock movement. Attempts to
+change or delete original cost allocations are rejected.
+
+The read-only Hubtel cancellation assessment joins these allocations against
+the original journal and verifies that the per-component cost totals match
+each sale line's recorded historical cost. Merchants see amounts per component,
+not a reconstructed estimate based on today's moving average. For **legacy
+sales** made before this migration, missing evidence remains explicitly
+unavailable and is shown as a review blocker; there is no automatic backfill
+or invented cost allocation.
+
+This change **does not release inventory, void Hubtel orders or reverse
+cashbook, customer balances, COGS or taxes**. An authenticated Hubtel status
+of UNPAID alone is not an irrevocable provider void. Before any future
+cancellation button or job is enabled, require the provider's verified
+finality contract, dual-path concurrency/idempotency testing and the full
+transactional compensation protocol. Keep live POS merchant collections gated.
