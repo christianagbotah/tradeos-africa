@@ -125,7 +125,7 @@ export async function appendHubtelCancellationInvestigationEvent(
       "INSERT INTO audit_events(business_id,branch_id,event_type,entity_type,"+
       "entity_id,correlation_id,payload,occurred_at) "+
       "VALUES($1,$2,'HUBTEL_CANCELLATION_INVESTIGATION_EVENT_RECORDED',"+
-      "'SALE',$3,$4,$5::jsonb,now())",
+      "'HUBTEL_CANCELLATION_INVESTIGATION',$3,$4,$5::jsonb,now())",
       [input.businessId,investigation.branch_id,investigation.id,
         created.id,JSON.stringify({
           investigationId:investigation.id,eventId:created.id,
