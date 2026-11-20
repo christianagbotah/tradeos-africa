@@ -1,5 +1,6 @@
 import type { DatabasePool } from "../db.js";
 import { posFail } from "./hubtel-pos-config.js";
+import { readHubtelCancellationInvestigation } from "./hubtel-cancellation-investigation.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECIMAL = /^(0|[1-9][0-9]*)(?:\.([0-9]{1,8}))?$/;
@@ -184,6 +185,8 @@ export async function getHubtelCancellationPreflight(
       consumedCostMinor: m.consumed_cost_minor === null
         ? null : safeMinor(m.consumed_cost_minor, "component cost"),
     }));
+  const investigation = await readHubtelCancellationInvestigation(
+    pool, input.businessId, input.saleId);
   const recordedCostBasisMinor = safeMinor(totalCost.toString(), "total cost");
   blockers.add("HUBTEL_PAYMENT_FINALITY_NOT_ESTABLISHED");
   blockers.add("ATOMIC_STOCK_REVERSAL_NOT_ENABLED");
@@ -206,5 +209,6 @@ export async function getHubtelCancellationPreflight(
     blockers: [...blockers],
     permission: "REVIEW_ONLY" as const,
     canReleaseStock: false as const,
+    investigation,
   };
 }
