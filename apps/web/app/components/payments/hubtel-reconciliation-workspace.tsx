@@ -236,7 +236,7 @@ export function HubtelReconciliationWorkspace() {
           {session && preflightSaleId===item.saleId ? (
             <HubtelCancellationPreflightPanel
               saleId={item.saleId} businessId={session.businessId}
-              onClose={() => setPreflightSaleId(null)} />
+              onClose={() => setPreflightSaleId(null)} online={queue.online} />
           ) : null}
         </article>)}
       </section>}
