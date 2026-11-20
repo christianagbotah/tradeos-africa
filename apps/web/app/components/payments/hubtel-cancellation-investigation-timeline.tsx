@@ -73,7 +73,8 @@ export function HubtelCancellationInvestigationTimeline({
       !reference.includes("://"));
   const canSubmit=online&&!busy&&note.trim().length>=20&&note.trim().length<=700&&
     referenceValid && (!reference.trim()||
-    /^[A-Za-z0-9][A-Za-z0-9 _.:/-]{5,159}$/.test(reference.trim()));
+    (/^[A-Za-z0-9][A-Za-z0-9 _.:/-]{5,159}$/.test(reference.trim()) &&
+      !reference.includes("://")));
   const resetRetry=()=>{requestId.current=null;setSubmitError(null);setSubmitSuccess(null);};
   async function submit(){
     if(!canSubmit)return;
