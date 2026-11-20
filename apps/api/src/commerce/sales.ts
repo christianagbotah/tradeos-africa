@@ -220,7 +220,7 @@ export async function applySaleMutationInTransaction(
         if (!item.stock_unit_code || stockQuantity === null) throw new SaleMutationError(`${item.name} has invalid stock configuration`);
         const stockMovementId = await consumeStock(client, {
           businessId: context.businessId,
-          branchId:
+          branchId: context.branchId,
           itemId: item.id,
           itemName: item.name,
           unit: item.stock_unit_code,
