@@ -5,6 +5,7 @@ import { useApiFetch } from "../../../lib/use-api-fetch";
 import { Button } from "../ui/button";
 import { MoneyValue } from "../business/money-value";
 import { StatePanel } from "../ui/state-panel";
+import { RefundHubtelOriginalOrderChecks } from "./refund-hubtel-original-order-checks";
 
 type Check = boolean | null;
 type RefundPreflight = {
@@ -144,6 +145,9 @@ export function RefundReconciliationPanel({ refundId }: { refundId: string }) {
             amount, currency, destination, and transaction reference. Staff notes and customer
             messages are not settlement evidence.
           </p>
+          {snapshot.hubtel.checkoutLinked ? (
+            <RefundHubtelOriginalOrderChecks refundId={refundId} />
+          ) : null}
         </>
       ) : null}
     </section>
