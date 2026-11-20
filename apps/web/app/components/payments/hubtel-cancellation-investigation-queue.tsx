@@ -128,7 +128,8 @@ export function HubtelCancellationInvestigationQueue({
               {expandedSaleId===item.saleId ? (
                 <HubtelCancellationPreflightPanel
                   businessId={businessId} saleId={item.saleId} online={online}
-                  onClose={()=>setExpandedSaleId(null)}/>
+                  onClose={()=>setExpandedSaleId(null)}
+                  onInvestigationSubmitted={refetch}/>
               ) : null}
             </article>
           ))}
