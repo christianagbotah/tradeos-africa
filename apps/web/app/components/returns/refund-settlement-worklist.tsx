@@ -7,6 +7,7 @@ import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyValue } from "../business/money-value";
 import { Button } from "../ui/button";
 import { StatePanel } from "../ui/state-panel";
+import { RefundFollowupPanel } from "./refund-followup-panel";
 
 type SettlementStatus = "PENDING" | "FAILED";
 type SettlementFilter = "ALL" | SettlementStatus | "PENDING_24H" | "PENDING_7D";
@@ -22,6 +23,8 @@ interface SettlementItem {
   customerName: string | null;
   reason: string;
   createdAt: string;
+  followupCount: number;
+  escalated: boolean;
 }
 interface SettlementWorklist {
   summaryByCurrency: Array<{
@@ -57,10 +60,12 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
   const allowed = REVIEW_ROLES.has(role);
   const [filter, setFilter] = useState<SettlementFilter>("ALL");
   const [offset, setOffset] = useState(0);
+  const [selectedRefundId, setSelectedRefundId] = useState<string | null>(null);
   // Never carry a pagination cursor from a different branch/business.
   useEffect(() => {
     setOffset(0);
     setFilter("ALL");
+    setSelectedRefundId(null);
   }, [session?.businessId, session?.branchId]);
   const path = allowed && session
     ? `/v1/refunds/settlement-queue?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&status=${filter}&limit=${PAGE_SIZE}&offset=${offset}`
@@ -149,7 +154,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
             size="sm"
             variant={filter === option.value ? "primary" : "outline"}
             aria-pressed={filter === option.value}
-            onClick={() => { setFilter(option.value); setOffset(0); }}
+            onClick={() => { setFilter(option.value); setOffset(0); setSelectedRefundId(null); }}
           >{option.label}</Button>
         ))}
       </div>
@@ -193,6 +198,11 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
                   <Link href={`/sales/receipt/${encodeURIComponent(item.saleId)}`}>
                     View original receipt
                   </Link>
+                  <Button size="sm" variant="outline" aria-expanded={selectedRefundId === item.id}
+                    onClick={() => setSelectedRefundId((id) => id === item.id ? null : item.id)}>
+                    {selectedRefundId === item.id ? "Close follow-ups"
+                      : `Follow-ups (${item.followupCount})`}
+                  </Button>
                 </div>
                 <div className="tos-returnable-card__body" style={{ textAlign: "right", alignItems: "flex-end" }}>
                   <MoneyValue minor={item.amountMinor} currencyCode={item.currencyCode}
@@ -200,8 +210,15 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
                   <span className={`tos-badge ${item.status === "PENDING" ? "tos-badge--neutral" : "tos-badge--danger"}`}>
                     {item.status === "PENDING" ? "Pending" : "Needs review"}
                   </span>
+                  {item.escalated ? <span className="tos-badge tos-badge--danger">
+                    Escalated
+                  </span> : null}
                 </div>
               </div>
+              {selectedRefundId === item.id && session ? (
+                <RefundFollowupPanel key={item.id + ":" + session.businessId + ":" + session.branchId}
+                  refundId={item.id} onRecorded={refetch} />
+              ) : null}
             </li>
           ))}
         </ul>
