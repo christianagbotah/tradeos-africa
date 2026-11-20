@@ -13,6 +13,7 @@ import { getBusinessHubtelPosMonitor } from "./hubtel-pos-monitor.js";
 import {recordUntrustedHubtelNotification} from "./hubtel-pos-notification-inbox.js";
 import {reviewSettledHubtelSale} from "./hubtel-pos-settlement-review.js";
 import {getHubtelCancellationPreflight} from "./hubtel-pos-cancellation-preflight.js";
+import {requestHubtelCancellationInvestigation} from "./hubtel-cancellation-investigation.js";
 import {
   listHubtelExceptionReviewCases,submitHubtelExceptionReview,
   decideHubtelExceptionReview,
@@ -160,6 +161,25 @@ export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):v
         return {assessment:await getHubtelCancellationPreflight(pool,{
           businessId,saleId:request.params.saleId,
         })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Escalates the merchant's pending-checkout question. This route does not
+  // contact Hubtel, cancel checkout, restore stock, settle/refund money, or
+  // grant finality. External payment resolution remains mandatory.
+  app.post<{Params:{saleId:string};Body:{businessId?:string;note?:string}}>(
+    "/v1/sales/:saleId/hubtel/cancellation-investigation",async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=request.body?.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return await requestHubtelCancellationInvestigation(pool,{
+          businessId,saleId:request.params.saleId,
+          actorUserId:auth.userId,note:request.body?.note,
+        });
       }catch(error){return errorResponse(request,reply,error);}
     },
   );

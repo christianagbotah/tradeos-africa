@@ -850,3 +850,125 @@ describe("Hubtel cancellation stock impact preflight (read only)", () => {
       payment_status:"SUCCEEDED",receipt_count:"1",attempt_state:"RECONCILED"});
   });
 });
+
+
+describe("Hubtel pending-checkout cancellation investigation requests",()=>{
+  it("creates one audited merchant investigation under concurrent retries, without canceling checkout or releasing stock",async()=>{
+    const m=await merchant("investigation-concurrent","merchant_1","111111");
+    const request=installMock();
+    await startSaleHubtelCheckout(pool,{businessId:m.businessId,saleId:m.saleId,
+      clientRequestId:randomUUID()});
+    const original=await ledger(m);
+    const route="/v1/sales/"+m.saleId+"/hubtel/cancellation-investigation";
+    const body={businessId:m.businessId,
+      note:"Customer abandoned payment, but the provider has not issued a confirmed checkout void."};
+    const attempts=await Promise.all(Array.from({length:4},()=>app.inject({
+      method:"POST",url:route,headers:m.headers,payload:body,
+    })));
+    for(const response of attempts)expect(response.statusCode,response.body).toBe(200);
+    const ids=attempts.map(x=>x.json().investigation.reviewId);
+    expect(new Set(ids).size).toBe(1);
+    expect(attempts.map(x=>x.json().investigation.idempotentReplay).sort())
+      .toEqual([false,true,true,true]);
+    expect(attempts[0]!.json().investigation).toMatchObject({
+      saleId:m.saleId,branchId:m.branchId,
+      status:"AWAITING_PROVIDER_INVESTIGATION",
+      providerFinality:"NOT_ESTABLISHED",canReleaseStock:false,
+    });
+    expect(await ledger(m)).toEqual(original);
+    expect(request.mock.calls.filter(call=>
+      String(call[0]).includes("/transactions/"))).toHaveLength(0);
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM hubtel_pos_cancellation_investigations "+
+      "WHERE business_id=$1 AND sale_id=$2",
+      [m.businessId,m.saleId])).rows[0]!.count).toBe("1");
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM audit_events "+
+      "WHERE business_id=$1 AND event_type='HUBTEL_CANCELLATION_INVESTIGATION_REQUESTED'",
+      [m.businessId])).rows[0]!.count).toBe("1");
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM inventory_movements WHERE business_id=$1",
+      [m.businessId])).rows[0]!.count).toBe("0");
+    const preflight=await app.inject({method:"GET",headers:m.headers,
+      url:`/v1/sales/${m.saleId}/hubtel/cancellation-preflight?businessId=${m.businessId}`});
+    expect(preflight.statusCode,preflight.body).toBe(200);
+    expect(preflight.json().assessment.investigation).toMatchObject({
+      reviewId:ids[0],status:"AWAITING_PROVIDER_INVESTIGATION",
+      providerFinality:"NOT_ESTABLISHED",canReleaseStock:false,
+    });
+    // Hubtel may still settle AFTER a merchant's cancellation investigation.
+    // The case must never prevent a genuine paid confirmation or cause a
+    // second stock movement, refund or receipt.
+    const paid=await verifySaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,
+    });
+    expect(paid.state).toBe("PAID");
+    expect(await ledger(m)).toMatchObject({
+      status:"COMPLETED",payment_status:"SUCCEEDED",receipt_count:"1",
+      attempt_state:"RECONCILED",
+    });
+    const afterPaidReplay=await app.inject({
+      method:"POST",url:route,headers:m.headers,payload:body,
+    });
+    expect(afterPaidReplay.statusCode,afterPaidReplay.body).toBe(200);
+    expect(afterPaidReplay.json().investigation).toMatchObject({
+      reviewId:ids[0],idempotentReplay:true,canReleaseStock:false,
+    });
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM audit_events "+
+      "WHERE business_id=$1 AND event_type='HUBTEL_CANCELLATION_INVESTIGATION_REQUESTED'",
+      [m.businessId])).rows[0]!.count).toBe("1");
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM inventory_movements WHERE business_id=$1",
+      [m.businessId])).rows[0]!.count).toBe("0");
+    // An immutable investigation can never be silently edited into a 'void'.
+    await expect(pool.query(
+      "UPDATE hubtel_pos_cancellation_investigations SET reason='fraud' WHERE business_id=$1",
+      [m.businessId])).rejects.toThrow();
+    await expect(pool.query(
+      "DELETE FROM hubtel_pos_cancellation_investigations WHERE business_id=$1",
+      [m.businessId])).rejects.toThrow();
+  });
+
+  it("rejects invalid reasons and unauthorised tenants, and never accepts a first request after PAID",async()=>{
+    const m=await merchant("investigation-authorization","merchant_1","111111");
+    const other=await merchant("investigation-other","merchant_2","222222");
+    const route="/v1/sales/"+m.saleId+"/hubtel/cancellation-investigation";
+    const payload={businessId:m.businessId,
+      note:"Customer reports the checkout has been abandoned and no payment was authorised."};
+    const unauthorized=await app.inject({method:"POST",url:route,payload});
+    expect(unauthorized.statusCode).toBe(401);
+    const crossTenant=await app.inject({method:"POST",url:route,
+      headers:other.headers,payload});
+    expect(crossTenant.statusCode).toBe(403);
+    const shortReason=await app.inject({method:"POST",url:route,
+      headers:m.headers,payload:{...payload,note:"cancel it"}});
+    expect(shortReason.statusCode).toBe(400);
+    installMock();
+    await startSaleHubtelCheckout(pool,{businessId:m.businessId,saleId:m.saleId,
+      clientRequestId:randomUUID()});
+    await pool.query("UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1",
+      [m.businessId]);
+    const cashier=await app.inject({method:"POST",url:route,
+      headers:m.headers,payload});
+    expect(cashier.statusCode).toBe(403);
+    await pool.query("UPDATE business_memberships SET role='OWNER' WHERE business_id=$1",
+      [m.businessId]);
+    const settled=await verifySaleHubtelCheckout(pool,{
+      businessId:m.businessId,saleId:m.saleId,
+    });
+    expect(settled.state).toBe("PAID");
+    const afterPaid=await app.inject({method:"POST",url:route,
+      headers:m.headers,payload});
+    expect(afterPaid.statusCode).toBe(409);
+    expect((await ledger(m))).toMatchObject({
+      status:"COMPLETED",payment_status:"SUCCEEDED",receipt_count:"1",
+    });
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM hubtel_pos_cancellation_investigations "+
+      "WHERE business_id=$1",[m.businessId])).rows[0]!.count).toBe("0");
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM hubtel_pos_cancellation_investigations "+
+      "WHERE business_id=$1",[other.businessId])).rows[0]!.count).toBe("0");
+  });
+});
