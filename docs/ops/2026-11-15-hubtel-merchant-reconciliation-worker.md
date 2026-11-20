@@ -234,7 +234,7 @@ entire branch, even when the underlying checkout is no longer among the most
 recent attempts. Dashboard counts include all outstanding cases, not just
 the current page. Overdue cases are prioritized above other outcomes. Each
 case shows the age of the request, latest human follow-up, and time/error of
-the most recent *authenticated* provider status check, where available.
+the most recent server-side provider status-check attempt, where available.
 
 This is an operations attention timer—not an automatic provider recheck
 schedule, payment failure verdict, authorization to void, or entitlement to
