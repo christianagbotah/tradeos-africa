@@ -89,8 +89,9 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
       await requireBusinessRole(pool, auth, businessId, REFUND_REVIEW_ROLES);
       await requireBranch(pool, businessId, branchId);
       const status = request.query.status ?? "ALL";
-      if (!["ALL", "PENDING", "FAILED"].includes(status)) {
-        throw new SalesReadError("Refund status filter must be ALL, PENDING or FAILED.",
+      if (!["ALL", "PENDING", "FAILED", "PENDING_24H", "PENDING_7D"].includes(status)) {
+        throw new SalesReadError(
+          "Refund status filter must be ALL, PENDING, FAILED, PENDING_24H or PENDING_7D.",
           400, "REFUND_STATUS_INVALID");
       }
       const limit = clampLimit(request.query.limit);
@@ -137,7 +138,15 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
          LEFT JOIN customers c ON c.id=rc.customer_id AND c.business_id=rt.business_id
          WHERE rt.business_id=$1 AND rc.branch_id=$2
            AND rt.status IN ('PENDING','FAILED')
-           AND ($3='ALL' OR rt.status=$3)
+           AND (
+             $3='ALL'
+             OR ($3='PENDING' AND rt.status='PENDING')
+             OR ($3='FAILED' AND rt.status='FAILED')
+             OR ($3='PENDING_24H' AND rt.status='PENDING'
+                 AND rt.created_at < NOW() - INTERVAL '24 hours')
+             OR ($3='PENDING_7D' AND rt.status='PENDING'
+                 AND rt.created_at < NOW() - INTERVAL '7 days')
+           )
          ORDER BY rt.created_at ASC,rt.id ASC LIMIT $4 OFFSET $5`,
         [businessId, branchId, status, limit + 1, parsedOffset],
       );

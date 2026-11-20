@@ -55,6 +55,7 @@ describe("refund settlement queue currency isolation", () => {
     }
 
     await seed("p-gh", branchId, "GHS", "PENDING", 1200, 8 * 24);
+    await seed("p-new", branchId, "GHS", "PENDING", 300, 0);
     await seed("f-gh", branchId, "GHS", "FAILED", 400, 10 * 24);
     await seed("p-us", branchId, "USD", "PENDING", 2500, 30);
     await seed("s-gh", branchId, "GHS", "SUCCEEDED", 700);
@@ -68,7 +69,7 @@ describe("refund settlement queue currency isolation", () => {
     expect(result.headers["cache-control"]).toContain("no-store");
     expect(result.json()).toMatchObject({
       summaryByCurrency: [
-        { currencyCode: "GHS", pendingCount: 1, pendingMinor: 1200,
+        { currencyCode: "GHS", pendingCount: 2, pendingMinor: 1500,
           failedCount: 1, failedMinor: 400,
           pending24hCount: 1, pending24hMinor: 1200,
           pending7dCount: 1, pending7dMinor: 1200 },
@@ -81,6 +82,40 @@ describe("refund settlement queue currency isolation", () => {
     });
     expect(result.json().items).toHaveLength(1);
     expect(result.json()).not.toHaveProperty("summary");
+
+    // The server, not the latest-ten page or browser clock, chooses overdue
+    // pending items. Filtered pages must preserve the same full-branch,
+    // independently currency-grouped liability summary.
+    const queueUrl = `/v1/refunds/settlement-queue?businessId=${businessId}&branchId=${branchId}`;
+    const age24h = await app.inject({ method: "GET", headers,
+      url: queueUrl + "&status=PENDING_24H&limit=1" });
+    expect(age24h.statusCode).toBe(200);
+    expect(age24h.json().items).toHaveLength(1);
+    expect(age24h.json().hasMore).toBe(true);
+    expect(age24h.json().items[0]).toMatchObject({
+      status: "PENDING", currencyCode: "GHS", amountMinor: 1200,
+    });
+    expect(age24h.json().summaryByCurrency).toEqual(result.json().summaryByCurrency);
+
+    const age7d = await app.inject({ method: "GET", headers,
+      url: queueUrl + "&status=PENDING_7D" });
+    expect(age7d.statusCode).toBe(200);
+    expect(age7d.json().hasMore).toBe(false);
+    expect(age7d.json().items).toHaveLength(1);
+    expect(age7d.json().items[0]).toMatchObject({
+      status: "PENDING", currencyCode: "GHS", amountMinor: 1200,
+    });
+    expect(age7d.json().summaryByCurrency).toEqual(result.json().summaryByCurrency);
+
+    const failedOnly = await app.inject({ method: "GET", headers,
+      url: queueUrl + "&status=FAILED" });
+    expect(failedOnly.json().items).toHaveLength(1);
+    expect(failedOnly.json().items[0]).toMatchObject({ status: "FAILED", amountMinor: 400 });
+    const allUnresolved = await app.inject({ method: "GET", headers, url: queueUrl });
+    expect(allUnresolved.json().items).toHaveLength(4);
+    expect((await app.inject({ method: "GET", headers,
+      url: queueUrl + "&status=PENDING_30D" })).statusCode).toBe(400);
+
     const unauthenticated = await app.inject({
       method: "GET",
       url: `/v1/refunds/settlement-queue?businessId=${businessId}&branchId=${branchId}`,
