@@ -917,7 +917,7 @@ describe("Hubtel pending-checkout cancellation investigation requests",()=>{
     expect(lastActivity).toBeGreaterThan(Date.now()-60000);
     const outsider=await app.inject({method:"GET",url:base,headers:other.headers});
     expect(outsider.statusCode).toBe(403);
-    expect((await ledger(m)).toMatchObject({
+    expect(await ledger(m)).toMatchObject({
       status:"OPEN",payment_status:"PENDING",receipt_count:"0",
     });
     expect((await pool.query<{count:string}>(
