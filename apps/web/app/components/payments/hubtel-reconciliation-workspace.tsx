@@ -9,6 +9,7 @@ import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import {HubtelExceptionCasePanel} from "./hubtel-exception-case-panel";
 import {HubtelCancellationPreflightPanel} from "./hubtel-cancellation-preflight-panel";
+import {HubtelCancellationInvestigationQueue} from "./hubtel-cancellation-investigation-queue";
 import styles from "./hubtel-reconciliation-workspace.module.css";
 
 type State = "PREPARED" | "READY" | "PENDING_VERIFICATION" |
@@ -240,6 +241,12 @@ export function HubtelReconciliationWorkspace() {
           ) : null}
         </article>)}
       </section>}
+    {session && canRead ? (
+      <HubtelCancellationInvestigationQueue
+        key={session.businessId+":"+session.branchId}
+        businessId={session.businessId} branchId={session.branchId}
+        online={queue.online}/>
+    ) : null}
     <HubtelExceptionCasePanel/>
     <footer className={styles.footer}>
       <p>Live status verification uses merchant-specific server credentials. No provider
