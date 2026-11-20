@@ -89,9 +89,10 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
       await requireBusinessRole(pool, auth, businessId, REFUND_REVIEW_ROLES);
       await requireBranch(pool, businessId, branchId);
       const status = request.query.status ?? "ALL";
-      if (!["ALL", "PENDING", "FAILED", "PENDING_24H", "PENDING_7D"].includes(status)) {
+      if (!["ALL", "PENDING", "FAILED", "PENDING_24H", "PENDING_7D",
+        "EVIDENCE_MISMATCH", "EVIDENCE_AWAITING_REVIEW", "EVIDENCE_NEEDS_PROVIDER"].includes(status)) {
         throw new SalesReadError(
-          "Refund status filter must be ALL, PENDING, FAILED, PENDING_24H or PENDING_7D.",
+          "Invalid refund status or provider evidence review filter.",
           400, "REFUND_STATUS_INVALID");
       }
       const limit = clampLimit(request.query.limit);
@@ -129,12 +130,17 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
         method: string; amount_minor: string | number; currency_code: string;
         provider_reference: string | null; reason: string;
         customer_name: string | null; created_at: Date;
-        followup_count: string | number;
+        followup_count: string | number; evidence_claim_count: string | number;
+        evidence_awaiting_review_count: string | number;
+        evidence_discrepancy_count: string | number;
         last_escalation_kind: "ESCALATED" | "ESCALATION_REVIEWED" | null;
       }>(
         `SELECT rt.id,rt.return_case_id,rc.original_sale_id AS sale_id,rt.status,
                 rt.method,rt.amount_minor,rt.currency_code,rt.provider_reference,
                 rc.reason,c.name AS customer_name,rt.created_at,
+                evidence.claim_count AS evidence_claim_count,
+                evidence.awaiting_review_count AS evidence_awaiting_review_count,
+                evidence.discrepancy_count AS evidence_discrepancy_count,
                 (SELECT COUNT(*) FROM refund_followup_events f
                  WHERE f.business_id=rt.business_id AND f.refund_transaction_id=rt.id)
                   AS followup_count,
@@ -145,6 +151,21 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
          FROM refund_transactions rt
          JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
          LEFT JOIN customers c ON c.id=rc.customer_id AND c.business_id=rt.business_id
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*) AS claim_count,
+                  COUNT(*) FILTER (WHERE review.id IS NULL) AS awaiting_review_count,
+                  COUNT(*) FILTER (
+                    WHERE claim.reported_amount_minor<>rt.amount_minor
+                       OR claim.reported_currency<>rt.currency_code
+                       OR review.decision='DISCREPANCY_RECORDED'
+                  ) AS discrepancy_count
+           FROM refund_provider_evidence_claims claim
+           LEFT JOIN refund_provider_evidence_reviews review
+             ON review.evidence_claim_id=claim.id AND review.business_id=rt.business_id
+             AND review.branch_id=rc.branch_id
+           WHERE claim.business_id=rt.business_id AND claim.branch_id=rc.branch_id
+             AND claim.refund_transaction_id=rt.id
+         ) evidence ON true
          WHERE rt.business_id=$1 AND rc.branch_id=$2
            AND rt.status IN ('PENDING','FAILED')
            AND (
@@ -155,6 +176,10 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
                  AND rt.created_at < NOW() - INTERVAL '24 hours')
              OR ($3='PENDING_7D' AND rt.status='PENDING'
                  AND rt.created_at < NOW() - INTERVAL '7 days')
+             OR ($3='EVIDENCE_MISMATCH' AND evidence.discrepancy_count>0)
+             OR ($3='EVIDENCE_AWAITING_REVIEW' AND evidence.awaiting_review_count>0)
+             OR ($3='EVIDENCE_NEEDS_PROVIDER' AND evidence.claim_count>0
+                 AND evidence.awaiting_review_count=0 AND evidence.discrepancy_count=0)
            )
          ORDER BY rt.created_at ASC,rt.id ASC LIMIT $4 OFFSET $5`,
         [businessId, branchId, status, limit + 1, parsedOffset],
@@ -192,6 +217,10 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
           customerName: row.customer_name,
           createdAt: row.created_at.toISOString(),
           followupCount: safeMinor(row.followup_count),
+          evidenceClaimCount: safeMinor(row.evidence_claim_count),
+          evidenceAwaitingReviewCount: safeMinor(row.evidence_awaiting_review_count),
+          evidenceDiscrepancyCount: safeMinor(row.evidence_discrepancy_count),
+          providerFinality: "NOT_ESTABLISHED" as const,
           escalated: row.last_escalation_kind === "ESCALATED",
         })),
         offset: parsedOffset,

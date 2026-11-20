@@ -11,7 +11,8 @@ import { RefundFollowupPanel } from "./refund-followup-panel";
 import { RefundReconciliationPanel } from "./refund-reconciliation-panel";
 
 type SettlementStatus = "PENDING" | "FAILED";
-type SettlementFilter = "ALL" | SettlementStatus | "PENDING_24H" | "PENDING_7D";
+type SettlementFilter = "ALL" | SettlementStatus | "PENDING_24H" | "PENDING_7D" |
+  "EVIDENCE_MISMATCH" | "EVIDENCE_AWAITING_REVIEW" | "EVIDENCE_NEEDS_PROVIDER";
 interface SettlementItem {
   id: string;
   returnCaseId: string;
@@ -25,6 +26,10 @@ interface SettlementItem {
   reason: string;
   createdAt: string;
   followupCount: number;
+  evidenceClaimCount: number;
+  evidenceAwaitingReviewCount: number;
+  evidenceDiscrepancyCount: number;
+  providerFinality: "NOT_ESTABLISHED";
   escalated: boolean;
 }
 interface SettlementWorklist {
@@ -106,6 +111,9 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
     { value: "PENDING_24H", label: "Pending 24h+" },
     { value: "PENDING_7D", label: "Pending 7d+" },
     { value: "FAILED", label: "Needs review" },
+    { value: "EVIDENCE_AWAITING_REVIEW", label: "Evidence to review" },
+    { value: "EVIDENCE_MISMATCH", label: "Evidence discrepancies" },
+    { value: "EVIDENCE_NEEDS_PROVIDER", label: "Provider proof needed" },
   ];
 
   return (
@@ -117,7 +125,8 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
             All outstanding payouts in this branch, including those older than the last 50 receipts.
             Read-only: pending refunds are not paid until the provider confirms settlement.
             The 24h+ and 7d+ figures are subsets of pending payouts, not additional liabilities.
-            Select an age filter below to see only the overdue pending records.
+            Filter overdue payouts, unreviewed evidence, discrepancies and cases
+            that have been reviewed but still lack independent provider proof.
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => refetch()}>Refresh</Button>
@@ -172,7 +181,9 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
         <StatePanel inline variant="empty" title="No outstanding refunds"
           text={filter === "PENDING_24H" || filter === "PENDING_7D"
             ? "No pending payouts match this ageing threshold in the selected branch."
-            : "There are no pending or failed refund payouts for this filter."} />
+            : filter.startsWith("EVIDENCE_")
+              ? "No unresolved refunds match this evidence review filter."
+              : "There are no pending or failed refund payouts for this filter."} />
       ) : null}
       {!loading && !error && data?.items.length ? (
         <ul className="tos-list-cards" aria-label="Unresolved refund payouts">
@@ -223,6 +234,29 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
                   {item.escalated ? <span className="tos-badge tos-badge--danger">
                     Escalated
                   </span> : null}
+                  {item.providerFinality === "NOT_ESTABLISHED" &&
+                    [item.evidenceClaimCount,item.evidenceAwaitingReviewCount,
+                      item.evidenceDiscrepancyCount].every(n=>Number.isSafeInteger(n)&&n>=0) ? (
+                    <>
+                      {item.evidenceDiscrepancyCount>0 ? (
+                        <span className="tos-badge tos-badge--danger">
+                          Evidence discrepancy ({item.evidenceDiscrepancyCount})
+                        </span>
+                      ) : null}
+                      {item.evidenceAwaitingReviewCount>0 ? (
+                        <span className="tos-badge tos-badge--neutral">
+                          Evidence to review ({item.evidenceAwaitingReviewCount})
+                        </span>
+                      ) : null}
+                      {item.evidenceClaimCount>0 &&
+                        item.evidenceAwaitingReviewCount===0 &&
+                        item.evidenceDiscrepancyCount===0 ? (
+                        <span className="tos-badge tos-badge--neutral">
+                          Awaiting provider proof
+                        </span>
+                      ) : null}
+                    </>
+                  ) : null}
                 </div>
               </div>
               {selectedRefundId === item.id && session ? (

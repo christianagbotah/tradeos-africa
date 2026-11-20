@@ -274,4 +274,97 @@ describe("unverified refund-specific provider evidence intake",()=>{
       url:f.list(f.main.refund)+"&offset=-1",
       headers:f.submitter.headers})).statusCode).toBe(400);
   });
+
+  it("triages unresolved provider evidence by review, discrepancies, and missing provider proof",async()=>{
+    const f=await setUp();
+    const endpoint=(status:string,branch=f.branchId)=>
+      "/v1/refunds/settlement-queue?businessId="+f.businessId+
+      "&branchId="+branch+"&status="+status;
+    const allBefore=await app.inject({method:"GET",
+      url:endpoint("ALL"),headers:f.submitter.headers});
+    expect(allBefore.statusCode).toBe(200);
+    const baselineSummary=allBefore.json().summaryByCurrency;
+    expect(allBefore.json().items).toHaveLength(3);
+    for(const item of allBefore.json().items){
+      expect(item).toMatchObject({
+        evidenceClaimCount:0,evidenceAwaitingReviewCount:0,
+        evidenceDiscrepancyCount:0,providerFinality:"NOT_ESTABLISHED",
+      });
+    }
+    const mismatch=await f.post({
+      ...f.claim(f.main.refund,"HUB-TRIAGE-MISMATCH-0001"),
+      reportedAmountMinor:1800,reportedCurrency:"USD",
+    },f.submitter.headers);
+    expect(mismatch.statusCode).toBe(201);
+    const matching=await f.post(
+      f.claim(f.second.refund,"HUB-TRIAGE-MATCHED-0001"),
+      f.submitter.headers);
+    expect(matching.statusCode).toBe(201);
+    const foreign=await f.post(
+      f.claim(f.otherBranch.refund,"HUB-TRIAGE-FOREIGN-0001",
+        randomUUID(),f.otherBranchId),f.submitter.headers);
+    expect(foreign.statusCode).toBe(201);
+
+    const awaiting=await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_AWAITING_REVIEW"),headers:f.reviewer.headers});
+    expect(awaiting.statusCode).toBe(200);
+    expect(awaiting.json().items).toHaveLength(2);
+    expect(awaiting.json().items.every((item:{evidenceClaimCount:number;
+      evidenceAwaitingReviewCount:number;providerFinality:string})=>
+        item.evidenceClaimCount===1 &&
+        item.evidenceAwaitingReviewCount===1 &&
+        item.providerFinality==="NOT_ESTABLISHED")).toBe(true);
+    expect(awaiting.json().summaryByCurrency).toEqual(baselineSummary);
+    const mismatches=await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_MISMATCH"),headers:f.reviewer.headers});
+    expect(mismatches.statusCode).toBe(200);
+    expect(mismatches.json().items).toHaveLength(1);
+    expect(mismatches.json().items[0]).toMatchObject({
+      id:f.main.refund,evidenceDiscrepancyCount:1,
+      evidenceClaimCount:1,providerFinality:"NOT_ESTABLISHED",
+    });
+    expect(mismatches.json().summaryByCurrency).toEqual(baselineSummary);
+    expect(JSON.stringify(mismatches.json())).not.toContain("8721");
+    expect(JSON.stringify(mismatches.json())).not.toContain("HUB-TRIAGE-MISMATCH-0001");
+    const noVerified=await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_NEEDS_PROVIDER"),headers:f.reviewer.headers});
+    expect(noVerified.json().items).toHaveLength(0);
+    const reviewed=await f.doReview(f.review(f.second.refund,
+      matching.json().claim.claimId),f.reviewer.headers);
+    expect(reviewed.statusCode).toBe(201);
+    const flagged=await f.doReview(f.review(f.main.refund,
+      mismatch.json().claim.claimId,"DISCREPANCY_RECORDED"),f.reviewer.headers);
+    expect(flagged.statusCode).toBe(201);
+    const afterReview=await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_AWAITING_REVIEW"),headers:f.reviewer.headers});
+    expect(afterReview.json().items).toHaveLength(0);
+    const providerNeeded=await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_NEEDS_PROVIDER"),headers:f.reviewer.headers});
+    expect(providerNeeded.statusCode).toBe(200);
+    expect(providerNeeded.json().items).toHaveLength(1);
+    expect(providerNeeded.json().items[0]).toMatchObject({
+      id:f.second.refund,evidenceClaimCount:1,
+      evidenceAwaitingReviewCount:0,evidenceDiscrepancyCount:0,
+      providerFinality:"NOT_ESTABLISHED",
+    });
+    const stillMismatch=await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_MISMATCH"),headers:f.reviewer.headers});
+    expect(stillMismatch.json().items).toHaveLength(1);
+    expect(stillMismatch.json().items[0].id).toBe(f.main.refund);
+    expect(providerNeeded.json().summaryByCurrency).toEqual(baselineSummary);
+    expect((await app.inject({method:"GET",url:endpoint("EVIDENCE_MISMATCH",
+      f.otherBranchId),headers:f.reviewer.headers})).json().items).toHaveLength(0);
+    expect((await app.inject({method:"GET",url:endpoint("EVIDENCE_MISMATCH"),
+      headers:f.cashier.headers})).statusCode).toBe(403);
+    expect((await app.inject({method:"GET",url:endpoint("EVIDENCE_MISMATCH"),
+      headers:f.outsider.headers})).statusCode).toBe(403);
+    expect((await app.inject({method:"GET",url:endpoint("EVIDENCE_MISMATCH")}
+      )).statusCode).toBe(401);
+    expect((await app.inject({method:"GET",url:endpoint("EVIDENCE_VERIFIED"),
+      headers:f.submitter.headers})).statusCode).toBe(400);
+    const actual=(await pool.query<{status:string;amount_minor:string}>(
+      "SELECT status,amount_minor::text FROM refund_transactions WHERE id=$1",
+      [f.main.refund])).rows[0];
+    expect(actual).toEqual({status:"PENDING",amount_minor:"1400"});
+  });
 });
