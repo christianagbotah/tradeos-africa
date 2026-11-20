@@ -64,6 +64,7 @@ export function HubtelReconciliationWorkspace() {
   const { session, role, queue } = useWorkspace();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [preflightSaleId, setPreflightSaleId] = useState<string | null>(null);
+  const [investigationVersion,setInvestigationVersion] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canRead = ["OWNER","ADMIN","MANAGER","ACCOUNTANT"].includes(role);
@@ -237,13 +238,14 @@ export function HubtelReconciliationWorkspace() {
           {session && preflightSaleId===item.saleId ? (
             <HubtelCancellationPreflightPanel
               saleId={item.saleId} businessId={session.businessId}
-              onClose={() => setPreflightSaleId(null)} online={queue.online} />
+              onClose={() => setPreflightSaleId(null)} online={queue.online}
+              onInvestigationSubmitted={() => setInvestigationVersion(v => v+1)} />
           ) : null}
         </article>)}
       </section>}
     {session && canRead ? (
       <HubtelCancellationInvestigationQueue
-        key={session.businessId+":"+session.branchId}
+        key={session.businessId+":"+session.branchId+":"+investigationVersion}
         businessId={session.businessId} branchId={session.branchId}
         online={queue.online}/>
     ) : null}
