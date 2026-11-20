@@ -131,7 +131,7 @@ export function HubtelCancellationInvestigationQueue({
               <div className={styles.investigationFollowup}>
                 <span>Last follow-up: {item.lastFollowUpAt?
                   shortDate(item.lastFollowUpAt):"Not yet recorded"}</span>
-                <span>Last server-side provider check attempt: {item.lastProviderStatusCheckAt?
+                <span>Last Hubtel status check attempt: {item.lastProviderStatusCheckAt?
                   shortDate(item.lastProviderStatusCheckAt):"Not recorded"}</span>
                 {item.lastProviderStatusError?<span>Provider check issue:
                   {" "}{item.lastProviderStatusError.replaceAll("_"," ").toLowerCase()}</span>:null}
