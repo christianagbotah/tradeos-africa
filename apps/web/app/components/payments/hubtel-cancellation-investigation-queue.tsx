@@ -161,7 +161,7 @@ export function HubtelCancellationInvestigationQueue({
                   <HubtelCancellationInvestigationTimeline
                     key={item.reviewId}
                     businessId={businessId} investigationId={item.reviewId}
-                    online={online}/>
+                    online={online} onNewEvent={refetch}/>
                 </div>
               ) : null}
             </article>
