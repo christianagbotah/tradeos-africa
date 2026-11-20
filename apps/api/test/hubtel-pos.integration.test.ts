@@ -854,6 +854,78 @@ describe("Hubtel cancellation stock impact preflight (read only)", () => {
 
 describe("Hubtel pending-checkout cancellation investigation requests",()=>{
 
+  it("escalates 24h-old unanswered cases, resets follow-up due after a recorded note, without moving stock",async()=>{
+    const m=await merchant("investigation-aging","merchant_1","111111");
+    const other=await merchant("investigation-aging-other","merchant_2","222222");
+    installMock();
+    await startSaleHubtelCheckout(pool,{businessId:m.businessId,saleId:m.saleId,
+      clientRequestId:randomUUID()});
+    const attempt=(await pool.query<{id:string;payment_id:string}>(
+      "SELECT id,payment_id FROM hubtel_sale_checkout_attempts "+
+      "WHERE business_id=$1 AND sale_id=$2",
+      [m.businessId,m.saleId])).rows[0]!;
+    const owner=(await pool.query<{user_id:string}>(
+      "SELECT user_id FROM business_memberships "+
+      "WHERE business_id=$1 AND role='OWNER' LIMIT 1",
+      [m.businessId])).rows[0]!;
+    // Simulates a legitimately opened historical case without altering an
+    // immutable existing record or changing the PostgreSQL application clock.
+    const caseId=(await pool.query<{id:string}>(
+      "INSERT INTO hubtel_pos_cancellation_investigations("+
+      "business_id,branch_id,sale_id,attempt_id,payment_id,"+
+      "requested_by_user_id,reason,created_at) "+
+      "VALUES($1,$2,$3,$4,$5,$6,$7,now()-interval '3 days') RETURNING id",
+      [m.businessId,m.branchId,m.saleId,attempt.id,attempt.payment_id,
+        owner.user_id,"Merchant needs a payment status follow-up with Hubtel support."],
+    )).rows[0]!.id;
+    const base=`/v1/payments/hubtel/cancellation-investigations?businessId=${m.businessId}&branchId=${m.branchId}`;
+    const due=await app.inject({method:"GET",
+      url:base+"&outcome=FOLLOW_UP_DUE&limit=5",headers:m.headers});
+    expect(due.statusCode,due.body).toBe(200);
+    expect(due.json()).toMatchObject({
+      filteredCount:1,hasMore:false,summary:{
+        total:1,pending:1,paid:0,followUpDue24h:1,
+      },cases:[{reviewId:caseId,followUpDue24h:true,
+        lastFollowUpAt:null,lastProviderStatusCheckAt:null,
+        providerFinality:"NOT_ESTABLISHED",canReleaseStock:false}],
+    });
+    expect(due.json().cases[0].caseAgeDays).toBeGreaterThanOrEqual(2);
+    const note=await app.inject({method:"POST",headers:m.headers,
+      url:`/v1/payments/hubtel/cancellation-investigations/${caseId}/events`,
+      payload:{businessId:m.businessId,clientRequestId:randomUUID(),
+        eventKind:"PROVIDER_CONTACTED",
+        note:"Called provider support for the unresolved payment; awaiting independent verified status."},
+    });
+    expect(note.statusCode,note.body).toBe(200);
+    const afterNote=await app.inject({method:"GET",
+      url:base+"&outcome=FOLLOW_UP_DUE&limit=5",headers:m.headers});
+    expect(afterNote.statusCode,afterNote.body).toBe(200);
+    expect(afterNote.json()).toMatchObject({
+      summary:{total:1,pending:1,followUpDue24h:0},
+      filteredCount:0,cases:[],
+    });
+    const pending=await app.inject({method:"GET",
+      url:base+"&outcome=PENDING",headers:m.headers});
+    expect(pending.statusCode,pending.body).toBe(200);
+    expect(pending.json().cases).toHaveLength(1);
+    expect(pending.json().cases[0]).toMatchObject({
+      reviewId:caseId,followUpDue24h:false,
+      lastProviderStatusCheckAt:null,canReleaseStock:false,
+    });
+    expect(typeof pending.json().cases[0].lastFollowUpAt).toBe("string");
+    const lastActivity=new Date(pending.json().cases[0].lastActivityAt).getTime();
+    expect(lastActivity).toBeGreaterThan(Date.now()-60000);
+    const outsider=await app.inject({method:"GET",url:base,headers:other.headers});
+    expect(outsider.statusCode).toBe(403);
+    expect((await ledger(m)).toMatchObject({
+      status:"OPEN",payment_status:"PENDING",receipt_count:"0",
+    });
+    expect((await pool.query<{count:string}>(
+      "SELECT count(*)::text AS count FROM inventory_movements "+
+      "WHERE business_id=$1",[m.businessId])).rows[0]!.count).toBe("0");
+  });
+
+
   it("lists current branch investigations with all-time counts, payment outcomes and pagination",async()=>{
     const m=await merchant("investigation-list","merchant_1","111111");
     const outsider=await merchant("investigation-list-outsider","merchant_2","222222");
