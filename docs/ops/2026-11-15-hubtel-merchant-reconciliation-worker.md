@@ -218,3 +218,28 @@ Neither case overrides the verified payment state, and no case note may
 release inventory, reverse COGS/cashbook or create a receipt. The provider's
 finality contract and exact-once cancellation accounting remain open launch
 blockers (#134).
+
+## Outstanding investigation follow-up timing (20 November 2026)
+
+The branch-wide cancellation investigation register now records an operational
+**follow-up due after 24 hours without a new investigation activity entry**.
+The case clock starts with the investigation request and resets when an
+authorized merchant user writes a new immutable follow-up event. The due
+condition applies only while the merchant's sale is still OPEN and its
+payment is still PENDING. Independently verified paid cases remain in the
+historical list but are no longer flagged as needing unpaid follow-up.
+
+Use the **Follow-up overdue (24h)** filter to see affected cases across the
+entire branch, even when the underlying checkout is no longer among the most
+recent attempts. Dashboard counts include all outstanding cases, not just
+the current page. Overdue cases are prioritized above other outcomes. Each
+case shows the age of the request, latest human follow-up, and time/error of
+the most recent *authenticated* provider status check, where available.
+
+This is an operations attention timer—not an automatic provider recheck
+schedule, payment failure verdict, authorization to void, or entitlement to
+release stock. Adding a human note changes **only the follow-up timer**;
+it does not prove that a Hubtel payment is final, nor does it bypass the
+server-side status worker. Cases with no recorded status check must be treated
+as uncertain. Existing live Hubtel POS collections remain gated pending a
+provider-guaranteed void/finality mechanism and atomic stock/COGS compensation.
