@@ -218,9 +218,9 @@ export async function applySaleMutationInTransaction(
 
       if (item.kind === "PRODUCT" && item.track_stock) {
         if (!item.stock_unit_code || stockQuantity === null) throw new SaleMutationError(`${item.name} has invalid stock configuration`);
-        await consumeStock(client, {
+        const stockMovementId = await consumeStock(client, {
           businessId: context.businessId,
-          branchId: context.branchId,
+          branchId:
           itemId: item.id,
           itemName: item.name,
           unit: item.stock_unit_code,
@@ -230,6 +230,11 @@ export async function applySaleMutationInTransaction(
           actorStaffId: payload.cashierStaffId ?? null,
           idempotencyKey: `${context.clientMutationId}:sale:${index}`,
           occurredAt: context.occurredAt,
+        });
+        await recordStockConsumptionCost(client, context, {
+          saleLineId, movementId: stockMovementId,
+          itemId: item.id, stockUnitCode: item.stock_unit_code,
+          quantity: stockQuantity, consumedCostMinor: lineCostMinor,
         });
       }
 
@@ -399,7 +404,7 @@ interface StockUse {
   actorStaffId: string | null; idempotencyKey: string; occurredAt: string;
 }
 
-async function consumeStock(client: DatabaseClient, input: StockUse): Promise<void> {
+async function consumeStock(client: DatabaseClient, input: StockUse): Promise<string> {
   const balance = await client.query<{ quantity: string | number }>(
     `SELECT COALESCE(SUM(quantity_delta),0) AS quantity FROM inventory_movements
      WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND stock_unit_code=$4 AND location_type='AVAILABLE'`,
@@ -409,13 +414,40 @@ async function consumeStock(client: DatabaseClient, input: StockUse): Promise<vo
   if (available + Number.EPSILON < input.quantity) {
     throw new SaleMutationError(`${input.itemName} has ${available} ${input.unit}; ${input.quantity} is required`, "INSUFFICIENT_STOCK");
   }
-  await client.query(
+  const result = await client.query<{ id: string }>(
     `INSERT INTO inventory_movements (
        business_id,branch_id,item_id,stock_unit_code,quantity_delta,location_type,reason,
        reference_type,reference_id,actor_staff_id,idempotency_key,occurred_at
-     ) VALUES ($1,$2,$3,$4,$5,'AVAILABLE',$6,'SALE_LINE',$7,$8,$9,$10)`,
+     ) VALUES ($1,$2,$3,$4,$5,'AVAILABLE',$6,'SALE_LINE',$7,$8,$9,$10) RETURNING id`,
     [input.businessId,input.branchId,input.itemId,input.unit,-input.quantity,input.reason,input.referenceId,input.actorStaffId,input.idempotencyKey,input.occurredAt],
   );
+  if (!result.rows[0]) throw new SaleMutationError(
+    "Stock movement could not be journaled", "SALE_STOCK_JOURNAL_FAILED");
+  return result.rows[0].id;
+}
+
+/** Store immutable historical cost alongside the precise original consumption.
+ * Refund or cancellation workflows must post separate compensating journals. */
+async function recordStockConsumptionCost(
+  client: DatabaseClient,
+  context: SaleMutationContext,
+  entry: {
+    saleLineId: string; movementId: string; itemId: string;
+    stockUnitCode: string; quantity: number; consumedCostMinor: number;
+  },
+): Promise<void> {
+  safeMinor(entry.consumedCostMinor);
+  const cost = await client.query<{ id: string }>(
+    `INSERT INTO sale_stock_cost_allocations (
+       business_id,branch_id,sale_line_id,inventory_movement_id,
+       item_id,stock_unit_code,consumed_quantity,consumed_cost_minor
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [context.businessId, context.branchId, entry.saleLineId,
+      entry.movementId, entry.itemId, entry.stockUnitCode,
+      entry.quantity, entry.consumedCostMinor],
+  );
+  if (!cost.rows[0]) throw new SaleMutationError(
+    "Original stock cost could not be journaled", "SALE_STOCK_COST_JOURNAL_FAILED");
 }
 
 async function consumeDefinition(
@@ -479,13 +511,18 @@ async function consumeDefinition(
       client, context, component.componentProductId, component.totalPlannedQuantity,
     );
     componentCostMinor = safeMinor(componentCostMinor + componentCost);
-    await consumeStock(client, {
+    const componentMovementId = await consumeStock(client, {
       businessId: context.businessId, branchId: context.branchId, itemId: component.componentProductId,
       itemName: row.component_name, unit: component.stockUnitId, quantity: component.totalPlannedQuantity,
       reason: item.kind === "SERVICE" ? "SERVICE_CONSUMPTION" : "RECIPE_CONSUMPTION",
       referenceId: saleLineId, actorStaffId,
       idempotencyKey: `${context.clientMutationId}:consume:${lineIndex}:${index}`,
       occurredAt: context.occurredAt,
+    });
+    await recordStockConsumptionCost(client, context, {
+      saleLineId, movementId: componentMovementId,
+      itemId: component.componentProductId, stockUnitCode: component.stockUnitId,
+      quantity: component.totalPlannedQuantity, consumedCostMinor: componentCost,
     });
   }
   return componentCostMinor;
