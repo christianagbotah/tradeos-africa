@@ -138,3 +138,10 @@
 .investigationHistoryItem .warning{justify-self:start}
 @media(max-width:700px){.investigationTimeline{padding:9px}
   .investigationUpdateForm{padding:10px}}
+
+.investigationFollowup{display:grid;grid-template-columns:repeat(auto-fit,
+  minmax(min(100%,210px),1fr));gap:7px 16px;padding:10px 12px;
+  border:1px solid var(--tos-border,#dfe4eb);
+  border-radius:8px;background:var(--tos-surface-secondary,#f1f6fc);
+  font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.investigationFollowup strong{grid-column:1/-1;font-weight:700}
