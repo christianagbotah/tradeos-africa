@@ -8,6 +8,7 @@ import { MoneyValue } from "../business/money-value";
 import { Button } from "../ui/button";
 import { StatePanel } from "../ui/state-panel";
 import { RefundFollowupPanel } from "./refund-followup-panel";
+import { RefundReconciliationPanel } from "./refund-reconciliation-panel";
 
 type SettlementStatus = "PENDING" | "FAILED";
 type SettlementFilter = "ALL" | SettlementStatus | "PENDING_24H" | "PENDING_7D";
@@ -61,11 +62,13 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
   const [filter, setFilter] = useState<SettlementFilter>("ALL");
   const [offset, setOffset] = useState(0);
   const [selectedRefundId, setSelectedRefundId] = useState<string | null>(null);
+  const [selectedReconciliationId, setSelectedReconciliationId] = useState<string | null>(null);
   // Never carry a pagination cursor from a different branch/business.
   useEffect(() => {
     setOffset(0);
     setFilter("ALL");
     setSelectedRefundId(null);
+    setSelectedReconciliationId(null);
   }, [session?.businessId, session?.branchId]);
   const path = allowed && session
     ? `/v1/refunds/settlement-queue?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&status=${filter}&limit=${PAGE_SIZE}&offset=${offset}`
@@ -154,7 +157,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
             size="sm"
             variant={filter === option.value ? "primary" : "outline"}
             aria-pressed={filter === option.value}
-            onClick={() => { setFilter(option.value); setOffset(0); setSelectedRefundId(null); }}
+            onClick={() => { setFilter(option.value); setOffset(0); setSelectedRefundId(null); setSelectedReconciliationId(null); }}
           >{option.label}</Button>
         ))}
       </div>
@@ -198,11 +201,18 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
                   <Link href={`/sales/receipt/${encodeURIComponent(item.saleId)}`}>
                     View original receipt
                   </Link>
-                  <Button size="sm" variant="outline" aria-expanded={selectedRefundId === item.id}
-                    onClick={() => setSelectedRefundId((id) => id === item.id ? null : item.id)}>
-                    {selectedRefundId === item.id ? "Close follow-ups"
-                      : `Follow-ups (${item.followupCount})`}
-                  </Button>
+                  <div className="tos-row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <Button size="sm" variant="outline" aria-expanded={selectedRefundId === item.id}
+                      onClick={() => setSelectedRefundId((id) => id === item.id ? null : item.id)}>
+                      {selectedRefundId === item.id ? "Close follow-ups"
+                        : `Follow-ups (${item.followupCount})`}
+                    </Button>
+                    <Button size="sm" variant="outline"
+                      aria-expanded={selectedReconciliationId === item.id}
+                      onClick={() => setSelectedReconciliationId((id) => id === item.id ? null : item.id)}>
+                      {selectedReconciliationId === item.id ? "Close checks" : "Reconciliation checks"}
+                    </Button>
+                  </div>
                 </div>
                 <div className="tos-returnable-card__body" style={{ textAlign: "right", alignItems: "flex-end" }}>
                   <MoneyValue minor={item.amountMinor} currencyCode={item.currencyCode}
@@ -218,6 +228,11 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
               {selectedRefundId === item.id && session ? (
                 <RefundFollowupPanel key={item.id + ":" + session.businessId + ":" + session.branchId}
                   refundId={item.id} onRecorded={refetch} />
+              ) : null}
+              {selectedReconciliationId === item.id && session ? (
+                <RefundReconciliationPanel
+                  key={item.id + ":" + session.businessId + ":" + session.branchId}
+                  refundId={item.id} />
               ) : null}
             </li>
           ))}
