@@ -47,7 +47,7 @@ function normalizedInput(input:{
     input.evidenceReference===null||input.evidenceReference===""?
       null:input.evidenceReference;
   if(reference!==null && (typeof reference!=="string"||
-      !REFERENCE.test(reference.trim())))
+      !REFERENCE.test(reference.trim()) || reference.includes("://")))
     posFail("Use an external provider support-case or document reference, not a URL or API credentials.",
       "HUBTEL_INVESTIGATION_EVENT_REFERENCE_INVALID",400);
   const evidenceReference=typeof reference==="string"?reference.trim():null;
