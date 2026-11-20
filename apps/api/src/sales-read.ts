@@ -129,10 +129,19 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
         method: string; amount_minor: string | number; currency_code: string;
         provider_reference: string | null; reason: string;
         customer_name: string | null; created_at: Date;
+        followup_count: string | number;
+        last_escalation_kind: "ESCALATED" | "ESCALATION_REVIEWED" | null;
       }>(
         `SELECT rt.id,rt.return_case_id,rc.original_sale_id AS sale_id,rt.status,
                 rt.method,rt.amount_minor,rt.currency_code,rt.provider_reference,
-                rc.reason,c.name AS customer_name,rt.created_at
+                rc.reason,c.name AS customer_name,rt.created_at,
+                (SELECT COUNT(*) FROM refund_followup_events f
+                 WHERE f.business_id=rt.business_id AND f.refund_transaction_id=rt.id)
+                  AS followup_count,
+                (SELECT f.event_kind FROM refund_followup_events f
+                 WHERE f.business_id=rt.business_id AND f.refund_transaction_id=rt.id
+                   AND f.event_kind IN ('ESCALATED','ESCALATION_REVIEWED')
+                 ORDER BY f.created_at DESC,f.id DESC LIMIT 1) AS last_escalation_kind
          FROM refund_transactions rt
          JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
          LEFT JOIN customers c ON c.id=rc.customer_id AND c.business_id=rt.business_id
@@ -182,6 +191,8 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
           reason: row.reason,
           customerName: row.customer_name,
           createdAt: row.created_at.toISOString(),
+          followupCount: safeMinor(row.followup_count),
+          escalated: row.last_escalation_kind === "ESCALATED",
         })),
         offset: parsedOffset,
         hasMore: result.rows.length > limit,
