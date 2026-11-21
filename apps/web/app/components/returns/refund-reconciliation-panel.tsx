@@ -53,7 +53,9 @@ const REASONS: Record<string, string> = {
 function outcome(value: Check): string {
   return value === true ? "Matched" : value === false ? "Mismatch" : "Not available";
 }
-export function RefundReconciliationPanel({ refundId }: { refundId: string }) {
+export function RefundReconciliationPanel({ refundId, onEvidenceRecorded }: {
+  refundId: string; onEvidenceRecorded: () => void;
+}) {
   const { session } = useWorkspace();
   const path = session
     ? `/v1/refunds/reconciliation-preflight?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&refundId=${encodeURIComponent(refundId)}`
@@ -149,7 +151,8 @@ export function RefundReconciliationPanel({ refundId }: { refundId: string }) {
           {snapshot.hubtel.checkoutLinked ? (
             <RefundHubtelOriginalOrderChecks refundId={refundId} />
           ) : null}
-          <RefundProviderEvidencePanel refundId={refundId} />
+          <RefundProviderEvidencePanel refundId={refundId}
+            onRecorded={onEvidenceRecorded} />
         </>
       ) : null}
     </section>

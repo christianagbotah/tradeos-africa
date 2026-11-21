@@ -367,4 +367,114 @@ describe("unverified refund-specific provider evidence intake",()=>{
       [f.main.refund])).rows[0];
     expect(actual).toEqual({status:"PENDING",amount_minor:"1400"});
   });
+
+  it("summarizes every unresolved branch refund per currency regardless of pagination",async()=>{
+    const f=await setUp();
+    // Add one USD payout liability to prove original refund currency isolation.
+    const sale=(await pool.query<{id:string}>(
+      `INSERT INTO sales
+       (business_id,branch_id,status,currency_code,subtotal_net_minor,total_minor,
+        client_mutation_id)
+       VALUES($1,$2,'COMPLETED','USD',7900,7900,$3) RETURNING id`,
+      [f.businessId,f.branchId,"sale-usd-rollup"])).rows[0]!.id;
+    const ret=(await pool.query<{id:string}>(
+      `INSERT INTO return_cases
+       (business_id,branch_id,original_sale_id,status,reason,refund_method,
+        currency_code,refund_total_minor,client_mutation_id)
+       VALUES($1,$2,$3,'PROCESSING','USD test','MOMO','USD',2700,$4)
+       RETURNING id`,[f.businessId,f.branchId,sale,"return-usd-rollup"]
+    )).rows[0]!.id;
+    const usdRefund=(await pool.query<{id:string}>(
+      `INSERT INTO refund_transactions
+       (business_id,return_case_id,amount_minor,currency_code,method,status,idempotency_key)
+       VALUES($1,$2,2700,'USD','MOMO','PENDING','refund-usd-rollup')
+       RETURNING id`,[f.businessId,ret])).rows[0]!.id;
+    const endpoint=(status:string,branch=f.branchId,extra="")=>
+      `/v1/refunds/settlement-queue?businessId=${f.businessId}&branchId=${branch}&status=${status}${extra}`;
+    const original=await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_MISSING",f.branchId,"&limit=1"),
+      headers:f.submitter.headers});
+    expect(original.statusCode).toBe(200);
+    expect(original.json().items).toHaveLength(1);
+    expect(original.json().hasMore).toBe(true);
+    expect(original.json().summaryByCurrency).toHaveLength(2);
+    expect(original.json().evidenceSummaryByCurrency).toEqual([
+      {currencyCode:"GHS",missingCount:2,missingMinor:2800,
+        awaitingReviewCount:0,awaitingReviewMinor:0,
+        discrepancyCount:0,discrepancyMinor:0,
+        needsProviderCount:0,needsProviderMinor:0},
+      {currencyCode:"USD",missingCount:1,missingMinor:2700,
+        awaitingReviewCount:0,awaitingReviewMinor:0,
+        discrepancyCount:0,discrepancyMinor:0,
+        needsProviderCount:0,needsProviderMinor:0},
+    ]);
+    // An unresolved cash refund is not an electronic provider-evidence case.
+    const fullMissing=await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_MISSING"),headers:f.submitter.headers});
+    expect(fullMissing.json().items).toHaveLength(3);
+    expect(fullMissing.json().items.some(
+      (item:{id:string})=>item.id===f.cashRefund.refund)).toBe(false);
+    expect(fullMissing.json().items.some(
+      (item:{id:string})=>item.id===usdRefund)).toBe(true);
+
+    const mismatch=await f.post({...f.claim(f.main.refund,"HUB-ROLLUP-MISMATCH"),
+      reportedAmountMinor:1900,reportedCurrency:"USD"},f.submitter.headers);
+    const matching=await f.post(f.claim(f.second.refund,"HUB-ROLLUP-MATCH"),
+      f.submitter.headers);
+    expect(mismatch.statusCode).toBe(201);
+    expect(matching.statusCode).toBe(201);
+    const afterClaims=await app.inject({method:"GET",
+      url:endpoint("ALL",f.branchId,"&limit=1&offset=1"),
+      headers:f.reviewer.headers});
+    expect(afterClaims.statusCode).toBe(200);
+    expect(afterClaims.json().items).toHaveLength(1);
+    expect(afterClaims.json().evidenceSummaryByCurrency[0]).toMatchObject({
+      currencyCode:"GHS",missingCount:0,missingMinor:0,
+      awaitingReviewCount:2,awaitingReviewMinor:2800,
+      discrepancyCount:1,discrepancyMinor:1400,
+      needsProviderCount:0,needsProviderMinor:0,
+    });
+    expect(afterClaims.json().evidenceSummaryByCurrency[1]).toMatchObject({
+      currencyCode:"USD",missingCount:1,missingMinor:2700,
+    });
+    const approved=await f.doReview(f.review(
+      f.second.refund,matching.json().claim.claimId),f.reviewer.headers);
+    expect(approved.statusCode).toBe(201);
+    const reviewed=await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_NEEDS_PROVIDER"),headers:f.reviewer.headers});
+    expect(reviewed.statusCode).toBe(200);
+    expect(reviewed.json().items).toHaveLength(1);
+    expect(reviewed.json().items[0].id).toBe(f.second.refund);
+    expect(reviewed.json().evidenceSummaryByCurrency[0]).toMatchObject({
+      awaitingReviewCount:1,awaitingReviewMinor:1400,
+      discrepancyCount:1,discrepancyMinor:1400,
+      needsProviderCount:1,needsProviderMinor:1400,
+    });
+    const flagged=await f.doReview(f.review(f.main.refund,
+      mismatch.json().claim.claimId,"DISCREPANCY_RECORDED"),f.reviewer.headers);
+    expect(flagged.statusCode).toBe(201);
+    const final=await app.inject({method:"GET",
+      url:endpoint("ALL"),headers:f.reviewer.headers});
+    expect(final.json().evidenceSummaryByCurrency[0]).toMatchObject({
+      awaitingReviewCount:0,awaitingReviewMinor:0,
+      discrepancyCount:1,discrepancyMinor:1400,
+      needsProviderCount:1,needsProviderMinor:1400,
+    });
+    const foreign=await f.post(f.claim(f.otherBranch.refund,
+      "HUB-ROLLUP-OTHER",randomUUID(),f.otherBranchId),f.submitter.headers);
+    expect(foreign.statusCode).toBe(201);
+    const afterForeign=await app.inject({method:"GET",
+      url:endpoint("ALL"),headers:f.reviewer.headers});
+    expect(afterForeign.json().evidenceSummaryByCurrency).toEqual(
+      final.json().evidenceSummaryByCurrency);
+    expect((await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_MISSING"),headers:f.cashier.headers})).statusCode).toBe(403);
+    expect((await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_MISSING"),headers:f.outsider.headers})).statusCode).toBe(403);
+    expect((await app.inject({method:"GET",
+      url:endpoint("EVIDENCE_MISSING")})).statusCode).toBe(401);
+    expect((await pool.query<{status:string}>(
+      "SELECT status FROM refund_transactions WHERE id=$1",[usdRefund]
+    )).rows[0]?.status).toBe("PENDING");
+  });
 });

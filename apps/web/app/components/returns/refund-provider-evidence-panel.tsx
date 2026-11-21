@@ -81,7 +81,9 @@ function displayMajor(minor:number,currencyCode:string) {
     return (minor/scale).toFixed(decimals);
   }catch{return "";}
 }
-export function RefundProviderEvidencePanel({refundId}:{refundId:string}){
+export function RefundProviderEvidencePanel({refundId,onRecorded}:{
+  refundId:string;onRecorded?:()=>void;
+}){
   const {session,queue,account}=useWorkspace();
   const [offset,setOffset]=useState(0);
   const [provider,setProvider]=useState<Provider>("HUBTEL");
@@ -179,6 +181,7 @@ export function RefundProviderEvidencePanel({refundId}:{refundId:string}){
       setCurrencyOverride("");setReportedStatus("CLAIMED_PENDING");
       setSuccessMessage("Evidence claim recorded for independent review. Not a confirmed payout.");
       if(offset!==0)setOffset(0);else refetch();
+      onRecorded?.();
     }catch(e){setErrorMessage(e instanceof Error?e.message:"Could not save evidence claim.");}
     finally{setSaving(false);}
   }
@@ -215,6 +218,7 @@ export function RefundProviderEvidencePanel({refundId}:{refundId:string}){
       reviewId.current=null;setReviewTarget(null);setReviewNote("");
       setSuccessMessage("Second-person review recorded. Provider settlement remains unverified.");
       refetch();
+      onRecorded?.();
     }catch(e){setErrorMessage(e instanceof Error?e.message:"Could not record review.");}
     finally{setReviewSaving(false);}
   }
