@@ -26,6 +26,13 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Block legacy VPS compilation when shared host is full
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Fail closed: exact-commit CI artifact path replaces this build after cutover.
+          /usr/local/sbin/lightworld-vps-capacity-check build
+
       - name: Deploy exact main commit
         shell: bash
         run: |
