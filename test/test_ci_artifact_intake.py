@@ -15,6 +15,10 @@ SHA = 'a' * 40
 
 def fixture_files():
     return {
+        'bin/start-api.sh': b'#!/usr/bin/env bash\n',
+        'bin/start-web.sh': b'#!/usr/bin/env bash\n',
+        'bin/start-system-admin.sh': b'#!/usr/bin/env bash\n',
+        'bin/runtime-env.sh': b'#!/usr/bin/env bash\n',
         'manifest.json': json.dumps({
             'schemaVersion': 1, 'type': 'TRADEOS_CI_RUNTIME_ARTIFACT_PILOT',
             'deployable': False, 'sourceCommit': SHA, 'requiredNodeMajor': 22,
@@ -33,7 +37,7 @@ def make_archive(out: Path, *, files=None, extra=None, checksum_override=None):
     name = f'tradeos-runtime-pilot-{SHA}.tar.gz'
     target = out / name
     payload = fixture_files() if files is None else files
-    directories = ['apps', 'apps/api', 'apps/api/dist', 'apps/api/node_modules',
+    directories = ['bin', 'apps', 'apps/api', 'apps/api/dist', 'apps/api/node_modules',
                    'apps/web', 'apps/system-admin', 'packages', 'packages/db',
                    'packages/db/migrations']
     with tarfile.open(target, 'w:gz') as archive:
@@ -44,7 +48,7 @@ def make_archive(out: Path, *, files=None, extra=None, checksum_override=None):
             archive.addfile(member)
         for path, content in payload.items():
             member = tarfile.TarInfo('./' + path)
-            member.mode = 0o644
+            member.mode = 0o755 if path.startswith('bin/') else 0o644
             member.size = len(content)
             archive.addfile(member, io.BytesIO(content))
         for member, content in extra or []:
@@ -150,6 +154,12 @@ class ArtifactAcceptanceTests(unittest.TestCase):
         duplicate = tarfile.TarInfo('./apps/web/server.js')
         duplicate.size = 3
         make_archive(self.path, extra=[(duplicate, b'bad')])
+        self.assertNotEqual(inspect(self.path).returncode, 0)
+
+    def test_rejects_missing_source_light_launcher(self):
+        files = fixture_files()
+        files.pop('bin/start-api.sh')
+        make_archive(self.path, files=files)
         self.assertNotEqual(inspect(self.path).returncode, 0)
 
     def test_rejects_missing_entrypoint(self):

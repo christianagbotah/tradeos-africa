@@ -46,6 +46,17 @@ stage="$work/bundle"
 mkdir -p "$stage/apps/api" "$stage/apps/web" "$stage/apps/system-admin" \
   "$stage/packages/db" "$stage/bin"
 
+# The official source-light launchers resolve their runtime from their own
+# bundle path and load the production environment from a separate file.
+# No pnpm installation, Next CLI or checkout is needed after CI packaging.
+cp -a -- "$repo_root/ops/release/runtime/bin/." "$stage/bin/"
+for script in start-api.sh start-web.sh start-system-admin.sh runtime-env.sh; do
+  if [[ ! -f "$stage/bin/$script" || ! -x "$stage/bin/$script" ]]; then
+    echo "Missing executable source-light runtime launcher $script" >&2
+    exit 65
+  fi
+done
+
 # API: isolated pnpm production dependency graph; no dev/test checkout shipped.
 # --legacy is required for pnpm 10 workspaces without injected dependencies.
 pnpm --filter @tradeos/api deploy --prod --legacy "$work/api-deploy"
@@ -93,7 +104,7 @@ fs.writeFileSync(file,JSON.stringify({
   sourceCommit:sha,
   buildLocation:'GitHub Actions ubuntu-latest',
   requiredNodeMajor:22,
-  includes:['API production runtime','Web standalone runtime','Admin standalone runtime','SQL migrations'],
+  includes:['API production runtime','Web standalone runtime','Admin standalone runtime','SQL migrations','Node 22 source-light launchers'],
   excludes:['environment files','database contents','uploads','payment records','rollback snapshots'],
 },null,2)+'\n');
 NODE
@@ -103,7 +114,8 @@ node - "$stage" <<'NODE'
 const fs=require('node:fs'),path=require('node:path');
 const root=path.resolve(process.argv[2]);
 for(const p of ['apps/api/dist/server.js','apps/api/node_modules','apps/web/entrypoint.txt',
-  'apps/system-admin/entrypoint.txt','packages/db/migrations','manifest.json']) {
+  'apps/system-admin/entrypoint.txt','packages/db/migrations','manifest.json',
+  'bin/start-api.sh','bin/start-web.sh','bin/start-system-admin.sh','bin/runtime-env.sh']) {
   if(!fs.existsSync(path.join(root,p))) throw new Error('Missing runtime payload '+p);
 }
 for(const app of ['web','system-admin']){
