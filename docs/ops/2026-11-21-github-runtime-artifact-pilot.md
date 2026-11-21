@@ -6,7 +6,7 @@ The shared VPS build capacity check returned HOLD at 90% disk usage. The live st
 
 GitHub-hosted Ubuntu builds the exact commit with locked pnpm dependencies, compiles the API, and creates traced Next standalone web/admin bundles only when `TRADEOS_CI_ARTIFACT=1`. A script packages the API production runtime, web/admin bundles, and SQL migrations, excluding application development source, environment files, persistent databases, uploads, backups and transaction data. An explicit manifest contains the source commit and `deployable=false`. The tarball includes a SHA-256 checksum. CI verifies integrity after extraction and smokes all three services and the unauthenticated refund access boundary. Artifacts expire after three days.
 
-**This is a CI artifact pilot, not live deployment migration.** The current protected staging workflow and launchers are unchanged; no VPS artifact extraction, PM2 changes, database migration or financial mutation is authorized by it.
+**This is a CI artifact pilot, not live deployment migration.** The current staging launchers and release switch logic are unchanged; its existing workflow receives a fail-closed disk-capacity preflight before the legacy build; no VPS artifact extraction, PM2 changes, database migration or financial mutation is authorized by it.
 
 ## Required before cutover
 

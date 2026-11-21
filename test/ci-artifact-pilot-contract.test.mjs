@@ -26,6 +26,10 @@ test('artifact pilot stays GitHub-only and cannot replace protected deploy',()=>
   assert.match(workflow,/sha256sum --check/);
   assert.match(workflow,/retention-days: 3/);
   assert.doesNotMatch(workflow,/self-hosted|sudo\s|lightworld-deploy-tradeos-staging|curl.+lightworldtech\.com/);
+  assert.match(current,/lightworld-vps-capacity-check build/);
+  assert.ok(current.indexOf('lightworld-vps-capacity-check build') <
+    current.indexOf('lightworld-deploy-tradeos-staging'),
+    'legacy VPS build must be gated before any dependency installation');
   assert.match(current,/lightworld-deploy-tradeos-staging/);
   assert.match(current,/if: github\.ref == 'refs\/heads\/main'/);
 });
