@@ -95,6 +95,62 @@ async function fixture() {
     seed,url};
 }
 
+describe("branch-wide refund investigation search", () => {
+  it("finds a single refund by reference, original receipt, and submitted provider reference", async () => {
+    const f = await fixture();
+    const sale = (await pool.query<{original_sale_id:string}>(
+      "SELECT original_sale_id FROM return_cases rc JOIN refund_transactions rt ON rt.return_case_id=rc.id WHERE rt.id=$1",
+      [f.mismatch])).rows[0]!.original_sale_id;
+    for (const term of [f.mismatch.slice(0, 12), sale.slice(0, 12), "EXPORT-QA-MISMATCH-001"]) {
+      const encoded=encodeURIComponent(term);
+      const exported=await app.inject({method:"GET",url:f.url()+"&search="+encoded,
+        headers:f.owner.headers});
+      expect(exported.statusCode).toBe(200);
+      expect(exported.body).toContain(f.mismatch);
+      expect(exported.body).not.toContain(f.missing);
+      expect(exported.body).not.toContain(f.matched);
+      const list=await app.inject({method:"GET",
+        url:`/v1/refunds/settlement-queue?businessId=${f.businessId}&branchId=${f.branchId}&search=${encoded}`,
+        headers:f.owner.headers});
+      expect(list.statusCode).toBe(200);
+      expect(list.json().items.map((item:{id:string})=>item.id)).toEqual([f.mismatch]);
+      expect(list.json().summaryByCurrency[0].pendingCount).toBe(4);
+    }
+  });
+
+  it("treats LIKE metacharacters literally and enforces branch isolation", async () => {
+    const f=await fixture();
+    for (const term of ["%", "_", f.other.slice(0, 10)]) {
+      const encoded=encodeURIComponent(term);
+      const csv=await app.inject({method:"GET",url:f.url()+"&search="+encoded,
+        headers:f.owner.headers});
+      expect(csv.statusCode).toBe(200);
+      expect(csv.body.replace(/^\ufeff/,"").trim().split("\r\n")).toHaveLength(1);
+      const list=await app.inject({method:"GET",
+        url:`/v1/refunds/settlement-queue?businessId=${f.businessId}&branchId=${f.branchId}&search=${encoded}`,
+        headers:f.owner.headers});
+      expect(list.statusCode).toBe(200);
+      expect(list.json().items).toEqual([]);
+    }
+  });
+
+  it("rejects excessive or unsafe searches without changing liabilities", async () => {
+    const f=await fixture();
+    for (const suffix of ["x".repeat(101), "hello%0Aworld"]) {
+      const csv=await app.inject({method:"GET",url:f.url()+"&search="+suffix,
+        headers:f.owner.headers});
+      expect(csv.statusCode).toBe(400);
+      const list=await app.inject({method:"GET",
+        url:`/v1/refunds/settlement-queue?businessId=${f.businessId}&branchId=${f.branchId}&search=${suffix}`,
+        headers:f.owner.headers});
+      expect(list.statusCode).toBe(400);
+    }
+    const state=(await pool.query<{status:string}>(
+      "SELECT status FROM refund_transactions WHERE id=$1",[f.mismatch])).rows[0];
+    expect(state?.status).toBe("PENDING");
+  });
+});
+
 describe("finance-only unresolved refund CSV export", () => {
   it("exports all unresolved branch refunds and safely excludes private payout details", async () => {
     const f=await fixture();

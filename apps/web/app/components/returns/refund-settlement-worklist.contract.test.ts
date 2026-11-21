@@ -31,6 +31,18 @@ describe("outstanding refund settlement worklist", () => {
     expect(worklist).not.toContain("Mark paid");
     expect(worklist).not.toContain("/v1/sync");
   });
+  it("searches the full branch and keeps evidence export aligned to the same query", () => {
+    expect(worklist).toContain('role="search"');
+    expect(worklist).toContain('id="refund-investigation-search"');
+    expect(worklist).toContain('maxLength={100}');
+    expect(worklist).toContain('&search=${encodeURIComponent(search)}');
+    expect(worklist).toContain('params.set("search", search)');
+    expect(worklist).toContain('setOffset(0)');
+    expect(worklist).toContain('setSearch("")');
+    expect(api).toContain('normalizeRefundInvestigationSearch(request.query.search)');
+    expect(api).toContain('searched_claim.branch_id=rc.branch_id');
+    expect(api).not.toContain('app.post("/v1/refunds/settlement-queue"');
+  });
   it("refreshes the worklist after a return/exchange completes", () => {
     expect(workspace).toContain("<RefundSettlementWorklist refreshToken={settlementRefresh} />");
     expect(workspace).toContain("setSettlementRefresh((previous) => previous + 1)");
