@@ -704,6 +704,23 @@ test('release retention is opt-in and leaves ordinary historical releases untouc
   } finally { cleanup(fixture); }
 });
 
+test('runner environment cannot enable destructive retention without a registry opt-in', () => {
+  const fixture = makeFixture();
+  try {
+    const hostileEnvironment = { RELEASE_RETENTION: 'active-and-rollback' };
+    assert.equal(deploy(fixture, fixture.firstSha, hostileEnvironment).status, 0);
+    const second = commitNext(fixture, 'retention-env-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second, hostileEnvironment).status, 0);
+    const third = commitNext(fixture, 'retention-env-third');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, third, hostileEnvironment).status, 0);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+  } finally { cleanup(fixture); }
+});
+
 test('opted-in retention keeps only current and immediate rollback, preserving nonrelease files', () => {
   const fixture = makeFixture();
   try {

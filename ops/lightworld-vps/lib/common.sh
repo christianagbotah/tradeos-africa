@@ -93,6 +93,9 @@ load_app_config() {
   fi
   _lightworld_assert_config_permissions "$file" || return 1
 
+  # Retention is deletion authority: do not inherit it from the runner's
+  # environment. Only this verified root-owned registry may opt in.
+  RELEASE_RETENTION='off'
   # shellcheck disable=SC1090
   source "$file"
 

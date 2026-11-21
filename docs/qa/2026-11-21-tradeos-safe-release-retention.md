@@ -6,7 +6,7 @@ Keep GitHub as immutable source history and keep only the **active deployment** 
 
 ## Safety contract
 
-- Retention is **off by default** for every application. Only an explicit `RELEASE_RETENTION=active-and-rollback` in a root-owned app registry enables it. The canonical TradeOS staging example opts in; do not enable it blindly for another project.
+- Retention is **off by default** for every application, and the deployment loader clears any ambient runner environment override before reading the root-owned registry. Only an explicit `RELEASE_RETENTION=active-and-rollback` in a root-owned app registry enables it. The canonical TradeOS staging example opts in; do not enable it blindly for another project.
 - `lightworld-deploy` prunes only **after** successful build, release-source identity validation, database migrations, process startup, healthy local/public probes, and durable active + rollback metadata updates. A failed build, migration, health check or rollback cannot initiate pruning.
 - A mismatch between the active symlink, verified commit and recorded metadata aborts pruning. If the rollback release is absent or malformed, cleanup aborts rather than deleting possible recovery material. A first deployment without a recorded previous version does not prune.
 - The release root must be an actual directory, not a symlink. Remove only direct children named exactly a **40-character hexadecimal SHA**, and exclude the current and recorded previous SHA. Symlinks, hidden directories, arbitrary names and other projects are never candidates.
