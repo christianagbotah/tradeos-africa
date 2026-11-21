@@ -146,3 +146,14 @@ test('staging deployment keeps manual dispatch and supports an explicit main-bra
   assert.equal(fs.existsSync(markerPath), true, 'the explicit staging deployment marker must be tracked');
   assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/, 'deployment job must retain the main-branch guard');
 });
+
+
+test('TradeOS release retention is explicit, and other apps inherit no destructive default', () => {
+  const sample = fs.readFileSync(path.join(repoRoot, 'ops/lightworld-vps/apps/tradeos-africa.staging.conf.example'), 'utf8');
+  const common = fs.readFileSync(path.join(repoRoot, 'ops/lightworld-vps/lib/common.sh'), 'utf8');
+  const deploy = fs.readFileSync(path.join(repoRoot, 'ops/lightworld-vps/libexec/lightworld-deploy'), 'utf8');
+  assert.match(sample, /^RELEASE_RETENTION='active-and-rollback'$/m);
+  assert.match(common, /RELEASE_RETENTION="\$\{RELEASE_RETENTION:-off\}"/);
+  assert.match(deploy, /prune_stale_release_archives "\$sha"/);
+  assert.match(deploy, /verify_configured_health/);
+});
