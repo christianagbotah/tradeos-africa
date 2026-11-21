@@ -3,6 +3,7 @@ import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js"
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import type { DatabasePool } from "./db.js";
 import { loadRefundEvidenceBranchRollup } from "./refund-evidence-branch-rollup.js";
+import { normalizeRefundInvestigationSearch, refundInvestigationSearchPattern } from "./refund-investigation-search.js";
 import {
   parseReceiptPaper, receiptPdfFilename, renderVerifiedSaleReceiptPdf,
   type VerifiedReceiptSnapshot,
@@ -81,7 +82,7 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
   // refunds from vanishing when the most-recent-50 sales list is full.
   // Read-only by design: merchant/operator claims are not proof of payout.
   app.get<{ Querystring: {
-    businessId?: string; branchId?: string; status?: string; limit?: string; offset?: string;
+    businessId?: string; branchId?: string; status?: string; limit?: string; offset?: string; search?: string;
   } }>("/v1/refunds/settlement-queue", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
@@ -102,6 +103,11 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
       if (!Number.isSafeInteger(parsedOffset) || parsedOffset < 0 || parsedOffset > 100000) {
         throw new SalesReadError("Refund offset must be a nonnegative integer up to 100000.",
           400, "REFUND_OFFSET_INVALID");
+      }
+      const search = normalizeRefundInvestigationSearch(request.query.search);
+      if (search === null) {
+        throw new SalesReadError("Search must be at most 100 characters without control characters.",
+          400, "REFUND_SEARCH_INVALID");
       }
       // Never combine refund liabilities denominated in different currencies.
       // The worklist is independent of the current 10-item page and status filter.
@@ -191,8 +197,20 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
                    OR (rt.method='ORIGINAL_METHOD'
                      AND original_payment.method IN ('MOMO','CARD','BANK'))))
            )
+           AND ($6='' OR rt.id::text ILIKE $7 ESCAPE '!'
+             OR rc.original_sale_id::text ILIKE $7 ESCAPE '!'
+             OR COALESCE(c.name,'') ILIKE $7 ESCAPE '!'
+             OR COALESCE(rt.provider_reference,'') ILIKE $7 ESCAPE '!'
+             OR EXISTS (
+               SELECT 1 FROM refund_provider_evidence_claims searched_claim
+               WHERE searched_claim.business_id=rt.business_id
+                 AND searched_claim.branch_id=rc.branch_id
+                 AND searched_claim.refund_transaction_id=rt.id
+                 AND searched_claim.provider_ref ILIKE $7 ESCAPE '!'
+             ))
          ORDER BY rt.created_at ASC,rt.id ASC LIMIT $4 OFFSET $5`,
-        [businessId, branchId, status, limit + 1, parsedOffset],
+        [businessId, branchId, status, limit + 1, parsedOffset,
+         search, refundInvestigationSearchPattern(search)],
       );
       const safeMinor = (raw: string | number): number => {
         const value = Number(raw);

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import { requireBusinessRole } from "./auth/authorization.js";
 import type { DatabasePool } from "./db.js";
+import { normalizeRefundInvestigationSearch, refundInvestigationSearchPattern } from "./refund-investigation-search.js";
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROLES = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"] as const;
@@ -150,7 +151,7 @@ export function renderRefundEvidenceInvestigationCsv(rows: CsvSourceRow[]): Buff
 
 export function registerRefundEvidenceExportRoutes(app: FastifyInstance, pool: DatabasePool): void {
   app.get<{Querystring:{
-    businessId?:string;branchId?:string;status?:string;currencyCode?:string;
+    businessId?:string;branchId?:string;status?:string;currencyCode?:string;search?:string;
   }}>(
     "/v1/refunds/settlement-evidence-export", async(request,reply) => {
       reply.header("Cache-Control", "private, no-store, max-age=0");
@@ -161,6 +162,10 @@ export function registerRefundEvidenceExportRoutes(app: FastifyInstance, pool: D
         const branchId=requiredId(request.query.branchId,"branch ID");
         const status=parseStatus(request.query.status);
         const currency=parseCurrency(request.query.currencyCode);
+        const search=normalizeRefundInvestigationSearch(request.query.search);
+        if(search===null)throw new ExportError(
+          "Search must be at most 100 characters without control characters.",
+          400,"REFUND_EXPORT_SEARCH_INVALID");
         await requireBusinessRole(pool,auth,businessId,ROLES);
         const branch=await pool.query(
           "SELECT id FROM branches WHERE id=$1 AND business_id=$2 AND is_active=true",
@@ -241,8 +246,20 @@ export function registerRefundEvidenceExportRoutes(app: FastifyInstance, pool: D
                       OR (rt.method='ORIGINAL_METHOD'
                         AND original_payment.method IN ('MOMO','CARD','BANK'))))
               )
+              AND ($6='' OR rt.id::text ILIKE $7 ESCAPE '!'
+                OR rc.original_sale_id::text ILIKE $7 ESCAPE '!'
+                OR COALESCE(customer.name,'') ILIKE $7 ESCAPE '!'
+                OR COALESCE(rt.provider_reference,'') ILIKE $7 ESCAPE '!'
+                OR EXISTS (
+                  SELECT 1 FROM refund_provider_evidence_claims searched_claim
+                  WHERE searched_claim.business_id=rt.business_id
+                    AND searched_claim.branch_id=rc.branch_id
+                    AND searched_claim.refund_transaction_id=rt.id
+                    AND searched_claim.provider_ref ILIKE $7 ESCAPE '!'
+                ))
             ORDER BY rt.created_at ASC,rt.id ASC LIMIT $5`,
-          [businessId,branchId,status,currency,MAX_EVIDENCE_EXPORT_ROWS+1],
+          [businessId,branchId,status,currency,MAX_EVIDENCE_EXPORT_ROWS+1,
+           search,refundInvestigationSearchPattern(search)],
         );
         if(result.rows.length>MAX_EVIDENCE_EXPORT_ROWS)throw new ExportError(
           "More than 5,000 unresolved refunds match this selection. Narrow by status or currency.",

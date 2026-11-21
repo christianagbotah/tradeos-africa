@@ -75,6 +75,8 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
   const { session, role, queue } = useWorkspace();
   const allowed = REVIEW_ROLES.has(role);
   const [filter, setFilter] = useState<SettlementFilter>("ALL");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [exportCurrency, setExportCurrency] = useState("ALL");
   const [exporting, setExporting] = useState(false);
@@ -86,6 +88,8 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
   useEffect(() => {
     setOffset(0);
     setFilter("ALL");
+    setSearchInput("");
+    setSearch("");
     setExportCurrency("ALL");
     setExportError(null);
     setExportNotice(null);
@@ -93,7 +97,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
     setSelectedReconciliationId(null);
   }, [session?.businessId, session?.branchId]);
   const path = allowed && session
-    ? `/v1/refunds/settlement-queue?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&status=${filter}&limit=${PAGE_SIZE}&offset=${offset}`
+    ? `/v1/refunds/settlement-queue?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}&status=${filter}&limit=${PAGE_SIZE}&offset=${offset}&search=${encodeURIComponent(search)}`
     : null;
   const { data, loading, error, refetch } = useApiFetch<SettlementWorklist>(path);
 
@@ -113,6 +117,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
         status: filter,
       });
       if (exportCurrency !== "ALL") params.set("currencyCode", exportCurrency);
+      if (search) params.set("search", search);
       const response = await getOfflineQueue().authenticatedFetch(
         "/v1/refunds/settlement-evidence-export?" + params.toString(),
         { cache: "no-store" },
@@ -214,6 +219,8 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
             Filter overdue payouts, unreviewed evidence, discrepancies and cases
             that have been reviewed but still lack independent provider proof.
             Finance totals cover every unresolved refund in this branch, not just this page.
+            Search matches refund IDs, original receipt IDs, customers or provider
+            references across the entire branch; summary balances remain branch-wide.
           </p>
         </div>
         <div className="tos-row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -320,6 +327,32 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
           the counts; missing evidence must not be interpreted as zero.
         </p>
       ) : null}
+      <form className="tos-row" role="search" aria-label="Search outstanding refunds"
+        style={{ marginTop: 14, gap: 8, flexWrap: "wrap", alignItems: "center" }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSearch(searchInput.trim());
+          setOffset(0);
+          setSelectedRefundId(null);
+          setSelectedReconciliationId(null);
+        }}>
+        <label htmlFor="refund-investigation-search" className="tos-section__sub">
+          Find a refund
+        </label>
+        <input id="refund-investigation-search" type="search" className="tos-input"
+          style={{ flex: "1 1 230px", minWidth: 0 }} maxLength={100}
+          placeholder="Receipt, refund, customer or provider reference"
+          autoComplete="off" value={searchInput}
+          onChange={(event) => setSearchInput(event.target.value)} />
+        <Button size="sm" type="submit" disabled={loading}>Search</Button>
+        {search ? <Button size="sm" type="button" variant="outline" onClick={() => {
+          setSearch(""); setSearchInput(""); setOffset(0);
+          setSelectedRefundId(null); setSelectedReconciliationId(null);
+        }}>Clear search</Button> : null}
+        {search ? <span role="status" className="tos-section__sub">
+          Matching branch refunds: {search}
+        </span> : null}
+      </form>
       <div className="tos-filter-row" aria-label="Refund review priority filters"
         style={{ marginTop: 12, marginBottom: 12 }}>
         {filterOptions.map((option) => (
@@ -341,7 +374,8 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
         text={error} actionLabel="Retry" onAction={() => refetch()} /> : null}
       {!loading && !error && data?.items.length === 0 ? (
         <StatePanel inline variant="empty" title="No outstanding refunds"
-          text={filter === "PENDING_24H" || filter === "PENDING_7D"
+          text={search ? "No outstanding refunds match this search and review filter."
+            : filter === "PENDING_24H" || filter === "PENDING_7D"
             ? "No pending payouts match this ageing threshold in the selected branch."
             : filter.startsWith("EVIDENCE_")
               ? "No unresolved refunds match this evidence review filter."
