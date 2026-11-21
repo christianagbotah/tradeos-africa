@@ -130,8 +130,12 @@ def inspect(sha: str, directory: Path) -> dict:
                 manifest.get('deployable') is not False or \
                 manifest.get('sourceCommit') != sha or manifest.get('requiredNodeMajor') != 22:
             raise Rejected('manifest is not an exact, nondeployable CI pilot for the requested SHA')
-        for key in ('apps/api/dist/server.js', 'apps/api/package.json'):
-            regular_member(key)
+        for key in ('apps/api/dist/server.js', 'apps/api/package.json',
+                    'bin/start-api.sh', 'bin/start-web.sh',
+                    'bin/start-system-admin.sh', 'bin/runtime-env.sh'):
+            item = regular_member(key)
+            if key.startswith('bin/') and not item.mode & 0o111:
+                raise Rejected('source-light launcher is not executable')
         for dirname in ('packages/db/migrations', 'apps/api/node_modules'):
             if dirname not in members or not members[dirname].isdir():
                 raise Rejected(f'missing runtime directory: {dirname}')

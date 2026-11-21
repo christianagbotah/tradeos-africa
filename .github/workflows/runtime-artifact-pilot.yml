@@ -9,6 +9,8 @@ on:
       - 'ops/release/**'
       - 'test/ci-artifact-pilot-contract.test.mjs'
       - 'test/test_ci_artifact_intake.py'
+      - 'test/test_source_light_launchers.py'
+      - 'ops/release/runtime/**'
       - '.github/workflows/runtime-artifact-pilot.yml'
   push:
     branches: [main]
@@ -18,6 +20,8 @@ on:
       - 'ops/release/**'
       - 'test/ci-artifact-pilot-contract.test.mjs'
       - 'test/test_ci_artifact_intake.py'
+      - 'test/test_source_light_launchers.py'
+      - 'ops/release/runtime/**'
       - '.github/workflows/runtime-artifact-pilot.yml'
 
 permissions:
@@ -64,6 +68,9 @@ jobs:
 
       - name: Verify read-only intake rejects unsafe archives
         run: python3 -m unittest discover -s test -p test_ci_artifact_intake.py -v
+
+      - name: Verify standalone launchers with isolated fake runtimes
+        run: python3 -m unittest discover -s test -p test_source_light_launchers.py -v
 
       - name: Install dependencies on GitHub runner only
         run: pnpm install --frozen-lockfile
@@ -112,20 +119,26 @@ jobs:
           root="$RUNNER_TEMP/tradeos-rehearsal-extracted"
           python3 "$GITHUB_WORKSPACE/ops/release/rehearse-ci-artifact-pilot.py" "$GITHUB_SHA" \
             "$RUNNER_TEMP/tradeos-release-artifact" "$root"
+          # Exercise exactly the same release-local launcher contract that
+          # will be used under the existing three PM2 process names.
+          : > "$RUNNER_TEMP/tradeos-source-light-smoke.env"
           node - "$root/manifest.json" "$GITHUB_SHA" <<'NODE'
           const fs=require('node:fs');
           const manifest=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
           if(manifest.sourceCommit!==process.argv[3] || manifest.deployable!==false ||
              manifest.type!=='TRADEOS_CI_RUNTIME_ARTIFACT_PILOT') process.exit(1);
           NODE
-          (cd "$root/apps/web" && PORT=13036 HOSTNAME=127.0.0.1 NODE_ENV=production \
-             node "$(cat entrypoint.txt)" > "$RUNNER_TEMP/tradeos-web.log" 2>&1) &
+          (TRADEOS_ENV_FILE="$RUNNER_TEMP/tradeos-source-light-smoke.env" \
+             WEB_PORT=13036 WEB_HOST=127.0.0.1 \
+             bash "$root/bin/start-web.sh" > "$RUNNER_TEMP/tradeos-web.log" 2>&1) &
           web_pid=$!
-          (cd "$root/apps/system-admin" && PORT=13038 HOSTNAME=127.0.0.1 NODE_ENV=production \
-             node "$(cat entrypoint.txt)" > "$RUNNER_TEMP/tradeos-admin.log" 2>&1) &
+          (TRADEOS_ENV_FILE="$RUNNER_TEMP/tradeos-source-light-smoke.env" \
+             ADMIN_PORT=13038 ADMIN_HOST=127.0.0.1 \
+             bash "$root/bin/start-system-admin.sh" > "$RUNNER_TEMP/tradeos-admin.log" 2>&1) &
           admin_pid=$!
-          (cd "$root/apps/api" && PORT=14036 HOST=127.0.0.1 NODE_ENV=production \
-             node dist/server.js > "$RUNNER_TEMP/tradeos-api.log" 2>&1) &
+          (TRADEOS_ENV_FILE="$RUNNER_TEMP/tradeos-source-light-smoke.env" \
+             PORT=14036 HOST=127.0.0.1 TRADEOS_HUBTEL_POS_ENABLED=false \
+             bash "$root/bin/start-api.sh" > "$RUNNER_TEMP/tradeos-api.log" 2>&1) &
           api_pid=$!
           trap 'kill "$web_pid" "$admin_pid" "$api_pid" 2>/dev/null || true' EXIT
           for service in 'web:13036:/' 'admin:13038:/' 'api:14036:/health'; do

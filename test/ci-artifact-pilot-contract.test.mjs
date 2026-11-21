@@ -42,6 +42,7 @@ test('release packaging forbids secrets, requires matching commit and marks pilo
   assert.match(script,/deployable:false/);
   assert.match(script,/sha256sum --check/);
   assert.match(script,/--prod --legacy/);
+  assert.match(script,/ops\/release\/runtime\/bin/);
   assert.match(script,/apps\/api\/dist\/server\.js/);
   assert.match(script,/apps\/api\/src/);
   assert.match(script,/TRADEOS_CI_RUNTIME_ARTIFACT_PILOT/);
@@ -70,6 +71,9 @@ test('read-only VPS artifact intake is checksum, provenance and capacity guarded
   assert.doesNotMatch(audit,/lightworld-deploy-tradeos-staging|systemctl|pm2|pnpm install|pnpm build|next build/);
   const rehearsal=read('ops/release/rehearse-ci-artifact-pilot.py');
   assert.match(workflow,/rehearse-ci-artifact-pilot\.py/);
+  assert.match(workflow,/bash \"\$root\/bin\/start-api\.sh\"/);
+  assert.match(workflow,/bash \"\$root\/bin\/start-web\.sh\"/);
+  assert.match(workflow,/bash \"\$root\/bin\/start-system-admin\.sh\"/);
   assert.match(workflow,/\$GITHUB_WORKSPACE\/ops\/release\/rehearse-ci-artifact-pilot\.py/);
   assert.doesNotMatch(workflow,/tar -xzf \"\$archive\"/);
   assert.match(audit,/--rehearse/);
@@ -79,4 +83,28 @@ test('read-only VPS artifact intake is checksum, provenance and capacity guarded
   assert.match(rehearsal,/productionReleaseTouched/);
   assert.match(rehearsal,/shutil\.rmtree\(destination\)/);
   assert.doesNotMatch(rehearsal,/extractall|subprocess|pnpm build|pm2/);
+});
+
+
+test('source-light launchers are part of the artifact while main remains nondeployable',()=>{
+  const script=read('ops/release/create-ci-artifact-pilot.sh');
+  const inspector=read('ops/release/inspect-ci-artifact-pilot.py');
+  const smoke=read('.github/workflows/runtime-artifact-pilot.yml');
+  for(const app of ['api','web','system-admin']){
+    const launcher=read(`ops/release/runtime/bin/start-${app}.sh`);
+    assert.match(launcher,/source "\$SCRIPT_DIR\/runtime-env\.sh"/);
+    assert.match(launcher,/exec "\$TRADEOS_RUNTIME_NODE" "\$entry"/);
+    assert.match(launcher,/tradeos_check_loopback_host/);
+    assert.match(smoke,new RegExp(`bash "\\$root/bin/start-${app}\\.sh"`));
+    assert.match(inspector,new RegExp(`bin/start-${app}\\.sh`));
+  }
+  const loader=read('ops/release/runtime/bin/runtime-env.sh');
+  assert.match(loader,/TRADEOS_ENV_FILE/);
+  assert.match(loader,/process\.versions\.node/);
+  assert.match(loader,/export NODE_ENV=production/);
+  assert.doesNotMatch(loader,/\beval\b|\bsource "\$TRADEOS_RUNTIME_ENV"/);
+  assert.match(script,/deployable:false/);
+  assert.match(script,/ops\/release\/runtime\/bin/);
+  assert.match(smoke,/test_source_light_launchers\.py/);
+  assert.doesNotMatch(smoke,/self-hosted|lightworld-deploy-tradeos-staging/);
 });
