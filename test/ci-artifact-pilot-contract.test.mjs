@@ -48,3 +48,24 @@ test('release packaging forbids secrets, requires matching commit and marks pilo
   assert.doesNotMatch(script,/\/home\/lightworld\//);
   assert.doesNotMatch(script,/\brm -rf \/home\b/);
 });
+
+
+test('read-only VPS artifact intake is checksum, provenance and capacity guarded',()=>{
+  const workflow=read('.github/workflows/runtime-artifact-pilot.yml');
+  const inspector=read('ops/release/inspect-ci-artifact-pilot.py');
+  const audit=read('ops/release/audit-github-artifact-pilot.sh');
+  assert.match(workflow,/test_ci_artifact_intake\.py/);
+  assert.match(workflow,/inspect-ci-artifact-pilot\.py/);
+  assert.ok(workflow.indexOf('inspect-ci-artifact-pilot.py') < workflow.indexOf('Smoke test archive'));
+  assert.match(inspector,/checksumVerified/);
+  assert.match(inspector,/manifest\.get\('deployable'\) is not False/);
+  assert.match(inspector,/MAX_EXPANDED/);
+  assert.match(inspector,/symlink escapes archive root/);
+  assert.match(inspector,/hardlink target missing from archive/);
+  assert.doesNotMatch(inspector,/extractall\s*\(/);
+  assert.match(audit,/\.head_sha == \$sha/);
+  assert.match(audit,/\.event == "push" and \.head_branch == "main"/);
+  assert.match(audit,/lightworld-vps-capacity-check artifact/);
+  assert.match(audit,/gh run download/);
+  assert.doesNotMatch(audit,/lightworld-deploy-tradeos-staging|systemctl|pm2|pnpm install|pnpm build|next build/);
+});

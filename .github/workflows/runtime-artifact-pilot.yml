@@ -8,6 +8,7 @@ on:
       - 'apps/system-admin/next.config.ts'
       - 'ops/release/**'
       - 'test/ci-artifact-pilot-contract.test.mjs'
+      - 'test/test_ci_artifact_intake.py'
       - '.github/workflows/runtime-artifact-pilot.yml'
   push:
     branches: [main]
@@ -16,6 +17,7 @@ on:
       - 'apps/system-admin/next.config.ts'
       - 'ops/release/**'
       - 'test/ci-artifact-pilot-contract.test.mjs'
+      - 'test/test_ci_artifact_intake.py'
       - '.github/workflows/runtime-artifact-pilot.yml'
 
 permissions:
@@ -60,6 +62,9 @@ jobs:
       - name: Verify source-only and immutable deployment boundaries
         run: node --test test/ci-artifact-pilot-contract.test.mjs
 
+      - name: Verify read-only intake rejects unsafe archives
+        run: python3 -m unittest discover -s test -p test_ci_artifact_intake.py -v
+
       - name: Install dependencies on GitHub runner only
         run: pnpm install --frozen-lockfile
 
@@ -84,6 +89,12 @@ jobs:
         run: |
           set -euo pipefail
           bash ops/release/create-ci-artifact-pilot.sh "$GITHUB_SHA" \
+            "$RUNNER_TEMP/tradeos-release-artifact"
+
+      - name: Inspect source-light pilot archive without extracting or activating
+        run: |
+          set -euo pipefail
+          python3 ops/release/inspect-ci-artifact-pilot.py "$GITHUB_SHA" \
             "$RUNNER_TEMP/tradeos-release-artifact"
 
       - name: Smoke test archive after clean extraction on GitHub runner
