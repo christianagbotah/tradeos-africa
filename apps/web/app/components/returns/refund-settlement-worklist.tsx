@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
+import { getOfflineQueue } from "../../../lib/offline-sync";
+import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { MoneyValue } from "../business/money-value";
 import { Button } from "../ui/button";
@@ -70,16 +72,23 @@ export function settlementAgeLabel(createdAt: string, now: number): string {
 }
 
 export function RefundSettlementWorklist({ refreshToken }: { refreshToken: number }) {
-  const { session, role } = useWorkspace();
+  const { session, role, queue } = useWorkspace();
   const allowed = REVIEW_ROLES.has(role);
   const [filter, setFilter] = useState<SettlementFilter>("ALL");
   const [offset, setOffset] = useState(0);
+  const [exportCurrency, setExportCurrency] = useState("ALL");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [selectedRefundId, setSelectedRefundId] = useState<string | null>(null);
   const [selectedReconciliationId, setSelectedReconciliationId] = useState<string | null>(null);
   // Never carry a pagination cursor from a different branch/business.
   useEffect(() => {
     setOffset(0);
     setFilter("ALL");
+    setExportCurrency("ALL");
+    setExportError(null);
+    setExportNotice(null);
     setSelectedRefundId(null);
     setSelectedReconciliationId(null);
   }, [session?.businessId, session?.branchId]);
@@ -91,6 +100,51 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
   useEffect(() => {
     if (refreshToken > 0) refetch();
   }, [refreshToken, refetch]);
+
+  async function downloadInvestigationCsv() {
+    if (!session || !allowed || !queue.online || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    setExportNotice(null);
+    try {
+      const params = new URLSearchParams({
+        businessId: session.businessId,
+        branchId: session.branchId,
+        status: filter,
+      });
+      if (exportCurrency !== "ALL") params.set("currencyCode", exportCurrency);
+      const response = await getOfflineQueue().authenticatedFetch(
+        "/v1/refunds/settlement-evidence-export?" + params.toString(),
+        { cache: "no-store" },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      if (!(response.headers.get("content-type") ?? "").includes("text/csv")) {
+        throw new Error("Export was not returned as a CSV report.");
+      }
+      const blob = await response.blob();
+      if (blob.size === 0) throw new Error("The export returned an empty file.");
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = "tradeos-refund-investigations-" +
+          new Date().toISOString().slice(0, 10) + ".csv";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      } finally {
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+      }
+      setExportNotice(
+        "Investigation CSV prepared for download. Merchant claims do not prove provider settlement.",
+      );
+    } catch (error) {
+      setExportError(error instanceof Error
+        ? error.message : "The investigation report could not be exported.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   if (!allowed) return null;
   const currencyCode = session?.currencyCode ?? "GHS";
@@ -162,8 +216,38 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
             Finance totals cover every unresolved refund in this branch, not just this page.
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => refetch()}>Refresh</Button>
+        <div className="tos-row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <label className="tos-section__sub" htmlFor="refund-export-currency">
+            Export currency
+          </label>
+          <select id="refund-export-currency" className="tos-input"
+            style={{ width: "auto", minWidth: 115, maxWidth: "100%" }}
+            value={exportCurrency} disabled={exporting}
+            onChange={event => setExportCurrency(event.target.value)}>
+            <option value="ALL">All currencies</option>
+            {currencyBalances?.map(balance => (
+              <option key={balance.currencyCode} value={balance.currencyCode}>
+                {balance.currencyCode === "GHS" ? "₵" : balance.currencyCode}
+              </option>
+            ))}
+          </select>
+          <Button size="sm" variant="outline" loading={exporting}
+            disabled={!queue.online || exporting}
+            onClick={() => void downloadInvestigationCsv()}>
+            Export CSV
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => refetch()}>
+            Refresh
+          </Button>
+        </div>
       </div>
+      {exportError ? <p role="alert" className="tos-section__sub"
+        style={{ marginTop: 10 }}>{exportError}</p> : null}
+      {exportNotice ? <p role="status" className="tos-section__sub"
+        style={{ marginTop: 10 }}>{exportNotice}</p> : null}
+      {!queue.online ? <p className="tos-section__sub">
+        Go online to export a finance investigation CSV. Export is not queued for sync.
+      </p> : null}
       {currencyBalances ? currencyBalances.map((summary) => (
         <div className="tos-row" key={summary.currencyCode}
           style={{ gap: 18, flexWrap: "wrap", marginTop: 12 }}>

@@ -28,6 +28,7 @@ import { registerRefundFollowupRoutes } from "./refund-followups.js";
 import { registerRefundReconciliationRoutes } from "./refund-reconciliation-preflight.js";
 import { registerRefundOriginalOrderRoutes } from "./refund-original-order-observations.js";
 import { registerRefundProviderEvidenceRoutes } from "./refund-provider-evidence.js";
+import { registerRefundEvidenceExportRoutes } from "./refund-evidence-export.js";
 import { registerCommercialDocumentRoutes } from "./commercial-documents.js";
 import { registerPurchaseOrderRoutes } from "./purchase-orders.js";
 import { registerSupplierDocumentDeliveryRoutes } from "./supplier-document-delivery.js";
@@ -78,6 +79,7 @@ export function buildApp(pool: DatabasePool) {
   registerRefundReconciliationRoutes(app, pool);
   registerRefundOriginalOrderRoutes(app, pool);
   registerRefundProviderEvidenceRoutes(app, pool);
+  registerRefundEvidenceExportRoutes(app, pool);
   registerCommercialDocumentRoutes(app, pool);
   registerPurchaseOrderRoutes(app, pool);
   registerSupplierDocumentDeliveryRoutes(app, pool);
