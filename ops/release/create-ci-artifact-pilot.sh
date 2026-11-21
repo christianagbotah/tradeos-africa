@@ -51,6 +51,14 @@ mkdir -p "$stage/apps/api" "$stage/apps/web" "$stage/apps/system-admin" \
 pnpm --filter @tradeos/api deploy --prod --legacy "$work/api-deploy"
 cp -a -- "$work/api-deploy/dist" "$work/api-deploy/node_modules" \
   "$work/api-deploy/package.json" "$stage/apps/api/"
+# pnpm --legacy deploy may retain an internal self-package link pointing to
+# the former monorepo layout. Rebase ONLY this known self-alias to the isolated
+# API package root; do not ignore other broken or externally escaping links.
+self_alias="$stage/apps/api/node_modules/.pnpm/node_modules/@tradeos/api"
+if [[ -L "$self_alias" ]]; then
+  rm -- "$self_alias"
+  ln -s -- ../../../../ "$self_alias"
+fi
 
 # Both Next traced standalone bundles are produced in GitHub, never on VPS.
 for app in web system-admin; do
