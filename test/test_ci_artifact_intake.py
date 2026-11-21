@@ -159,5 +159,129 @@ class ArtifactAcceptanceTests(unittest.TestCase):
         self.assertNotEqual(inspect(self.path).returncode, 0)
 
 
+
+
+REHEARSE = ROOT / 'ops/release/rehearse-ci-artifact-pilot.py'
+
+
+class QuarantinedExtractionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='tradeos-extractor-unit-')
+        self.root = Path(self.temp.name)
+        self.artifacts = self.root / 'artifacts'
+        self.artifacts.mkdir()
+        self.destination = self.root / 'tradeos-rehearsal-unit'
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def rehearse(self, destination=None):
+        return subprocess.run(['python3', str(REHEARSE), SHA, str(self.artifacts),
+                               str(destination or self.destination)], text=True,
+                              capture_output=True, check=False)
+
+    def test_rehearsal_produces_runtime_only_inside_new_quarantine(self):
+        make_archive(self.artifacts)
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertFalse(data['deployable'])
+        self.assertFalse(data['processesStarted'])
+        self.assertFalse(data['productionReleaseTouched'])
+        self.assertTrue((self.destination / 'apps/api/dist/server.js').is_file())
+        self.assertTrue((self.destination / 'apps/web/server.js').is_file())
+        self.assertTrue((self.destination / 'apps/system-admin/server.js').is_file())
+        self.assertEqual((self.destination / 'manifest.json').stat().st_mode & 0o777, 0o644)
+
+    def test_rehearsal_preserves_internal_links_without_escape(self):
+        hard = tarfile.TarInfo('./apps/web/hard.js')
+        hard.type = tarfile.LNKTYPE
+        hard.linkname = './apps/web/server.js'
+        symlink = tarfile.TarInfo('./apps/web/soft.js')
+        symlink.type = tarfile.SYMTYPE
+        symlink.linkname = './server.js'
+        make_archive(self.artifacts, extra=[(hard, None), (symlink, None)])
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        original = self.destination / 'apps/web/server.js'
+        hardlink = self.destination / 'apps/web/hard.js'
+        softlink = self.destination / 'apps/web/soft.js'
+        self.assertEqual(hardlink.stat().st_ino, original.stat().st_ino)
+        self.assertTrue(softlink.is_symlink())
+        self.assertEqual(softlink.resolve(), original.resolve())
+
+    def test_refuses_existing_sandbox_without_modification(self):
+        make_archive(self.artifacts)
+        self.destination.mkdir()
+        marker = self.destination / 'existing-payment-ledger'
+        marker.write_text('preserved')
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(marker.read_text(), 'preserved')
+
+    def test_refuses_unapproved_output_path(self):
+        make_archive(self.artifacts)
+        for destination in (Path('/home/lightworld/releases/tradeos-staging/tradeos-rehearsal-unit'),
+                            self.root / 'wrong-name'):
+            with self.subTest(destination=str(destination)):
+                result = self.rehearse(destination)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(destination.exists())
+
+    def test_rejects_archive_nested_beneath_internal_symlink(self):
+        directory_link = tarfile.TarInfo('./apps/web/link')
+        directory_link.type = tarfile.SYMTYPE
+        directory_link.linkname = '../system-admin'
+        child = tarfile.TarInfo('./apps/web/link/evil.js')
+        child.size = 4
+        make_archive(self.artifacts, extra=[(directory_link, None), (child, b'evil')])
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.destination.exists())
+
+    def test_refuses_archive_with_valid_hash_but_illegal_traversal(self):
+        traversal = tarfile.TarInfo('./../../external')
+        traversal.size = 4
+        make_archive(self.artifacts, extra=[(traversal, b'evil')])
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.destination.exists())
+
+    def test_refuses_archives_with_invalid_checksum_before_creating_output(self):
+        make_archive(self.artifacts, checksum_override='0' * 64 +
+                     f'  tradeos-runtime-pilot-{SHA}.tar.gz\n')
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.destination.exists())
+
+    def test_refuses_manifest_marked_deployable(self):
+        files = fixture_files()
+        manifest = json.loads(files['manifest.json'])
+        manifest['deployable'] = True
+        files['manifest.json'] = json.dumps(manifest).encode()
+        make_archive(self.artifacts, files=files)
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.destination.exists())
+
+    def test_cleans_partially_extracted_runtime_after_failure(self):
+        # No directory entry for this parent. The archive passes intake
+        # validation, but the fail-closed extractor cannot open that parent.
+        missing = tarfile.TarInfo('./apps/web/missing-parent/evil.js')
+        missing.size = 4
+        make_archive(self.artifacts, extra=[(missing, b'evil')])
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.destination.exists())
+
+    def test_refuses_archive_link_to_external_path(self):
+        link = tarfile.TarInfo('./apps/web/external')
+        link.type = tarfile.SYMTYPE
+        link.linkname = '../../../../etc/passwd'
+        make_archive(self.artifacts, extra=[(link, None)])
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.destination.exists())
+
 if __name__ == '__main__':
     unittest.main()

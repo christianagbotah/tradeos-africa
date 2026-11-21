@@ -68,4 +68,14 @@ test('read-only VPS artifact intake is checksum, provenance and capacity guarded
   assert.match(audit,/lightworld-vps-capacity-check artifact/);
   assert.match(audit,/gh run download/);
   assert.doesNotMatch(audit,/lightworld-deploy-tradeos-staging|systemctl|pm2|pnpm install|pnpm build|next build/);
+  const rehearsal=read('ops/release/rehearse-ci-artifact-pilot.py');
+  assert.match(workflow,/rehearse-ci-artifact-pilot\.py/);
+  assert.doesNotMatch(workflow,/tar -xzf \"\$archive\"/);
+  assert.match(audit,/--rehearse/);
+  assert.match(rehearsal,/O_NOFOLLOW/);
+  assert.match(rehearsal,/inspect_mod\.inspect\(sha, folder\)/);
+  assert.match(rehearsal,/verify_archive_structure/);
+  assert.match(rehearsal,/productionReleaseTouched/);
+  assert.match(rehearsal,/shutil\.rmtree\(destination\)/);
+  assert.doesNotMatch(rehearsal,/extractall|subprocess|pnpm build|pm2/);
 });
