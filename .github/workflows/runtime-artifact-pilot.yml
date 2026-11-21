@@ -106,9 +106,12 @@ jobs:
           archive="$RUNNER_TEMP/tradeos-release-artifact/tradeos-runtime-pilot-$GITHUB_SHA.tar.gz"
           cd "$RUNNER_TEMP/tradeos-release-artifact"
           sha256sum --check "$(basename "$archive").sha256"
-          mkdir -p "$RUNNER_TEMP/tradeos-extracted"
-          tar -xzf "$archive" -C "$RUNNER_TEMP/tradeos-extracted"
-          root="$RUNNER_TEMP/tradeos-extracted"
+          # The same non-following, bounded extractor used by VPS rehearsal.
+          # The archive must pass the complete read-only intake before any
+          # output directory can be created.
+          root="$RUNNER_TEMP/tradeos-rehearsal-extracted"
+          python3 "$GITHUB_WORKSPACE/ops/release/rehearse-ci-artifact-pilot.py" "$GITHUB_SHA" \
+            "$RUNNER_TEMP/tradeos-release-artifact" "$root"
           node - "$root/manifest.json" "$GITHUB_SHA" <<'NODE'
           const fs=require('node:fs');
           const manifest=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));

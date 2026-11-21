@@ -2,8 +2,9 @@
 set -euo pipefail
 # Read-only provenance and archive safety audit. No extraction, deploy, migrations,
 # service restart or persistent artifact cache; safe under shared-host build HOLD.
-if [[ "$#" -ne 2 || ! "$1" =~ ^[0-9a-f]{40}$ || ! "$2" =~ ^[0-9]+$ ]]; then
-  echo 'usage: audit-github-artifact-pilot.sh <exact-main-sha> <GitHub-workflow-run-id>' >&2
+if [[ "$#" -lt 2 || "$#" -gt 3 || ! "$1" =~ ^[0-9a-f]{40}$ || ! "$2" =~ ^[0-9]+$ ||
+      ( "$#" -eq 3 && "$3" != '--rehearse' ) ]]; then
+  echo 'usage: audit-github-artifact-pilot.sh <exact-main-sha> <GitHub-workflow-run-id> [--rehearse]' >&2
   exit 64
 fi
 sha="$1"; run_id="$2"
@@ -49,4 +50,12 @@ trap cleanup EXIT
 gh run download "$run_id" --repo "$repo" --name "$artifact_name" --dir "$quarantine"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 python3 "$script_dir/inspect-ci-artifact-pilot.py" "$sha" "$quarantine"
-echo 'VPS intake: verified nondeployable pilot; no switch, migration, restart or extraction.'
+if [[ "$#" -eq 3 ]]; then
+  # This is a temporary rehearsal of a NONDEPLOYABLE artifact. It creates no
+  # production release, migration, service or persistent sandbox.
+  rehearsal="$quarantine/tradeos-rehearsal-$sha"
+  python3 "$script_dir/rehearse-ci-artifact-pilot.py" "$sha" "$quarantine" "$rehearsal"
+  echo 'VPS rehearsal: safely unpacked in isolated quarantine; automatic temp cleanup follows.'
+else
+  echo 'VPS intake: verified nondeployable pilot; no switch, migration, restart or extraction.'
+fi
