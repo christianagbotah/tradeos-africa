@@ -114,6 +114,7 @@ describe("finance-only unresolved refund CSV export", () => {
     expect(res.body).toContain('"DISCREPANCY"');
     expect(res.body).toContain('"PROVIDER_PROOF_REQUIRED"');
     expect(res.body).toContain('"NO_EVIDENCE_SUBMITTED"');
+    expect(res.body).toContain('"NO_EVIDENCE","NOT_ESTABLISHED","FALSE"');
     expect(res.body).toContain('"NOT_ELECTRONIC"');
     expect(res.body).toContain('"MERCHANT_SUPPLIED_UNVERIFIED","NOT_ESTABLISHED","FALSE"');
     expect(res.body).not.toContain("6693");

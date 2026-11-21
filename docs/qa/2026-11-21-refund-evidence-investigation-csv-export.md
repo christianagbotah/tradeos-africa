@@ -14,9 +14,9 @@ original ISO currency, **exact amount in minor units**, optional customer name,
 return reason, counts of claims/unreviewed/discrepant claims, an evidence priority,
 latest merchant-claimed provider/reference/status, and latest staff review decision.
 
-**Trust boundary:** All merchant-supplied evidence remains
-`MERCHANT_SUPPLIED_UNVERIFIED`; every row has `NOT_ESTABLISHED` provider
-finality and `FALSE` can-mark-paid. CSV export cannot change refund,
+**Trust boundary:** Rows with submitted claims are
+`MERCHANT_SUPPLIED_UNVERIFIED`; rows without claims are `NO_EVIDENCE`.
+Every row has `NOT_ESTABLISHED` provider finality and `FALSE` can-mark-paid. CSV export cannot change refund,
 ledger, customer credit, stock, original payment, refund provider status or
 accounting balances. No online provider calls or live refund submissions.
 

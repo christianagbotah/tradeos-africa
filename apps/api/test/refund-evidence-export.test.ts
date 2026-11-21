@@ -44,6 +44,12 @@ describe("refund investigation finance CSV output", () => {
     expect(csv).toContain('"1500"');
     expect(csv).toContain("\"'=");
     expect(csv).toContain('"MERCHANT_SUPPLIED_UNVERIFIED","NOT_ESTABLISHED","FALSE"');
+    const none=renderRefundEvidenceInvestigationCsv([{
+      ...sample,claim_count:"0",awaiting_review_count:"0",
+      discrepancy_count:"0",latest_provider_code:null,latest_provider_ref:null,
+      latest_claim_status:null,
+    }]).toString("utf8");
+    expect(none).toContain('"NO_EVIDENCE","NOT_ESTABLISHED","FALSE"');
     expect(csv).toContain('"DISCREPANCY"');
     expect(csv.split("\r\n")).toHaveLength(3);
     expect(csv).not.toContain("recipient_last4");

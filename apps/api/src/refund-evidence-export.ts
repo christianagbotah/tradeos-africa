@@ -139,7 +139,8 @@ export function renderRefundEvidenceInvestigationCsv(rows: CsvSourceRow[]): Buff
       }),
       row.latest_provider_code ?? "", row.latest_provider_ref ?? "",
       row.latest_claim_status ?? "", row.latest_review_decision ?? "",
-      "MERCHANT_SUPPLIED_UNVERIFIED", "NOT_ESTABLISHED", "FALSE",
+      claimCount > 0 ? "MERCHANT_SUPPLIED_UNVERIFIED" : "NO_EVIDENCE",
+      "NOT_ESTABLISHED", "FALSE",
     ];
     body.push(values.map(refundEvidenceCsvCell).join(","));
   }
