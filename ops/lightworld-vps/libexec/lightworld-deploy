@@ -66,6 +66,13 @@ if [[ -n "$previous_success" && "$previous_success" != "$sha" ]]; then
 fi
 write_metadata_sha last-successful-release "$sha"
 
+# Best-effort disk housekeeping happens ONLY after successful activation,
+# health checks and durable rollback metadata. Cleanup failure must never
+# retroactively mark a healthy deployment as failed or remove rollback.
+if ! prune_stale_release_archives "$sha"; then
+  printf 'release-retention: cleanup skipped or incomplete; review release inventory\n' >&2
+fi
+
 if is_test_mode && [[ -n "${LIGHTWORLD_TEST_ACTION_MARKER:-}" ]]; then
   printf '%s %s\n' "$sha" "$release_dir" > "$LIGHTWORLD_TEST_ACTION_MARKER"
 fi

@@ -688,6 +688,155 @@ test('activation health failure restores the prior active release', () => {
   } finally { cleanup(fixture); }
 });
 
+test('release retention is opt-in and leaves ordinary historical releases untouched', () => {
+  const fixture = makeFixture();
+  try {
+    assert.equal(deploy(fixture, fixture.firstSha).status, 0);
+    const second = commitNext(fixture, 'retain-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second).status, 0);
+    const third = commitNext(fixture, 'retain-third');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, third).status, 0);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), true);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, third));
+  } finally { cleanup(fixture); }
+});
+
+test('opted-in retention keeps only current and immediate rollback, preserving nonrelease files', () => {
+  const fixture = makeFixture();
+  try {
+    writeRegistry(fixture, { RELEASE_RETENTION: 'active-and-rollback' });
+    const external = path.join(fixture.root, 'important-external-data');
+    fs.mkdirSync(external);
+    fs.writeFileSync(path.join(external, 'keep.txt'), 'untouched\n');
+    fs.symlinkSync(external, path.join(fixture.releases, 'e'.repeat(40)));
+    fs.mkdirSync(path.join(fixture.releases, 'unmanaged-user-data'));
+    fs.writeFileSync(path.join(fixture.releases, 'unmanaged-user-data', 'keep.txt'), 'untouched\n');
+    const first = deploy(fixture, fixture.firstSha);
+    assert.equal(first.status, 0, first.stderr || first.stdout);
+    const secondSha = commitNext(fixture, 'retention-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, secondSha).status, 0);
+    const thirdSha = commitNext(fixture, 'retention-third');
+    pushCanonical(fixture);
+    const third = deploy(fixture, thirdSha);
+    assert.equal(third.status, 0, third.stderr || third.stdout);
+    assert.match(third.stdout, new RegExp(`release-pruned=${fixture.firstSha}`));
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), false);
+    assert.equal(fs.existsSync(path.join(fixture.releases, secondSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, thirdSha)), true);
+    assert.equal(fs.existsSync(path.join(external, 'keep.txt')), true);
+    assert.equal(fs.lstatSync(path.join(fixture.releases, 'e'.repeat(40))).isSymbolicLink(), true);
+    assert.equal(fs.readFileSync(path.join(fixture.releases, 'unmanaged-user-data', 'keep.txt'), 'utf8'), 'untouched\n');
+    const rolledBack = run(rollbackPath, ['demo', 'staging'], {env: fixture.env});
+    assert.equal(rolledBack.status, 0, rolledBack.stderr || rolledBack.stdout);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, secondSha));
+  } finally { cleanup(fixture); }
+});
+
+test('retention never prunes on failed health and skips a historical release still used by a process', async () => {
+  const fixture = makeFixture();
+  let worker;
+  try {
+    writeRegistry(fixture, { RELEASE_RETENTION: 'active-and-rollback' });
+    assert.equal(deploy(fixture, fixture.firstSha).status, 0);
+    const second = commitNext(fixture, 'retention-still-in-use');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second).status, 0);
+    const third = commitNext(fixture, 'retention-health-failure');
+    pushCanonical(fixture);
+    const healthFailed = deploy(fixture, third, { LIGHTWORLD_TEST_HEALTH_FAIL: '1' });
+    assert.notEqual(healthFailed.status, 0);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, second));
+
+    worker = spawn('sleep', ['30'], { cwd: path.join(fixture.releases, fixture.firstSha),
+      stdio: ['ignore', 'ignore', 'ignore'] });
+    assert.ok(worker.pid);
+    const succeeded = deploy(fixture, third);
+    assert.equal(succeeded.status, 0, succeeded.stderr || succeeded.stdout);
+    assert.match(succeeded.stderr, /retained referenced or mounted release/);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+    worker.kill('SIGTERM');
+    await waitForChild(worker);
+    worker = undefined;
+
+    const fourth = commitNext(fixture, 'retention-fourth');
+    pushCanonical(fixture);
+    const afterWorkerExit = deploy(fixture, fourth);
+    assert.equal(afterWorkerExit.status, 0, afterWorkerExit.stderr || afterWorkerExit.stdout);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), false);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), false);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fourth)), true);
+  } finally {
+    if (worker) worker.kill('SIGTERM');
+    cleanup(fixture);
+  }
+});
+
+test('successful redeploy after a rollback protects the actual prior active release', () => {
+  const fixture = makeFixture();
+  try {
+    writeRegistry(fixture, { RELEASE_RETENTION: 'active-and-rollback' });
+    assert.equal(deploy(fixture, fixture.firstSha).status, 0);
+    const second = commitNext(fixture, 'retention-rollback-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second).status, 0);
+    const roll = run(rollbackPath, ['demo', 'staging'], { env: fixture.env });
+    assert.equal(roll.status, 0, roll.stderr || roll.stdout);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, fixture.firstSha));
+    const third = commitNext(fixture, 'retention-rollback-third');
+    pushCanonical(fixture);
+    const deployed = deploy(fixture, third);
+    assert.equal(deployed.status, 0, deployed.stderr || deployed.stdout);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), false);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+    const secondRollback = run(rollbackPath, ['demo', 'staging'], { env: fixture.env });
+    assert.equal(secondRollback.status, 0, secondRollback.stderr || secondRollback.stdout);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, fixture.firstSha));
+  } finally { cleanup(fixture); }
+});
+
+test('opted-in retention never prunes Git-managed canonical worktrees', () => {
+  const fixture = makeFixture();
+  try {
+    writeRegistry(fixture, {
+      RELEASE_RETENTION: 'active-and-rollback',
+      SOURCE_MODE: 'canonical-worktree',
+      SOURCE_REPO: fixture.sourceRepo,
+    });
+    assert.equal(deploy(fixture, fixture.firstSha).status, 0);
+    const second = commitNext(fixture, 'retention-worktree-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second).status, 0);
+    const third = commitNext(fixture, 'retention-worktree-third');
+    pushCanonical(fixture);
+    const result = deploy(fixture, third);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stderr, /Git worktrees are not pruned automatically/);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+  } finally { cleanup(fixture); }
+});
+
+test('invalid release retention is rejected before activation', () => {
+  const fixture = makeFixture();
+  try {
+    writeRegistry(fixture, { RELEASE_RETENTION: 'all' });
+    const result = deploy(fixture, fixture.firstSha);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /RELEASE_RETENTION/);
+    assert.equal(fs.existsSync(fixture.currentLink), false);
+  } finally { cleanup(fixture); }
+});
+
 test('canonical-main lookup failure fails closed without using workspace refs', () => {
   const fixture = makeFixture();
   try {
