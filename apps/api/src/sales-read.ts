@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import type { DatabasePool } from "./db.js";
+import { loadRefundEvidenceBranchRollup } from "./refund-evidence-branch-rollup.js";
 import {
   parseReceiptPaper, receiptPdfFilename, renderVerifiedSaleReceiptPdf,
   type VerifiedReceiptSnapshot,
@@ -90,7 +91,8 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
       await requireBranch(pool, businessId, branchId);
       const status = request.query.status ?? "ALL";
       if (!["ALL", "PENDING", "FAILED", "PENDING_24H", "PENDING_7D",
-        "EVIDENCE_MISMATCH", "EVIDENCE_AWAITING_REVIEW", "EVIDENCE_NEEDS_PROVIDER"].includes(status)) {
+        "EVIDENCE_MISMATCH", "EVIDENCE_AWAITING_REVIEW", "EVIDENCE_NEEDS_PROVIDER",
+        "EVIDENCE_MISSING"].includes(status)) {
         throw new SalesReadError(
           "Invalid refund status or provider evidence review filter.",
           400, "REFUND_STATUS_INVALID");
@@ -151,6 +153,10 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
          FROM refund_transactions rt
          JOIN return_cases rc ON rc.id=rt.return_case_id AND rc.business_id=rt.business_id
          LEFT JOIN customers c ON c.id=rc.customer_id AND c.business_id=rt.business_id
+         LEFT JOIN payments original_payment ON original_payment.id=rt.original_payment_id
+           AND original_payment.business_id=rt.business_id
+           AND original_payment.branch_id=rc.branch_id
+           AND original_payment.sale_id=rc.original_sale_id
          LEFT JOIN LATERAL (
            SELECT COUNT(*) AS claim_count,
                   COUNT(*) FILTER (WHERE review.id IS NULL) AS awaiting_review_count,
@@ -180,6 +186,10 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
              OR ($3='EVIDENCE_AWAITING_REVIEW' AND evidence.awaiting_review_count>0)
              OR ($3='EVIDENCE_NEEDS_PROVIDER' AND evidence.claim_count>0
                  AND evidence.awaiting_review_count=0 AND evidence.discrepancy_count=0)
+             OR ($3='EVIDENCE_MISSING' AND evidence.claim_count=0
+                 AND (rt.method IN ('MOMO','CARD','BANK')
+                   OR (rt.method='ORIGINAL_METHOD'
+                     AND original_payment.method IN ('MOMO','CARD','BANK'))))
            )
          ORDER BY rt.created_at ASC,rt.id ASC LIMIT $4 OFFSET $5`,
         [businessId, branchId, status, limit + 1, parsedOffset],
@@ -192,7 +202,10 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
         }
         return value;
       };
+      const evidenceSummaryByCurrency = await loadRefundEvidenceBranchRollup(
+        pool, businessId, branchId);
       return reply.header("Cache-Control", "private, no-store, max-age=0").send({
+        evidenceSummaryByCurrency,
         summaryByCurrency: summaryByCurrency.rows.map((row) => ({
           currencyCode: row.currency_code,
           pendingCount: safeMinor(row.pending_count),

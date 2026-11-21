@@ -12,7 +12,8 @@ import { RefundReconciliationPanel } from "./refund-reconciliation-panel";
 
 type SettlementStatus = "PENDING" | "FAILED";
 type SettlementFilter = "ALL" | SettlementStatus | "PENDING_24H" | "PENDING_7D" |
-  "EVIDENCE_MISMATCH" | "EVIDENCE_AWAITING_REVIEW" | "EVIDENCE_NEEDS_PROVIDER";
+  "EVIDENCE_MISMATCH" | "EVIDENCE_AWAITING_REVIEW" | "EVIDENCE_NEEDS_PROVIDER" |
+  "EVIDENCE_MISSING";
 interface SettlementItem {
   id: string;
   returnCaseId: string;
@@ -33,6 +34,13 @@ interface SettlementItem {
   escalated: boolean;
 }
 interface SettlementWorklist {
+  evidenceSummaryByCurrency: Array<{
+    currencyCode: string;
+    missingCount: number; missingMinor: number;
+    awaitingReviewCount: number; awaitingReviewMinor: number;
+    discrepancyCount: number; discrepancyMinor: number;
+    needsProviderCount: number; needsProviderMinor: number;
+  }>;
   summaryByCurrency: Array<{
     currencyCode: string;
     pendingCount: number;
@@ -105,6 +113,29 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
         pending24hCount: 0, pending24hMinor: 0, pending7dCount: 0, pending7dMinor: 0,
       }]
     : null;
+  // Refund evidence indicators cover the ENTIRE selected branch, including
+  // results outside the current page. Reject an outdated or incomplete API
+  // response rather than silently showing a reassuring zero.
+  const rawEvidence = data?.evidenceSummaryByCurrency;
+  const evidenceBalances = validBalances &&
+    Array.isArray(rawBalances) && Array.isArray(rawEvidence) &&
+    rawEvidence.length === rawBalances.length &&
+    rawEvidence.every((row) => {
+      const liability = rawBalances.find(entry => entry.currencyCode === row.currencyCode);
+      if (!liability || !/^[A-Z]{3}$/.test(row.currencyCode)) return false;
+      const totalCount = liability.pendingCount + liability.failedCount;
+      const totalMinor = liability.pendingMinor + liability.failedMinor;
+      return [
+        row.missingCount,row.missingMinor,
+        row.awaitingReviewCount,row.awaitingReviewMinor,
+        row.discrepancyCount,row.discrepancyMinor,
+        row.needsProviderCount,row.needsProviderMinor,
+      ].every(value => Number.isSafeInteger(value) && value >= 0) &&
+        [row.missingCount,row.awaitingReviewCount,row.discrepancyCount,
+          row.needsProviderCount].every(value => value <= totalCount) &&
+        [row.missingMinor,row.awaitingReviewMinor,row.discrepancyMinor,
+          row.needsProviderMinor].every(value => value <= totalMinor);
+    }) ? rawEvidence : null;
   const filterOptions: readonly { value: SettlementFilter; label: string }[] = [
     { value: "ALL", label: "All unresolved" },
     { value: "PENDING", label: "Pending payout" },
@@ -114,6 +145,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
     { value: "EVIDENCE_AWAITING_REVIEW", label: "Evidence to review" },
     { value: "EVIDENCE_MISMATCH", label: "Evidence discrepancies" },
     { value: "EVIDENCE_NEEDS_PROVIDER", label: "Provider proof needed" },
+    { value: "EVIDENCE_MISSING", label: "No evidence submitted" },
   ];
 
   return (
@@ -127,6 +159,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
             The 24h+ and 7d+ figures are subsets of pending payouts, not additional liabilities.
             Filter overdue payouts, unreviewed evidence, discrepancies and cases
             that have been reviewed but still lack independent provider proof.
+            Finance totals cover every unresolved refund in this branch, not just this page.
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={() => refetch()}>Refresh</Button>
@@ -156,6 +189,51 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
         <p role="alert" className="tos-section__sub">
           Refund summaries are unavailable. Refresh to verify the amounts; missing
           payment data must not be interpreted as a confirmed zero.
+        </p>
+      ) : null}
+      {evidenceBalances ? (
+        <div aria-label="Branch-wide provider evidence attention" style={{ marginTop: 14 }}>
+          <strong>Evidence attention — entire branch</strong>
+          <p className="tos-section__sub">
+            Outstanding refund amounts only, grouped by original currency.
+            Discrepancy and awaiting-review categories can overlap: do not add
+            them to payout liabilities or treat any claim as proof of settlement.
+            No evidence counts only electronic refunds eligible for provider claims.
+          </p>
+          {evidenceBalances.map(summary => (
+            <div key={summary.currencyCode} className="tos-row" style={{
+              gap: 16, flexWrap: "wrap", marginTop: 8,
+            }}>
+              <strong className="tos-section__sub">
+                {summary.currencyCode === "GHS" ? "₵" : summary.currencyCode}
+              </strong>
+              <span title="Electronic refunds with no submitted provider evidence">
+                No evidence ({summary.missingCount}){" "}
+                <MoneyValue minor={summary.missingMinor}
+                  currencyCode={summary.currencyCode} />
+              </span>
+              <span title="Unreviewed evidence claims; some may also contain discrepancies">
+                To review ({summary.awaitingReviewCount}){" "}
+                <MoneyValue minor={summary.awaitingReviewMinor}
+                  currencyCode={summary.currencyCode} />
+              </span>
+              <span title="Claim amount/currency differences or reviewer-recorded discrepancies">
+                Discrepancies ({summary.discrepancyCount}){" "}
+                <MoneyValue minor={summary.discrepancyMinor}
+                  currencyCode={summary.currencyCode} />
+              </span>
+              <span title="Claims reviewed without discrepancies; still no authenticated payout">
+                Provider proof needed ({summary.needsProviderCount}){" "}
+                <MoneyValue minor={summary.needsProviderMinor}
+                  currencyCode={summary.currencyCode} />
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : data && !loading && !error ? (
+        <p role="alert" className="tos-section__sub">
+          Branch-wide evidence totals are unavailable. Refresh before relying on
+          the counts; missing evidence must not be interpreted as zero.
         </p>
       ) : null}
       <div className="tos-filter-row" aria-label="Refund review priority filters"
@@ -266,7 +344,7 @@ export function RefundSettlementWorklist({ refreshToken }: { refreshToken: numbe
               {selectedReconciliationId === item.id && session ? (
                 <RefundReconciliationPanel
                   key={item.id + ":" + session.businessId + ":" + session.branchId}
-                  refundId={item.id} />
+                  refundId={item.id} onEvidenceRecorded={refetch} />
               ) : null}
             </li>
           ))}
