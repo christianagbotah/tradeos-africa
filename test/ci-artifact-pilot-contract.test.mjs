@@ -70,6 +70,7 @@ test('read-only VPS artifact intake is checksum, provenance and capacity guarded
   assert.doesNotMatch(audit,/lightworld-deploy-tradeos-staging|systemctl|pm2|pnpm install|pnpm build|next build/);
   const rehearsal=read('ops/release/rehearse-ci-artifact-pilot.py');
   assert.match(workflow,/rehearse-ci-artifact-pilot\.py/);
+  assert.match(workflow,/\$GITHUB_WORKSPACE\/ops\/release\/rehearse-ci-artifact-pilot\.py/);
   assert.doesNotMatch(workflow,/tar -xzf \"\$archive\"/);
   assert.match(audit,/--rehearse/);
   assert.match(rehearsal,/O_NOFOLLOW/);

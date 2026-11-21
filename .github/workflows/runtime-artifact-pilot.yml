@@ -110,7 +110,7 @@ jobs:
           # The archive must pass the complete read-only intake before any
           # output directory can be created.
           root="$RUNNER_TEMP/tradeos-rehearsal-extracted"
-          python3 ops/release/rehearse-ci-artifact-pilot.py "$GITHUB_SHA" \
+          python3 "$GITHUB_WORKSPACE/ops/release/rehearse-ci-artifact-pilot.py" "$GITHUB_SHA" \
             "$RUNNER_TEMP/tradeos-release-artifact" "$root"
           node - "$root/manifest.json" "$GITHUB_SHA" <<'NODE'
           const fs=require('node:fs');

@@ -25,3 +25,5 @@ On the authorized shared VPS, the opt-in rehearsal ran against the latest succes
 ## Next guarded milestones
 
 This remains a **NONDEPLOYABLE** pilot (`deployable:false`); this sandbox is not a production release path. Full cutover requires an independently reviewed root-owned artifact promotion format/adapter (not an automatic elevation of the pilot), proof of GitHub provenance and checksum at promotion time, a Node 22 compatible application launcher for standalone output, migration safety, read-only financial transaction reconciliation and authenticated POS/refunds/receipt QA, then controlled atomic activation with tested rollback. Do not change the protected deploy workflow to bypass low-disk HOLD.
+
+GitHub workflow path hardening: the smoke step changes its working directory to `$RUNNER_TEMP/tradeos-release-artifact`, so the extractor executable must be referenced from the explicit `$GITHUB_WORKSPACE` checkout. Contract tests pin that absolute checkout-root reference.
