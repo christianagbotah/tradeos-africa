@@ -74,6 +74,11 @@ if [[ "$#" -ge 3 ]]; then
       echo 'Missing trusted root-owned TradeOS staging registry' >&2
       exit 65
     fi
+    registry_mode="$(stat -c '%a' -- "$registry")"
+    if (( (8#$registry_mode & 0022) != 0 )); then
+      echo 'TradeOS staging registry must not be group/other writable' >&2
+      exit 65
+    fi
     env_file="$(sed -nE "s/^ENV_FILE='([^']+)'$/\1/p" "$registry")"
     if [[ "$env_file" != /* || ! -f "$env_file" || -L "$env_file" ]]; then
       echo 'Missing trusted external TradeOS environment file' >&2
@@ -84,12 +89,20 @@ if [[ "$#" -ge 3 ]]; then
       echo 'Untrusted external environment file owner' >&2
       exit 65
     fi
+    env_mode="$(stat -c '%a' -- "$env_file")"
+    if (( (8#$env_mode & 0077) != 0 )); then
+      echo 'TradeOS external financial credentials must be owner-only readable' >&2
+      exit 65
+    fi
     # mktemp directories default 0700. Open the *already authenticated*
     # sandbox read-only to the app user without exposing it to other tenants.
     app_group="$(id -gn lightworld)"
     chgrp -- "$app_group" "$quarantine" "$rehearsal"
     chmod 0750 -- "$quarantine" "$rehearsal"
-    runuser -u lightworld -- /usr/bin/env node "--env-file=$env_file" \
+    # Clear inherited operator/environment values (especially DATABASE_URL),
+    # forcing the trusted 0600 external file to be the ONLY source of DB credentials.
+    runuser -u lightworld -- /usr/bin/env -i PATH=/usr/bin:/bin HOME=/home/lightworld \
+      /usr/bin/node "--env-file=$env_file" \
       "$script_dir/check-promotion-migrations.mjs" "$rehearsal" "$sha"
   fi
   echo 'VPS rehearsal: safely unpacked in isolated quarantine; automatic temp cleanup follows.'

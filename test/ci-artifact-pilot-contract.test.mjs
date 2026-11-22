@@ -148,6 +148,8 @@ test('migration prepromotion review reads ledger only and grants no live activat
   assert.match(audit,/"\$#" -eq 4/);
   assert.match(audit,/EUID != 0/);
   assert.match(audit,/runuser -u lightworld/);
+  assert.match(audit,/\/usr\/bin\/env -i PATH=\/usr\/bin:\/bin HOME=\/home\/lightworld/);
+  assert.match(audit,/8#\$env_mode & 0077/);
   assert.match(audit,/check-promotion-migrations\.mjs/);
   assert.ok(audit.indexOf('verify-attested-artifact-pilot.sh') <
     audit.indexOf('check-promotion-migrations.mjs'));
