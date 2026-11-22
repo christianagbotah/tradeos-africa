@@ -108,3 +108,32 @@ test('source-light launchers are part of the artifact while main remains nondepl
   assert.match(smoke,/test_source_light_launchers\.py/);
   assert.doesNotMatch(smoke,/self-hosted|lightworld-deploy-tradeos-staging/);
 });
+
+
+test('main-only cryptographic artifact provenance is required before any VPS rehearsal',()=>{
+  const workflow=read('.github/workflows/runtime-artifact-pilot.yml');
+  const audit=read('ops/release/audit-github-artifact-pilot.sh');
+  const verifier=read('ops/release/verify-attested-artifact-pilot.sh');
+  assert.match(workflow,/id-token: write/);
+  assert.match(workflow,/attestations: write/);
+  assert.match(workflow,/uses: actions\/attest@v4/);
+  assert.match(workflow,/if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow,/subject-path: \$\{\{ runner\.temp \}\}\/tradeos-release-artifact\/tradeos-runtime-pilot-/);
+  assert.ok(workflow.indexOf('Smoke test archive after clean extraction') <
+    workflow.indexOf('Sign provenance of tested archive'));
+  assert.ok(workflow.indexOf('Sign provenance of tested archive') <
+    workflow.indexOf('Publish short-lived, non-deployable pilot archive'));
+  assert.match(workflow,/test_ci_signed_provenance\.py/);
+  assert.match(audit,/verify-attested-artifact-pilot\.sh/);
+  assert.ok(audit.indexOf('verify-attested-artifact-pilot.sh') <
+    audit.indexOf('inspect-ci-artifact-pilot.py'),
+    'verify signed origin before any inspection/extraction');
+  assert.match(verifier,/gh attestation verify/);
+  assert.match(verifier,/--signer-workflow/);
+  assert.match(verifier,/--source-ref 'refs\/heads\/main'/);
+  assert.match(verifier,/--source-digest "\$sha"/);
+  assert.match(verifier,/--predicate-type 'https:\/\/slsa\.dev\/provenance\/v1'/);
+  assert.match(verifier,/type == "array" and length > 0/);
+  assert.doesNotMatch(verifier,/pm2|systemctl|next build|pnpm install|tar -x|lightworld-deploy-tradeos-staging/);
+  assert.match(read('ops/release/create-ci-artifact-pilot.sh'),/deployable:false/);
+});

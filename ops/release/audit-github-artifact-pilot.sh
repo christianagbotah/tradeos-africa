@@ -49,6 +49,11 @@ trap cleanup EXIT
 # Authenticated GitHub CLI fetch. Untrusted arguments never become file names.
 gh run download "$run_id" --repo "$repo" --name "$artifact_name" --dir "$quarantine"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# Now require cryptographically signed provenance (not just the uploaded
+# checksum and GitHub API run metadata). An unsigned/PR/foreign artifact fails
+# before any extraction or attempt to read a private deployment environment.
+bash "$script_dir/verify-attested-artifact-pilot.sh" \
+  "$sha" "$quarantine/tradeos-runtime-pilot-$sha.tar.gz"
 python3 "$script_dir/inspect-ci-artifact-pilot.py" "$sha" "$quarantine"
 if [[ "$#" -eq 3 ]]; then
   # This is a temporary rehearsal of a NONDEPLOYABLE artifact. It creates no

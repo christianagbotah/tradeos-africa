@@ -9,6 +9,7 @@ on:
       - 'ops/release/**'
       - 'test/ci-artifact-pilot-contract.test.mjs'
       - 'test/test_ci_artifact_intake.py'
+      - 'test/test_ci_signed_provenance.py'
       - 'test/test_source_light_launchers.py'
       - 'ops/release/runtime/**'
       - '.github/workflows/runtime-artifact-pilot.yml'
@@ -20,12 +21,15 @@ on:
       - 'ops/release/**'
       - 'test/ci-artifact-pilot-contract.test.mjs'
       - 'test/test_ci_artifact_intake.py'
+      - 'test/test_ci_signed_provenance.py'
       - 'test/test_source_light_launchers.py'
       - 'ops/release/runtime/**'
       - '.github/workflows/runtime-artifact-pilot.yml'
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 concurrency:
   group: tradeos-runtime-artifact-${{ github.event.pull_request.number || github.sha }}
@@ -71,6 +75,9 @@ jobs:
 
       - name: Verify standalone launchers with isolated fake runtimes
         run: python3 -m unittest discover -s test -p test_source_light_launchers.py -v
+
+      - name: Verify signature acceptance rejects untrusted provenance
+        run: python3 -m unittest discover -s test -p test_ci_signed_provenance.py -v
 
       - name: Install dependencies on GitHub runner only
         run: pnpm install --frozen-lockfile
@@ -162,6 +169,15 @@ jobs:
             test "$status" = 401
           done
           echo 'CI artifact smoke passed; no VPS deployment or live payment state changed.'
+
+      # Sign the exact archive bytes *after* independent checksum, sandbox
+      # extraction, API/web/admin startup and finance authorization smoke.
+      # PRs and manual dispatches are NEVER eligible for VPS intake.
+      - name: Sign provenance of tested archive (main push only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/tradeos-release-artifact/tradeos-runtime-pilot-${{ github.sha }}.tar.gz
 
       - name: Publish short-lived, non-deployable pilot archive
         uses: actions/upload-artifact@v4
