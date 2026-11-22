@@ -144,6 +144,20 @@ test('read-only query still rolls back after database SELECT failure',async()=>{
   assert.equal(released,true);
 });
 
+test('ledger gate fails closed when ROLLBACK itself fails',async()=>{
+  let released=false;
+  const pool={connect:async()=>({
+    query:async(sql)=>{
+      if(sql==='ROLLBACK') throw new Error('rollback lost connection');
+      if(sql.startsWith('SELECT')) return {rows:[row('0001_initial.sql','e'.repeat(64))]};
+      return {rows:[]};
+    },
+    release:()=>{released=true;},
+  })};
+  await assert.rejects(queryLedgerReadOnly(pool),/rollback lost connection/);
+  assert.equal(released,true);
+});
+
 test('read-only query never connects when no pool is supplied',async()=>{
   await assert.rejects(queryLedgerReadOnly({connect:async()=>{throw Error('connection refused');}}));
 });

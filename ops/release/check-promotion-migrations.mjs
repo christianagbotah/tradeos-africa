@@ -139,10 +139,14 @@ export async function queryLedgerReadOnly(pool) {
     if (!Array.isArray(response.rows)) throw new PromotionRejected('Database response missing ledger rows');
     return response.rows;
   } finally {
-    if (transactionStarted) {
-      await client.query('ROLLBACK').catch(() => undefined);
+    try {
+      // An unconfirmed ROLLBACK is itself a gate failure, even for a
+      // read-only transaction: do not report compatibility on an unknown
+      // connection/transaction outcome.
+      if (transactionStarted) await client.query('ROLLBACK');
+    } finally {
+      client.release();
     }
-    client.release();
   }
 }
 
