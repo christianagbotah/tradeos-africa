@@ -11,6 +11,7 @@ on:
       - 'test/test_ci_artifact_intake.py'
       - 'test/test_ci_signed_provenance.py'
       - 'test/test_source_light_launchers.py'
+      - 'test/read-only-promotion-gate.test.mjs'
       - 'ops/release/runtime/**'
       - '.github/workflows/runtime-artifact-pilot.yml'
   push:
@@ -23,6 +24,7 @@ on:
       - 'test/test_ci_artifact_intake.py'
       - 'test/test_ci_signed_provenance.py'
       - 'test/test_source_light_launchers.py'
+      - 'test/read-only-promotion-gate.test.mjs'
       - 'ops/release/runtime/**'
       - '.github/workflows/runtime-artifact-pilot.yml'
 
@@ -78,6 +80,9 @@ jobs:
 
       - name: Verify signature acceptance rejects untrusted provenance
         run: python3 -m unittest discover -s test -p test_ci_signed_provenance.py -v
+
+      - name: Verify promotion migration ledger is read-only and fail-closed
+        run: node --test test/read-only-promotion-gate.test.mjs
 
       - name: Install dependencies on GitHub runner only
         run: pnpm install --frozen-lockfile

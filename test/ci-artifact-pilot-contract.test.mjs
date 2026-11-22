@@ -137,3 +137,28 @@ test('main-only cryptographic artifact provenance is required before any VPS reh
   assert.doesNotMatch(verifier,/pm2|systemctl|next build|pnpm install|tar -x|lightworld-deploy-tradeos-staging/);
   assert.match(read('ops/release/create-ci-artifact-pilot.sh'),/deployable:false/);
 });
+
+
+test('migration prepromotion review reads ledger only and grants no live activation',()=>{
+  const audit=read('ops/release/audit-github-artifact-pilot.sh');
+  const gate=read('ops/release/check-promotion-migrations.mjs');
+  const workflow=read('.github/workflows/runtime-artifact-pilot.yml');
+  assert.match(workflow,/node --test test\/read-only-promotion-gate\.test\.mjs/);
+  assert.match(audit,/--ledger-readonly/);
+  assert.match(audit,/"\$#" -eq 4/);
+  assert.match(audit,/EUID != 0/);
+  assert.match(audit,/runuser -u lightworld/);
+  assert.match(audit,/\/usr\/bin\/env -i PATH=\/usr\/bin:\/bin HOME=\/home\/lightworld/);
+  assert.match(audit,/8#\$env_mode & 0077/);
+  assert.match(audit,/check-promotion-migrations\.mjs/);
+  assert.ok(audit.indexOf('verify-attested-artifact-pilot.sh') <
+    audit.indexOf('check-promotion-migrations.mjs'));
+  assert.ok(audit.indexOf('rehearse-ci-artifact-pilot.py') <
+    audit.indexOf('check-promotion-migrations.mjs'));
+  assert.match(gate,/BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY/);
+  assert.match(gate,/SELECT migration_name, checksum_sha256, state FROM lightworld_schema_migrations/);
+  assert.match(gate,/client\.query\('ROLLBACK'\)/);
+  assert.match(gate,/authorizedToDeploy: false/);
+  assert.match(gate,/manifest\.deployable !== false/);
+  assert.doesNotMatch(gate,/applyMigrations|\.query\(['"`]INSERT|\.query\(['"`]UPDATE|\.query\(['"`]DELETE|\.query\(['"`]CREATE/);
+});
