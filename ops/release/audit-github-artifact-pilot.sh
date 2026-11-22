@@ -2,9 +2,10 @@
 set -euo pipefail
 # Read-only provenance and archive safety audit. No extraction, deploy, migrations,
 # service restart or persistent artifact cache; safe under shared-host build HOLD.
-if [[ "$#" -lt 2 || "$#" -gt 3 || ! "$1" =~ ^[0-9a-f]{40}$ || ! "$2" =~ ^[0-9]+$ ||
-      ( "$#" -eq 3 && "$3" != '--rehearse' ) ]]; then
-  echo 'usage: audit-github-artifact-pilot.sh <exact-main-sha> <GitHub-workflow-run-id> [--rehearse]' >&2
+if [[ "$#" -lt 2 || "$#" -gt 4 || ! "$1" =~ ^[0-9a-f]{40}$ || ! "$2" =~ ^[0-9]+$ ||
+      ( "$#" -ge 3 && "$3" != '--rehearse' ) ||
+      ( "$#" -eq 4 && "$4" != '--ledger-readonly' ) ]]; then
+  echo 'usage: audit-github-artifact-pilot.sh <exact-main-sha> <GitHub-workflow-run-id> [--rehearse [--ledger-readonly]]' >&2
   exit 64
 fi
 sha="$1"; run_id="$2"
@@ -55,11 +56,42 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 bash "$script_dir/verify-attested-artifact-pilot.sh" \
   "$sha" "$quarantine/tradeos-runtime-pilot-$sha.tar.gz"
 python3 "$script_dir/inspect-ci-artifact-pilot.py" "$sha" "$quarantine"
-if [[ "$#" -eq 3 ]]; then
+if [[ "$#" -ge 3 ]]; then
   # This is a temporary rehearsal of a NONDEPLOYABLE artifact. It creates no
   # production release, migration, service or persistent sandbox.
   rehearsal="$quarantine/tradeos-rehearsal-$sha"
   python3 "$script_dir/rehearse-ci-artifact-pilot.py" "$sha" "$quarantine" "$rehearsal"
+  if [[ "$#" -eq 4 ]]; then
+    # Root explicitly opts into a live-ledger READ-ONLY comparison. The app
+    # principal, not the root deployer, connects to PostgreSQL. The command
+    # only issues BEGIN READ ONLY, SELECT and ROLLBACK; no schema changes.
+    if (( EUID != 0 )); then
+      echo 'Ledger read-only mode requires the trusted root operator' >&2
+      exit 65
+    fi
+    registry='/etc/lightworld-deploy/apps.d/tradeos-africa.staging.conf'
+    if [[ ! -f "$registry" || -L "$registry" || "$(stat -c '%u' -- "$registry")" != 0 ]]; then
+      echo 'Missing trusted root-owned TradeOS staging registry' >&2
+      exit 65
+    fi
+    env_file="$(sed -nE "s/^ENV_FILE='([^']+)'$/\1/p" "$registry")"
+    if [[ "$env_file" != /* || ! -f "$env_file" || -L "$env_file" ]]; then
+      echo 'Missing trusted external TradeOS environment file' >&2
+      exit 65
+    fi
+    if [[ "$(stat -c '%u' -- "$env_file")" != 0 &&
+          "$(stat -c '%U' -- "$env_file")" != 'lightworld' ]]; then
+      echo 'Untrusted external environment file owner' >&2
+      exit 65
+    fi
+    # mktemp directories default 0700. Open the *already authenticated*
+    # sandbox read-only to the app user without exposing it to other tenants.
+    app_group="$(id -gn lightworld)"
+    chgrp -- "$app_group" "$quarantine" "$rehearsal"
+    chmod 0750 -- "$quarantine" "$rehearsal"
+    runuser -u lightworld -- /usr/bin/env node "--env-file=$env_file" \
+      "$script_dir/check-promotion-migrations.mjs" "$rehearsal" "$sha"
+  fi
   echo 'VPS rehearsal: safely unpacked in isolated quarantine; automatic temp cleanup follows.'
 else
   echo 'VPS intake: verified nondeployable pilot; no switch, migration, restart or extraction.'
