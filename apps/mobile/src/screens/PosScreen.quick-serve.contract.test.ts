@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
-const source=readFileSync(fileURLToPath(new URL("./PosScreen.tsx",import.meta.url)),"utf8");
-const model=readFileSync(fileURLToPath(new URL("../pos-model.ts",import.meta.url)),"utf8");
-const appModel=readFileSync(fileURLToPath(new URL("../app-model.ts",import.meta.url)),"utf8");
+const source=readFileSync(resolve(__dirname,"PosScreen.tsx"),"utf8");
+const model=readFileSync(resolve(__dirname,"../pos-model.ts"),"utf8");
+const appModel=readFileSync(resolve(__dirname,"../app-model.ts"),"utf8");
 
 describe("native food vendor quick-sale UX",()=>{
   it("offers Standard POS and Quick Serve without replacing the existing POS",()=>{
