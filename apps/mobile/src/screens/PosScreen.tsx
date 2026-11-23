@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
@@ -16,6 +17,7 @@ import type {
   MobileImmediatePaymentMethod,
   MobileSellableItem,
 } from "../pos-model";
+import { groupMobileQuickServeItems } from "../pos-model";
 import { commerceFreshness, formatMoney, formatQuantity } from "../lib/format";
 
 const PAYMENT_METHODS: ReadonlyArray<{ value: MobileImmediatePaymentMethod; label: string }> = [
@@ -50,7 +52,8 @@ export function PosScreen({
   onRemove,
   onPayment,
   onCheckout,
-}: PosScreenProps) {
+ }: PosScreenProps) {
+  const [quickServe,setQuickServe] = useState(false);
   if (snapshot.bootstrap?.status !== "READY") return null;
   const ready = snapshot.bootstrap;
   const currencyCode = ready.business.currencyCode;
@@ -62,8 +65,10 @@ export function PosScreen({
     : cartTotal(snapshot.cart);
 
   return (
+    <View style={styles.page}>
     <ScrollView
-      contentContainerStyle={styles.content}
+      style={styles.scroll}
+      contentContainerStyle={[styles.content,quickServe&&styles.contentQuick]}
       keyboardShouldPersistTaps="handled"
     >
       <WorkspaceHeader
@@ -73,10 +78,27 @@ export function PosScreen({
         pendingCount={ready.queue.pending}
       />
 
+      <View style={styles.modeRow}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Standard POS mode"
+          accessibilityState={{selected:!quickServe,disabled:snapshot.checkoutBusy}}
+          disabled={snapshot.checkoutBusy}
+          style={[styles.modeOption,!quickServe&&styles.modeActive]}
+          onPress={()=>setQuickServe(false)}>
+          <Text style={[styles.modeLabel,!quickServe&&styles.modeLabelActive]}>Standard POS</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Quick Serve food mode"
+          accessibilityState={{selected:quickServe,disabled:snapshot.checkoutBusy}}
+          disabled={snapshot.checkoutBusy}
+          style={[styles.modeOption,quickServe&&styles.modeActive]}
+          onPress={()=>{onPayment("CASH");setQuickServe(true);}}>
+          <Text style={[styles.modeLabel,quickServe&&styles.modeLabelActive]}>⚡ Quick Serve</Text>
+        </Pressable>
+      </View>
+      {quickServe&&snapshot.saleNotice?<SaleNoticeBanner notice={snapshot.saleNotice}/>:null}
       <View style={styles.sectionHeader}>
         <View style={styles.flex}>
-          <Text style={styles.kicker}>Fast sale</Text>
-          <Text style={styles.sectionTitle}>Catalog</Text>
+          <Text style={styles.kicker}>{quickServe?"Walk-in food sale":"Fast sale"}</Text>
+          <Text style={styles.sectionTitle}>{quickServe?"Tap a portion price":"Catalog"}</Text>
           <Text style={styles.sectionCopy}>{commerceFreshness(snapshot)}</Text>
         </View>
         <Button
@@ -126,6 +148,36 @@ export function PosScreen({
         </Card>
       ) : null}
 
+      {quickServe?(
+        <View style={styles.quickFoodList} accessibilityLabel="Quick Serve food buttons">
+          {groupMobileQuickServeItems(visibleItems).slice(0,30).map(group=>(
+            <Card key={group.itemId} padding="compact" style={styles.quickFoodCard}>
+              <Text style={styles.quickFoodName}>{group.name}</Text>
+              <View style={styles.quickPortions}>
+                {group.options.map(item=>{
+                  const outOfStock=item.trackStock&&item.availableStock!==null&&
+                    item.availableStock<=0;
+                  const selected=snapshot.cart.find(line=>line.key===item.key)?.quantity??0;
+                  return <Pressable key={item.key} accessibilityRole="button"
+                    accessibilityLabel={"Add "+item.name+", "+item.unitLabel+", "+
+                      formatMoney(item.priceMinor,currencyCode)}
+                    accessibilityState={{disabled:!canSell||outOfStock||snapshot.checkoutBusy}}
+                    disabled={!canSell||outOfStock||snapshot.checkoutBusy}
+                    onPress={()=>onAdd(item)}
+                    style={({pressed})=>[styles.quickPortion,
+                      pressed&&styles.quickPortionPressed,
+                      (!canSell||outOfStock)&&styles.quickDisabled]}>
+                    <Text style={styles.quickPrice}>{formatMoney(item.priceMinor,currencyCode)}</Text>
+                    <Text style={styles.quickUnit} numberOfLines={2}>{item.unitLabel}</Text>
+                    {selected>0?<Text style={styles.quickSelected}>{selected} in cart</Text>:null}
+                    {outOfStock?<Text style={styles.quickUnit}>Sold out</Text>:null}
+                  </Pressable>;
+                })}
+              </View>
+            </Card>
+          ))}
+        </View>
+      ):(
       <View style={styles.catalogList}>
         {visibleItems.map((item) => (
           <CatalogCard
@@ -136,6 +188,7 @@ export function PosScreen({
           />
         ))}
       </View>
+      )}
 
       <View style={styles.sectionHeader}>
         <View>
@@ -178,7 +231,7 @@ export function PosScreen({
         </Card>
       )}
 
-      <Card padding="default" style={styles.paymentCard}>
+      {!quickServe?<Card padding="default" style={styles.paymentCard}>
         <Text style={styles.kicker}>Payment</Text>
         <Text style={styles.paymentTitle}>How is the customer paying?</Text>
         <View style={styles.paymentGrid}>
@@ -233,8 +286,34 @@ export function PosScreen({
             ? "Offline: the sale will be saved on this device and synchronized later."
             : "TradeOS saves locally first, then synchronizes with the server."}
         </Text>
-      </Card>
+      </Card>:(
+        <Text style={styles.quickPaymentHint}>
+          Cash walk-in only in Quick Serve. Switch to Standard POS for
+          MoMo, card or other payment options. Cached totals are estimates
+          until the server processes the sale.
+        </Text>
+      )}
     </ScrollView>
+    {quickServe?(
+      <View style={styles.quickSticky} accessibilityLabel="Quick Serve order total and cash collection">
+        <View style={styles.quickStickyTotal}>
+          <Text style={styles.quickTotalCaption}>Estimated cash total</Text>
+          <Text style={styles.quickTotal}>{formatMoney(total,currencyCode)}</Text>
+        </View>
+        <Button variant="gold" fullWidth
+          disabled={!canSell||snapshot.checkoutBusy||snapshot.cart.length===0||
+            snapshot.paymentMethod!=="CASH"}
+          loading={snapshot.checkoutBusy}
+          accessibilityLabel="Cash received, record this sale"
+          onPress={onCheckout}>
+          {snapshot.checkoutBusy?"Saving locally…":"Cash received · Record sale"}
+        </Button>
+        <Text style={styles.quickStickyNote}>
+          Records locally first. Sync status is shown after each sale.
+        </Text>
+      </View>
+    ):null}
+    </View>
   );
 }
 
@@ -353,6 +432,45 @@ function filterItems(items: ReadonlyArray<MobileSellableItem>, query: string): M
 }
 
 const styles = StyleSheet.create({
+  page: {flex:1,backgroundColor:colors.canvas},
+  scroll: {flex:1},
+  contentQuick: {paddingBottom:spacing.s6+85},
+  modeRow: {flexDirection:"row",gap:spacing.s2},
+  modeOption: {flex:1,alignItems:"center",justifyContent:"center",
+    borderRadius:radius.sm,borderWidth:1,borderColor:colors.border,
+    backgroundColor:colors.surface,minHeight:touch.compactTarget,paddingHorizontal:spacing.s2},
+  modeActive: {backgroundColor:colors.midnight,borderColor:colors.midnight},
+  modeLabel: {fontWeight:typography.weightBlack,color:colors.textStrong},
+  modeLabelActive: {color:colors.textInverse},
+  quickFoodList: {gap:spacing.s2},
+  quickFoodCard: {gap:spacing.s3},
+  quickFoodName: {fontSize:typography.body,fontWeight:typography.weightBlack,
+    color:colors.textStrong},
+  quickPortions: {flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},
+  quickPortion: {flexGrow:1,minWidth:105,minHeight:touch.compactTarget+22,
+    borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,
+    backgroundColor:colors.surfaceSoft,alignItems:"flex-start",
+    justifyContent:"center",padding:spacing.s3,gap:3},
+  quickPortionPressed: {backgroundColor:colors.border},
+  quickDisabled: {opacity:0.45},
+  quickPrice: {fontSize:typography.body+2,fontWeight:typography.weightBlack,
+    color:colors.textStrong},
+  quickUnit: {fontSize:typography.meta,color:colors.textMuted},
+  quickSelected: {fontSize:typography.meta,fontWeight:typography.weightBold,
+    color:colors.goldStrong},
+  quickPaymentHint: {fontSize:typography.meta,lineHeight:typography.metaLine,
+    color:colors.textMuted},
+  quickSticky: {backgroundColor:colors.surface,paddingHorizontal:spacing.s4,
+    paddingVertical:spacing.s3,borderTopWidth:1,borderTopColor:colors.border,
+    gap:spacing.s2},
+  quickStickyTotal: {flexDirection:"row",justifyContent:"space-between",
+    alignItems:"center",gap:spacing.s3},
+  quickTotalCaption: {fontSize:typography.supporting,color:colors.textMuted,
+    fontWeight:typography.weightBold},
+  quickTotal: {fontSize:typography.section,fontWeight:typography.weightBlack,
+    color:colors.textStrong},
+  quickStickyNote: {textAlign:"center",fontSize:typography.meta,
+    color:colors.textMuted},
   content: {
     flexGrow: 1,
     backgroundColor: colors.canvas,
