@@ -1,0 +1,18 @@
+[Unit]
+Description=TradeOS staging PostgreSQL consistent local backup and isolated restore drill
+After=tradeos-staging-postgres.service
+ConditionPathExists=/home/lightworld/shared/tradeos-staging/pgsocket
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStartPre=/usr/bin/bash -c 'cd /usr/local/libexec/lightworld-deploy/tradeos-staging-backup && /usr/bin/sha256sum -c --status SHA256SUMS'
+ExecStart=/usr/local/libexec/lightworld-deploy/tradeos-staging-backup/run.sh --backup-restore
+TimeoutStartSec=15min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ProtectSystem=full
+PrivateTmp=true
