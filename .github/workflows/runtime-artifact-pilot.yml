@@ -9,6 +9,7 @@ on:
       - 'ops/release/**'
       - 'test/ci-artifact-pilot-contract.test.mjs'
       - 'test/root-candidate-auditor.test.mjs'
+      - 'test/root-candidate-auditor-upgrade.test.mjs'
       - 'test/test_ci_artifact_intake.py'
       - 'test/test_ci_signed_provenance.py'
       - 'test/test_ci_candidate_seal.py'
@@ -24,6 +25,7 @@ on:
       - 'ops/release/**'
       - 'test/ci-artifact-pilot-contract.test.mjs'
       - 'test/root-candidate-auditor.test.mjs'
+      - 'test/root-candidate-auditor-upgrade.test.mjs'
       - 'test/test_ci_artifact_intake.py'
       - 'test/test_ci_signed_provenance.py'
       - 'test/test_ci_candidate_seal.py'
@@ -85,7 +87,7 @@ jobs:
         run: node --test test/ci-artifact-pilot-contract.test.mjs
 
       - name: Verify root-owned installed auditor rejects unsafe operations
-        run: node --test test/root-candidate-auditor.test.mjs
+        run: node --test test/root-candidate-auditor.test.mjs test/root-candidate-auditor-upgrade.test.mjs
 
       - name: Verify read-only intake rejects unsafe archives
         run: python3 -m unittest discover -s test -p test_ci_artifact_intake.py -v
