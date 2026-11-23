@@ -122,3 +122,34 @@ function assertSellable(item: MobileSellableItem): void {
   if (!item.itemId.trim() || !item.unitCode.trim()) throw new Error("Item and sale unit are required.");
   if (!Number.isSafeInteger(item.priceMinor) || item.priceMinor < 0) throw new Error("Display price must be a non-negative integer in minor currency units.");
 }
+
+/**
+ * Native Quick Serve mirrors the web food grouping without mixing two catalog
+ * items that happen to share a name. Each option is an independently priced
+ * sale unit; server-side SALE_CREATE always decides final authoritative price.
+ */
+export type MobileQuickServeGroup = {
+  itemId: string;
+  name: string;
+  options: MobileSellableItem[];
+};
+export function groupMobileQuickServeItems(
+  items: readonly MobileSellableItem[],
+): MobileQuickServeGroup[] {
+  const sorted = [...items].sort((a, b) => {
+    const prepared = Number(b.kind === "PREPARED_PRODUCT") -
+      Number(a.kind === "PREPARED_PRODUCT");
+    return prepared || a.name.localeCompare(b.name) || a.key.localeCompare(b.key);
+  });
+  const groups = new Map<string, MobileQuickServeGroup>();
+  for (const item of sorted) {
+    const existing = groups.get(item.itemId);
+    if (existing) existing.options.push(item);
+    else groups.set(item.itemId, { itemId: item.itemId, name: item.name, options: [item] });
+  }
+  for (const group of groups.values()) {
+    group.options.sort((a, b) => a.priceMinor - b.priceMinor ||
+      a.unitLabel.localeCompare(b.unitLabel) || a.key.localeCompare(b.key));
+  }
+  return [...groups.values()];
+}

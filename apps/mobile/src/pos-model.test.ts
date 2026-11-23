@@ -4,6 +4,7 @@ import {
   buildSaleMutation,
   displayCartTotalMinor,
   filterSellableItems,
+  groupMobileQuickServeItems,
   projectSellableItems,
   removeCartLine,
   setCartQuantity,
@@ -170,5 +171,43 @@ describe("mobile POS SALE_CREATE mutation", () => {
     const badCart = [{ ...addCartItem([], bag!)[0]!, quantity: -1 }];
     expect(() => buildSaleMutation({ ...base, paymentMethod: "CASH", cart: badCart })).toThrow(/greater than zero/i);
     expect(() => buildSaleMutation({ ...base, paymentMethod: "CUSTOMER_CREDIT" as never, cart: addCartItem([], bag!) })).toThrow(/payment method/i);
+  });
+});
+
+describe("native Quick Serve grouped portion amounts",()=>{
+  const make=(itemId:string,name:string,unit:string,amount:number,
+    kind:"PRODUCT"|"PREPARED_PRODUCT"="PREPARED_PRODUCT")=>({
+    key:itemId+":"+unit,itemId,name,sku:null,kind,unitCode:unit,
+    unitLabel:unit,priceMinor:amount,trackStock:false,
+    stockUnitCode:null,availableStock:null,
+  });
+  it("shows Waakye five/ten/fifteen as one grouped food",()=>{
+    const small=make("waakye","Waakye","SMALL",500);
+    const standard=make("waakye","Waakye","STANDARD",1000);
+    const large=make("waakye","Waakye","LARGE",1500);
+    const egg=make("egg","Egg","PIECE",800);
+    const original=[large,egg,small,standard];
+    const grouped=groupMobileQuickServeItems(original);
+    expect(grouped).toHaveLength(2);
+    expect(grouped.find(g=>g.itemId==="waakye")?.options.map(p=>p.priceMinor))
+      .toEqual([500,1000,1500]);
+    expect(grouped.find(g=>g.itemId==="egg")?.options.map(p=>p.priceMinor))
+      .toEqual([800]);
+    expect(original.map(p=>p.priceMinor)).toEqual([1500,800,500,1000]);
+  });
+  it("never merges two distinct items with identical names",()=>{
+    const groups=groupMobileQuickServeItems([
+      make("a","Fish","SMALL",1000),
+      make("b","Fish","LARGE",2000),
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(new Set(groups.map(g=>g.itemId)).size).toBe(2);
+  });
+  it("prioritizes prepared foods ahead of nonfood items",()=>{
+    const items=[
+      make("soap","Soap","PIECE",500,"PRODUCT"),
+      make("egg","Egg","PIECE",800),
+    ];
+    expect(groupMobileQuickServeItems(items).map(g=>g.name)).toEqual(["Egg","Soap"]);
   });
 });
