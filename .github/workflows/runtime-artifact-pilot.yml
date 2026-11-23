@@ -10,6 +10,7 @@ on:
       - 'test/ci-artifact-pilot-contract.test.mjs'
       - 'test/test_ci_artifact_intake.py'
       - 'test/test_ci_signed_provenance.py'
+      - 'test/test_ci_candidate_seal.py'
       - 'test/test_source_light_launchers.py'
       - 'test/read-only-promotion-gate.test.mjs'
       - 'ops/release/runtime/**'
@@ -23,6 +24,7 @@ on:
       - 'test/ci-artifact-pilot-contract.test.mjs'
       - 'test/test_ci_artifact_intake.py'
       - 'test/test_ci_signed_provenance.py'
+      - 'test/test_ci_candidate_seal.py'
       - 'test/test_source_light_launchers.py'
       - 'test/read-only-promotion-gate.test.mjs'
       - 'ops/release/runtime/**'
@@ -83,6 +85,9 @@ jobs:
 
       - name: Verify promotion migration ledger is read-only and fail-closed
         run: node --test test/read-only-promotion-gate.test.mjs
+
+      - name: Verify temporary candidate sealing rejects unsafe filesystem entries
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s test -p test_ci_candidate_seal.py -v
 
       - name: Install dependencies on GitHub runner only
         run: pnpm install --frozen-lockfile

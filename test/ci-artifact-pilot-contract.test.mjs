@@ -145,7 +145,7 @@ test('migration prepromotion review reads ledger only and grants no live activat
   const workflow=read('.github/workflows/runtime-artifact-pilot.yml');
   assert.match(workflow,/node --test test\/read-only-promotion-gate\.test\.mjs/);
   assert.match(audit,/--ledger-readonly/);
-  assert.match(audit,/"\$#" -eq 4/);
+  assert.match(audit,/"\$#" -ge 4/);
   assert.match(audit,/EUID != 0/);
   assert.match(audit,/runuser -u lightworld/);
   assert.match(audit,/\/usr\/bin\/env -i PATH=\/usr\/bin:\/bin HOME=\/home\/lightworld/);
@@ -161,4 +161,26 @@ test('migration prepromotion review reads ledger only and grants no live activat
   assert.match(gate,/authorizedToDeploy: false/);
   assert.match(gate,/manifest\.deployable !== false/);
   assert.doesNotMatch(gate,/applyMigrations|\.query\(['"`]INSERT|\.query\(['"`]UPDATE|\.query\(['"`]DELETE|\.query\(['"`]CREATE/);
+});
+
+
+test('root-owned temp sealing stays nondeployable and follows signed ledger checks',()=>{
+  const audit=read('ops/release/audit-github-artifact-pilot.sh');
+  const seal=read('ops/release/seal-ci-artifact-candidate.py');
+  const workflow=read('.github/workflows/runtime-artifact-pilot.yml');
+  assert.match(workflow,/test_ci_candidate_seal\.py/);
+  assert.match(audit,/--seal-candidate/);
+  assert.match(audit,/"\$#" -eq 5/);
+  assert.ok(audit.indexOf('verify-attested-artifact-pilot.sh') <
+    audit.indexOf('rehearse-ci-artifact-pilot.py'));
+  assert.ok(audit.indexOf('check-promotion-migrations.mjs') <
+    audit.indexOf('seal-ci-artifact-candidate.py'));
+  assert.match(audit,/PYTHONDONTWRITEBYTECODE=1 python3 -B/);
+  assert.match(seal,/get\(\)euid|geteuid/);
+  assert.match(seal,/candidateSealed/);
+  assert.match(seal,/authorizedToDeploy': False/);
+  assert.match(seal,/manifest\.get\('deployable'\) is not False/);
+  assert.match(seal,/parent\.parent != Path\('\/tmp'\)/);
+  assert.match(seal,/runtimeSha256/);
+  assert.doesNotMatch(seal,/pm2|systemctl|subprocess|run_release_migrations|activate_release_target|chown\(/);
 });
