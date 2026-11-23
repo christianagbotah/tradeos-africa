@@ -16,7 +16,7 @@ with files 0600. No automatic pruning of prior verified backups.
 Each database uses an MVCC-consistent PostgreSQL custom archive; cluster roles
 are separately dumped as globals.sql (this includes sensitive role information
 and must NEVER be published). SHA-256 digests are verified. An independently
-initialized PostgreSQL 18 test cluster listens ONLY through its private
+initialized PostgreSQL 18 test cluster in a uniquely named, postgres-owned\n0700 /tmp/tradeos-staging-restore.* directory listens ONLY through its private
 Unix socket (listen_addresses disabled); all three dumps are restored and
 verified. The staging migration ledger must be fully APPLIED and the
 restored database must contain payments, refunds, sync, outbox and Hubtel

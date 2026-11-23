@@ -63,7 +63,7 @@ flock -n "$lock_fd" || { echo 'tradeos-backup-locked' >&2; exit 75; }
 cleanup() {
   code=$?
   trap - EXIT
-  if [[ "$running" == 1 && "$drill" == "$ROOT/.restore-drill."* ]]; then
+  if [[ "$running" == 1 && "$drill" == /tmp/tradeos-staging-restore.* ]]; then
     if pg "$PG/pg_ctl" -D "$drill/data" status >/dev/null 2>&1; then
       if pg "$PG/pg_ctl" -D "$drill/data" -m fast -w stop >/dev/null 2>&1; then
         running=0
@@ -76,7 +76,7 @@ cleanup() {
     fi
   fi
   if [[ "$running" == 0 && -d "$drill" && ! -L "$drill" &&
-        "$drill" == "$ROOT/.restore-drill."* ]]; then
+        "$drill" == /tmp/tradeos-staging-restore.* ]]; then
     rm -rf --one-file-system -- "$drill"
   fi
   if [[ "$complete" == 0 && -d "$stage" && ! -L "$stage" &&
@@ -104,7 +104,7 @@ pg "$PG/pg_dumpall" --globals-only -h "$SOCKET" -p "$PORT" -U postgres \
 [[ -s "$stage/globals.sql" ]] || fail 'empty global roles dump'
 (cd "$stage"; sha256sum globals.sql tradeos_staging.dump tradeos_account_ctrl_test.dump tradeos_settings_v2_test.dump > SHA256SUMS
  sha256sum -c --status SHA256SUMS) || fail 'checksums failed'
-drill="$(mktemp -d "$ROOT/.restore-drill.XXXXXXXX")"
+drill="$(mktemp -d /tmp/tradeos-staging-restore.XXXXXXXX)"
 chown postgres:postgres -- "$drill"; chmod 0700 -- "$drill"
 pg mkdir -m 0700 -- "$drill/data" "$drill/socket"
 pg "$PG/initdb" -D "$drill/data" --no-instructions --auth-local=trust --auth-host=reject \

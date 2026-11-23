@@ -46,8 +46,10 @@ test('uses fixed PostgreSQL 18 binaries and consistent database snapshots with n
   assert.doesNotMatch(source,/pg_ctl.+SOURCE_SOCKET|systemctl restart|systemctl stop/);
 });
 test('isolated restore listens on Unix socket only, not a TCP interface',()=>{
-  assert.match(source,/mktemp -d "\$ROOT\/\.restore-drill\.XXXXXXXX"/);
+  assert.match(source,/mktemp -d \/tmp\/tradeos-staging-restore\.XXXXXXXX/);
   assert.match(source,/chown postgres:postgres -- "\$drill"/);
+  assert.match(source,/chmod 0700 -- "\$drill"/);
+  assert.match(source,/"\$drill" == \/tmp\/tradeos-staging-restore\.\*/);
   assert.match(source,/listen_addresses=''/);
   assert.match(source,/unix_socket_directories=\$drill\/socket/);
   assert.match(source,/--auth-host=reject/);
