@@ -31,11 +31,12 @@ describe("fast-queue POS risk controls",()=>{
     expect(checkout).toContain('queue.authenticatedFetch("/v1/sync"');
     expect(checkout).toContain('mr.status === "REJECTED"');
     expect(checkout).toContain('mr.status === "RECEIVED"');
-    expect(checkout).toContain('resultData?.status!=="COMPLETED"');
+    expect(checkout).toContain('mayStartNextQuickServeCustomer({');
+    expect(checkout).toContain('saleStatus:resultData?.status??null');
     expect(checkout).toContain("onComplete();");
     expect(checkout).toContain("if (exactMode) {");
     expect(checkout).toContain("await queue.enqueue(mutation)");
-    expect(checkout).toContain("if (!stored) throw new Error");
+    expect(checkout).toContain('locallyPersisted:stored');
   });
   it("does not fake MoMo or credit confirmations; full checkout is still accessible",()=>{
     expect(checkout).toContain("Customer gave different cash / MoMo / credit / print receipt");
@@ -56,7 +57,7 @@ describe("fast-queue POS risk controls",()=>{
     expect(quick).toContain("styles.groupWide");
     expect(css).toContain(".groupWide {grid-column:span 2}");
     expect(css).toContain(".groupWide .portions {grid-template-columns:repeat(3");
-    expect(css).toContain("position:fixed;bottom:0");
+    expect(css).toContain("position:fixed;top:auto;bottom:0");
     expect(css).toContain('data-expanded="true"');
   });
   it("provides a clear menu setup state and no fabricated sales products",()=>{

@@ -5,6 +5,7 @@ import { formatMoney, majorToMinor, minorToMajor, getCurrencyMeta } from "@trade
 import type { SyncResponse } from "@tradeos/contracts";
 import type { QueuedMutation } from "@tradeos/client-core/sync-runtime";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { mayStartNextQuickServeCustomer } from "../../../lib/quick-serve-sale-gate";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { receiptUrl } from "../../../lib/receipt-document";
 import { loadReceiptPaper,shareVerifiedReceiptPdf } from "../../../lib/receipt-pdf";
@@ -308,6 +309,7 @@ export function CheckoutSheet({
     if (submittingRef.current) return;
     submittingRef.current=true;
     if(online&&!quoteReady){
+      submittingRef.current=false;
       setError("Current prices have not been verified. Refresh pricing before charging.");
       return;
     }
@@ -414,7 +416,10 @@ export function CheckoutSheet({
           }
           return;
         }
-        if (exactMode && resultData?.status!=="COMPLETED") {
+        if (exactMode && !mayStartNextQuickServeCustomer({
+          source:"SERVER",mutationStatus:mr.status,
+          saleStatus:resultData?.status??null,
+        })) {
           setResult({status:"pending",
             reference:resultData?.saleId??mutation.clientMutationId,
             changeMinor:null,totalMinor:resultData?.totalMinor??totalMinor,
@@ -438,7 +443,9 @@ export function CheckoutSheet({
       } else {
         // Offline — enqueue and surface the queued reference.
         const stored = await queue.enqueue(mutation);
-        if (!stored) throw new Error("The offline sale was not added to the local queue. Review pending sales before trying again.");
+        if (!mayStartNextQuickServeCustomer({
+          source:"OFFLINE",locallyPersisted:stored,
+        })) throw new Error("The offline sale was not added to the local queue. Review pending sales before trying again.");
         if (exactMode) {
           notifyAction({tone:"info",title:"Cash sale saved offline",
             message:"Saved on this device for sync. It is not yet server-confirmed. Ready for the next customer."});
