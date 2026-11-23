@@ -76,6 +76,8 @@ test('installer accepts only a clean, exact verified GitHub main and never upgra
   assert.match(s,/sha256sum -c --status SHA256SUMS/);
   assert.match(s,/Auditor already installed; no overwrite or auto-upgrade allowed/);
   assert.match(s,/Main advanced during installation; refusing to install/);
+  assert.match(s,/trap cleanup_installer EXIT/);
+  assert.match(s,/return 0/);
   assert.ok(s.indexOf('sha256sum -c --status SHA256SUMS') <
             s.indexOf('mv -T -- "$staged" "$INSTALL_DIR"'));
   assert.doesNotMatch(s,/pm2|systemctl|pnpm install|npm install|next build|applyMigrations|activate_release_target|restart_configured_processes/);

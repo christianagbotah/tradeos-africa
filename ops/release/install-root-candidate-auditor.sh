@@ -76,11 +76,16 @@ done
 # Atomic within existing trusted root directory; do not build or install any
 # runtime/dependencies, and do not touch tradeos-staging release/credentials.
 staged="$(mktemp -d "$INSTALL_ROOT/.tradeos-candidate-audit.XXXXXXXX")"
-cleanup() {
-  [[ -n "${staged:-}" && "$staged" == "$INSTALL_ROOT"/.tradeos-candidate-audit.* && -d "$staged" ]] && \
-    rm -rf --one-file-system -- "$staged"
+cleanup_installer() {
+  if [[ -n "${staged:-}" && "$staged" == "$INSTALL_ROOT"/.tradeos-candidate-audit.* && -d "$staged" ]]; then
+    rm -rf --one-file-system -- "$staged" || true
+  fi
+  if [[ -n "${entry_temp:-}" && "$entry_temp" == /usr/local/sbin/.lightworld-tradeos-candidate-audit.* && -f "$entry_temp" ]]; then
+    rm -f -- "$entry_temp" || true
+  fi
+  return 0
 }
-trap cleanup EXIT
+trap cleanup_installer EXIT
 chmod 0755 "$staged"
 for name in "${SCRIPT_FILES[@]}"; do
   case "$name" in
@@ -101,7 +106,6 @@ chmod 0444 "$staged/installer-source-commit"
   sha256sum -c --status SHA256SUMS
 )
 entry_temp="$(mktemp /usr/local/sbin/.lightworld-tradeos-candidate-audit.XXXXXXXX)"
-trap 'cleanup; [[ -n "${entry_temp:-}" && -f "$entry_temp" ]] && rm -f -- "$entry_temp"' EXIT
 install -o root -g root -m 0755 "$checkout/ops/release/root-candidate-audit-entrypoint.sh" "$entry_temp"
 # Recheck current main immediately before moving a privileged installation
 # into place. A new main commit must cause this exact-SHA installation to stop.
