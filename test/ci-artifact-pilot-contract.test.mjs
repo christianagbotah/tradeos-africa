@@ -184,3 +184,23 @@ test('root-owned temp sealing stays nondeployable and follows signed ledger chec
   assert.match(seal,/runtimeSha256/);
   assert.doesNotMatch(seal,/pm2|systemctl|subprocess|run_release_migrations|activate_release_target|chown\(/);
 });
+
+
+test('root-installed candidate auditor has its own CI fail-closed contract',()=>{
+  const workflow=read('.github/workflows/runtime-artifact-pilot.yml');
+  const launcher=read('ops/release/root-candidate-audit-entrypoint.sh');
+  const installer=read('ops/release/install-root-candidate-auditor.sh');
+  assert.match(workflow,/node --test test\/root-candidate-auditor\.test\.mjs/);
+  assert.match(workflow,/test\/root-candidate-auditor\.test\.mjs/);
+  assert.match(workflow,/gh api|install-root-candidate-auditor\.sh/);
+  assert.match(launcher,/INSTALL_DIR='\/usr\/local\/libexec\/lightworld-deploy\/tradeos-candidate-audit'/);
+  assert.match(launcher,/--rehearse --ledger-readonly --seal-candidate/);
+  assert.match(launcher,/sha256sum -c --status SHA256SUMS/);
+  assert.match(launcher,/flock -n/);
+  assert.match(installer,/no overwrite or auto-upgrade allowed/);
+  assert.ok(workflow.indexOf('Check exact-main install source identity') < workflow.indexOf('Verify source-only and immutable deployment boundaries'));
+  assert.match(installer,/--check/);
+  assert.match(installer,/--install/);
+  assert.doesNotMatch(launcher,/activate_release_target|restart_configured_processes|run_release_migrations|pm2|systemctl/);
+  assert.doesNotMatch(installer,/activate_release_target|restart_configured_processes|run_release_migrations|pm2|systemctl/);
+});
