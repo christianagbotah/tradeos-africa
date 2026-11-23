@@ -47,11 +47,15 @@ describe("fast-queue POS risk controls",()=>{
   it("supports responsive tap tiles, pinned favorites, and a mobile fixed total",()=>{
     expect(quick).toContain("quickServeStorageKey");
     expect(quick).toContain("cleanQuickServeFavourites");
-    expect(quick).toContain("quickServeTiles");
+    expect(quick).toContain("quickServeGroups");
     expect(quick).toContain("View / edit order");
     expect(quick).toContain('aria-label="Quick product buttons"');
     expect(quick).toContain("No customer registration needed.");
-    expect(css).toContain("min-height:116px");
+    expect(css).toContain("min-height:67px");
+    expect(css).toContain(".portions");
+    expect(quick).toContain("styles.groupWide");
+    expect(css).toContain(".groupWide {grid-column:span 2}");
+    expect(css).toContain(".groupWide .portions {grid-template-columns:repeat(3");
     expect(css).toContain("position:fixed;bottom:0");
     expect(css).toContain('data-expanded="true"');
   });
