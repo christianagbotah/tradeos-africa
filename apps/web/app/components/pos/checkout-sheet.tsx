@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { formatMoney, majorToMinor, minorToMajor, getCurrencyMeta } from "@tradeos/contracts";
 import type { SyncResponse } from "@tradeos/contracts";
+import type { QueuedMutation } from "@tradeos/client-core/sync-runtime";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
 import { receiptUrl } from "../../../lib/receipt-document";
@@ -42,6 +43,8 @@ interface CheckoutSheetProps {
   initialCustomerId?: string | null;
   initialPaymentMethod?: VoicePayment;
   initialVoicePaymentSuggestion?: VoiceCheckoutSuggestion | null;
+  /** Fast walk-in cash collection without hiding normal payment verification. */
+  quickServe?: boolean;
 }
 
 interface ServerQuoteLine{
@@ -80,6 +83,7 @@ export function CheckoutSheet({
   initialCustomerId,
   initialPaymentMethod,
   initialVoicePaymentSuggestion,
+  quickServe = false,
 }: CheckoutSheetProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [hubtelSelected,setHubtelSelected] = useState(false);
@@ -105,6 +109,12 @@ export function CheckoutSheet({
   const [approvals,setApprovals]=useState<ApprovedPrice[]>([]);
   const [selectedApprovals,setSelectedApprovals]=useState<Record<string,string>>({});
   const initializedRef=useRef(false);
+  const submittingRef=useRef(false);
+  // Reuse one clientMutationId if a network response is lost while charging
+  // exactly the same draft. The sync backend is idempotent by mutation ID.
+  const attemptedSaleRef=useRef<{signature:string;mutation:QueuedMutation}|null>(null);
+  const [quickManual,setQuickManual]=useState(false);
+  const quickCheckout=quickServe&&!quickManual;
   const [reviewVersion,setReviewVersion]=useState(0);
   const quoteKey=JSON.stringify({
     customerId:customer?.id??null,
@@ -164,6 +174,9 @@ export function CheckoutSheet({
     activeCustomer:Boolean(customer?.active),
     availableCreditMinor,
   });
+  const canQuickCash=quickCheckout&&quoteReady&&approvalValid&&lines.length>0&&
+    !hubtelSelected&&paymentMethod==="CASH"&&!splitWithCredit&&!customer&&
+    Number.isSafeInteger(totalMinor)&&totalMinor>=0;
   const canCharge = quoteReady&&approvalValid&&lines.length>0&&
     (!hubtelSelected||(online&&hubtelAvailable))&&
     splitValid&&creditReady&&(paymentMethod!=="CUSTOMER_CREDIT"||online)&&
@@ -184,6 +197,9 @@ export function CheckoutSheet({
         (voiceMethod==="CARD"?"CARD":"MOMO"):voiceMethod);
       setHubtelSelected(electronicVoice);
       setCashReceivedMinor(null);
+      setQuickManual(false);
+      submittingRef.current=false;
+      attemptedSaleRef.current=null;
       setSplitWithCredit(false);
       setPaidNowMinor(null);
       setCustomer(customers.find(c=>c.id===initialCustomerId&&c.active)??null);
@@ -282,8 +298,15 @@ export function CheckoutSheet({
     setVoiceSuggestion(null);
     setVoiceAmountCopied(true);
   }
-  const handleCharge = async () => {
-    if (!canCharge || busy) return;
+  const handleCharge = async (exactCash = false) => {
+    // One user gesture is an explicit confirmation that physical cash equal
+    // to the verified quoted total was actually collected.
+    const exactMode = exactCash && canQuickCash;
+    if (!exactCash) {
+      if (!canCharge || busy) return;
+    } else if (!exactMode || busy) return;
+    if (submittingRef.current) return;
+    submittingRef.current=true;
     if(online&&!quoteReady){
       setError("Current prices have not been verified. Refresh pricing before charging.");
       return;
@@ -316,12 +339,16 @@ export function CheckoutSheet({
       if(hubtelSelected) {
         (payload as Record<string,unknown>).paymentProvider="HUBTEL";
       }
-      const mutation = queue.build({
-        businessId,
-        branchId,
-        mutationType: "SALE_CREATE",
-        payload,
-      });
+      const signature=JSON.stringify({businessId,branchId,payload});
+      const mutation=attemptedSaleRef.current?.signature===signature?
+        attemptedSaleRef.current.mutation:
+        queue.build({
+          businessId,
+          branchId,
+          mutationType: "SALE_CREATE",
+          payload,
+        });
+      attemptedSaleRef.current={signature,mutation};
 
       if (online) {
         // Direct sync push for immediate feedback.
@@ -387,6 +414,19 @@ export function CheckoutSheet({
           }
           return;
         }
+        if (exactMode && resultData?.status!=="COMPLETED") {
+          setResult({status:"pending",
+            reference:resultData?.saleId??mutation.clientMutationId,
+            changeMinor:null,totalMinor:resultData?.totalMinor??totalMinor,
+            message:"The server has not confirmed this as a completed cash sale. Review Sales before serving the next customer."});
+          return;
+        }
+        if (exactMode) {
+          notifyAction({tone:"success",title:"Cash sale recorded",
+            message:"The sale was confirmed. Ready for the next customer. Find the receipt under Sales."});
+          onComplete();
+          return;
+        }
         setResult({
           status: "completed",
           reference: resultData?.saleId ?? resultData?.receiptNo ?? mutation.clientMutationId,
@@ -397,7 +437,14 @@ export function CheckoutSheet({
         });
       } else {
         // Offline — enqueue and surface the queued reference.
-        await queue.enqueue(mutation);
+        const stored = await queue.enqueue(mutation);
+        if (!stored) throw new Error("The offline sale was not added to the local queue. Review pending sales before trying again.");
+        if (exactMode) {
+          notifyAction({tone:"info",title:"Cash sale saved offline",
+            message:"Saved on this device for sync. It is not yet server-confirmed. Ready for the next customer."});
+          onComplete();
+          return;
+        }
         setResult({
           status: "pending",
           reference: mutation.clientMutationId,
@@ -409,6 +456,7 @@ export function CheckoutSheet({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sale could not be completed.");
     } finally {
+      submittingRef.current=false;
       setBusy(false);
     }
   };
@@ -436,7 +484,7 @@ export function CheckoutSheet({
 
   return (
     <>
-      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet-scrim" onClick={()=>{if(!busy)onClose();}} aria-hidden="true" />
       <div className="tos-sheet tos-sheet--wide tos-sheet--fullscreen" role="dialog" aria-label="Checkout">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
@@ -446,7 +494,8 @@ export function CheckoutSheet({
               {online ? "Online — ready to process" : "Offline — sale will queue locally"}
             </p>
           </div>
-          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close checkout">
+          <button type="button" className="tos-sheet__close"
+            onClick={onClose} disabled={busy} aria-label="Close checkout">
             <IconClose style={{ width: 18, height: 18 }} />
           </button>
         </div>
@@ -500,6 +549,45 @@ export function CheckoutSheet({
                 </span>
               </div>
 
+              {quickCheckout ? (
+                <section className="tos-quick-checkout" aria-label="Quick Serve cash collection"
+                  style={{display:"grid",gap:12,padding:16,borderRadius:14,
+                    border:"1px solid var(--tos-border,#d4dfe9)"}}>
+                  <p style={{margin:0,fontSize:14,fontWeight:700}}>
+                    Walk-in customer · exact cash received
+                  </p>
+                  {online&&quotePending?<p role="status" className="tos-callout">
+                    Verifying current prices and stock before recording…</p>:null}
+                  {online&&quoteError?<p role="alert" className="tos-callout">
+                    Cannot record this cash sale yet: {quoteError}</p>:null}
+                  {!online?<p role="status" className="tos-callout">
+                    Offline: save this sale on this device first. The server will verify pricing,
+                    stock and accounting on sync. Keep the device until it has synced.</p>:null}
+                  {error?<div className="tos-banner tos-banner--danger" role="alert">
+                    {error}</div>:null}
+                  <button type="button" disabled={!canQuickCash||busy}
+                    onClick={()=>void handleCharge(true)}
+                    style={{minHeight:62,fontSize:19,fontWeight:900,border:0,
+                      borderRadius:12,cursor:canQuickCash?"pointer":"not-allowed",
+                      background:"var(--tos-accent,#c68f32)",color:"#151718",
+                      opacity:busy||!canQuickCash?0.5:1}}>
+                    {busy?"Saving sale…":online?
+                      "Cash paid · Save "+formatMoney(totalMinor,currencyCode)+" & next customer":
+                      "Cash paid · Save offline "+formatMoney(totalMinor,currencyCode)}
+                  </button>
+                  <button type="button" disabled={busy} onClick={()=>{
+                    setQuickManual(true);setCashReceivedMinor(null);
+                  }} style={{minHeight:44,padding:10,borderRadius:10,fontWeight:800,
+                    border:"1px solid var(--tos-border,#d4dfe9)",
+                    color:"inherit",background:"transparent",cursor:"pointer"}}>
+                    Customer gave different cash / MoMo / credit / print receipt
+                  </button>
+                  <p style={{margin:0,fontSize:12,opacity:.8}}>
+                    Press Cash paid only after receiving the money. A rejected sale stays open;
+                    a pending electronic payment is never treated as cash.
+                  </p>
+                </section>
+              ) : <>
               <CustomerPicker customers={customers} selected={customer}
                 onSelect={c=>{
                   setCustomer(c);setSelectedApprovals({});
@@ -761,17 +849,18 @@ export function CheckoutSheet({
                   <span className="tos-banner__title">{error}</span>
                 </div>
               ) : null}
+              </>}
             </>
           )}
         </div>
 
-        {!result ? (
+        {!result&&!quickCheckout ? (
           <div className="tos-sheet__foot">
             <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
             <Button
               variant="gold"
               size="lg"
-              onClick={handleCharge}
+              onClick={()=>void handleCharge()}
               loading={busy}
               disabled={!canCharge}
             >
