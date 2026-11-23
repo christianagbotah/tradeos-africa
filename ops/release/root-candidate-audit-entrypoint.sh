@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-export PATH=/usr/local/bin:/usr/bin:/bin
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
 # Root-installed, read-only TradeOS candidate audit. DOES NOT DEPLOY.
 # Installation directory is fixed and root-owned, never a user worktree.
 INSTALL_DIR='/usr/local/libexec/lightworld-deploy/tradeos-candidate-audit'
@@ -62,7 +62,7 @@ fi
 # Do not inherit an operator-provided DATABASE_URL, PATH, GH_TOKEN or other
 # credentials/variables. GH uses the authenticated root config by default;
 # the staging DB env is loaded only by the reviewed read-only auditor itself.
-/usr/bin/env -i HOME=/root USER=root PATH=/usr/local/bin:/usr/bin:/bin \
+/usr/bin/env -i HOME=/root USER=root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin \
   PYTHONDONTWRITEBYTECODE=1 \
   /bin/bash "$INSTALL_DIR/audit-github-artifact-pilot.sh" "$1" "$2" \
   --rehearse --ledger-readonly --seal-candidate

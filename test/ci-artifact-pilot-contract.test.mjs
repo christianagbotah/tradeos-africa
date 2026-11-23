@@ -204,3 +204,17 @@ test('root-installed candidate auditor has its own CI fail-closed contract',()=>
   assert.doesNotMatch(launcher,/activate_release_target|restart_configured_processes|run_release_migrations|pm2|systemctl/);
   assert.doesNotMatch(installer,/activate_release_target|restart_configured_processes|run_release_migrations|pm2|systemctl/);
 });
+
+
+test('approved-only root auditor upgrade is protected by CI and never activates the app',()=>{
+  const workflow=read('.github/workflows/runtime-artifact-pilot.yml');
+  const upgrade=read('ops/release/upgrade-root-candidate-auditor.sh');
+  const audit=read('ops/release/audit-github-artifact-pilot.sh');
+  assert.match(workflow,/test\/root-candidate-auditor-upgrade\.test\.mjs/);
+  assert.match(upgrade,/trap restore_old_auditor EXIT/);
+  assert.match(upgrade,/flock -n/);
+  assert.match(upgrade,/sha256sum -c --status SHA256SUMS/);
+  assert.match(upgrade,/old_auditor_preserved/);
+  assert.match(audit,/\/usr\/sbin\/runuser -u lightworld/);
+  assert.doesNotMatch(upgrade,/pm2|systemctl|activate_release_target|restart_configured_processes|run_release_migrations|rm -rf/);
+});

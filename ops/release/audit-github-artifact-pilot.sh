@@ -102,7 +102,10 @@ if [[ "$#" -ge 3 ]]; then
     chmod 0750 -- "$quarantine" "$rehearsal"
     # Clear inherited operator/environment values (especially DATABASE_URL),
     # forcing the trusted 0600 external file to be the ONLY source of DB credentials.
-    runuser -u lightworld -- /usr/bin/env -i PATH=/usr/bin:/bin HOME=/home/lightworld \
+    # runuser belongs to /usr/sbin on supported RHEL-family VPS images.
+    # Use the absolute trusted path, independent of the root command PATH.
+    [[ -x /usr/sbin/runuser ]] || { echo 'Missing trusted runuser binary' >&2; exit 65; }
+    /usr/sbin/runuser -u lightworld -- /usr/bin/env -i PATH=/usr/bin:/bin HOME=/home/lightworld \
       /usr/bin/node "--env-file=$env_file" \
       "$script_dir/check-promotion-migrations.mjs" "$rehearsal" "$sha"
     if [[ "$#" -eq 5 ]]; then
