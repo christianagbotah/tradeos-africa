@@ -302,8 +302,10 @@ export function CheckoutSheet({
     // One user gesture is an explicit confirmation that physical cash equal
     // to the verified quoted total was actually collected.
     const exactMode = exactCash && canQuickCash;
-    if ((exactCash && !exactMode) || (!exactMode && !canCharge) ||
-      busy || submittingRef.current) return;
+    if (!exactCash) {
+      if (!canCharge || busy) return;
+    } else if (!exactMode || busy) return;
+    if (submittingRef.current) return;
     submittingRef.current=true;
     if(online&&!quoteReady){
       setError("Current prices have not been verified. Refresh pricing before charging.");
@@ -340,7 +342,12 @@ export function CheckoutSheet({
       const signature=JSON.stringify({businessId,branchId,payload});
       const mutation=attemptedSaleRef.current?.signature===signature?
         attemptedSaleRef.current.mutation:
-        queue.build({businessId,branchId,mutationType:"SALE_CREATE",payload});
+        queue.build({
+          businessId,
+          branchId,
+          mutationType: "SALE_CREATE",
+          payload,
+        });
       attemptedSaleRef.current={signature,mutation};
 
       if (online) {

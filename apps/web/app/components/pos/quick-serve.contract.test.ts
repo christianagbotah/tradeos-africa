@@ -38,7 +38,7 @@ describe("fast-queue POS risk controls",()=>{
     expect(checkout).toContain("if (!stored) throw new Error");
   });
   it("does not fake MoMo or credit confirmations; full checkout is still accessible",()=>{
-    expect(quick).toContain("Customer gave different cash / MoMo / credit / print receipt");
+    expect(checkout).toContain("Customer gave different cash / MoMo / credit / print receipt");
     expect(checkout).toContain("setQuickManual(true)");
     expect(checkout).toContain("hubtelSelected");
     expect(checkout).toContain("AWAITING_PAYMENT");
