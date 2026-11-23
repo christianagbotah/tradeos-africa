@@ -16,6 +16,7 @@ on:
       - 'test/test_source_light_launchers.py'
       - 'test/read-only-promotion-gate.test.mjs'
       - 'test/read-only-finance-gate.test.mjs'
+      - 'test/tradeos-staging-backup-restore.test.mjs'
       - 'ops/release/runtime/**'
       - '.github/workflows/runtime-artifact-pilot.yml'
   push:
@@ -33,6 +34,7 @@ on:
       - 'test/test_source_light_launchers.py'
       - 'test/read-only-promotion-gate.test.mjs'
       - 'test/read-only-finance-gate.test.mjs'
+      - 'test/tradeos-staging-backup-restore.test.mjs'
       - 'ops/release/runtime/**'
       - '.github/workflows/runtime-artifact-pilot.yml'
 
@@ -105,6 +107,9 @@ jobs:
 
       - name: Verify read-only finance/refund and offline-queue preflight contracts
         run: node --test test/read-only-finance-gate.test.mjs
+
+      - name: Verify TradeOS isolated PostgreSQL backup and restore fail-closed contracts
+        run: node --test test/tradeos-staging-backup-restore.test.mjs
 
       - name: Verify temporary candidate sealing rejects unsafe filesystem entries
         run: PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s test -p test_ci_candidate_seal.py -v
