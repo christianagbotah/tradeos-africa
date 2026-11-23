@@ -2,10 +2,11 @@
 set -euo pipefail
 # Read-only provenance and archive safety audit. No extraction, deploy, migrations,
 # service restart or persistent artifact cache; safe under shared-host build HOLD.
-if [[ "$#" -lt 2 || "$#" -gt 4 || ! "$1" =~ ^[0-9a-f]{40}$ || ! "$2" =~ ^[0-9]+$ ||
+if [[ "$#" -lt 2 || "$#" -gt 5 || ! "$1" =~ ^[0-9a-f]{40}$ || ! "$2" =~ ^[0-9]+$ ||
       ( "$#" -ge 3 && "$3" != '--rehearse' ) ||
-      ( "$#" -eq 4 && "$4" != '--ledger-readonly' ) ]]; then
-  echo 'usage: audit-github-artifact-pilot.sh <exact-main-sha> <GitHub-workflow-run-id> [--rehearse [--ledger-readonly]]' >&2
+      ( "$#" -ge 4 && "$4" != '--ledger-readonly' ) ||
+      ( "$#" -eq 5 && "$5" != '--seal-candidate' ) ]]; then
+  echo 'usage: audit-github-artifact-pilot.sh <exact-main-sha> <GitHub-workflow-run-id> [--rehearse [--ledger-readonly [--seal-candidate]]]' >&2
   exit 64
 fi
 sha="$1"; run_id="$2"
@@ -60,8 +61,8 @@ if [[ "$#" -ge 3 ]]; then
   # This is a temporary rehearsal of a NONDEPLOYABLE artifact. It creates no
   # production release, migration, service or persistent sandbox.
   rehearsal="$quarantine/tradeos-rehearsal-$sha"
-  python3 "$script_dir/rehearse-ci-artifact-pilot.py" "$sha" "$quarantine" "$rehearsal"
-  if [[ "$#" -eq 4 ]]; then
+  PYTHONDONTWRITEBYTECODE=1 python3 -B "$script_dir/rehearse-ci-artifact-pilot.py" "$sha" "$quarantine" "$rehearsal"
+  if [[ "$#" -ge 4 ]]; then
     # Root explicitly opts into a live-ledger READ-ONLY comparison. The app
     # principal, not the root deployer, connects to PostgreSQL. The command
     # only issues BEGIN READ ONLY, SELECT and ROLLBACK; no schema changes.
@@ -104,6 +105,14 @@ if [[ "$#" -ge 3 ]]; then
     runuser -u lightworld -- /usr/bin/env -i PATH=/usr/bin:/bin HOME=/home/lightworld \
       /usr/bin/node "--env-file=$env_file" \
       "$script_dir/check-promotion-migrations.mjs" "$rehearsal" "$sha"
+    if [[ "$#" -eq 5 ]]; then
+      # Root-operated prototype only: the exact signed pilot is still NOT
+      # deployable. Seal an ephemeral, root-owned, read-only content snapshot
+      # after cryptographic provenance, safe unpack, and ledger compatibility.
+      # It cannot create anything under RELEASE_ROOT or change PM2/symlinks.
+      PYTHONDONTWRITEBYTECODE=1 python3 -B \
+        "$script_dir/seal-ci-artifact-candidate.py" "$sha" "$rehearsal"
+    fi
   fi
   echo 'VPS rehearsal: safely unpacked in isolated quarantine; automatic temp cleanup follows.'
 else
