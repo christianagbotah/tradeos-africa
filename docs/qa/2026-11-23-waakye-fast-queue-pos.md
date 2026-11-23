@@ -40,3 +40,14 @@ pinned ordering and isolation, stock tile blocking, verified charge semantics,
 mobile fixed control and the unchanged canonical sync path. Protected CI
 (typecheck, API/web tests, desktop and visual QA) and staging deployment are
 separate. This is not a claim that the feature has already been deployed.
+
+## Portion-price buttons (follow-up)
+When the catalog has multiple sale units for a food item (e.g. Waakye Small
+₵5, Standard ₵10 and Large ₵15), Quick Serve displays **one Waakye card**
+with three large, independently tappable amount buttons. It is still a single
+tap to add each actual catalog unit. The same feature works for Fish ₵10/₵20
+and other configured sizes. Pinned unit prices appear first within the group,
+and pinning a price brings its product group near the top. Grouping is strictly
+by catalog item ID, never just a matching name, so tenant/product collisions
+cannot silently mix pricing or stock. No arbitrary user-entered unapproved
+unit price enters the canonical SALE_CREATE mutation.

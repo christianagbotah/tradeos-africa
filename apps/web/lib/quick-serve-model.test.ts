@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SellableItem } from "./catalog-read-model";
-import { quickServeStorageKey, cleanQuickServeFavourites, quickServeTiles } from "./quick-serve-model";
+import { quickServeStorageKey, cleanQuickServeFavourites, quickServeTiles, quickServeGroups } from "./quick-serve-model";
 
 const create=(name:string,priceMinor:number,kind:SellableItem["kind"]="PREPARED_PRODUCT"):SellableItem=>({
   key:name+":PORTION", itemId:name, name, sku:null, kind, unitCode:"PORTION",
@@ -38,6 +38,25 @@ describe("Quick Serve: fast food-vendor catalogue",()=>{
     expect(quickServeStorageKey("biz-1","branch-a")).not.toBe(quickServeStorageKey("biz-1","branch-b"));
     expect(quickServeStorageKey("biz-1","branch-a")).not.toBe(quickServeStorageKey("biz-2","branch-a"));
     expect(()=>quickServeStorageKey("","branch-a")).toThrow();
+  });
+  it("groups different portion prices for one item into one food card",()=>{
+    const small={...waakye,key:"waakye:SMALL",itemId:"waakye",unitCode:"SMALL",unitLabel:"small plate",priceMinor:500};
+    const standard={...waakye,key:"waakye:STANDARD",itemId:"waakye",unitCode:"STANDARD",unitLabel:"standard plate",priceMinor:1000};
+    const large={...waakye,key:"waakye:LARGE",itemId:"waakye",unitCode:"LARGE",unitLabel:"large plate",priceMinor:1500};
+    const groups=quickServeGroups([large,egg,standard,small],[standard.key]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.itemId).toBe("waakye");
+    expect(groups[0]?.options.map(x=>x.priceMinor)).toEqual([1000,500,1500]);
+    expect(groups[0]?.options.map(x=>x.unitLabel)).toEqual([
+      "standard plate","small plate","large plate",
+    ]);
+    expect(groups[1]?.name).toBe("Egg");
+    expect([large,egg,standard,small].map(x=>x.priceMinor)).toEqual([1500,800,1000,500]);
+  });
+  it("never groups distinct items just because their names match",()=>{
+    const first={...waakye,key:"a:PLATE",itemId:"item-a"};
+    const second={...waakye,key:"b:PLATE",itemId:"item-b"};
+    expect(quickServeGroups([first,second],[])).toHaveLength(2);
   });
   it("supports the same item with multiple priced units without collapsing keys",()=>{
     const small={...waakye,key:"waakye:SMALL",unitCode:"SMALL",priceMinor:500};

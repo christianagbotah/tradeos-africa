@@ -32,3 +32,35 @@ export function quickServeTiles(items: readonly SellableItem[], pinnedKeys: read
     return prepared || a.name.localeCompare(b.name) || a.unitLabel.localeCompare(b.unitLabel);
   });
 }
+
+/**
+ * A single food can have several configured sale units: small waakye, standard
+ * waakye and large waakye, each with its own catalog-approved price.
+ * A group is one itemId; different items are never combined by similar names.
+ * Group order is inherited from the pinned/prepared-item projection.
+ */
+export interface QuickServeGroup {
+  itemId: string;
+  name: string;
+  options: SellableItem[];
+}
+
+export function quickServeGroups(
+  items: readonly SellableItem[], pinnedKeys: readonly string[],
+): QuickServeGroup[] {
+  const pinned = new Set(pinnedKeys);
+  const groups = new Map<string, QuickServeGroup>();
+  for (const item of quickServeTiles(items, pinnedKeys)) {
+    const previous = groups.get(item.itemId);
+    if (previous) previous.options.push(item);
+    else groups.set(item.itemId, { itemId: item.itemId, name: item.name, options: [item] });
+  }
+  for (const group of groups.values()) {
+    group.options.sort((a, b) => {
+      const pinnedFirst = Number(pinned.has(b.key)) - Number(pinned.has(a.key));
+      return pinnedFirst || a.priceMinor - b.priceMinor ||
+        a.unitLabel.localeCompare(b.unitLabel) || a.key.localeCompare(b.key);
+    });
+  }
+  return [...groups.values()];
+}

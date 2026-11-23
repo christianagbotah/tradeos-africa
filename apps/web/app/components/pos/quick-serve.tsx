@@ -5,7 +5,7 @@ import { formatMoney } from "@tradeos/contracts";
 import type { SellableItem } from "../../../lib/catalog-read-model";
 import { searchPosCatalog } from "../../../lib/pos-catalog-search";
 import {
-  quickServeStorageKey, cleanQuickServeFavourites, quickServeTiles,
+  quickServeStorageKey, cleanQuickServeFavourites, quickServeGroups,
 } from "../../../lib/quick-serve-model";
 import type { CartLine } from "./cart-panel";
 import styles from "./quick-serve.module.css";
@@ -57,7 +57,7 @@ export function QuickServe({
 
   const candidates = useMemo(() => {
     const matched = query.trim() ? searchPosCatalog(sellable, query).items : sellable;
-    return quickServeTiles(matched, pins).slice(0, query.trim() ? 40 : pins.length ? 30 : 24);
+    return quickServeGroups(matched, pins).slice(0, query.trim() ? 40 : pins.length ? 30 : 24);
   }, [query, sellable, pins]);
   const totalMinor = lines.reduce((sum, line) => sum + line.sellable.priceMinor * line.quantity, 0);
   const count = lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -67,7 +67,7 @@ export function QuickServe({
       <div className={styles.menuHeader}>
         <div>
           <h2 className={styles.title}>Tap to add</h2>
-          <p className={styles.hint}>Pin your regular menu with ☆. Prices come from Catalog.</p>
+          <p className={styles.hint}>Choose each portion price with one tap. ☆ pins your favourites.</p>
         </div>
         <span className={styles.connection} role="status">
           {online ? "● Online" : "● Offline · saves to this device"}
@@ -91,33 +91,43 @@ export function QuickServe({
         <p role="status" className={styles.empty}>No matching menu item. Try a different word.</p>
       ) : (
         <div className={styles.tiles} aria-label="Quick product buttons">
-          {candidates.map((item) => {
-            const soldOut = item.trackStock && item.availableStock !== null &&
-              item.availableStock <= 0;
-            const selectedQty = lines.find((line) => line.sellable.key === item.key)?.quantity ?? 0;
-            return <div className={styles.tileWrap} key={item.key}>
-              <button type="button"
-                className={styles.tile}
-                onClick={() => onPick(item)}
-                disabled={soldOut}
-                aria-label={"Add " + item.name + ", " + item.unitLabel + ", " + formatMoney(item.priceMinor, currencyCode)}
-              >
-                <span className={styles.tileName}>{item.name}</span>
-                <span className={styles.unit}>{item.unitLabel}</span>
-                <strong className={styles.price}>{formatMoney(item.priceMinor, currencyCode)}</strong>
-                {selectedQty > 0 ? <span className={styles.added}>{selectedQty} added</span> : null}
-                {soldOut ? <span className={styles.soldOut}>Sold out</span> : null}
-              </button>
-              <button
-                type="button"
-                className={styles.pin}
-                aria-pressed={pins.includes(item.key)}
-                aria-label={(pins.includes(item.key) ? "Unpin " : "Pin ") + item.name}
-                title={pins.includes(item.key) ? "Remove from favourites" : "Pin to the top"}
-                onClick={() => togglePin(item.key)}
-              >{pins.includes(item.key) ? "★" : "☆"}</button>
-            </div>;
-          })}
+          {candidates.map((group) => (
+            <div className={group.options.length > 1 ?
+              styles.group + " " + styles.groupWide : styles.group} key={group.itemId}>
+              <h3 className={styles.groupName}>{group.name}</h3>
+              <div className={styles.portions} role="group"
+                aria-label={group.name + " portion and price options"}>
+                {group.options.map((item) => {
+                  const soldOut = item.trackStock && item.availableStock !== null &&
+                    item.availableStock <= 0;
+                  const selectedQty = lines.find((line) => line.sellable.key === item.key)?.quantity ?? 0;
+                  return <div key={item.key} className={styles.portionRow}>
+                    <button
+                      type="button"
+                      className={styles.portion}
+                      onClick={() => onPick(item)}
+                      disabled={soldOut}
+                      aria-label={"Add " + item.name + ", " + item.unitLabel + ", " + formatMoney(item.priceMinor, currencyCode)}
+                    >
+                      <strong className={styles.portionPrice}>{formatMoney(item.priceMinor, currencyCode)}</strong>
+                      <small className={styles.portionLabel}>{item.unitLabel}</small>
+                      {selectedQty > 0 ? <span className={styles.portionAdded}>{selectedQty} added</span> : null}
+                      {soldOut ? <span className={styles.soldOut}>Sold out</span> : null}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.portionPin}
+                      aria-pressed={pins.includes(item.key)}
+                      aria-label={(pins.includes(item.key) ? "Unpin " : "Pin ") +
+                        item.name + " " + item.unitLabel}
+                      title={pins.includes(item.key) ? "Remove from favourites" : "Pin to the top"}
+                      onClick={() => togglePin(item.key)}
+                    >{pins.includes(item.key) ? "★" : "☆"}</button>
+                  </div>;
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
