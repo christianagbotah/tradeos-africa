@@ -1,4 +1,7 @@
 "use client";
+import { useActionFeedbackMessages } from "../../components/action-feedback";
+
+import { confirmAction } from "../../components/action-dialog";
 
 import { useMemo, useState, type FormEvent } from "react";
 import { Badge, Banner, PageHeader, Section } from "../../components/admin-ui";
@@ -28,6 +31,7 @@ export default function AdministratorsPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  useActionFeedbackMessages(notice,actionError);
   const canManage = Boolean(adminUser && adminUser.role === "SUPER_ADMIN");
   const admins = data?.admins ?? [];
   const filtered = useMemo(
@@ -52,7 +56,7 @@ export default function AdministratorsPage() {
       role: String(data.get("role") ?? "SUPPORT"),
       reason: String(data.get("reason") ?? ""),
     };
-    if (!window.confirm(`Create platform administrator ${payload.email}? Credentials will still require secure provisioning.`)) return;
+    if (!await confirmAction(`Create platform administrator ${payload.email}? Credentials will still require secure provisioning.`)) return;
     setSaving(true); setActionError(null); setNotice(null);
     try {
       const response = await apiFetch("/api/admin/admins", {
@@ -71,7 +75,7 @@ export default function AdministratorsPage() {
   async function changeRole(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected) return;
-    if (!window.confirm(`Change ${selected.displayName}'s platform role to ${role.replaceAll("_", " ")}?`)) return;
+    if (!await confirmAction(`Change ${selected.displayName}'s platform role to ${role.replaceAll("_", " ")}?`)) return;
     setSaving(true); setActionError(null); setNotice(null);
     try {
       const response = await apiFetch(`/api/admin/admins/${selected.id}/role`, {
@@ -91,7 +95,7 @@ export default function AdministratorsPage() {
     if (!selected) return;
     const nextActive = !selected.active;
     if (!reason.trim()) { setActionError("Enter a reason before changing administrator access."); return; }
-    if (!window.confirm(`${nextActive ? "Reactivate" : "Deactivate"} ${selected.displayName}? ${nextActive ? "Access can resume once credentials are provisioned." : "All active sessions will be revoked immediately."}`)) return;
+    if (!await confirmAction(`${nextActive ? "Reactivate" : "Deactivate"} ${selected.displayName}? ${nextActive ? "Access can resume once credentials are provisioned." : "All active sessions will be revoked immediately."}`)) return;
     setSaving(true); setActionError(null); setNotice(null);
     try {
       const response = await apiFetch(`/api/admin/admins/${selected.id}/status`, {

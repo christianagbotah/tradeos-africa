@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebOfflineQueue, type WebSession } from "./offline-sync";
+import { WebOfflineQueue, MUTATION_INVALIDATION_EVENT, type WebSession } from "./offline-sync";
 
 const businessId="11111111-1111-4111-8111-111111111111";
 class Storage {
@@ -10,17 +10,20 @@ class Storage {
 }
 function createQueue() {
   const seen:Array<{tone:string;message:string}>=[];
+  const invalidated:string[]=[];
   vi.stubGlobal("window", {
     localStorage: new Storage(),
-    dispatchEvent: (event:CustomEvent<{tone:string;message:string}>)=>{
-      seen.push(event.detail);
+    dispatchEvent: (event:CustomEvent<{tone:string;message:string;businessId:string}>)=>{
+      if(event.type===MUTATION_INVALIDATION_EVENT)invalidated.push(event.detail.businessId);
+      else if(event.type==="tradeos:action-feedback")seen.push(event.detail);
       return true;
     }
   });
   // Node environments do not always provide CustomEvent.
   vi.stubGlobal("CustomEvent", class CustomEventStub {
     detail:unknown;
-    constructor(_name:string, options:{detail:unknown}){this.detail=options.detail;}
+    type:string;
+    constructor(name:string, options:{detail:unknown}){this.type=name;this.detail=options.detail;}
   });
   let next=0;
   const queue=new WebOfflineQueue({
@@ -35,7 +38,7 @@ function createQueue() {
     businessName:"UAT Test",role:"OWNER",displayName:"Owner",
   };
   queue.sessions.save(session);
-  return {queue,seen};
+  return {queue,seen,invalidated};
 }
 async function enqueue(queue:WebOfflineQueue,name:string) {
   await queue.enqueue(queue.build({
@@ -45,8 +48,17 @@ async function enqueue(queue:WebOfflineQueue,name:string) {
 afterEach(()=>vi.unstubAllGlobals());
 
 describe("interactive offline mutation notifications must reflect actual server status",()=>{
+  it("invalidates confirmed online CRUD writes, not GETs or rejected writes",async()=>{
+    const {queue,invalidated}=createQueue();
+    vi.stubGlobal("fetch",vi.fn(async (_url:string,init?:RequestInit)=>new Response(null,{status:init?.method==="DELETE"?409:200})));
+    await queue.authenticatedFetch("/v1/commercial-documents");
+    await queue.authenticatedFetch("/v1/commercial-documents",{method:"POST"});
+    await queue.authenticatedFetch("/v1/commercial-documents/example",{method:"PATCH"});
+    await queue.authenticatedFetch("/v1/commercial-documents/example",{method:"DELETE"});
+    expect(invalidated).toEqual([businessId,businessId]);
+  });
   it("reports APPLIED as saved only once the server confirms it",async()=>{
-    const {queue,seen}=createQueue();
+    const {queue,seen,invalidated}=createQueue();
     await enqueue(queue,"Applied Supplier");
     vi.stubGlobal("fetch",vi.fn(async (_url:string,init?:RequestInit)=>{
       const {mutations}=JSON.parse(String(init?.body)) as {mutations:Array<{clientMutationId:string}>};
@@ -58,12 +70,13 @@ describe("interactive offline mutation notifications must reflect actual server 
     }));
     const summary=await queue.flushOrThrow({activeBusinessId:businessId,online:true});
     expect(summary.applied).toBe(1);
+    expect(invalidated).toEqual([businessId]);
     expect(summary.pending).toBe(0);
     expect(seen).toEqual([{tone:"success",message:"Changes saved successfully."}]);
   });
 
   it("does not imply that RECEIVED is posted or paid",async()=>{
-    const {queue,seen}=createQueue();
+    const {queue,seen,invalidated}=createQueue();
     await enqueue(queue,"Pending Supplier");
     vi.stubGlobal("fetch",vi.fn(async (_url:string,init?:RequestInit)=>{
       const {mutations}=JSON.parse(String(init?.body)) as {mutations:Array<{clientMutationId:string}>};
@@ -73,6 +86,7 @@ describe("interactive offline mutation notifications must reflect actual server 
     }));
     const summary=await queue.flushOrThrow({activeBusinessId:businessId,online:true});
     expect(summary.applied).toBe(0);
+    expect(invalidated).toEqual([]);
     expect(summary.received).toBe(1);
     expect(summary.pending).toBe(1);
     expect(seen).toHaveLength(1);
@@ -82,17 +96,18 @@ describe("interactive offline mutation notifications must reflect actual server 
   });
 
   it("reports offline persistence as pending rather than completed",async()=>{
-    const {queue,seen}=createQueue();
+    const {queue,seen,invalidated}=createQueue();
     await enqueue(queue,"Offline Supplier");
     const summary=await queue.flushOrThrow({activeBusinessId:businessId,online:false});
     expect(summary.pending).toBe(1);
+    expect(invalidated).toEqual([]);
     expect(seen).toHaveLength(1);
     expect(seen[0]?.tone).toBe("warning");
     expect(seen[0]?.message).toMatch(/saved on this device/i);
   });
 
   it("shows a warning when some changes apply but others stay pending",async()=>{
-    const {queue,seen}=createQueue();
+    const {queue,seen,invalidated}=createQueue();
     await enqueue(queue,"Applied Supplier");
     await enqueue(queue,"Pending Supplier");
     vi.stubGlobal("fetch",vi.fn(async (_url:string,init?:RequestInit)=>{
@@ -105,6 +120,7 @@ describe("interactive offline mutation notifications must reflect actual server 
     }));
     const summary=await queue.flushOrThrow({activeBusinessId:businessId,online:true});
     expect(summary.applied).toBe(1);
+    expect(invalidated).toEqual([businessId]);
     expect(summary.received).toBe(1);
     expect(summary.pending).toBe(1);
     expect(seen).toHaveLength(1);

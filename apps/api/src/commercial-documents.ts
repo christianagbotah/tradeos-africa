@@ -293,6 +293,84 @@ export function registerCommercialDocumentRoutes(app:FastifyInstance,pool:Databa
         return {document:await loadDocument(pool,businessId,documentId)};
       }catch(error){return sendError(request,reply,error);}
     });
+  // Draft revisions keep the original reference and creation idempotency key.
+  app.patch<{Params:{documentId:string};Body:DocumentInput & {expectedUpdatedAt?:string}}>(
+    "/v1/commercial-documents/:documentId",async(request,reply)=>{
+      try {
+        const input=validateInput(request.body);
+        const documentId=id(request.params.documentId,"documentId");
+        const expected=request.body.expectedUpdatedAt;
+        if(typeof expected!=="string"||!Number.isFinite(Date.parse(expected)))
+          throw new DocumentError("The document version is required");
+        const access=await requireBusinessRole(pool,
+          await authenticateAccessToken(pool,request.headers.authorization),input.businessId,WRITE_ROLES);
+        const result=await withTransaction(pool,async tx=>{
+          const current=(await tx.query<DocumentRow>(
+            "SELECT * FROM commercial_documents WHERE business_id=$1 AND id=$2 FOR UPDATE",
+            [input.businessId,documentId])).rows[0];
+          if(!current||current.branch_id!==input.branchId)
+            throw new DocumentError("Document not found in this branch","DOCUMENT_NOT_FOUND",404);
+          if(current.status!=="DRAFT"||current.kind!==input.kind)
+            throw new DocumentError("Only drafts can be edited; document type cannot change","DOCUMENT_STATE_INVALID",409);
+          if(current.updated_at.toISOString()!==new Date(expected).toISOString())
+            throw new DocumentError("Document changed elsewhere. Reload it before editing.","DOCUMENT_VERSION_CONFLICT",409);
+        let name=input.customerName,phone=input.customerPhone,email=input.customerEmail;
+        if(input.customerId){
+          const customer=(await tx.query<{name:string;phone:string|null;email:string|null}>(
+            "SELECT name,phone,email FROM customers WHERE business_id=$1 AND id=$2 AND is_active=true",
+            [input.businessId,input.customerId])).rows[0];
+          if(!customer)throw new DocumentError(
+            "Customer not found in this business","CUSTOMER_NOT_FOUND",404);
+          name=customer.name;phone=customer.phone??"";email=customer.email??"";
+        }
+        const snapshot: Array<{
+          itemId:string;name:string;kind:string;unit:string;quantity:number;price:number;lineTotal:number;
+        }> = [];
+        let subtotal=0;
+        for(const line of input.lines){
+          const item=(await tx.query<{name:string;kind:string;default_sale_price_minor:string|null}>(
+            `SELECT ci.name,ci.kind,ciu.default_sale_price_minor::text
+              FROM catalog_items ci JOIN catalog_item_units ciu
+                ON ciu.item_id=ci.id AND ciu.business_id=ci.business_id
+              WHERE ci.business_id=$1 AND ci.id=$2 AND ci.is_active=true
+                AND ciu.unit_code=$3 AND ciu.can_sell=true FOR SHARE OF ci,ciu`,
+            [input.businessId,line.itemId,line.saleUnitCode])).rows[0];
+          if(!item || item.default_sale_price_minor===null)
+            throw new DocumentError("A selected item/unit is unavailable or unpriced",
+              "DOCUMENT_ITEM_NOT_SELLABLE",409);
+          const price=safeMinor(Number(item.default_sale_price_minor));
+          const lineTotal=proportionalMinor(price,line.quantity,1);
+          subtotal=safeMinor(subtotal+lineTotal);
+          snapshot.push({itemId:line.itemId,name:item.name,kind:item.kind,
+            unit:line.saleUnitCode,quantity:line.quantity,price,lineTotal});
+        }
+          await tx.query(
+            `UPDATE commercial_documents SET customer_id=$3,customer_name_snapshot=$4,
+              customer_phone_snapshot=$5,customer_email_snapshot=$6,notes=$7,expires_at=$8,
+              subtotal_minor=$9,tax_minor=0,total_minor=$9,
+              updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond')
+              WHERE business_id=$1 AND id=$2`,
+            [input.businessId,documentId,input.customerId,name,phone||null,email||null,
+             input.notes,input.expiresAt,subtotal]);
+          await tx.query("DELETE FROM commercial_document_lines WHERE business_id=$1 AND document_id=$2",
+            [input.businessId,documentId]);
+        for(const [index,line] of snapshot.entries()){
+          await tx.query(
+            `INSERT INTO commercial_document_lines(
+              business_id,document_id,sort_order,item_id,item_name_snapshot,
+              item_kind_snapshot,sale_unit_code,quantity,unit_net_minor,
+              line_net_minor,line_tax_minor,line_total_minor
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$10)`,
+            [input.businessId,documentId,index,line.itemId,line.name,line.kind,line.unit,
+             line.quantity,line.price,line.lineTotal]);
+        }
+          await audit(tx,{businessId:input.businessId,branchId:input.branchId,staffId:access.staffId,
+            eventType:"COMMERCIAL_DOCUMENT_UPDATED",documentId,kind:current.kind,number:current.document_number});
+          return loadDocument(tx,input.businessId,documentId);
+        });
+        return {document:result};
+      }catch(error){return sendError(request,reply,error);}
+    });
   for(const action of ["issue","cancel"] as const){
     app.post<{Params:{documentId:string};Body:{businessId?:string}}>(
       `/v1/commercial-documents/:documentId/${action}`,async(request,reply)=>{

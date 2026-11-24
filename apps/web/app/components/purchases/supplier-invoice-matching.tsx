@@ -1,4 +1,6 @@
 "use client";
+
+import { confirmAction } from "../ui/action-dialog";
 import { useActionFeedbackMessages } from "../ui/action-feedback";
 
 import { useMemo, useRef, useState } from "react";
@@ -203,7 +205,7 @@ export function SupplierInvoiceMatching({
     id:string;filename:string
   }) {
     if(!session||!online||!canCreate||busy||match.status!=="DRAFT")return;
-    if(!window.confirm(`Remove ${file.filename} from this draft invoice match?`))return;
+    if(!await confirmAction(`Remove ${file.filename} from this draft invoice match?`))return;
     setBusy(true);setError(null);setNotice(null);
     try{
       const response=await getOfflineQueue().authenticatedFetch(
@@ -239,7 +241,7 @@ export function SupplierInvoiceMatching({
   async function transition(match:InvoiceMatch,action:"approve"|"cancel") {
     if(!session||!online||busy||!canCreate)return;
     if(action==="approve"&&!canApprove)return;
-    if(action==="cancel"&&!window.confirm(`Cancel draft supplier invoice ${match.invoiceReference}? The selected receipts will become available to match again.`))return;
+    if(action==="cancel"&&!await confirmAction(`Cancel draft supplier invoice ${match.invoiceReference}? The selected receipts will become available to match again.`))return;
     const approvalNote=(approvalNotes[match.id]??"").trim();
     if(action==="approve"&&match.hasException&&approvalNote.length<12){
       setError("Enter a manager justification of at least 12 characters to approve a difference.");

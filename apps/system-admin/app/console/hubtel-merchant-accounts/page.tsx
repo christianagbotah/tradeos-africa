@@ -1,4 +1,7 @@
 "use client";
+import { useActionFeedbackMessages } from "../../components/action-feedback";
+
+import { confirmAction } from "../../components/action-dialog";
 
 import {useMemo,useState,type FormEvent} from "react";
 import Link from "next/link";
@@ -41,6 +44,7 @@ export default function HubtelMerchantReviewsPage(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [success,setSuccess]=useState<string|null>(null);
+  useActionFeedbackMessages(success,error);
   const canReview=adminUser?.role==="SUPER_ADMIN"||
     adminUser?.role==="PLATFORM_ADMIN";
   const all=resource.data?.reviews??[];
@@ -72,7 +76,7 @@ export default function HubtelMerchantReviewsPage(){
        rationale.trim().length<12||
        (decision==="APPROVED"&&!beneficiaryConfirmed))return;
     const action=decision==="APPROVED"?"approve":"reject";
-    if(!window.confirm("Confirm that you want to "+action+
+    if(!await confirmAction("Confirm that you want to "+action+
       " this merchant's Hubtel beneficiary evidence? "+
       "This creates an immutable audit record. It does not activate payments."))
       return;

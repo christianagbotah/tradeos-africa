@@ -1,4 +1,6 @@
 "use client";
+
+import { confirmAction } from "../ui/action-dialog";
 import { useActionFeedbackMessages } from "../ui/action-feedback";
 
 import { useRef, useState } from "react";
@@ -100,7 +102,7 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
   }
   async function action(row:Delivery,task:"authorize"|"retry"|"cancel"){
     if(!businessId||!online||busy||!canManage)return;
-    if(task==="cancel"&&!window.confirm(
+    if(task==="cancel"&&!await confirmAction(
       `Cancel the email request for ${row.documentNumber} to ${row.recipientEmail}?`))return;
     setBusy(true);setError(null);setNotice(null);
     try{
@@ -146,14 +148,14 @@ export function SupplierDocumentDelivery({orderId,orderNumber,status}:Props){
       setError(err instanceof Error?err.message:"Could not download the PDF");
     }finally{setBusy(false);}
   }
-  function openManualWhatsApp(){
+  async function openManualWhatsApp(){
     if(!online||busy||!canManage||!manualWhatsApp)return;
     const {recipientPhone,recipientName,message}=manualWhatsApp;
     if(!/^[1-9]\d{7,14}$/.test(recipientPhone)||message.length>1800){
       setError("The supplier contact or prepared message is invalid. Refresh it.");
       return;
     }
-    const confirmed=window.confirm(
+    const confirmed=await confirmAction(
       "Open WhatsApp for "+recipientName+" (+"+recipientPhone+")?\n\n"+
       "This will open a prefilled message, not send it. "+
       "You must review the recipient, press Send yourself, and attach "+

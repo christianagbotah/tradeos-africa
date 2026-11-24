@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackMessages } from "../../components/action-feedback";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { Badge, Banner, PageHeader, Section } from "../../components/admin-ui";
@@ -35,6 +36,7 @@ export default function ProfileSecurityPage() {
   const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useActionFeedbackMessages(notice,error);
 
   useEffect(() => {
     if (!profile.data?.profile) return;

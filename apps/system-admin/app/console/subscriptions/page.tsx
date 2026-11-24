@@ -1,4 +1,7 @@
 "use client";
+import { useActionFeedbackMessages } from "../../components/action-feedback";
+
+import { confirmAction } from "../../components/action-dialog";
 
 import { useMemo, useState, type FormEvent } from "react";
 import { Badge, Banner, PageHeader, Section } from "../../components/admin-ui";
@@ -17,6 +20,7 @@ export default function SubscriptionsPage() {
   const { data: tenantData } = useAdminResource<{ tenants: Tenant[] }>("/api/admin/tenants");
   const [statusFilter, setStatusFilter] = useState("ALL"); const [query,setQuery]=useState("");
   const [notice,setNotice]=useState<string|null>(null); const [actionError,setActionError]=useState<string|null>(null); const [saving,setSaving]=useState(false);
+  useActionFeedbackMessages(notice,actionError);
   const canWrite = Boolean(adminUser && WRITE_ROLES.has(adminUser.role));
   const subscriptions=data?.subscriptions??[]; const plans=plansData?.plans??[];
   const filtered=useMemo(()=>subscriptions.filter((item)=>(statusFilter==="ALL"||item.status===statusFilter)&&`${item.businessName} ${item.planName}`.toLowerCase().includes(query.toLowerCase())),[subscriptions,statusFilter,query]);
@@ -24,7 +28,7 @@ export default function SubscriptionsPage() {
   async function assign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form=event.currentTarget; const fd=new FormData(form); const businessId=String(fd.get("businessId")??""); const planId=String(fd.get("planId")??""); const mode=String(fd.get("mode")??"ACTIVE"); const reason=String(fd.get("reason")??"").trim();
-    if (!window.confirm("Confirm subscription assignment? The tenant's available features and billing state can change.")) return;
+    if (!await confirmAction("Confirm subscription assignment? The tenant's available features and billing state can change.")) return;
     setSaving(true); setActionError(null);
     try {
       const response=await apiFetch(`/api/admin/tenants/${encodeURIComponent(businessId)}/subscription`, {
@@ -42,7 +46,7 @@ export default function SubscriptionsPage() {
   async function transition(event: FormEvent<HTMLFormElement>, subscription: Subscription) {
     event.preventDefault();
     const form=event.currentTarget; const fd=new FormData(form); const action=String(fd.get("action")??""); const reason=String(fd.get("reason")??"").trim(); const planId=String(fd.get("planId")??"");
-    if (!window.confirm(`Confirm ${action.toLowerCase().replaceAll("_"," ")} for ${subscription.businessName}?`)) return;
+    if (!await confirmAction(`Confirm ${action.toLowerCase().replaceAll("_"," ")} for ${subscription.businessName}?`)) return;
     setSaving(true); setActionError(null);
     try {
       const response=await apiFetch(`/api/admin/subscriptions/${subscription.id}`, {

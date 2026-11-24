@@ -37,7 +37,7 @@ type Props = {
   customers: readonly Customer[];
   currencyCode: string;
   onApply: (lines: CartLine[],customerId:string|null,payment:VoicePayment,
-    suggestion:VoiceCheckoutSuggestion|null) => boolean;
+    suggestion:VoiceCheckoutSuggestion|null) => boolean | Promise<boolean>;
   onClose: () => void;
 };
 const sample = "Record a sale: Comfort Mensah bought two door number 058 and one door number 326, paid by MoMo.";
@@ -269,7 +269,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     setCorrectionError(null);
     setSelectedContextCustomerId("");
   }
-  function apply(){
+  async function apply(){
     if(!draft||!reviewed||draft.intent!=="SALE"||!draft.lines.length)return;
     if(correction||contextCorrection){
       setRecognitionError("Confirm or discard the pending correction before adding the cart.");
@@ -291,7 +291,7 @@ export function VoiceSaleAssistant({sellable,customers,currencyCode,onApply,onCl
     if(keys.size!==cleaned.length){
       setRecognitionError("A product appears more than once. Combine duplicate lines first.");return;
     }
-    if(onApply(cleaned.map(l=>({sellable:l.item,quantity:l.quantity})),
+    if(await onApply(cleaned.map(l=>({sellable:l.item,quantity:l.quantity})),
       customerId||null,paymentMethod,
       draft.paymentState!=="UNSPECIFIED"||draft.tenderedMinor!==null?{
         paymentState:draft.paymentState,tenderedMinor:draft.tenderedMinor,

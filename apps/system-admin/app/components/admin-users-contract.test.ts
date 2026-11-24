@@ -32,7 +32,7 @@ describe("System Admin administrator management contract", () => {
     expect(page).toContain('/role`');
     expect(page).toContain('/status`');
     expect(page).toContain("reason");
-    expect(page).toContain("window.confirm");
+    expect(page).toContain("confirmAction");
     expect(page).toContain("Reactivate");
     expect(page).toContain("Deactivate");
   });

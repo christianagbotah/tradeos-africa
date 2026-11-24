@@ -42,6 +42,7 @@ export default function CommercialDocumentDetail() {
   return <main className={styles.wrapper}>
     <div className={styles.actions}>
       <Link href="/documents">Back to quotations & proformas</Link>
+      {document.status==="DRAFT"&&["OWNER","ADMIN","MANAGER","CASHIER","SALES"].includes(session?.role??"")&&document.branchId===session?.branchId?<Link href={`/documents?edit=${document.id}`}>Edit draft</Link>:null}
       {document.status==="ISSUED"?<button type="button" onClick={()=>window.print()}>Print / Save as PDF</button>:null}
     </div>
     <article id="tradeos-commercial-document" className={`tos-print-document ${styles.document}`}>

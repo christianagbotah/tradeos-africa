@@ -1,5 +1,7 @@
 "use client";
 
+import { confirmAction } from "../ui/action-dialog";
+
 import { useActionFeedbackMessages } from "../ui/action-feedback";
 import {useCallback,useEffect,useMemo,useState} from "react";
 import {formatMoney} from "@tradeos/contracts";
@@ -116,7 +118,7 @@ export function PricingWorkspace(){
   }
   async function reviewRequest(id:string,decision:"approve"|"reject"){
     if(!manager||!businessId||!online||busy)return;
-    if(!window.confirm((decision==="approve"?"Approve":"Reject")+
+    if(!await confirmAction((decision==="approve"?"Approve":"Reject")+
       " this discount? Each approval is limited to one exact sale and expires after 30 minutes."))return;
     setBusy(true);setError(null);setNotice(null);
     try{
@@ -181,11 +183,11 @@ export function PricingWorkspace(){
             <span><strong>{r.itemName}</strong> · {r.unitCode}
               <small>{r.active?"Active":"Inactive"} · Updated {asDate(r.updatedAt)}</small></span>
             <strong>{formatMoney(r.priceMinor,currencyCode)}</strong>
-            {r.active?<button type="button" disabled={!online||busy} onClick={()=>{
+            {r.active?<button type="button" disabled={!online||busy} onClick={async()=>{
               const sellableItem=sellable.find(s=>s.itemId===r.itemId&&s.unitCode===r.unitCode);
               if(!sellableItem)return;
               setItemKey(sellableItem.key);setPriceMinor(r.priceMinor);
-              if(window.confirm("Deactivate this negotiated price for this customer?")){
+              if(await confirmAction("Deactivate this negotiated price for this customer?")){
                 setBusy(true);setNotice(null);setError(null);
                 void fetchJson("/v1/pricing/customer-rates",{method:"PUT",
                   headers:{"Content-Type":"application/json"},

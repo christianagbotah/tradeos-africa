@@ -22,7 +22,7 @@ describe("platform Hubtel beneficiary review UI",()=>{
     expect(adminPage).toContain('role="alert"');
     expect(adminPage).toContain("Record approval (no charging)");
     expect(adminPage).toContain("Record rejection");
-    expect(adminPage).toContain("window.confirm");
+    expect(adminPage).toContain("confirmAction");
     expect(adminPage).toContain("live collections");
   });
   it("does not ask for or render provider API secrets",()=>{

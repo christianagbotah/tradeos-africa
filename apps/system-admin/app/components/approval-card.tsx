@@ -1,5 +1,7 @@
 "use client";
 
+import { confirmAction } from "./action-dialog";
+
 export interface ApprovalCardProps {
   proposedAction: string;
   impact: string;
@@ -25,9 +27,9 @@ export function ApprovalCard({
   onReject,
   busy = false,
 }: ApprovalCardProps) {
-  function confirmDecision(kind: "approve" | "reject") {
+  async function confirmDecision(kind: "approve" | "reject") {
     if (!reason.trim()) return;
-    const accepted = window.confirm(
+    const accepted = await confirmAction(
       kind === "approve"
         ? `Approve this automation action for ${target}?`
         : `Reject this automation action for ${target}?`,

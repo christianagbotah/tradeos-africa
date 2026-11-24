@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useWorkspace } from "../app/components/workspace/use-workspace";
-import { getOfflineQueue } from "./offline-sync";
+import { getOfflineQueue, MUTATION_INVALIDATION_EVENT } from "./offline-sync";
 import { readApiErrorMessage } from "./auth-fetch";
 
 export interface ApiFetchState<T> {
@@ -38,7 +38,16 @@ export function useApiFetch<T>(
   const [state, setState] = useState<ApiFetchState<T>>({ data: null, loading: true, error: null });
   const [nonce, setNonce] = useState(0);
 
-  const refetch = useCallback(() => setNonce((n) => n + 1), []);
+  const generation = useRef(0);
+  const refetch = useCallback(() => { generation.current++; setNonce((n) => n + 1); }, []);
+  useEffect(() => {
+    if(!session?.businessId || (options?.method??"GET").toUpperCase()!=="GET")return;
+    const listener=(event:Event)=>{
+      if((event as CustomEvent<{businessId:string}>).detail?.businessId===session.businessId)refetch();
+    };
+    window.addEventListener(MUTATION_INVALIDATION_EVENT,listener);
+    return ()=>window.removeEventListener(MUTATION_INVALIDATION_EVENT,listener);
+  },[session?.businessId,options?.method,refetch]);
 
   useEffect(() => {
     setSourceKey(contextKey);
@@ -47,6 +56,8 @@ export function useApiFetch<T>(
       return;
     }
     let cancelled = false;
+    const requestGeneration = ++generation.current;
+    const stale = () => cancelled || generation.current !== requestGeneration;
     setState((prev) => ({
       data: sourceKey === contextKey ? prev.data : null,
       loading: true,
@@ -65,18 +76,19 @@ export function useApiFetch<T>(
           init.body = JSON.stringify(options.body);
         }
         const res = await getOfflineQueue().authenticatedFetch(path, init);
-        if (cancelled) return;
+        if (stale()) return;
         if (!res.ok) {
           const message = await readApiErrorMessage(res);
-          setState({ data: null, loading: false, error: message });
+          if(stale())return;
+          setState(prev=>({ ...prev, loading:false,error:message }));
           return;
         }
         const json = (await res.json()) as T;
-        if (cancelled) return;
+        if (stale()) return;
         setState({ data: reconcileRef.current?.(json) ?? json, loading: false, error: null });
       } catch (err) {
-        if (cancelled) return;
-        setState({ data: null, loading: false, error: err instanceof Error ? err.message : "Network error" });
+        if (stale()) return;
+        setState(prev=>({ ...prev, loading:false,error:err instanceof Error ? err.message : "Network error" }));
       }
     })();
     return () => {

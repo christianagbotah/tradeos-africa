@@ -1,4 +1,6 @@
 "use client";
+
+import { confirmAction } from "../ui/action-dialog";
 import { useActionFeedbackMessages } from "../ui/action-feedback";
 
 import {useEffect,useState} from "react";
@@ -91,7 +93,7 @@ export function SmsProviderPanel(){
     if(!businessId||!online||!data||busy||!password)return;
     if(kind==="save"&&(!data.vaultReady||!apiSecret||!senderId))return;
     if(kind==="revoke"&&(!current||current.status==="REVOKED"||
-      !window.confirm("Revoke this SMS API credential?")))return;
+      !await confirmAction("Revoke this SMS API credential?")))return;
     setBusy(true);setError(null);setMessage(null);
     try{
       const response=await getOfflineQueue().authenticatedFetch(
@@ -120,7 +122,7 @@ export function SmsProviderPanel(){
     if(provider!=="HUBTEL_SMS"||!businessId||!online||!canManage||
        !current||current.status!=="SAVED_UNVERIFIED"||testBusy||busy||
        !confirmNumber||!testNumber.trim()||!password)return;
-    if(!window.confirm("Send ONE Hubtel SMS to your own test number? "+
+    if(!await confirmAction("Send ONE Hubtel SMS to your own test number? "+
       "Hubtel may charge your SMS account. This does not enable bulk SMS."))return;
     const id=testRequestId??crypto.randomUUID();
     setTestRequestId(id);setTestBusy(true);setError(null);setTestResult(null);

@@ -19,7 +19,7 @@ describe("direct Hubtel online checkout and SMS setup",()=>{
     expect(sms).toContain("SMS Client ID");
     expect(sms).toContain("confirmOwnership:true");
     expect(sms).toContain("Send one Hubtel SMS test");
-    expect(sms).toContain("window.confirm");
+    expect(sms).toContain("confirmAction");
     expect(sms).toContain("currentPassword:password");
   });
 });

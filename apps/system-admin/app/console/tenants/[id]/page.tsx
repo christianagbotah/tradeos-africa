@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackMessages } from "../../../components/action-feedback";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -102,6 +103,7 @@ export default function Tenant360Page() {
   );
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useActionFeedbackMessages(notice,error);
   const [changing, setChanging] = useState(false);
   const tenant = data?.tenant;
   const canManageLifecycle = Boolean(adminUser && LIFECYCLE_ROLES.has(adminUser.role));
