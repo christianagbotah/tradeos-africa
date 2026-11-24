@@ -7,6 +7,31 @@ import path from 'node:path';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const read=(name)=>readFileSync(path.join(root,name),'utf8');
 
+test('runtime pilot is built for every source-affecting main push and PR',()=>{
+  const workflow=read('.github/workflows/runtime-artifact-pilot.yml');
+  const sections=workflow.split(/^  (pull_request|push):$/m);
+  assert.equal(sections.filter(x=>x==='pull_request').length,1);
+  assert.equal(sections.filter(x=>x==='push').length,1);
+  const pr=sections[sections.indexOf('pull_request')+1] ?? '';
+  const main=sections[sections.indexOf('push')+1] ?? '';
+  for(const [name,block] of [['PR',pr],['main',main]]){
+    assert.match(block,/\bpaths:/,name);
+    for(const target of [
+      'apps/api/**','apps/web/**','apps/system-admin/**','packages/**',
+      'package.json','pnpm-lock.yaml','pnpm-workspace.yaml','tsconfig*.json',
+      'ops/release/**',
+    ]){
+      assert.ok(block.includes("- '"+target+"'"),name+' must build for '+target);
+    }
+  }
+  assert.match(main,/branches: \[main\]/);
+  assert.match(workflow,/if: github.event_name == 'push' && github.ref == 'refs\/heads\/main'/);
+  assert.match(read('ops/release/create-ci-artifact-pilot.sh'),/deployable:false/);
+  const audit=read('ops/release/audit-github-artifact-pilot.sh');
+  assert.match(audit,/\.event == "push" and \.head_branch == "main"/);
+  assert.doesNotMatch(workflow,/self-hosted|lightworld-deploy-tradeos-staging|pm2 restart/);
+});
+
 test('Next standalone output is restricted to GitHub artifact mode',()=>{
   for(const file of ['apps/web/next.config.ts','apps/system-admin/next.config.ts']){
     const config=read(file);
