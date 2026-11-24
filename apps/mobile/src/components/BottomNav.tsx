@@ -52,11 +52,11 @@ export function BottomNav({ active, onChange, pendingCount = 0, failedCount = 0 
                 pressed && styles.tabPressed,
               ]}
             >
-              <View style={styles.iconWrap}>
+              <View style={[styles.iconWrap, isActive && styles.selectedIcon, tab.key === "sell" && styles.sellIcon]}>
                 <Icon
                   name={tab.icon}
                   size={22}
-                  color={isActive ? colors.gold : colors.textMuted}
+                  color={tab.key === "sell" ? colors.midnight : isActive ? colors.goldStrong : colors.textMuted}
                 />
                 {showBadge ? (
                   <View style={[styles.badge, { backgroundColor: badgeTone }]}>
@@ -65,12 +65,11 @@ export function BottomNav({ active, onChange, pendingCount = 0, failedCount = 0 
                 ) : null}
               </View>
               <Text
-                style={[styles.label, { color: isActive ? colors.gold : colors.textMuted }]}
+                style={[styles.label, { color: isActive ? colors.textStrong : colors.textMuted }]}
                 numberOfLines={1}
               >
                 {tab.label}
               </Text>
-              {isActive ? <View style={styles.accentBar} /> : null}
             </Pressable>
           );
         })}
@@ -81,12 +80,14 @@ export function BottomNav({ active, onChange, pendingCount = 0, failedCount = 0 
 
 const styles = StyleSheet.create({
   wrapper: {
-    backgroundColor: colors.midnight,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   bar: {
     flexDirection: "row",
     alignItems: "stretch",
-    minHeight: touch.minTarget + 14,
+    minHeight: touch.minTarget + 18,
     paddingHorizontal: spacing.s2,
     paddingTop: spacing.s1,
   },
@@ -104,23 +105,18 @@ const styles = StyleSheet.create({
   },
   iconWrap: {
     position: "relative",
-    width: 28,
-    height: 28,
+    width: 48,
+    height: 34,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
+  selectedIcon: { backgroundColor: colors.goldSoft },
+  sellIcon: { backgroundColor: colors.gold },
   label: {
     fontSize: typography.meta,
     fontWeight: typography.weightBold,
     marginTop: 2,
-  },
-  accentBar: {
-    position: "absolute",
-    top: 0,
-    width: 24,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: colors.gold,
   },
   badge: {
     position: "absolute",

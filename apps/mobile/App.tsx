@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NetInfo from "@react-native-community/netinfo";
 import * as Crypto from "expo-crypto";
 import { Platform, SafeAreaView, StatusBar, View } from "react-native";
 import { MobileApiClient,type MobileOwnCashShiftStatus } from "./src/api-client";
 import { MobileAppModel, type MobileAppSnapshot } from "./src/app-model";
+import { ActionDialog } from "./src/components/ActionDialog";
+import { saleActionFeedback, signOutFeedback, type MobileActionFeedback } from "./src/action-feedback";
 import { BottomNav, type BottomNavTab } from "./src/components/BottomNav";
 import { createNativeMobilePersistence, createNativeQueueStorage } from "./src/native-storage";
 import { MobileRuntime } from "./src/runtime";
@@ -18,7 +20,7 @@ import { ErrorScreen, LoadingScreen, NeedsBusinessScreen } from "./src/screens/B
 import { colors } from "./src/theme";
 
 const APP_VERSION = "0.0.1";
-const DEFAULT_API_BASE = "https://tradeosafrica.lightworldtech.com/api/mobile";
+const DEFAULT_API_BASE = "https://tradeosafrica.lightworldtech.com";
 
 /**
  * App root — a thin shell that:
@@ -56,6 +58,8 @@ export default function App() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
+  const [feedback,setFeedback]=useState<MobileActionFeedback|null>(null);
+  const checkoutLock=useRef(false);
   const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions">("dashboard");
 
   useEffect(() => {
@@ -78,9 +82,25 @@ export default function App() {
       setScreen("dashboard");
     }
   };
-  const sync = async () => setSnapshot(await model.sync());
-  const refreshCommerce = async () => setSnapshot(await model.loadCommerce());
-  const checkout = async () => setSnapshot(await model.checkout());
+  const refreshCommerce = async () => {const operation=model.loadCommerce();setSnapshot(model.snapshot);setSnapshot(await operation);};
+  const sync = async () => {
+    const operation=model.sync();setSnapshot(model.snapshot);
+    const next=await operation;setSnapshot(next);
+    if(next.error)setFeedback({tone:"danger",title:"Sync needs attention",message:next.error});
+    else if(next.phase==="READY"&&next.online===true)void refreshCommerce();
+  };
+  const checkout = async (quickServe:boolean) => {
+    if(checkoutLock.current||model.snapshot.cart.length===0||model.snapshot.checkoutBusy)return;
+    checkoutLock.current=true;
+    try{
+      const operation=model.checkout();setSnapshot(model.snapshot);
+      const next=await operation;setSnapshot(next);
+      if(next.phase==="READY"){
+        setFeedback(saleActionFeedback(next.saleNotice,next.error,quickServe));
+        if(next.saleNotice?.tone==="success"&&next.online===true)void refreshCommerce();
+      }
+    }finally{checkoutLock.current=false;}
+  };
   const getOwnCashShift = useCallback((businessId:string,branchId:string)=>
     api.getOwnCashShift(businessId,branchId),[api]);
   const ownCashShift = async (
@@ -93,6 +113,8 @@ export default function App() {
     }
   };
   const logout = async () => {
+    if(checkoutLock.current)return;
+    setFeedback(null);
     setSnapshot(await model.logout());
     setPassword("");
     setSearch("");
@@ -107,13 +129,12 @@ export default function App() {
     setSnapshot(model.selectPaymentMethod(method));
 
   const queue = snapshot.bootstrap?.status === "READY" ? snapshot.bootstrap.queue : null;
-  const isReady = snapshot.phase === "READY";
   const ready = snapshot.bootstrap?.status === "READY" ? snapshot.bootstrap : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar
-        barStyle={isReady || snapshot.phase === "SIGNED_OUT" ? "dark-content" : "light-content"}
+        barStyle="light-content"
         backgroundColor={colors.midnight}
       />
       <View style={styles.flex}>
@@ -161,13 +182,14 @@ export default function App() {
                   onQuantity={changeQuantity}
                   onRemove={removeCart}
                   onPayment={selectPayment}
-                  onCheckout={() => { void checkout(); }}
+                  onCheckout={(quickServe) => { void checkout(quickServe); }}
                   getOwnCashShift={getOwnCashShift}
                   onOwnCashShift={ownCashShift}
                 />
               ) : null}
               {screen === "sales" ? (
                 <SalesScreen
+                  api={api}
                   snapshot={snapshot}
                   onSync={() => { void sync(); }}
                   onGoToSell={() => setScreen("sell")}
@@ -179,7 +201,7 @@ export default function App() {
                   appVersion={APP_VERSION}
                   onSync={() => { void sync(); }}
                   onRefreshCatalog={() => { void refreshCommerce(); }}
-                  onLogout={() => { void logout(); }}
+                  onLogout={() => { if(!checkoutLock.current)setFeedback(signOutFeedback); }}
                   onGoToNotifications={() => setScreen("notifications")}
                   onGoToQuestions={() => setScreen("questions")}
                 />
@@ -220,6 +242,8 @@ export default function App() {
           </>
         ) : null}
       </View>
+      <ActionDialog feedback={feedback} onDismiss={()=>setFeedback(null)}
+        {...(feedback?.confirmLabel?{onConfirm:()=>{void logout();}}:{})} />
     </SafeAreaView>
   );
 }

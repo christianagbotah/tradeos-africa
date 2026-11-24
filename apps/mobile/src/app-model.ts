@@ -42,6 +42,7 @@ export type MobileAppSnapshot = {
 const emptyQueue: QueueState = { pending: 0, blocked: 0, failed: 0 };
 
 export class MobileAppModel {
+  private commerceGeneration=0;
   private state: MobileAppSnapshot = {
     phase: "BOOTING",
     bootstrap: null,
@@ -96,12 +97,13 @@ export class MobileAppModel {
 
   async loadCommerce(): Promise<MobileAppSnapshot> {
     if (this.state.phase !== "READY" || this.state.bootstrap?.status !== "READY") return this.snapshot;
+    const generation=++this.commerceGeneration;
     this.state = { ...this.state, commerceLoading: true, error: null };
     try {
       const commerce = await this.runtime.loadCommerce(this.state.online === true);
-      this.state = { ...this.state, commerce, commerceLoading: false, error: null };
+      if(generation===this.commerceGeneration&&this.state.phase==="READY")this.state = { ...this.state, commerce, commerceLoading: false };
     } catch (error) {
-      this.state = { ...this.state, commerceLoading: false, error: safeMobileErrorMessage(error) };
+      if(generation===this.commerceGeneration&&this.state.phase==="READY")this.state = { ...this.state, commerceLoading: false, error: safeMobileErrorMessage(error) };
     }
     return this.snapshot;
   }
@@ -192,6 +194,7 @@ export class MobileAppModel {
   }
 
   async logout(): Promise<MobileAppSnapshot> {
+    ++this.commerceGeneration;
     try {
       await this.runtime.logout();
     } finally {

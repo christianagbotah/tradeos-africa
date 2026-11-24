@@ -41,7 +41,7 @@ export type PosScreenProps = {
   onQuantity: (key: string, quantity: number) => void;
   onRemove: (key: string) => void;
   onPayment: (method: MobileImmediatePaymentMethod) => void;
-  onCheckout: () => void;
+  onCheckout: (quickServe:boolean) => void;
   getOwnCashShift?: (businessId:string,branchId:string)=>Promise<MobileOwnCashShiftStatus>;
   onOwnCashShift?: (status:MobileOwnCashShiftStatus,countedMinor:number,note:string)=>Promise<void>;
 };
@@ -298,7 +298,7 @@ export function PosScreen({
           disabled={!canSell || snapshot.cart.length === 0 || snapshot.checkoutBusy}
           loading={snapshot.checkoutBusy}
           accessibilityLabel="Charge sale"
-          onPress={onCheckout}
+          onPress={()=>onCheckout(quickServe)}
         >
           {snapshot.checkoutBusy ? "Saving sale…" : `Charge · ${formatMoney(total, currencyCode)}`}
         </Button>
@@ -327,7 +327,7 @@ export function PosScreen({
             snapshot.paymentMethod!=="CASH"}
           loading={snapshot.checkoutBusy}
           accessibilityLabel="Cash received, record this sale"
-          onPress={onCheckout}>
+          onPress={()=>onCheckout(quickServe)}>
           {snapshot.checkoutBusy?"Saving locally…":"Cash received · Record sale"}
         </Button>
         <Text style={styles.quickStickyNote}>
