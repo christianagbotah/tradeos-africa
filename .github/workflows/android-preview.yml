@@ -2,7 +2,7 @@ name: Build TradeOS Android preview
 
 on:
   push:
-    branches: [main, feat/native-safe-area-parity-20261124, feat/native-customers-parity-20261124, feat/native-catalog-stock-20261124, feat/native-advanced-trade-20261124]
+    branches: [main, feat/native-safe-area-parity-20261124, feat/native-customers-parity-20261124, feat/native-catalog-stock-20261124, feat/native-advanced-trade-20261124, feat/native-returns-exchanges-20261124]
     paths:
       - 'apps/mobile/**'
       - 'packages/client-core/**'
@@ -70,7 +70,7 @@ jobs:
           retention-days: 14
   publish-preview:
     needs: android
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/native-safe-area-parity-20261124' || github.ref == 'refs/heads/feat/native-customers-parity-20261124' || github.ref == 'refs/heads/feat/native-catalog-stock-20261124' || github.ref == 'refs/heads/feat/native-advanced-trade-20261124')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/native-safe-area-parity-20261124' || github.ref == 'refs/heads/feat/native-customers-parity-20261124' || github.ref == 'refs/heads/feat/native-catalog-stock-20261124' || github.ref == 'refs/heads/feat/native-advanced-trade-20261124' || github.ref == 'refs/heads/feat/native-returns-exchanges-20261124')
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -10,6 +10,7 @@ export interface ReturnMutationPayload {
   originalSaleId: string;
   reason: string;
   refundMethod: RefundMethod;
+  expectedRefundTotalMinor?: number;
   initiatedByStaffId?: string;
   approvedByStaffId?: string;
   lines: Array<{ saleLineId: string; quantity: number; disposition: ReturnDisposition }>;
@@ -148,6 +149,9 @@ export async function applyReturnMutationInTransaction(
       throw error;
     }
 
+    if(payload.expectedRefundTotalMinor!==undefined&&(!Number.isSafeInteger(payload.expectedRefundTotalMinor)||payload.expectedRefundTotalMinor!==plan.refundTotal.minor)){
+      throw new ReturnMutationError("The refund amount changed. Review before confirming again.","REFUND_AMOUNT_CHANGED");
+    }
     const allocations = options.settleRefund === false ? [] : await allocateRefund(client, sale.id, plan.refundTotal.minor, payload.refundMethod);
     const customerCreditRefundMinor = allocations
       .filter((allocation) => allocation.method === "CUSTOMER_CREDIT")

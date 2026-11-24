@@ -22,6 +22,7 @@ import {
   type MobileImmediatePaymentMethod,
   type MobileSellableItem,
 } from "./pos-model";
+import {canReverseSale,type SaleReversal} from "./sale-reversal";
 import {buildStockAdjustment,type StockAdjustment} from "./inventory-adjustment";
 import {canManageCatalog} from "./catalog-workspace";
 import {canCollectCustomerPayment,paymentMethods,type CustomerReceiptInput,type ReceiptOutcome} from "./customer-payment";
@@ -83,6 +84,7 @@ export class MobileRuntime {
   private current: MobileReadyState | null = null;
   private customerReceiptBusy=false;
   private stockAdjustmentBusy=false;
+  private saleReversalBusy=false;
 
   constructor(private readonly options: MobileRuntimeOptions) {
     this.queue = new OfflineMutationQueue(options.queueStorage, {
@@ -320,6 +322,25 @@ export class MobileRuntime {
       if(state.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
       return "SYNCED";
     }finally{this.stockAdjustmentBusy=false;}
+  }
+
+  async recordSaleReversal(input:SaleReversal,online:boolean):Promise<ReceiptOutcome>{
+    const ready=this.requireReady();
+    if(!online||!canReverseSale(ready.membership.role)||this.saleReversalBusy)throw new MobileRuntimeError("Connect as an authorized cashier or manager.");
+    if(!["RETURN_CREATE","EXCHANGE_CREATE"].includes(input.type)||!input.payload.originalSaleId)throw new MobileRuntimeError("Choose a valid original sale.");
+    if(!Number.isSafeInteger(input.type==="RETURN_CREATE"?input.payload.expectedRefundTotalMinor:input.payload.expectedNetDifferenceMinor))throw new MobileRuntimeError("Review and confirm the financial amount before submitting.");
+    this.saleReversalBusy=true;
+    try{
+      const state=await this.queue.getSnapshot();
+      if([...state.pending,...state.failed.map(x=>x.mutation)].some(x=>x.businessId===ready.business.id&&["RETURN_CREATE","REFUND_CREATE","EXCHANGE_CREATE"].includes(x.mutationType)&&(x.payload as {originalSaleId?:string})?.originalSaleId===input.payload.originalSaleId))throw new MobileRuntimeError("An earlier return or exchange requires reconciliation in the local sync queue.");
+      const clientMutationId=this.options.createMutationId();
+      if(!await this.queue.enqueue({clientId:await this.options.persistence.getOrCreateDeviceKey(),clientMutationId,businessId:ready.business.id,branchId:ready.branch.id,mutationType:input.type,occurredAt:this.options.now(),payload:input.payload}))throw new MobileRuntimeError("Return already queued.");
+      try{await this.flush(true);}catch{/* Retain the original durable submission. */}
+      const after=await this.queue.getSnapshot();
+      if(after.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
+      if(after.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
+      return "SYNCED";
+    }finally{this.saleReversalBusy=false;}
   }
 
   async flush(online: boolean): Promise<FlushSummary> {
