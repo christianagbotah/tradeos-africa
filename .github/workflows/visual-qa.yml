@@ -361,17 +361,41 @@ jobs:
             await close.first().waitFor({state:"visible",timeout:10000});
             await close.first().click();
           };
+          // Keep one route installed for the whole exercise. Removing an
+          // intercepted route while its async handler is still resuming can
+          // cause Playwright to handle the same request twice.
+          const documentListMatcher=/\/v1\/commercial-documents\?[^#]*$/;
+          let listHold=null;
+          await loginPage.route(documentListMatcher,async route=>{
+            const hold=listHold;
+            if(hold&&route.request().method()==="GET"){
+              hold.intercepted();
+              await hold.gate;
+            }
+            await route.continue();
+          });
           const delayedWrite=async(trigger,assertVisible)=>{
-            let release;
+            let release,intercepted;
             const gate=new Promise(resolve=>{release=resolve;});
-            const matcher=/\/v1\/commercial-documents\?[^#]*$/;
-            const handler=async route=>{
-              if(route.request().method()==="GET")await gate;
-              await route.continue();
-            };
-            await loginPage.route(matcher,handler);
-            try{await trigger();await assertVisible();}
-            finally{release();await loginPage.unroute(matcher,handler);}
+            const firstHeldRead=new Promise(resolve=>{intercepted=resolve;});
+            listHold={gate,intercepted};
+            const refreshed=loginPage.waitForResponse(response=>
+              documentListMatcher.test(response.url())&&response.request().method()==="GET"&&response.ok(),
+              {timeout:30000});
+            // Prevent a timeout from becoming an unhandled rejection if a
+            // preceding UI assertion fails. It is still awaited on success.
+            refreshed.catch(()=>{});
+            try{
+              await trigger();
+              await Promise.all([
+                assertVisible(),
+                Promise.race([firstHeldRead,new Promise((_,reject)=>setTimeout(()=>reject(new Error("Mutation did not trigger a document list reload")),15000))]),
+              ]);
+            }finally{
+              listHold=null;
+              release();
+            }
+            await refreshed;
             await dismissFeedback();
           };
           for(const kind of ["PROFORMA","QUOTATION"]){
@@ -413,6 +437,7 @@ jobs:
               ()=>revised.getByText("CANCELLED",{exact:true}).waitFor({timeout:15000})
             );
           }
+          await loginPage.unrouteAll({behavior:"wait"});
           if(nativeDialogs)throw new Error("Unexpected native browser dialog in commercial document workflow");
           console.log("Browser document create, edit, issue, cancel and immediate refresh checks passed");
 
