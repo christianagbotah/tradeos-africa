@@ -5,6 +5,9 @@ import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
+import { PHYSICAL_UNIT_PRESETS, addPhysicalUnitPreset } from "../../../lib/physical-unit-presets";
+import type { PhysicalPresetId } from "../../../lib/physical-unit-presets";
+import presetStyles from "./physical-unit-presets.module.css";
 import { Button } from "../ui/button";
 import {
   IconBox,
@@ -134,6 +137,10 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
   const [quickPrices, setQuickPrices] = useState("");
   const [quickPriceNotice, setQuickPriceNotice] = useState<string | null>(null);
   const [quickPriceError, setQuickPriceError] = useState<string | null>(null);
+  const [presetId, setPresetId] = useState<PhysicalPresetId>("NAILS_BOX_POUND");
+  const [presetFactor, setPresetFactor] = useState("");
+  const [presetNotice, setPresetNotice] = useState<string | null>(null);
+  const [presetError, setPresetError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
@@ -166,6 +173,10 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
     setQuickPrices("");
     setQuickPriceNotice(null);
     setQuickPriceError(null);
+    setPresetId("NAILS_BOX_POUND");
+    setPresetFactor("");
+    setPresetNotice(null);
+    setPresetError(null);
     setBusy(false);
     setError(null);
     setLifecycleBusy(false);
@@ -264,6 +275,23 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
   };
   const addConversion = () => {
     setConversions((prev) => [...prev, { fromUnitCode: "", toUnitCode: "", factor: "1" }]);
+  };
+  const addConversionPreset = () => {
+    if (!canWrite || busy || kind !== "PRODUCT") return;
+    try {
+      const result=addPhysicalUnitPreset(units,conversions,presetId,presetFactor,{
+        kind,newItem:!item,
+      });
+      setUnits(result.units);
+      setConversions(result.conversions);
+      setPresetError(null);
+      setPresetNotice(result.addedConversion
+        ? "Unit pair added. Enter sale prices below and save the item."
+        : "This exact conversion is already configured.");
+    } catch(error) {
+      setPresetNotice(null);
+      setPresetError(error instanceof Error ? error.message : "Could not add conversion.");
+    }
   };
   const removeConversion = (idx: number) => {
     setConversions((prev) => prev.filter((_, i) => i !== idx));
@@ -647,6 +675,52 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
               <span className="tos-section__sub">How many of the "to" unit equal one "from" unit — e.g. 1 crate = 24 bottles.</span>
             </div>
             <div className="tos-section__body tos-stack">
+              {kind === "PRODUCT" ? (
+                <div className={presetStyles.panel}>
+                  <div className={presetStyles.header}>
+                    <strong>Set up bulk and loose selling units</strong>
+                    <p className="tos-section__sub">
+                      Choose a real unit pair and enter the measured factor for this exact item.
+                      A box of concrete nails and a box of roofing nails may have different weights.
+                    </p>
+                  </div>
+                  <div className={presetStyles.fields}>
+                    <div className="tos-field">
+                      <label className="tos-field__label" htmlFor="cat-preset-pair">Unit pair</label>
+                      <select id="cat-preset-pair" className="tos-select" value={presetId}
+                        onChange={e=>{setPresetId(e.target.value as PhysicalPresetId);setPresetNotice(null);setPresetError(null);}}
+                        disabled={!canWrite || busy}>
+                        {PHYSICAL_UNIT_PRESETS.map(preset=>(
+                          <option key={preset.id} value={preset.id}>{preset.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="tos-field">
+                      <label className="tos-field__label" htmlFor="cat-preset-factor">
+                        How many smaller units per larger unit?
+                      </label>
+                      <input id="cat-preset-factor" type="text" inputMode="decimal"
+                        className="tos-input" value={presetFactor}
+                        onChange={e=>{setPresetFactor(e.target.value);setPresetError(null);setPresetNotice(null);}}
+                        placeholder="Enter actual measured quantity"
+                        maxLength={24} disabled={!canWrite || busy}/>
+                    </div>
+                    <Button type="button" variant="outline" size="sm"
+                      icon={<IconPlus className="tos-btn__icon"/>}
+                      onClick={addConversionPreset}
+                      disabled={!canWrite || busy || !presetFactor.trim()}>
+                      Add unit pair
+                    </Button>
+                  </div>
+                  <p className="tos-section__sub">
+                    Stock counts use the selected stock unit. Do not assume a universal
+                    number of pounds, yards, bottles or pieces per package.
+                    Set your own sale prices for each sellable unit before saving.
+                  </p>
+                  {presetError ? <p role="alert" className={presetStyles.error}>{presetError}</p> : null}
+                  {presetNotice ? <p role="status" className={presetStyles.notice}>{presetNotice}</p> : null}
+                </div>
+              ) : null}
               {conversions.length === 0 ? (
                 <p className="tos-section__sub tos-catalog-empty-hint">No conversions yet. Add one if this item sells or stocks in more than one unit.</p>
               ) : null}
