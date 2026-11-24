@@ -57,22 +57,22 @@ export function buildOperationsMutation(
     if(day?.status==="OPEN")throw new Error("Close the current operating day first.");
     return {mutationType:"OPERATING_DAY_OPEN_CREATE",
       payload:{businessDate:businessDateAt(now,timezone),
-        openingBalances:validateOperationsCounts(counts,"opening"),note:cleanNote}};
+        openingBalances:validateOperationsCounts(counts,"opening"),...(cleanNote?{note:cleanNote}:{})}};
   }
   if(!day||day.status!=="OPEN")throw new Error("An operating day must be open.");
   if(action==="open-shift"){
     if(shift?.status==="OPEN")throw new Error("Close your open shift first.");
     return {mutationType:"SHIFT_OPEN_CREATE",
-      payload:{dayId:day.id,openingBalances:validateOperationsCounts(counts,"opening"),note:cleanNote}};
+      payload:{dayId:day.id,openingBalances:validateOperationsCounts(counts,"opening"),...(cleanNote?{note:cleanNote}:{})}};
   }
   if(action==="close-shift"){
     if(!shift||shift.status!=="OPEN")throw new Error("Your own shift is not open.");
     return {mutationType:"SHIFT_CLOSE_CREATE",
-      payload:{shiftId:shift.id,closingBalances:validateOperationsCounts(counts,"closing"),note:cleanNote}};
+      payload:{shiftId:shift.id,closingBalances:validateOperationsCounts(counts,"closing"),...(cleanNote?{note:cleanNote}:{})}};
   }
   if(snapshot.openShiftCount!==0)throw new Error("Close all staff shifts before closing the operating day.");
   return {mutationType:"OPERATING_DAY_CLOSE_CREATE",
-    payload:{dayId:day.id,closingBalances:validateOperationsCounts(counts,"closing"),note:cleanNote}};
+    payload:{dayId:day.id,closingBalances:validateOperationsCounts(counts,"closing"),...(cleanNote?{note:cleanNote}:{})}};
 }
 export function operationsPermission(role:string|null|undefined,action:OperationsAction):boolean {
   if(action==="open-day"||action==="close-day")

@@ -17,7 +17,7 @@ describe("SME cashier shift/day control payloads",()=>{
     expect(buildOperationsMutation("open-day",{operatingDay:null,shift:null,openShiftCount:0},
       {CASH:5000},"Africa/Accra",new Date("2026-11-24T09:00:00Z"))).toEqual({
         mutationType:"OPERATING_DAY_OPEN_CREATE",
-        payload:{businessDate:"2026-11-24",openingBalances:[{method:"CASH",countedMinor:5000}],note:undefined},
+        payload:{businessDate:"2026-11-24",openingBalances:[{method:"CASH",countedMinor:5000}]},
       });
   });
   it("opens staff shift explicitly attributed to current open day",()=>{
