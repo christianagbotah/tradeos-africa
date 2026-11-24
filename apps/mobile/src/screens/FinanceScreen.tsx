@@ -4,13 +4,15 @@ import type {MobileApiClient,MobileTreasuryAccount,MobileExpenseCategory,MobileC
 import {canReadFinance,canRecordExpense,canManageTreasury,accountInScope,expenseInput,transferInput,type FinanceTransaction} from "../finance-workspace";
 import type {ReceiptOutcome} from "../customer-payment";
 import type {MobileActionFeedback} from "../action-feedback";
+import {TreasuryPanel} from "./TreasuryPanel";
+import type {TreasuryTransaction} from "../treasury-workspace";
 import {Button} from "../components/Button";
 import {Card} from "../components/Card";
 import {Input} from "../components/Input";
 import {Banner} from "../components/Banner";
 import {formatMoney} from "../lib/format";
 import {colors,spacing,typography} from "../theme";
-type Props={api:MobileApiClient;businessId:string;branchId:string;role:string;currencyCode:string;online:boolean;onRecord:(r:FinanceTransaction)=>Promise<ReceiptOutcome>;onFeedback:(f:MobileActionFeedback)=>void;onBack:()=>void};
+type Props={api:MobileApiClient;businessId:string;branchId:string;role:string;currencyCode:string;online:boolean;onRecord:(r:FinanceTransaction|TreasuryTransaction)=>Promise<ReceiptOutcome>;onFeedback:(f:MobileActionFeedback)=>void;onBack:()=>void};
 export function FinanceScreen({api,businessId,branchId,role,currencyCode,online,onRecord,onFeedback,onBack}:Props){
  const read=canReadFinance(role),write=canRecordExpense(role),manage=canManageTreasury(role);
  const [accounts,setAccounts]=useState<MobileTreasuryAccount[]>([]),[categories,setCategories]=useState<MobileExpenseCategory[]>([]),[cashbook,setCashbook]=useState<MobileCashbook|null>(null),[expenses,setExpenses]=useState<MobileExpense[]>([]);
@@ -65,6 +67,7 @@ export function FinanceScreen({api,businessId,branchId,role,currencyCode,online,
  <Text style={styles.muted}>Net branch movement is not the same as account balance or profit.</Text><Button variant="secondary" disabled={busy||loading} accessibilityLabel="Refresh finance" onPress={()=>void refresh()}>Refresh</Button></Card>
  <Card style={styles.card}><Text style={styles.heading}>Treasury accounts</Text>{accounts.map(a=><View key={a.id} style={styles.list}><View style={styles.flex}><Text style={styles.heading}>{a.name}</Text><Text style={styles.muted}>{a.method} · {a.branchId?"Branch":"Business shared"} · {a.active?"Active":"Inactive"}</Text></View><Text style={styles.heading}>{formatMoney(a.balanceMinor,a.currencyCode)}</Text></View>)}
  {!mode?<>{write?<Button variant="gold" accessibilityLabel="Record expense" onPress={()=>begin("expense")}>Record expense</Button>:null}{manage?<Button variant="secondary" accessibilityLabel="Record account transfer" onPress={()=>begin("transfer")}>Record transfer</Button>:null}{manage?<Button variant="secondary" accessibilityLabel="Create expense category" onPress={()=>begin("category")}>New expense category</Button>:null}</>:null}</Card>
+ {!mode?<TreasuryPanel api={api} accounts={accounts} businessId={businessId} branchId={branchId} currencyCode={currencyCode} role={role} onRecord={onRecord} onFeedback={onFeedback} onRefresh={()=>void refresh()}/>:null}
  {mode==="expense"||mode==="transfer"?<Card style={styles.card}><Text style={styles.heading}>{mode==="expense"?"New expense":"Account transfer"}</Text>
  <Banner tone="info" message={mode==="expense"?"Record a business expense already paid.":"Record money already moved between business accounts. This does not initiate a bank or mobile money transfer."}/>
  <Text style={styles.muted}>Paying account</Text>{eligible.map(a=><Button key={a.id} variant={source===a.id?"gold":"secondary"} disabled={busy||!!review} accessibilityLabel={"Source "+a.name} onPress={()=>setSource(a.id)}>{a.name} · {formatMoney(a.balanceMinor,a.currencyCode)}</Button>)}
