@@ -5,6 +5,7 @@ import { colors, spacing } from "../theme";
 
 /** Shared native vector icons for a consistent, scalable visual language. */
 export type IconName =
+  | "customers"
   | "dashboard"
   | "sell"
   | "sales"
@@ -43,7 +44,7 @@ export type IconProps = {
 };
 
 const GLYPHS: Record<IconName, React.ComponentProps<typeof Ionicons>["name"]> = {
-  dashboard: "home-outline", sell: "cart-outline", sales: "receipt-outline",
+  customers: "people-outline", dashboard: "home-outline", sell: "cart-outline", sales: "receipt-outline",
   more: "grid-outline", sync: "sync-outline", refresh: "refresh-outline",
   search: "search-outline", plus: "add", minus: "remove", close: "close",
   check: "checkmark", warning: "warning-outline", error: "alert-circle-outline",

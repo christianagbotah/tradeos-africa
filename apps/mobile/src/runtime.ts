@@ -22,6 +22,7 @@ import {
   type MobileImmediatePaymentMethod,
   type MobileSellableItem,
 } from "./pos-model";
+import {canCollectCustomerPayment,paymentMethods,type CustomerReceiptInput,type ReceiptOutcome} from "./customer-payment";
 import { MobilePersistence } from "./storage";
 
 type RuntimeApi = Pick<
@@ -78,6 +79,7 @@ export class MobileRuntimeError extends Error {
 export class MobileRuntime {
   readonly queue: OfflineMutationQueue;
   private current: MobileReadyState | null = null;
+  private customerReceiptBusy=false;
 
   constructor(private readonly options: MobileRuntimeOptions) {
     this.queue = new OfflineMutationQueue(options.queueStorage, {
@@ -269,6 +271,34 @@ export class MobileRuntime {
       throw new MobileRuntimeError(
         "Shift change saved on this device but NOT confirmed. Sync the pending action before submitting another.");
     return {closed,clientMutationId};
+  }
+
+  /** Record money already received, not initiate a provider charge. Durable
+   * mutation IDs survive transport failure; never re-submit a pending receipt. */
+  async recordCustomerReceipt(input:CustomerReceiptInput,online:boolean):Promise<ReceiptOutcome>{
+    if(this.customerReceiptBusy)throw new MobileRuntimeError("A customer receipt is already being submitted.");
+    const ready=this.requireReady();
+    if(!online||!canCollectCustomerPayment(ready.membership.role))throw new MobileRuntimeError("Connect with an authorized cashier or manager to record a receipt.");
+    if(!input.customerId||!input.moneyAccountId||!paymentMethods.includes(input.method)||!Number.isSafeInteger(input.amountMinor)||input.amountMinor<=0)
+      throw new MobileRuntimeError("Check the amount, customer and receiving account.");
+    this.customerReceiptBusy=true;
+    try{
+      const existing=await this.queue.getSnapshot();
+      if([...existing.pending,...existing.failed.map(row=>row.mutation)].some(row=>row.businessId===ready.business.id&&row.mutationType==="CUSTOMER_PAYMENT_CREATE"&&(row.payload as Partial<CustomerReceiptInput>)?.customerId===input.customerId))
+        throw new MobileRuntimeError("A receipt for this customer is pending or rejected. Resolve it in the sync queue before recording another.");
+      const clientMutationId=this.options.createMutationId();
+      const mutation:QueuedMutation={
+        clientId:await this.options.persistence.getOrCreateDeviceKey(),clientMutationId,
+        businessId:ready.business.id,branchId:ready.branch.id,mutationType:"CUSTOMER_PAYMENT_CREATE",
+        occurredAt:this.options.now(),payload:{customerId:input.customerId,amountMinor:input.amountMinor,method:input.method,moneyAccountId:input.moneyAccountId},
+      };
+      if(!await this.queue.enqueue(mutation))throw new MobileRuntimeError("Receipt already queued.");
+      try{await this.flush(true);}catch{/* Retain original ID and pending evidence. */}
+      const state=await this.queue.getSnapshot();
+      if(state.failed.some(row=>row.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
+      if(state.pending.some(row=>row.clientMutationId===clientMutationId))return "PENDING";
+      return "SYNCED";
+    }finally{this.customerReceiptBusy=false;}
   }
 
   async flush(online: boolean): Promise<FlushSummary> {

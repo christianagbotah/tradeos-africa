@@ -163,6 +163,17 @@ export class MobileAppModel {
     return this.snapshot;
   }
 
+  /** Reflect durable queue evidence without issuing a second write request. */
+  async refreshQueueState():Promise<MobileAppSnapshot>{
+    const current=this.state.bootstrap;
+    if(this.state.phase!=="READY"||current?.status!=="READY")return this.snapshot;
+    const queue=await this.runtime.getQueueState();
+    if(this.state.phase==="READY"&&this.state.bootstrap?.status==="READY"&&this.state.bootstrap.membership.businessId===current.membership.businessId&&this.state.bootstrap.user.id===current.user.id){
+      this.state={...this.state,bootstrap:{...this.state.bootstrap,queue}};
+    }
+    return this.snapshot;
+  }
+
   async sync(): Promise<MobileAppSnapshot> {
     if (this.state.phase !== "READY" || this.state.bootstrap?.status !== "READY") return this.snapshot;
     const currentReady = this.state.bootstrap;
