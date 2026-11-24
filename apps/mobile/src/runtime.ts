@@ -4,6 +4,7 @@ import {
   type QueueSnapshotStorage,
   type QueueState,
   type SyncTransport,
+  type QueuedMutation,
 } from "@tradeos/client-core/sync-runtime";
 import {
   SessionExpiredError,
@@ -12,6 +13,7 @@ import {
   type MobileMembership,
   type MobileMe,
   type MobileUser,
+  type MobileOwnCashShiftStatus,
 } from "./api-client";
 import {
   buildSaleMutation,
@@ -218,6 +220,55 @@ export class MobileRuntime {
       return { clientMutationId, outcome: "PENDING", queue };
     }
     return { clientMutationId, outcome: "SYNCED", queue };
+  }
+
+  /**
+   * A financial custody mutation is never a silent offline success. Persist it
+   * in the native queue, flush with the authenticated device, and report success
+   * only after the mutation was removed by an APPLIED server acknowledgement.
+   */
+  async recordOwnCashShift(
+    status:MobileOwnCashShiftStatus, countedMinor:number,note:string,online:boolean,
+  ):Promise<{closed:boolean;clientMutationId:string}>{
+    const ready=this.requireReady();
+    if(ready.membership.role!=="POS_ATTENDANT")
+      throw new MobileRuntimeError("This cash-only drawer control is for POS attendants.");
+    if(!online)
+      throw new MobileRuntimeError("Connect online to verify opening or closing your cash drawer.");
+    if(!Number.isSafeInteger(countedMinor)||countedMinor<0)
+      throw new MobileRuntimeError("Enter a valid, nonnegative cash amount.");
+    if(note.length>1000)
+      throw new MobileRuntimeError("Keep the handover note within 1,000 characters.");
+    if(!status.operatingDay || status.operatingDay.status!=="OPEN")
+      throw new MobileRuntimeError("The supervisor must open the trading day first.");
+    const closed=Boolean(status.shift);
+    const id=closed?status.shift?.id:status.operatingDay.id;
+    if(!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+      throw new MobileRuntimeError("Refresh to verify the current day or shift ID.");
+    const cash={method:"CASH",countedMinor};
+    const payload=closed
+      ? {shiftId:id,closingBalances:[cash,...(["MOMO","CARD","BANK","OTHER"] as const)
+          .map(method=>({method,countedMinor:0}))],...(note.trim()?{note:note.trim()}:{})}
+      : {dayId:id,openingBalances:[cash],...(note.trim()?{note:note.trim()}:{})};
+    const clientMutationId=this.options.createMutationId();
+    const mutation:QueuedMutation={
+      clientId:await this.options.persistence.getOrCreateDeviceKey(),
+      clientMutationId,businessId:ready.membership.businessId,
+      branchId:ready.branch.id,mutationType:closed?"SHIFT_CLOSE_CREATE":"SHIFT_OPEN_CREATE",
+      occurredAt:this.options.now(),payload,
+    };
+    if(!await this.queue.enqueue(mutation))throw new MobileRuntimeError(
+      "This shift submission was already queued.");
+    try {await this.flush(true);}
+    catch { /* Durable pending mutation remains for retry at the same ID. */ }
+    const snapshot=await this.queue.getSnapshot();
+    const failed=snapshot.failed.find(row=>row.mutation.clientMutationId===clientMutationId);
+    if(failed)throw new MobileRuntimeError(
+      "Shift change rejected: "+(failed.result.errorMessage??"Review the queued error."));
+    if(snapshot.pending.some(row=>row.clientMutationId===clientMutationId))
+      throw new MobileRuntimeError(
+        "Shift change saved on this device but NOT confirmed. Sync the pending action before submitting another.");
+    return {closed,clientMutationId};
   }
 
   async flush(online: boolean): Promise<FlushSummary> {

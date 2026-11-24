@@ -336,3 +336,97 @@ describe("MobileRuntime commerce", () => {
     expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
   });
 });
+
+describe("native POS attendant owned cash shift",()=>{
+  const status={
+    operatingDay:{id:"77777777-7777-4777-8777-777777777777",status:"OPEN" as const,
+      openedAt:"2026-10-10T08:00:00Z"},
+    shift:null,
+    openShiftCount:0,
+  };
+  function attendantApi(){
+    const api=new FakeApi();
+    api.me={...me,memberships:[{...membership("attendant",business1,"Ama Shop"),
+      role:"POS_ATTENDANT",staffId:"own-staff"}]};
+    return api;
+  }
+  it("persists opening cash in the native queue and requires server APPLIED acknowledgement",async()=>{
+    const api=attendantApi();
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);
+    await runtime.bootstrap();
+    const result=await runtime.recordOwnCashShift(status,1250,"Starting change",true);
+    expect(result).toMatchObject({closed:false});
+    expect(api.pushes).toHaveLength(1);
+    expect(api.pushes[0]!.mutations[0]).toMatchObject({
+      businessId:business1,branchId:branch1,
+      mutationType:"SHIFT_OPEN_CREATE",
+      payload:{dayId:status.operatingDay.id,note:"Starting change",
+        openingBalances:[{method:"CASH",countedMinor:1250}]},
+    });
+    expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
+  });
+  it("closes an own shift with a cash count and verified zero other methods",async()=>{
+    const api=attendantApi();
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);await runtime.bootstrap();
+    const result=await runtime.recordOwnCashShift({...status,shift:{
+      id:"88888888-8888-4888-8888-888888888888",status:"OPEN",
+      openedAt:"2026-10-10T09:00:00Z",balances:[{
+        method:"CASH" as const,openingCountedMinor:2500,
+        expectedClosingMinor:5000,movementMinor:2500,
+      }],
+    }},4900,"Cash short",true);
+    expect(result.closed).toBe(true);
+    expect(api.pushes[0]!.mutations[0]!.payload).toMatchObject({
+      shiftId:"88888888-8888-4888-8888-888888888888",
+      closingBalances:[
+        {method:"CASH",countedMinor:4900},
+        {method:"MOMO",countedMinor:0},
+        {method:"CARD",countedMinor:0},
+        {method:"BANK",countedMinor:0},
+        {method:"OTHER",countedMinor:0},
+      ],
+    });
+  });
+  it("never posts from another role, offline or without a valid count",async()=>{
+    const api=attendantApi();
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.recordOwnCashShift(status,100,"",false)).rejects.toThrow(/online/i);
+    await expect(runtime.recordOwnCashShift(status,-1,"",true)).rejects.toThrow(/cash amount/i);
+    await expect(runtime.recordOwnCashShift({...status,operatingDay:null},100,"",true))
+      .rejects.toThrow(/supervisor/i);
+    expect(api.pushes).toHaveLength(0);
+    const ownerApi=new FakeApi(),owner=createHarness(ownerApi);
+    await owner.persistence.saveSession(session);await owner.runtime.bootstrap();
+    await expect(owner.runtime.recordOwnCashShift(status,100,"",true))
+      .rejects.toThrow(/POS attendants/i);
+    expect(ownerApi.pushes).toHaveLength(0);
+  });
+  it("retains the same mutation ID when network is uncertain, never claims a close",async()=>{
+    const api=attendantApi();api.pushError=new Error("Disconnected mid-send");
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.recordOwnCashShift(status,100,"",true))
+      .rejects.toThrow(/NOT confirmed/);
+    const before=await runtime.queue.getSnapshot();
+    expect(before.pending).toHaveLength(1);
+    const originalId=before.pending[0]!.clientMutationId;
+    api.pushError=null;
+    await runtime.flush(true);
+    expect(api.pushes[1]!.mutations[0]!.clientMutationId).toBe(originalId);
+    expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
+  });
+  it("retains rejected shift evidence in the review queue instead of reporting success",async()=>{
+    const api=attendantApi();api.rejectNextPush={
+      code:"SHIFT_NOT_OPEN",message:"The shift has already closed",
+    };
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.recordOwnCashShift(status,100,"",true))
+      .rejects.toThrow(/rejected/);
+    expect((await runtime.queue.getSnapshot()).failed).toHaveLength(1);
+    expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
+  });
+});

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import NetInfo from "@react-native-community/netinfo";
 import * as Crypto from "expo-crypto";
 import { Platform, SafeAreaView, StatusBar, View } from "react-native";
-import { MobileApiClient } from "./src/api-client";
+import { MobileApiClient,type MobileOwnCashShiftStatus } from "./src/api-client";
 import { MobileAppModel, type MobileAppSnapshot } from "./src/app-model";
 import { BottomNav, type BottomNavTab } from "./src/components/BottomNav";
 import { createNativeMobilePersistence, createNativeQueueStorage } from "./src/native-storage";
@@ -48,10 +48,10 @@ export default function App() {
       now: () => new Date().toISOString(),
       createMutationId: () => Crypto.randomUUID(),
     });
-    return { model: new MobileAppModel(runtime), api };
+    return { model: new MobileAppModel(runtime), api, runtime };
   }, []);
 
-  const { model, api } = services;
+  const { model, api, runtime } = services;
   const [snapshot, setSnapshot] = useState<MobileAppSnapshot>(model.snapshot);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -81,6 +81,17 @@ export default function App() {
   const sync = async () => setSnapshot(await model.sync());
   const refreshCommerce = async () => setSnapshot(await model.loadCommerce());
   const checkout = async () => setSnapshot(await model.checkout());
+  const getOwnCashShift = useCallback((businessId:string,branchId:string)=>
+    api.getOwnCashShift(businessId,branchId),[api]);
+  const ownCashShift = async (
+    status:MobileOwnCashShiftStatus,countedMinor:number,note:string,
+  ) => {
+    try {
+      await runtime.recordOwnCashShift(status,countedMinor,note,snapshot.online===true);
+    } finally {
+      setSnapshot(await model.sync());
+    }
+  };
   const logout = async () => {
     setSnapshot(await model.logout());
     setPassword("");
@@ -151,6 +162,8 @@ export default function App() {
                   onRemove={removeCart}
                   onPayment={selectPayment}
                   onCheckout={() => { void checkout(); }}
+                  getOwnCashShift={getOwnCashShift}
+                  onOwnCashShift={ownCashShift}
                 />
               ) : null}
               {screen === "sales" ? (

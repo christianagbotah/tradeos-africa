@@ -18,6 +18,8 @@ import type {
   MobileSellableItem,
 } from "../pos-model";
 import { groupMobileQuickServeItems } from "../pos-model";
+import type {MobileOwnCashShiftStatus} from "../api-client";
+import {PosCashShiftPanel} from "./PosCashShiftPanel";
 import { commerceFreshness, formatMoney, formatQuantity } from "../lib/format";
 
 const PAYMENT_METHODS: ReadonlyArray<{ value: MobileImmediatePaymentMethod; label: string }> = [
@@ -40,6 +42,8 @@ export type PosScreenProps = {
   onRemove: (key: string) => void;
   onPayment: (method: MobileImmediatePaymentMethod) => void;
   onCheckout: () => void;
+  getOwnCashShift?: (businessId:string,branchId:string)=>Promise<MobileOwnCashShiftStatus>;
+  onOwnCashShift?: (status:MobileOwnCashShiftStatus,countedMinor:number,note:string)=>Promise<void>;
 };
 
 export function PosScreen({
@@ -52,6 +56,8 @@ export function PosScreen({
   onRemove,
   onPayment,
   onCheckout,
+  getOwnCashShift,
+  onOwnCashShift,
  }: PosScreenProps) {
   const [quickServe,setQuickServe] = useState(false);
   const attendantOnly = snapshot.bootstrap?.status === "READY" &&
@@ -99,6 +105,17 @@ export function PosScreen({
           <Text style={[styles.modeLabel,quickServe&&styles.modeLabelActive]}>⚡ Quick Serve</Text>
         </Pressable>
       </View>
+      {attendantOnly&&getOwnCashShift&&onOwnCashShift?(
+        <PosCashShiftPanel
+          key={ready.membership.businessId+":"+ready.branch.id}
+          businessId={ready.membership.businessId}
+          branchId={ready.branch.id}
+          currencyCode={currencyCode}
+          online={snapshot.online===true}
+          getStatus={getOwnCashShift}
+          submit={onOwnCashShift}
+        />
+      ):null}
       {quickServe&&snapshot.saleNotice?<SaleNoticeBanner notice={snapshot.saleNotice}/>:null}
       <View style={styles.sectionHeader}>
         <View style={styles.flex}>
