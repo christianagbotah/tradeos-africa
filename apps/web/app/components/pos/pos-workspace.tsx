@@ -11,6 +11,7 @@ import { CheckoutSheet } from "./checkout-sheet";
 import { Button } from "../ui/button";
 import { IconSell } from "../ui/icons";
 import { VoiceSaleAssistant } from "./voice-sale-assistant";
+import { PosAttendantCashShift } from "./pos-attendant-cash-shift";
 import type { VoicePayment,VoiceCheckoutSuggestion } from "../../../lib/voice-transaction-draft";
 
 export function PosWorkspace() {
@@ -128,6 +129,8 @@ export function PosWorkspace() {
           </p>
         </div>
       </header>
+
+      {cashOnly ? <PosAttendantCashShift /> : null}
 
       <div role="group" aria-label="Selling mode"
         style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
