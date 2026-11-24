@@ -66,6 +66,9 @@ export type MobileCatalogItem = {
   conversions: Array<{ fromUnitCode: string; toUnitCode: string; factor: number }>;
 };
 
+export type MobileCatalogDraft=Pick<MobileCatalogItem,"name"|"sku"|"kind"|"trackStock"|"stockUnitCode"|"units"|"conversions">;
+export type MobileCatalogPatch=Partial<Pick<MobileCatalogItem,"name"|"sku"|"units"|"active">>&{expectedUpdatedAt:string};
+export type MobileInventoryDetail={item:Omit<MobileInventoryItem,"latestStockUnitCostMinor">&{active:boolean};movements:Array<{id:string;stockUnitCode:string;quantityDelta:number;location:string;reason:string;actorName:string|null;occurredAt:string}>};
 export type MobileCatalogResponse = { items: MobileCatalogItem[] };
 
 export type MobileInventoryItem = {
@@ -199,6 +202,15 @@ export class MobileApiClient {
     return this.authorizedJson<MobileCatalogResponse>(`/v1/catalog/items?${query.toString()}`, { method: "GET" });
   }
 
+  createCatalogItem(businessId:string,draft:MobileCatalogDraft):Promise<{item:MobileCatalogItem}>{
+    return this.authorizedJson("/v1/catalog/items",{method:"POST",body:JSON.stringify({businessId,...draft})});
+  }
+  updateCatalogItem(businessId:string,itemId:string,patch:MobileCatalogPatch):Promise<{item:MobileCatalogItem}>{
+    return this.authorizedJson("/v1/catalog/items/"+encodeURIComponent(itemId),{method:"PATCH",body:JSON.stringify({businessId,...patch})});
+  }
+  getInventoryDetail(businessId:string,branchId:string,itemId:string):Promise<MobileInventoryDetail>{
+    return this.authorizedJson("/v1/inventory/"+encodeURIComponent(itemId)+"?"+new URLSearchParams({businessId,branchId,limit:"50"}).toString(),{method:"GET"});
+  }
   getOwnCashShift(businessId:string,branchId:string):Promise<MobileOwnCashShiftStatus>{
     const query=new URLSearchParams({businessId,branchId});
     return this.authorizedJson<MobileOwnCashShiftStatus>(
