@@ -17,6 +17,7 @@ import { MoreScreen } from "./src/screens/MoreScreen";
 import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import { BusinessQuestionsScreen } from "./src/screens/BusinessQuestionsScreen";
 import { PosScreen } from "./src/screens/PosScreen";
+import type { SaleReversal } from "./src/sale-reversal";
 import type { StockAdjustment } from "./src/inventory-adjustment";
 import type { CustomerReceiptInput } from "./src/customer-payment";
 import { FinanceScreen } from "./src/screens/FinanceScreen";
@@ -164,6 +165,12 @@ function MobileWorkspace() {
     try{return await runtime.recordFinanceTransaction(input,snapshot.online===true);}
     finally{try{setSnapshot(await model.refreshQueueState());}finally{checkoutLock.current=false;}}
   };
+  const recordSaleReversal=async(input:SaleReversal)=>{
+    if(checkoutLock.current)throw new Error("Another transaction is in progress.");
+    checkoutLock.current=true;
+    try{return await runtime.recordSaleReversal(input,snapshot.online===true);}
+    finally{try{setSnapshot(await model.refreshQueueState());void refreshCommerce();}finally{checkoutLock.current=false;}}
+  };
   const retry = async () => setSnapshot(await model.start());
 
   const addCart = (item: Parameters<typeof model.addCart>[0]) => setSnapshot(model.addCart(item));
@@ -246,6 +253,7 @@ function MobileWorkspace() {
                   snapshot={snapshot}
                   onSync={() => { void sync(); }}
                   onGoToSell={() => setScreen("sell")}
+                  onReversal={recordSaleReversal} onFeedback={setFeedback}
                 />
               ) : null}
               {activeScreen === "customers" && ready ? (

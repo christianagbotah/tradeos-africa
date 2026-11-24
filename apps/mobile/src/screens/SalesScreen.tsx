@@ -2,6 +2,9 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
 import { Card, HeroCard } from "../components/Card";
+import type {SaleReversal} from "../sale-reversal";
+import type {ReceiptOutcome} from "../customer-payment";
+import type {MobileActionFeedback} from "../action-feedback";
 import { PostedSalesHistory } from "./PostedSalesHistory";
 import type { MobileApiClient } from "../api-client";
 import { Icon, IconTile } from "../components/icons";
@@ -14,9 +17,11 @@ export type SalesScreenProps = {
   api: MobileApiClient;
   onSync: () => void;
   onGoToSell: () => void;
+  onReversal:(input:SaleReversal)=>Promise<ReceiptOutcome>;
+  onFeedback:(feedback:MobileActionFeedback)=>void;
 };
 
-export function SalesScreen({ snapshot, api, onSync, onGoToSell }: SalesScreenProps) {
+export function SalesScreen({ snapshot, api, onSync, onGoToSell,onReversal,onFeedback }: SalesScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
   const ready = snapshot.bootstrap;
   const queue = ready.queue;
@@ -65,8 +70,8 @@ export function SalesScreen({ snapshot, api, onSync, onGoToSell }: SalesScreenPr
             <Text style={styles.sectionTitle}>Pending sync queue</Text>
             <Text style={styles.sectionCopy}>
               {queue.pending === 0
-                ? "No sales are waiting. New sales are saved here when this device is offline."
-                : `${queue.pending} sale${queue.pending === 1 ? "" : "s"} captured on this device will sync automatically when the connection returns.`}
+                ? "No transactions are waiting. Offline-capable submissions are saved here."
+                : `${queue.pending} transaction${queue.pending === 1 ? "" : "s"} captured on this device will sync automatically when the connection returns.`}
             </Text>
           </View>
         </View>
@@ -100,8 +105,8 @@ export function SalesScreen({ snapshot, api, onSync, onGoToSell }: SalesScreenPr
             <Text style={styles.sectionTitle}>Needs review</Text>
             <Text style={styles.sectionCopy}>
               {queue.failed === 0
-                ? "No sales were rejected by the server."
-                : `${queue.failed} sale${queue.failed === 1 ? "" : "s"} could not be applied. The evidence is preserved on this device for correction or retry.`}
+                ? "No transactions were rejected by the server."
+                : `${queue.failed} transaction${queue.failed === 1 ? "" : "s"} could not be applied. The evidence is preserved on this device for correction or retry.`}
             </Text>
           </View>
         </View>
@@ -118,7 +123,7 @@ export function SalesScreen({ snapshot, api, onSync, onGoToSell }: SalesScreenPr
         key={ready.user.id+":"+ready.membership.businessId+":"+ready.branch.id+":"+ready.membership.role}
         api={api} businessId={ready.membership.businessId} branchId={ready.branch.id}
         role={ready.membership.role} timezone={ready.branch.timezone}
-        online={snapshot.online===true} syncing={snapshot.syncing} pendingCount={queue.pending}/>
+        online={snapshot.online===true} syncing={snapshot.syncing} pendingCount={queue.pending} onReversal={onReversal} onFeedback={onFeedback}/>
       <Button variant="gold" fullWidth accessibilityLabel="Start a new sale" onPress={onGoToSell}>Start a new sale</Button>
 
       <Text style={styles.footerNote}>

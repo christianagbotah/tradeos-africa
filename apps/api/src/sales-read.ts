@@ -435,6 +435,7 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
             id: sale.id,
             businessId,
             branchId: sale.branch_id,
+            reversalAmountGuard: true,
             status: sale.status,
             currencyCode: sale.currency_code,
             totalMinor: Number(sale.total_minor),

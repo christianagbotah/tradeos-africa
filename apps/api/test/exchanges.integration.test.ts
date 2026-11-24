@@ -34,7 +34,11 @@ describe("exchange domain engine", () => {
       returnedLines: [{ saleLineId: lineId, quantity: 1, disposition: "RESTOCK" }],
       replacementLines: [{ itemId: f.replacementItemId, saleUnitCode: "piece", quantity: 1 }],
     };
-    const first = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", payload);
+    const stale = await sync(f,"stale-amount","EXCHANGE_CREATE",{...payload,expectedNetDifferenceMinor:699});
+    expect(stale).toMatchObject({status:"REJECTED",errorCode:"EXCHANGE_AMOUNT_CHANGED"});
+    expect(Number((await pool.query("SELECT COUNT(*) FROM exchange_cases WHERE business_id=$1",[f.businessId])).rows[0].count)).toBe(0);
+    expect(await available(f.businessId,f.branchId,f.originalItemId)).toBe(4);
+    const first = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", {...payload,expectedNetDifferenceMinor:700});
     expect(first.status).toBe("APPLIED");
     expect(first.result).toMatchObject({ netDifferenceMinor: 700, returnTotalMinor: 1000, replacementTotalMinor: 1700, status: "COMPLETED" });
     const result = first.result as { exchangeCaseId: string; returnCaseId: string; replacementSaleId: string };
@@ -42,7 +46,7 @@ describe("exchange domain engine", () => {
     expect(result.returnCaseId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(result.replacementSaleId).toMatch(/^[0-9a-f-]{36}$/i);
 
-    const replay = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", payload);
+    const replay = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", {...payload,expectedNetDifferenceMinor:700});
     expect(replay.status).toBe("APPLIED");
     expect(replay.result).toMatchObject({ exchangeCaseId: result.exchangeCaseId, returnCaseId: result.returnCaseId, replacementSaleId: result.replacementSaleId });
     const changed = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", {
