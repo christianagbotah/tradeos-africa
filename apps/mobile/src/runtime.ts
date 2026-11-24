@@ -22,6 +22,8 @@ import {
   type MobileImmediatePaymentMethod,
   type MobileSellableItem,
 } from "./pos-model";
+import {buildStockAdjustment,type StockAdjustment} from "./inventory-adjustment";
+import {canManageCatalog} from "./catalog-workspace";
 import {canCollectCustomerPayment,paymentMethods,type CustomerReceiptInput,type ReceiptOutcome} from "./customer-payment";
 import { MobilePersistence } from "./storage";
 
@@ -80,6 +82,7 @@ export class MobileRuntime {
   readonly queue: OfflineMutationQueue;
   private current: MobileReadyState | null = null;
   private customerReceiptBusy=false;
+  private stockAdjustmentBusy=false;
 
   constructor(private readonly options: MobileRuntimeOptions) {
     this.queue = new OfflineMutationQueue(options.queueStorage, {
@@ -299,6 +302,24 @@ export class MobileRuntime {
       if(state.pending.some(row=>row.clientMutationId===clientMutationId))return "PENDING";
       return "SYNCED";
     }finally{this.customerReceiptBusy=false;}
+  }
+
+  async recordStockAdjustment(input:StockAdjustment,online:boolean):Promise<ReceiptOutcome>{
+    const ready=this.requireReady();
+    if(!online||!canManageCatalog(ready.membership.role)||this.stockAdjustmentBusy)throw new MobileRuntimeError("Connect with an authorized inventory manager.");
+    const payload=buildStockAdjustment(input.itemId,String(input.quantity),input.sourceLocation??"NONE",input.destinationLocation??"NONE",input.note);
+    this.stockAdjustmentBusy=true;
+    try{
+      const existing=await this.queue.getSnapshot();
+      if([...existing.pending,...existing.failed.map(x=>x.mutation)].some(x=>x.businessId===ready.business.id&&x.mutationType==="INVENTORY_ADJUSTMENT_CREATE"&&(x.payload as Partial<StockAdjustment>)?.itemId===input.itemId))throw new MobileRuntimeError("Resolve the previous adjustment in the sync queue first.");
+      const clientMutationId=this.options.createMutationId();
+      if(!await this.queue.enqueue({clientId:await this.options.persistence.getOrCreateDeviceKey(),clientMutationId,businessId:ready.business.id,branchId:ready.branch.id,mutationType:"INVENTORY_ADJUSTMENT_CREATE",occurredAt:this.options.now(),payload}))throw new MobileRuntimeError("Adjustment already queued.");
+      try{await this.flush(true);}catch{/* Preserve durable submission. */}
+      const state=await this.queue.getSnapshot();
+      if(state.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
+      if(state.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
+      return "SYNCED";
+    }finally{this.stockAdjustmentBusy=false;}
   }
 
   async flush(online: boolean): Promise<FlushSummary> {

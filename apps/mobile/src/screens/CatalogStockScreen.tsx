@@ -1,7 +1,10 @@
 import {useCallback,useEffect,useRef,useState} from "react";
 import {ActivityIndicator,Pressable,ScrollView,StyleSheet,Text,View} from "react-native";
 import {MobileApiError,type MobileApiClient,type MobileCatalogItem,type MobileInventoryItem,type MobileInventoryDetail} from "../api-client";
-import {canBrowseStock,canManageCatalog,simpleCatalogDraft,catalogContactPatch,reconcileCatalog} from "../catalog-workspace";
+import {canBrowseStock,canManageCatalog,simpleCatalogDraft,multiUnitDraft,type AdditionalSaleUnit,catalogContactPatch,reconcileCatalog} from "../catalog-workspace";
+import {StockAdjustmentPanel} from "./StockAdjustmentPanel";
+import type {StockAdjustment} from "../inventory-adjustment";
+import type {ReceiptOutcome} from "../customer-payment";
 import {Button} from "../components/Button";
 import {Card} from "../components/Card";
 import {Input} from "../components/Input";
@@ -12,16 +15,17 @@ import {formatMoney} from "../lib/format";
 import {colors,radius,spacing,typography} from "../theme";
 import type {MobileActionFeedback} from "../action-feedback";
 
-type Props={api:Pick<MobileApiClient,"getCatalog"|"getInventory"|"getInventoryDetail"|"createCatalogItem"|"updateCatalogItem">;businessId:string;branchId:string;currencyCode:string;role:string;online:boolean;mode:"catalog"|"inventory";queueVersion:string;onBack:()=>void;onFeedback:(feedback:MobileActionFeedback)=>void;onCatalogChanged:()=>void};
+type Props={api:Pick<MobileApiClient,"getCatalog"|"getInventory"|"getInventoryDetail"|"createCatalogItem"|"updateCatalogItem">;businessId:string;branchId:string;currencyCode:string;role:string;online:boolean;mode:"catalog"|"inventory";queueVersion:string;onBack:()=>void;onFeedback:(feedback:MobileActionFeedback)=>void;onCatalogChanged:()=>void;onAdjustment:(input:StockAdjustment)=>Promise<ReceiptOutcome>};
 type Draft={name:string;sku:string;kind:"PRODUCT"|"SERVICE"|"PREPARED_PRODUCT";unitLabel:string;price:string;trackStock:boolean};
 const fresh=():Draft=>({name:"",sku:"",kind:"PRODUCT",unitLabel:"Each",price:"",trackStock:true});
-export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,online,mode,queueVersion,onBack,onFeedback,onCatalogChanged}:Props){
+export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,online,mode,queueVersion,onBack,onFeedback,onCatalogChanged,onAdjustment}:Props){
  const allowed=canBrowseStock(role),write=canManageCatalog(role)&&mode==="catalog";
  const [items,setItems]=useState<MobileCatalogItem[]>([]),[stock,setStock]=useState<MobileInventoryItem[]>([]);
  const [query,setQuery]=useState(""),[filter,setFilter]=useState<"all"|"active"|"inactive">("all");
  const [loading,setLoading]=useState(false),[error,setError]=useState<string|null>(null);
  const [selected,setSelected]=useState<MobileCatalogItem|null>(null),[detail,setDetail]=useState<MobileInventoryDetail|null>(null),[detailBusy,setDetailBusy]=useState(false);
  const [draft,setDraft]=useState<Draft|null>(null),[edit,setEdit]=useState<{name:string;sku:string;prices:Record<string,string>}|null>(null);
+ const [extraUnits,setExtraUnits]=useState<AdditionalSaleUnit[]>([]);
  const [saving,setSaving]=useState(false),[uncertain,setUncertain]=useState(false),[confirmStatus,setConfirmStatus]=useState(false);
  const seq=useRef(0),detailSeq=useRef(0),lock=useRef(false),live=useRef(true);
  useEffect(()=>{live.current=true;return()=>{live.current=false;++seq.current;++detailSeq.current;};},[]);
@@ -54,7 +58,7 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
    let createInput:ReturnType<typeof simpleCatalogDraft>|null=null;
    let editInput:ReturnType<typeof catalogContactPatch>|null=null;
    try{
-     if(action==="create"&&draft)createInput=simpleCatalogDraft(draft);
+     if(action==="create"&&draft)createInput=multiUnitDraft(draft,extraUnits);
      if(action==="edit"&&selected&&edit)editInput=catalogContactPatch(selected,edit.name,edit.sku,edit.prices);
    }catch(e){setError(e instanceof Error?e.message:"Check item details.");return;}
    lock.current=true;setSaving(true);setError(null);
@@ -83,7 +87,7 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
  return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
    <View style={styles.row}><View style={styles.flex}><Text style={styles.eyebrow}>{mode==="catalog"?"Master data":"Inventory"}</Text><Text style={styles.title}>{mode==="catalog"?"Catalog":"Stock overview"}</Text></View><Button variant="secondary" size="compact" disabled={saving} accessibilityLabel="Back to more" onPress={onBack}>Back</Button></View>
    {!allowed?<Banner tone="warning" message="Your role cannot open this workspace."/>:!online?<Banner tone="info" message="This management view requires a live connection. Offline POS remains available."/>:<>
-   <View style={styles.row}><Button variant="secondary" style={styles.flex} disabled={loading||saving} accessibilityLabel="Refresh records" onPress={()=>void refresh()}>Refresh</Button>{write?<Button variant="gold" style={styles.flex} disabled={saving||!!draft||uncertain} accessibilityLabel="Add catalog item" onPress={()=>{setSelected(null);setEdit(null);setDraft(fresh());}}>Add item</Button>:null}</View>
+   <View style={styles.row}><Button variant="secondary" style={styles.flex} disabled={loading||saving} accessibilityLabel="Refresh records" onPress={()=>void refresh()}>Refresh</Button>{write?<Button variant="gold" style={styles.flex} disabled={saving||!!draft||uncertain} accessibilityLabel="Add catalog item" onPress={()=>{setSelected(null);setEdit(null);setDraft(fresh());setExtraUnits([]);}}>Add item</Button>:null}</View>
    {error?<Banner tone="warning" message={error}/>:null}
    {draft?<Card style={styles.card}>
       <Text style={styles.heading}>New item</Text>
@@ -93,7 +97,15 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
       {draft.kind==="PRODUCT"?<Button variant="secondary" disabled={saving||uncertain} accessibilityLabel="Toggle stock tracking" onPress={()=>setDraft(old=>old?{...old,trackStock:!old.trackStock}:old)}>{draft.trackStock?"Stock tracking enabled":"Stock tracking disabled"}</Button>:null}
       <Input label="Sale unit" value={draft.unitLabel} editable={!saving&&!uncertain} onChangeText={unitLabel=>setDraft(old=>old?{...old,unitLabel}:old)}/>
       <Input label="Sale price" value={draft.price} editable={!saving&&!uncertain} keyboardType="decimal-pad" onChangeText={price=>setDraft(old=>old?{...old,price}:old)}/>
-      <Text style={styles.muted}>Creates a single-unit item. Multi-unit conversion setup and opening stock require the full catalog workflow.</Text>
+      <Text style={styles.heading}>Additional sale units or portions</Text>
+      <Text style={styles.muted}>For tracked products, enter how many base stock units each additional unit consumes. For example, a box containing 12 pieces uses factor 12.</Text>
+      {extraUnits.map((unit,index)=><Card key={index} variant="flat" style={styles.card}>
+        <Input label="Unit or portion name" value={unit.label} editable={!saving&&!uncertain} onChangeText={label=>setExtraUnits(old=>old.map((u,i)=>i===index?{...u,label}:u))}/>
+        <Input label="Sale price" keyboardType="decimal-pad" value={unit.price} editable={!saving&&!uncertain} onChangeText={price=>setExtraUnits(old=>old.map((u,i)=>i===index?{...u,price}:u))}/>
+        {draft.kind==="PRODUCT"&&draft.trackStock?<Input label="Base stock units per sale unit" keyboardType="decimal-pad" value={unit.factor} editable={!saving&&!uncertain} onChangeText={factor=>setExtraUnits(old=>old.map((u,i)=>i===index?{...u,factor}:u))}/>:null}
+        <Button variant="secondary" disabled={saving||uncertain} accessibilityLabel="Remove extra unit" onPress={()=>setExtraUnits(old=>old.filter((_,i)=>i!==index))}>Remove unit</Button>
+      </Card>)}
+      <Button variant="secondary" disabled={saving||uncertain||extraUnits.length>=20} accessibilityLabel="Add sale unit" onPress={()=>setExtraUnits(old=>[...old,{label:"",price:"",factor:"1"}])}>+ Add sale unit</Button>
       {uncertain?<Banner tone="warning" message="Check the directory for a confirmed item before trying again."/>:<Button variant="primary" fullWidth loading={saving} accessibilityLabel="Create catalog item" onPress={()=>void save("create")}>Create item</Button>}
       <Button variant="secondary" fullWidth disabled={saving} accessibilityLabel="Close item form" onPress={()=>{setDraft(null);setUncertain(false);}}>Close and review</Button>
    </Card>:null}
@@ -112,6 +124,7 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
    {detailBusy?<ActivityIndicator color={colors.goldStrong}/>:null}
    {detail?<Card style={styles.card}><View style={styles.row}><Text style={[styles.heading,styles.flex]}>{detail.item.name}</Text><Button variant="secondary" size="compact" accessibilityLabel="Close stock detail" onPress={()=>{++detailSeq.current;setDetail(null);}}>Close</Button></View>
       <Text style={styles.title}>{detail.item.available} {detail.item.stockUnitCode}</Text><Text style={styles.muted}>Available · Quarantine {detail.item.quarantine} · Damaged {detail.item.damaged} · Waste {detail.item.waste}</Text><Text style={styles.heading}>Stock value {formatMoney(detail.item.inventoryValueMinor,currencyCode)}</Text>
+      {canManageCatalog(role)&&detail.item.active?<StockAdjustmentPanel key={detail.item.id} itemId={detail.item.id} unit={detail.item.stockUnitCode} onRecord={onAdjustment} onFeedback={onFeedback} onRefresh={()=>{void openStock(detail.item.id);void refresh();onCatalogChanged();}}/>:null}
       <Text style={styles.heading}>Recent movements</Text>{detail.movements.map(m=><View style={styles.line} key={m.id}><View style={styles.flex}><Text style={styles.heading}>{m.reason.replaceAll("_"," ")}</Text><Text style={styles.muted}>{m.occurredAt.slice(0,10)} · {m.location}</Text></View><Text style={styles.heading}>{m.quantityDelta>0?"+":""}{m.quantityDelta} {m.stockUnitCode}</Text></View>)}
       {detail.movements.length===0?<Text style={styles.muted}>No recorded movements.</Text>:null}
    </Card>:null}

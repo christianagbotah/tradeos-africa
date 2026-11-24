@@ -69,6 +69,10 @@ export type MobileCatalogItem = {
 export type MobileCatalogDraft=Pick<MobileCatalogItem,"name"|"sku"|"kind"|"trackStock"|"stockUnitCode"|"units"|"conversions">;
 export type MobileCatalogPatch=Partial<Pick<MobileCatalogItem,"name"|"sku"|"units"|"active">>&{expectedUpdatedAt:string};
 export type MobileInventoryDetail={item:Omit<MobileInventoryItem,"latestStockUnitCostMinor">&{active:boolean};movements:Array<{id:string;stockUnitCode:string;quantityDelta:number;location:string;reason:string;actorName:string|null;occurredAt:string}>};
+export type MobileDocumentKind="QUOTATION"|"PROFORMA";
+export type MobileDocumentSummary={id:string;businessId:string;branchId:string;documentNumber:string;kind:MobileDocumentKind;status:"DRAFT"|"ISSUED"|"CANCELLED";customerId:string|null;customerName:string;customerPhone:string|null;customerEmail:string|null;currencyCode:string;notes:string;totalMinor:number;expiresAt:string|null;updatedAt:string};
+export type MobileDocument=MobileDocumentSummary&{lines:Array<{id:string;itemId:string;itemName:string;saleUnitCode:string;quantity:number;unitNetMinor:number;lineTotalMinor:number}>};
+export type MobileDocumentInput={businessId:string;branchId:string;clientRequestId:string;kind:MobileDocumentKind;customerId?:string;customerName:string;customerPhone:string;customerEmail:string;notes:string;expiresAt?:string;lines:Array<{itemId:string;saleUnitCode:string;quantity:number}>};
 export type MobileCatalogResponse = { items: MobileCatalogItem[] };
 
 export type MobileInventoryItem = {
@@ -210,6 +214,18 @@ export class MobileApiClient {
   }
   getInventoryDetail(businessId:string,branchId:string,itemId:string):Promise<MobileInventoryDetail>{
     return this.authorizedJson("/v1/inventory/"+encodeURIComponent(itemId)+"?"+new URLSearchParams({businessId,branchId,limit:"50"}).toString(),{method:"GET"});
+  }
+  getDocuments(businessId:string,branchId:string):Promise<{documents:MobileDocumentSummary[]}>{
+    return this.authorizedJson("/v1/commercial-documents?"+new URLSearchParams({businessId,branchId,limit:"100"}).toString(),{method:"GET"});
+  }
+  getDocument(businessId:string,id:string):Promise<{document:MobileDocument}>{
+    return this.authorizedJson("/v1/commercial-documents/"+encodeURIComponent(id)+"?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
+  }
+  saveDocument(input:MobileDocumentInput,revision?:{id:string;expectedUpdatedAt:string}):Promise<{document:MobileDocument}>{
+    return this.authorizedJson("/v1/commercial-documents"+(revision?"/"+encodeURIComponent(revision.id):""),{method:revision?"PATCH":"POST",body:JSON.stringify({...input,...(revision?{expectedUpdatedAt:revision.expectedUpdatedAt}:{})})});
+  }
+  changeDocumentStatus(businessId:string,id:string,action:"issue"|"cancel"):Promise<{document:MobileDocument}>{
+    return this.authorizedJson("/v1/commercial-documents/"+encodeURIComponent(id)+"/"+action,{method:"POST",body:JSON.stringify({businessId})});
   }
   getOwnCashShift(businessId:string,branchId:string):Promise<MobileOwnCashShiftStatus>{
     const query=new URLSearchParams({businessId,branchId});
