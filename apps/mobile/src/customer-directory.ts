@@ -10,3 +10,15 @@ export function filterCustomers(rows:readonly MobileCustomer[],filter:CustomerFi
 export function confirmedCustomerRows(rows:readonly MobileCustomer[],customer:MobileCustomer){
   return rows.map(row=>row.id===customer.id?customer:row);
 }
+
+export type CustomerContactDraft={name:string;phone:string;email:string};
+export function normalizeCustomerContact(draft:CustomerContactDraft){
+  const name=draft.name.trim(),phone=draft.phone.trim(),email=draft.email.trim().toLowerCase();
+  if(!name||name.length>160)throw new Error("Enter a customer name of up to 160 characters.");
+  if(phone.length>40)throw new Error("Phone number must be at most 40 characters.");
+  if(email.length>254||(email&&!email.includes("@")))throw new Error("Enter a valid email address.");
+  return {name,phone:phone||null,email:email||null};
+}
+export function insertConfirmedCustomer(rows:readonly MobileCustomer[],customer:MobileCustomer){
+  return [customer,...rows.filter(row=>row.id!==customer.id)];
+}

@@ -2,7 +2,7 @@ import {useCallback,useEffect,useRef,useState} from "react";
 import {ActivityIndicator,Pressable,ScrollView,StyleSheet,Text,View} from "react-native";
 import {MobileApiError,type MobileApiClient,type MobileCustomer,type MobileCustomerDetail} from "../api-client";
 import type {MobileActionFeedback} from "../action-feedback";
-import {canReadCustomers,canEditCustomer,filterCustomers,confirmedCustomerRows,type CustomerFilter} from "../customer-directory";
+import {canReadCustomers,canEditCustomer,filterCustomers,confirmedCustomerRows,insertConfirmedCustomer,normalizeCustomerContact,type CustomerContactDraft,type CustomerFilter} from "../customer-directory";
 import {Button} from "../components/Button";
 import {Card} from "../components/Card";
 import {Input} from "../components/Input";
@@ -13,7 +13,7 @@ import {formatMoney} from "../lib/format";
 import {displaySaleDate} from "../sales-history";
 import {colors,radius,spacing,typography} from "../theme";
 
-type Props={api:Pick<MobileApiClient,"getCustomers"|"getCustomer"|"updateCustomerContact">;businessId:string;role:string;currencyCode:string;timezone:string;online:boolean;onFeedback:(feedback:MobileActionFeedback)=>void};
+type Props={api:Pick<MobileApiClient,"getCustomers"|"getCustomer"|"updateCustomerContact"|"createCustomerContact">;businessId:string;role:string;currencyCode:string;timezone:string;online:boolean;onFeedback:(feedback:MobileActionFeedback)=>void};
 const FILTERS:readonly {value:CustomerFilter;label:string}[]=[{value:"ALL",label:"All"},{value:"ACTIVE",label:"Active"},{value:"INACTIVE",label:"Inactive"},{value:"OWES",label:"Owes balance"}];
 
 export function CustomersScreen({api,businessId,role,currencyCode,timezone,online,onFeedback}:Props){
@@ -29,6 +29,10 @@ export function CustomersScreen({api,businessId,role,currencyCode,timezone,onlin
   const [detailError,setDetailError]=useState<string|null>(null);
   const [edit,setEdit]=useState<{name:string;phone:string;email:string;expectedUpdatedAt:string}|null>(null);
   const [saving,setSaving]=useState(false);
+  const [create,setCreate]=useState<CustomerContactDraft|null>(null);
+  const [createError,setCreateError]=useState<string|null>(null);
+  const [uncertainCreate,setUncertainCreate]=useState(false);
+  const [refreshNonce,setRefreshNonce]=useState(0);
   const sequence=useRef(0),detailSequence=useRef(0),saveLock=useRef(false);
   const reload=useCallback(async()=>{
     const current=++sequence.current;
@@ -43,16 +47,15 @@ export function CustomersScreen({api,businessId,role,currencyCode,timezone,onlin
     }finally{if(current===sequence.current)setLoading(false);}
   },[api,businessId,query,online,allowed]);
   useEffect(()=>{
-    setRows(null);
     const timer=setTimeout(()=>{void reload();},250);
     return ()=>{clearTimeout(timer);++sequence.current;};
-  },[reload]);
+  },[reload,refreshNonce]);
   useEffect(()=>{
-    ++detailSequence.current;setSelected(null);setDetail(null);setEdit(null);setDetailLoading(false);setDetailError(null);
+    ++detailSequence.current;setSelected(null);setDetail(null);setEdit(null);setCreate(null);setCreateError(null);setUncertainCreate(false);setDetailLoading(false);setDetailError(null);
     return ()=>{++detailSequence.current;};
   },[businessId,online,allowed]);
   async function openCustomer(id:string){
-    if(!online||!allowed||saveLock.current)return;
+    if(!online||!allowed||saveLock.current||create)return;
     const current=++detailSequence.current;
     setSelected(id);setDetail(null);setEdit(null);setDetailError(null);setDetailLoading(true);
     try{
@@ -84,7 +87,36 @@ export function CustomersScreen({api,businessId,role,currencyCode,timezone,onlin
         setEdit(null);
         void reload();
       }
-    }finally{saveLock.current=false;if(current===detailSequence.current)setSaving(false);else setSaving(false);}
+    }finally{saveLock.current=false;setSaving(false);}
+  }
+  function startCreate(){
+    if(!online||!canEdit||saveLock.current)return;
+    closeDetail();setCreateError(null);setCreate({name:"",phone:"",email:""});
+  }
+  async function saveNew(){
+    if(!create||!online||!canEdit||saveLock.current||uncertainCreate)return;
+    let contact:ReturnType<typeof normalizeCustomerContact>;
+    try{contact=normalizeCustomerContact(create);}catch(e){setCreateError(e instanceof Error?e.message:"Check contact details.");return;}
+    saveLock.current=true;setSaving(true);setCreateError(null);
+    const current=detailSequence.current;
+    try{
+      const result=await api.createCustomerContact(businessId,contact);
+      if(current!==detailSequence.current)return;
+      ++sequence.current;
+      setQuery("");setFilter("ALL");
+      setRows(old=>insertConfirmedCustomer(old??[],result.customer));
+      setCreate(null);setUncertainCreate(false);
+      // Refresh using the newly reset query, rather than a stale search closure.
+      setRefreshNonce(n=>n+1);
+      onFeedback({tone:"success",title:"Customer created",message:"The customer has been saved in your business directory."});
+    }catch(e){
+      if(current!==detailSequence.current)return;
+      // A disconnected response may follow a successful server commit. Never
+      // automatically re-POST or invite an immediate blind duplicate.
+      const rejected=e instanceof MobileApiError&&[400,403,422].includes(e.statusCode);
+      setCreateError(rejected?"The server rejected the contact details. Check the form and your permissions.":"Creation could not be confirmed. Check the directory before attempting another creation.");
+      if(!rejected){setUncertainCreate(true);setQuery(contact.name);setFilter("ALL");setRefreshNonce(n=>n+1);}
+    }finally{saveLock.current=false;setSaving(false);}
   }
   const visible=filterCustomers(rows??[],filter);
   return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
@@ -93,6 +125,18 @@ export function CustomersScreen({api,businessId,role,currencyCode,timezone,onlin
       {online&&allowed?<Button variant="secondary" size="compact" accessibilityLabel="Refresh customers" onPress={()=>void reload()}>Refresh</Button>:null}
     </View>
     {!allowed?<Banner tone="warning" title="Restricted access" message="Your role cannot view customer accounts."/>:!online?<Banner tone="info" title="Offline" message="Customer accounts require a live connection. Your offline POS remains available."/>:<>
+      {canEdit?<Button variant="gold" fullWidth disabled={saving||Boolean(create)} accessibilityLabel="Add customer" onPress={startCreate}>+ Add customer</Button>:null}
+      {create?<Card style={styles.section}>
+        <Text style={styles.sectionTitle}>New customer</Text>
+        <Input label="Customer name" accessibilityLabel="New customer name" value={create.name} maxLength={160} editable={!saving&&!uncertainCreate} onChangeText={name=>setCreate(old=>old?{...old,name}:old)}/>
+        <Input label="Phone" value={create.phone} maxLength={40} keyboardType="phone-pad" editable={!saving&&!uncertainCreate} onChangeText={phone=>setCreate(old=>old?{...old,phone}:old)}/>
+        <Input label="Email" value={create.email} maxLength={254} keyboardType="email-address" autoCapitalize="none" editable={!saving&&!uncertainCreate} onChangeText={email=>setCreate(old=>old?{...old,email}:old)}/>
+        {createError?<Banner tone={uncertainCreate?"warning":"danger"} message={createError}/>:null}
+        {uncertainCreate?<Button variant="secondary" fullWidth disabled={loading} accessibilityLabel="Review directory before creating again" onPress={()=>{setCreate(null);setCreateError(null);setUncertainCreate(false);}}>Review directory</Button>:<>
+          <Button variant="primary" fullWidth loading={saving} disabled={!create.name.trim()} accessibilityLabel="Create customer" onPress={()=>void saveNew()}>Create customer</Button>
+          <Button variant="secondary" fullWidth disabled={saving} accessibilityLabel="Cancel new customer" onPress={()=>{setCreate(null);setCreateError(null);}}>Cancel</Button>
+        </>}
+      </Card>:null}
       {selected?<Card style={styles.section}>
         <View style={styles.heading}><Text style={[styles.sectionTitle,styles.flex]}>Customer details</Text><Button size="compact" variant="secondary" disabled={saving} accessibilityLabel="Close customer details" onPress={closeDetail}>Close</Button></View>
         {detailLoading?<ActivityIndicator color={colors.goldStrong}/>:null}
@@ -121,7 +165,7 @@ export function CustomersScreen({api,businessId,role,currencyCode,timezone,onlin
         {loading?<ActivityIndicator color={colors.goldStrong}/>:null}
         {error?<Banner tone="danger" message={error}/>:null}
         {rows&&visible.length===0&&!loading?<EmptyState title="No matching customers" description="Try another search or filter."/>:null}
-        {visible.map(row=><Pressable key={row.id} disabled={saving} accessibilityRole="button" accessibilityLabel={"View customer "+row.name} onPress={()=>void openCustomer(row.id)} style={styles.row}>
+        {visible.map(row=><Pressable key={row.id} disabled={saving||Boolean(create)} accessibilityRole="button" accessibilityLabel={"View customer "+row.name} onPress={()=>void openCustomer(row.id)} style={styles.row}>
           <View style={styles.avatar}><Text style={styles.avatarText}>{row.name.trim().slice(0,1).toUpperCase()}</Text></View>
           <View style={styles.flex}><Text style={styles.rowTitle} numberOfLines={1}>{row.name}</Text><Text style={styles.muted} numberOfLines={1}>{row.phone??row.email??"No contact details"}</Text><Text style={styles.muted}>{row.active?"Active":"Inactive"}</Text></View>
           <View style={styles.amount}><Text style={styles.rowTitle}>{formatMoney(row.balanceMinor,currencyCode)}</Text><Text style={styles.muted}>Balance</Text></View><Icon name="arrowRight" size={16} color={colors.textMuted}/>

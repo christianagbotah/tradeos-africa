@@ -1,5 +1,5 @@
 import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
-import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerUpdateInput } from "@tradeos/contracts";
+import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerCreateInput, CustomerUpdateInput } from "@tradeos/contracts";
 import { type MobileSessionTokens, MobilePersistence } from "./storage";
 
 export type MobilePlatform = "ANDROID" | "IOS";
@@ -218,6 +218,11 @@ export class MobileApiClient {
   getCustomer(businessId:string,customerId:string):Promise<MobileCustomerDetail>{
     const query=new URLSearchParams({businessId,limit:"100"});
     return this.authorizedJson<MobileCustomerDetail>("/v1/customers/"+encodeURIComponent(customerId)+"?"+query.toString(),{method:"GET"});
+  }
+  createCustomerContact(businessId:string,input:Pick<CustomerCreateInput,"name"|"phone"|"email">):Promise<{customer:MobileCustomer}>{
+    return this.authorizedJson<{customer:MobileCustomer}>("/v1/customers",{
+      method:"POST",body:JSON.stringify({businessId,name:input.name,phone:input.phone,email:input.email}),
+    });
   }
   updateCustomerContact(businessId:string,customerId:string,input:Pick<CustomerUpdateInput,"name"|"phone"|"email"|"expectedUpdatedAt">):Promise<{customer:MobileCustomer}>{
     return this.authorizedJson<{customer:MobileCustomer}>("/v1/customers/"+encodeURIComponent(customerId),{
