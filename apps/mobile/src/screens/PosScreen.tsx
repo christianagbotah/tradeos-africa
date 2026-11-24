@@ -6,7 +6,6 @@ import { Card } from "../components/Card";
 import { EmptyState, LoadingRow } from "../components/EmptyState";
 import { Icon } from "../components/icons";
 import { Input } from "../components/Input";
-import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { colors, radius, spacing, touch, typography } from "../theme";
 import type {
   MobileAppSnapshot,
@@ -82,12 +81,6 @@ export function PosScreen({
       contentContainerStyle={[styles.content,quickServe&&styles.contentQuick]}
       keyboardShouldPersistTaps="handled"
     >
-      <WorkspaceHeader
-        online={snapshot.online}
-        syncing={snapshot.syncing}
-        failedCount={ready.queue.failed}
-        pendingCount={ready.queue.pending}
-      />
 
       <View style={styles.modeRow}>
         <Pressable accessibilityRole="button" accessibilityLabel="Standard POS mode"
@@ -494,6 +487,7 @@ const styles = StyleSheet.create({
   quickStickyNote: {textAlign:"center",fontSize:typography.meta,
     color:colors.textMuted},
   content: {
+    paddingTop: spacing.s4,
     flexGrow: 1,
     backgroundColor: colors.canvas,
     paddingHorizontal: spacing.s4,
