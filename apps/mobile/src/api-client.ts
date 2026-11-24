@@ -1,5 +1,5 @@
 import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
-import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerCreateInput, CustomerUpdateInput } from "@tradeos/contracts";
+import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerCreateInput, CustomerUpdateInput, FinancialSummaryReport, CreditAgingReport, CashForecastResponse } from "@tradeos/contracts";
 import { type MobileSessionTokens, MobilePersistence } from "./storage";
 
 export type MobilePlatform = "ANDROID" | "IOS";
@@ -300,6 +300,15 @@ export class MobileApiClient {
   }
   saveExpenseCategory(businessId:string,input:{name:string;active?:boolean},revision?:{id:string;expectedUpdatedAt:string}):Promise<{category:MobileExpenseCategory}>{
     return this.authorizedJson("/v1/expense-categories"+(revision?"/"+encodeURIComponent(revision.id):""),{method:revision?"PATCH":"POST",body:JSON.stringify({businessId,...input,...(revision?{expectedUpdatedAt:revision.expectedUpdatedAt}:{})})});
+  }
+  getFinancialReport(businessId:string,branchId:string|null,range:string):Promise<FinancialSummaryReport>{
+    return this.authorizedJson("/v1/reports/financial-summary?"+new URLSearchParams({businessId,...(branchId?{branchId}:{}),range}).toString(),{method:"GET"});
+  }
+  getCreditAging(businessId:string,branchId:string|null):Promise<CreditAgingReport>{
+    return this.authorizedJson("/v1/reports/credit-aging?"+new URLSearchParams({businessId,...(branchId?{branchId}:{})}).toString(),{method:"GET"});
+  }
+  getCashForecast(businessId:string,branchId:string|null,days:number):Promise<CashForecastResponse>{
+    return this.authorizedJson("/v1/reports/cash-forecast?"+new URLSearchParams({businessId,...(branchId?{branchId}:{}),days:String(days)}).toString(),{method:"GET"});
   }
   getOperationsCurrent(businessId:string,branchId:string):Promise<MobileOperationsCurrent>{
     return this.authorizedJson("/v1/operations/current?"+new URLSearchParams({businessId,branchId}).toString(),{method:"GET"});
