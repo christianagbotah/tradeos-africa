@@ -32,10 +32,10 @@ describe("dedicated POS attendant, authenticated-role economic authorization",()
       expect(()=>assertPosAttendantSalePayload(value)).toThrow(PosAttendantPolicyError);
     }
   });
-  it("checks actual DB membership and forbids non-SALE_CREATE economic mutations",()=>{
+  it("checks membership and allows only cash sales or validated own shift actions",()=>{
     const source=readFileSync(new URL("../src/app.ts",import.meta.url),"utf8");
     expect(source).toContain('if (access.role === "POS_ATTENDANT")');
-    expect(source).toContain('normalizedMutation.mutationType !== "SALE_CREATE"');
+    expect(source).toContain('normalizedMutation.mutationType === "SALE_CREATE"');
     expect(source).toContain("assertPosAttendantSalePayload(normalizedMutation.payload)");
     expect(source).toContain('requireBusinessRole(pool, auth, mutation.businessId, roles)');
     expect(source).toContain('error instanceof PosAttendantPolicyError');

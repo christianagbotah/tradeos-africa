@@ -10,6 +10,7 @@ import Fastify from "fastify";
 import type { ClientMutation, SyncPushRequest } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
 import { assertPosAttendantSalePayload, PosAttendantPolicyError } from "./auth/pos-attendant-policy.js";
+import { assertPosAttendantShiftPayload } from "./auth/pos-attendant-shift-policy.js";
 import { requireBranchScope } from "./auth/branch-scope.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authenticateAccessToken, AuthError, type AuthContext } from "./auth/security.js";
@@ -48,6 +49,7 @@ const CUSTOMER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANA
 const PURCHASE_RECEIVE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"];
 const SUPPLIER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const EXPENSE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
+const SHIFT_ROLES: readonly BusinessRole[] = [...EXPENSE_ROLES, "POS_ATTENDANT"];
 const CASHBOOK_ADJUSTMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
 const INVENTORY_ADJUSTMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
@@ -155,10 +157,14 @@ async function authorizeAndEnrichSyncBatch(
     // supplied by an offline client or included inside the payload.
     if (access.role === "POS_ATTENDANT") {
       await requireBranchScope(pool,access,normalizedMutation.branchId);
-      if (normalizedMutation.mutationType !== "SALE_CREATE") {
+      if (normalizedMutation.mutationType === "SALE_CREATE") {
+        assertPosAttendantSalePayload(normalizedMutation.payload);
+      } else if (normalizedMutation.mutationType === "SHIFT_OPEN_CREATE" ||
+        normalizedMutation.mutationType === "SHIFT_CLOSE_CREATE") {
+        assertPosAttendantShiftPayload(normalizedMutation.mutationType,normalizedMutation.payload);
+      } else {
         throw new AuthError("POS-only staff cannot perform this action", 403, "ROLE_FORBIDDEN");
       }
-      assertPosAttendantSalePayload(normalizedMutation.payload);
     }
     if (!access.staffId) {
       throw new AuthError(
@@ -248,7 +254,7 @@ function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
     case "OPERATING_DAY_OPEN_CREATE":
     case "OPERATING_DAY_CLOSE_CREATE": return CASHBOOK_ADJUSTMENT_ROLES;
     case "SHIFT_OPEN_CREATE":
-    case "SHIFT_CLOSE_CREATE":
+    case "SHIFT_CLOSE_CREATE": return SHIFT_ROLES;
     case "MONEY_RECONCILIATION_CREATE":
     case "EXPENSE_CREATE": return EXPENSE_ROLES;
     case "MONEY_TRANSFER_CREATE":
