@@ -40,6 +40,12 @@ function publishInteractiveMutationFeedback(tone: "success" | "error" | "warning
 }
 
 
+export const MUTATION_INVALIDATION_EVENT = "tradeos:mutation-confirmed";
+function publishMutationInvalidation(businessId:string,path?:string) {
+  if(typeof window==="undefined"||typeof window.dispatchEvent!=="function"||typeof CustomEvent!=="function")return;
+  window.dispatchEvent(new CustomEvent(MUTATION_INVALIDATION_EVENT,{detail:{businessId,path}}));
+}
+
 export class OfflinePersistenceError extends Error {
   readonly cause: unknown;
 
@@ -281,8 +287,16 @@ export class WebOfflineQueue {
   }
 
   /** Fetch an authenticated API resource, refreshing an expired access token once. */
-  authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    return fetchWithSessionRefresh(this.sessionStore, input, init);
+  async authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const session = this.sessionStore.load();
+    const response = await fetchWithSessionRefresh(this.sessionStore, input, init);
+    const method = (init?.method ?? (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")).toUpperCase();
+    const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+    if (response.ok && ["POST","PUT","PATCH","DELETE"].includes(method) &&
+        session?.businessId && !path.startsWith("/v1/auth/")) {
+      publishMutationInvalidation(session.businessId,path);
+    }
+    return response;
   }
 
   /** Enqueue into the mutation's own business bucket. */
@@ -332,7 +346,11 @@ export class WebOfflineQueue {
       online: options.online,
       transport: this.transport,
     };
-    return this.queueFor(options.activeBusinessId).queue.flush(flushOptions);
+    const businessId=options.activeBusinessId;
+    return this.queueFor(businessId).queue.flush(flushOptions).then(summary=>{
+      if(summary.applied>0)publishMutationInvalidation(businessId);
+      return summary;
+    });
   }
 
   /**

@@ -1,5 +1,7 @@
 "use client";
 
+import { confirmAction } from "../ui/action-dialog";
+
 import { useActionFeedbackMessages } from "../ui/action-feedback";
 import {useEffect,useState} from "react";
 import {Button} from "../ui/button";
@@ -67,7 +69,7 @@ export function GatewayMerchantConnectionPanel({businessId,providerCode,online}:
     if(action==="request"&&(current?.status!=="VERIFIED"||
       current.activationRequestedAt))return;
     if(action==="revoke"&&(!current||current.status==="REVOKED"||
-      !window.confirm("Revoke these provider credentials? Existing payments still "+
+      !await confirmAction("Revoke these provider credentials? Existing payments still "+
         "require reconciliation with their original provider.")))return;
     const base="/v1/businesses/"+encodeURIComponent(businessId)+
       "/payment-gateways/merchant-connections";

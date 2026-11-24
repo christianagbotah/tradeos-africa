@@ -1,4 +1,6 @@
 "use client";
+
+import { confirmAction } from "../ui/action-dialog";
 import {useState} from "react";
 import {Button} from "../ui/button";
 import {getOfflineQueue} from "../../../lib/offline-sync";
@@ -21,7 +23,7 @@ export function GatewayHostedTestCheckout({businessId,attemptId,provider,checkou
   async function initiate(){
     if(!online||disabled||busy||checkout||!password||
        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return;
-    if(!window.confirm("Create exactly one hosted TEST checkout? "+
+    if(!await confirmAction("Create exactly one hosted TEST checkout? "+
       "This uses the original merchant TEST key, not a live key. "+
       "It never posts a TradeOS receipt or settles the real sale."))return;
     setBusy(true);setError(null);setMessage(null);

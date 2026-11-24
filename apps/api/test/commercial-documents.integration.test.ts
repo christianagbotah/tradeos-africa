@@ -121,6 +121,35 @@ describe("tenant-scoped commercial quotations and proformas",()=>{
     expect(issueAfterCancel.statusCode).toBe(409);
   });
 
+  it.each(["QUOTATION","PROFORMA"] as const)("edits %s drafts atomically, keeps references and rejects stale or issued edits",async kind=>{
+    const token=await owner("edit-"+kind.toLowerCase()+"@tradeos.test");
+    const scope=await business(token,"Draft editor");
+    const item=await service(token,scope.businessId,1200);
+    const original=await app.inject({method:"POST",url:"/v1/commercial-documents",
+      headers:bearer(token),payload:{...payload(scope,item),kind}});
+    expect(original.statusCode).toBe(201);
+    const doc=original.json().document;
+    const url=`/v1/commercial-documents/${doc.id}`;
+    const edit={...payload(scope,item),kind,expectedUpdatedAt:doc.updatedAt,
+      customerName:"Corrected customer",notes:"Revised terms",
+      lines:[{itemId:item,saleUnitCode:"service",quantity:3}]};
+    const updated=await app.inject({method:"PATCH",url,headers:bearer(token),payload:edit});
+    expect(updated.statusCode).toBe(200);
+    const revised=updated.json().document;
+    expect(revised).toMatchObject({id:doc.id,documentNumber:doc.documentNumber,status:"DRAFT",
+      customerName:"Corrected customer",notes:"Revised terms",totalMinor:3600});
+    expect(revised.lines).toHaveLength(1);
+    expect(revised.lines[0].quantity).toBe(3);
+    expect(revised.updatedAt).not.toBe(doc.updatedAt);
+    const list=await app.inject({method:"GET",url:`/v1/commercial-documents?businessId=${scope.businessId}&branchId=${scope.branchId}`,headers:bearer(token)});
+    expect(list.json().documents[0]).toMatchObject({id:doc.id,totalMinor:3600});
+    expect((await app.inject({method:"PATCH",url,headers:bearer(token),payload:edit})).statusCode).toBe(409);
+    expect((await app.inject({method:"POST",url:url+"/issue",headers:bearer(token),payload:{businessId:scope.businessId}})).statusCode).toBe(200);
+    expect((await app.inject({method:"PATCH",url,headers:bearer(token),payload:{...edit,expectedUpdatedAt:revised.updatedAt}})).statusCode).toBe(409);
+    const audit=await pool.query("SELECT event_type FROM audit_events WHERE entity_id=$1 AND event_type='COMMERCIAL_DOCUMENT_UPDATED'",[doc.id]);
+    expect(audit.rowCount).toBe(1);
+  });
+
   it("distinguishes PROFORMA documents and issues sequential unique references",async()=>{
     const token=await owner("proforma@tradeos.test");
     const scope=await business(token,"Proforma Business");

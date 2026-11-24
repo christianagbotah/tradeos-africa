@@ -1,4 +1,6 @@
 "use client";
+
+import { confirmAction } from "../ui/action-dialog";
 import { useActionFeedbackMessages } from "../ui/action-feedback";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -126,7 +128,7 @@ export function PurchaseOrderWorkspace(){
     if(!session||!canIssue||!queue.online||busy)return;
     if(action==="issue"&&(
       !issueCandidate||issueCandidate.id!==order.id||order.status!=="DRAFT"))return;
-    if(action==="cancel"&&!window.confirm(`Cancel ${order.orderNumber}? This cannot be undone.`))return;
+    if(action==="cancel"&&!await confirmAction(`Cancel ${order.orderNumber}? This cannot be undone.`))return;
     setBusy(true);setError(null);setNotice(null);
     try{
       const response=await getOfflineQueue().authenticatedFetch(
@@ -337,10 +339,10 @@ export function PurchaseOrderWorkspace(){
     {voiceOpen&&canWrite?<VoicePurchaseOrderAssistant
       items={items} suppliers={suppliers} currencyCode={currency}
       onClose={()=>setVoiceOpen(false)}
-      onApply={(chosenSupplier,reviewed:VoicePOReviewLine[])=>{
+      onApply={async(chosenSupplier,reviewed:VoicePOReviewLine[])=>{
         if(!canWrite||reviewed.length===0||reviewed.length>50)return false;
         const existing=Boolean(supplierId)||lines.some(line=>line.itemId!=="");
-        if(existing&&!window.confirm(
+        if(existing&&!await confirmAction(
           "Replace the current order items and supplier with the reviewed voice draft?"))
           return false;
         dirty();setSupplierId(chosenSupplier);

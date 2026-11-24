@@ -1,4 +1,6 @@
 "use client";
+
+import { confirmAction } from "../ui/action-dialog";
 import { useActionFeedbackMessages } from "../ui/action-feedback";
 import {useEffect,useState} from "react";
 import {getOfflineQueue} from "../../../lib/offline-sync";
@@ -46,7 +48,7 @@ export function GatewayConnectionsPanel({businessId,online,providerCode}:{
     if(!snapshot||!online||busy||!password)return;
     if(kind==="save"&&(!secretKey||!snapshot.vaultReady))return;
     if(kind==="revoke"&&(!current||current.status==="REVOKED"||
-      !window.confirm("Revoke this test credential?")))return;
+      !await confirmAction("Revoke this test credential?")))return;
     setBusy(true);setError(null);setMessage(null);
     try{
       const response=await getOfflineQueue().authenticatedFetch(

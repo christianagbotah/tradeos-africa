@@ -2307,3 +2307,22 @@ dl.tos-kv .tos-kv__val {
   .tos-action-feedback__dialog { width: min(430px, 100%); }
   .tos-action-feedback__toast { padding: 14px; gap: 10px; }
 }
+
+/* Brand-styled native HTML dialog: top-layer modal, safe keyboard focus, no
+   browser alert/confirm chrome. Cancel is the default focused action. */
+.tos-custom-dialog { border:1px solid var(--tos-border,#dce3ed);border-radius:20px;
+  padding:26px;width:min(440px,calc(100% - 32px));max-height:calc(100dvh - 32px);
+  background:var(--tos-surface,#fff);color:var(--tos-text-strong,#172334);
+  box-shadow:0 24px 80px #0b142455;overflow:auto; }
+.tos-custom-dialog::backdrop { background:rgba(9,20,38,.62);backdrop-filter:blur(4px); }
+.tos-custom-dialog-icon { display:grid;place-items:center;width:44px;height:44px;
+  background:#f7efd9;color:#855d12;border-radius:14px;font-size:23px;font-weight:800; }
+.tos-custom-dialog h2 { margin:14px 0 8px;font-size:21px;line-height:1.3; }
+.tos-custom-dialog p { margin:0 0 20px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55; }
+.tos-custom-dialog-form input { width:100%;padding:12px;border:1px solid #c8d1dc;border-radius:10px;margin-bottom:16px;font:inherit; }
+.tos-custom-dialog-actions { display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap; }
+.tos-custom-dialog-actions button { flex:1;min-height:44px;padding:10px 16px;border:1px solid #c8d1dc;
+  border-radius:11px;background:var(--tos-surface,#fff);color:inherit;font:inherit;font-weight:700;cursor:pointer; }
+.tos-custom-dialog-actions .is-primary { background:#0b1424;color:#fff;border-color:#0b1424; }
+.tos-custom-dialog-actions .is-danger { background:#a62c38;color:#fff;border-color:#a62c38; }
+.tos-custom-dialog-actions button:focus-visible { outline:3px solid #c99935;outline-offset:3px; }

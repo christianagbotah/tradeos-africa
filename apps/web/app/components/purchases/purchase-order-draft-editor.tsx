@@ -1,5 +1,7 @@
 "use client";
 
+import { confirmAction } from "../ui/action-dialog";
+
 import {useMemo,useState} from "react";
 import {formatMoney} from "@tradeos/contracts";
 import {useWorkspace} from "../workspace/use-workspace";
@@ -80,9 +82,9 @@ export function PurchaseOrderDraftEditor({order,onClose,onSaved}:Props){
       line.key===key?{...line,...patch}:line));
     setError(null);
   };
-  function dismiss(){
+  async function dismiss(){
     if(busy)return;
-    if(changed&&!window.confirm("Discard unsaved purchase-order changes?"))return;
+    if(changed&&!await confirmAction("Discard unsaved purchase-order changes?"))return;
     onClose();
   }
   async function save(){
@@ -239,8 +241,8 @@ export function PurchaseOrderDraftEditor({order,onClose,onSaved}:Props){
       {error.toLowerCase().includes("reload")||
         error.toLowerCase().includes("changed elsewhere")?
         <button type="button" className={styles.secondary}
-          onClick={()=>{
-            if(window.confirm("Discard local edits and reload the latest order?"))onSaved();
+          onClick={async()=>{
+            if(await confirmAction("Discard local edits and reload the latest order?"))onSaved();
           }}>Reload saved order</button>:null}
     </p>:null}
     <footer className={styles.actions}>

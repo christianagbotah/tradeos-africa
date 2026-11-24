@@ -40,7 +40,7 @@ type Props={
   items:readonly CatalogItem[];
   suppliers:readonly Supplier[];
   currencyCode:string;
-  onApply:(supplierId:string,lines:VoicePOReviewLine[])=>boolean;
+  onApply:(supplierId:string,lines:VoicePOReviewLine[])=>boolean | Promise<boolean>;
   onClose:()=>void;
 };
 const example="Create a purchase order from Comfort Supplies: two door number zero five eight and three door number three two six.";
@@ -288,13 +288,13 @@ export function VoicePurchaseOrderAssistant({
     });
   const total=rows.reduce((n,r)=>n+
     Math.round((r.costMinor??0)*(Number(r.quantity)||0)),0);
-  function apply(){
+  async function apply(){
     if(!valid||!reviewed||correction)return;
     const reviewedLines=rows.map(row=>({
       itemId:row.itemId,purchaseUnitCode:row.purchaseUnitCode,
       quantity:Number(row.quantity),unitCostMinor:row.costMinor!,
     }));
-    if(onApply(supplierId,reviewedLines))onClose();
+    if(await onApply(supplierId,reviewedLines))onClose();
   }
   return <div className={styles.backdrop} role="presentation">
     <section role="dialog" aria-modal="true" aria-label="Speak a purchase order"

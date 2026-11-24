@@ -1,5 +1,7 @@
 "use client";
 
+import { confirmAction } from "../ui/action-dialog";
+
 import {useEffect,useState} from "react";
 import {getOfflineQueue} from "../../../lib/offline-sync";
 import {readApiErrorMessage} from "../../../lib/auth-fetch";
@@ -90,7 +92,7 @@ export function GatewayAttemptMonitor({businessId,online}:{
   }
   async function close(attempt:Attempt,decision:"CANCELLED"|"REVIEW_REQUIRED"){
     if(attempt.state!=="PREPARED"||
-       !window.confirm("Close this TEST attempt as "+decision.toLowerCase().replaceAll("_"," ")+"? "+
+       !await confirmAction("Close this TEST attempt as "+decision.toLowerCase().replaceAll("_"," ")+"? "+
          "This does not refund a customer or alter the sale."))return;
     await mutate(base+"/"+encodeURIComponent(attempt.attemptId)+"/close",{
       decision,reasonCode:decision==="CANCELLED"?

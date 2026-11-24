@@ -1,5 +1,7 @@
 "use client";
 
+import { confirmAction } from "../ui/action-dialog";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatMoney } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
@@ -232,8 +234,8 @@ export function PosWorkspace() {
       {voiceOpen?<VoiceSaleAssistant
         sellable={sellable} customers={customers} currencyCode={currencyCode}
         onClose={()=>setVoiceOpen(false)}
-        onApply={(reviewed,customerId,payment,suggestion)=>{
-          if(lines.length>0&&!window.confirm(
+        onApply={async(reviewed,customerId,payment,suggestion)=>{
+          if(lines.length>0&&!await confirmAction(
             "You have items in your cart. Add the voice-selected items to this cart?")){
             return false;
           }

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { getOfflineQueue, type WebSession } from "../../../lib/offline-sync";
+import { getOfflineQueue, MUTATION_INVALIDATION_EVENT, type WebSession } from "../../../lib/offline-sync";
 import {
   mapCatalogItem,
   mapInventoryItem,
@@ -666,6 +666,21 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     setCustomers((previous) => previous.map((item) =>
       item.id === customer.id ? { ...item, ...fields } : item));
   }, [offlineQueue]);
+
+  useEffect(() => {
+    if(!session||!online)return;
+    const listener=(event:Event)=>{
+      const detail=(event as CustomEvent<{businessId:string;path?:string}>).detail;
+      if(detail?.businessId!==session.businessId)return;
+      const path=detail.path??"";
+      if(!path||/\/v1\/catalog\//.test(path))void refreshCatalog();
+      if(!path||/\/v1\/(catalog|inventory|sales|returns|purchases|purchase-orders|supplier-invoices)/.test(path))void refreshInventory();
+      if(!path||/\/v1\/(customers|sales|returns|payments)/.test(path))void refreshCustomers();
+      if(/\/v1\/(businesses|account|staff|branches)\//.test(path))void refreshWorkspaceContext().catch(()=>{});
+    };
+    window.addEventListener(MUTATION_INVALIDATION_EVENT,listener);
+    return ()=>window.removeEventListener(MUTATION_INVALIDATION_EVENT,listener);
+  },[session,online,refreshCatalog,refreshInventory,refreshCustomers,refreshWorkspaceContext]);
 
   useEffect(() => {
     if (!session) {

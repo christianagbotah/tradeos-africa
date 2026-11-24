@@ -29,7 +29,7 @@ describe("purchase order supplier delivery UX",()=>{
   it("offers a manager-only explicit manual WhatsApp compose, no silent sending",()=>{
     expect(ui).toContain("Share purchase order via WhatsApp");
     expect(ui).toContain("Open WhatsApp (manual)");
-    expect(ui).toContain('window.confirm(');
+    expect(ui).toContain('confirmAction(');
     expect(ui).toContain('https://wa.me/');
     expect(ui).toContain('noopener noreferrer');
     expect(ui).toContain("Download purchase-order PDF");
