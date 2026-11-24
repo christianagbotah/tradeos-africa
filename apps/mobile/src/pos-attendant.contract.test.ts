@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-const runtime=readFileSync(new URL("./runtime.ts",import.meta.url),"utf8");
-const screen=readFileSync(new URL("./screens/PosScreen.tsx",import.meta.url),"utf8");
+import { resolve } from "node:path";
+const runtime=readFileSync(resolve(__dirname,"runtime.ts"),"utf8");
+const screen=readFileSync(resolve(__dirname,"screens/PosScreen.tsx"),"utf8");
 describe("native shop attendant cash-only POS",()=>{
   it("grants SALE_CREATE to the new role but rejects noncash tenders before durable queueing",()=>{
     expect(runtime).toContain('"POS_ATTENDANT"');
