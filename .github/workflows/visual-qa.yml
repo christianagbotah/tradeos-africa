@@ -349,6 +349,72 @@ jobs:
             console.log("Session refresh regression guard completed");
           }
 
+          // Real browser regression: the confirmed response must update the
+          // document list even while the subsequent server GET is held back.
+          await loginPage.goto(`${WEB}/documents`, {waitUntil:"domcontentloaded"});
+          await loginPage.getByRole("heading",{name:"Quotations & proforma invoices"}).waitFor();
+          await loginPage.getByText("No documents here yet. Create your first quotation.").waitFor({timeout:30000});
+          let nativeDialogs=0;
+          loginPage.on("dialog",async dialog=>{nativeDialogs++;await dialog.dismiss();});
+          const dismissFeedback=async()=>{
+            const close=loginPage.getByRole("button",{name:"Dismiss notification"});
+            if(await close.count())await close.first().click();
+          };
+          const delayedWrite=async(trigger,assertVisible)=>{
+            let release;
+            const gate=new Promise(resolve=>{release=resolve;});
+            const matcher=/\/v1\/commercial-documents\?[^#]*$/;
+            const handler=async route=>{
+              if(route.request().method()==="GET")await gate;
+              await route.continue();
+            };
+            await loginPage.route(matcher,handler);
+            try{await trigger();await assertVisible();}
+            finally{release();await loginPage.unroute(matcher,handler);}
+            await dismissFeedback();
+          };
+          for(const kind of ["PROFORMA","QUOTATION"]){
+            const name="Browser QA "+kind;
+            await loginPage.getByLabel("Document type").selectOption(kind);
+            await loginPage.getByLabel("Customer name").fill(name);
+            await loginPage.getByLabel("Item 1",{exact:true}).selectOption({label:"Standard Haircut"});
+            await loginPage.getByLabel("Quantity",{exact:true}).fill("2");
+            const row=loginPage.locator("article").filter({hasText:name});
+            await delayedWrite(
+              ()=>loginPage.getByRole("button",{name:"Create draft",exact:true}).click(),
+              ()=>row.getByText("DRAFT",{exact:true}).waitFor({timeout:15000})
+            );
+            await row.getByRole("button",{name:"Edit",exact:true}).click();
+            await loginPage.getByRole("button",{name:"Save changes",exact:true}).waitFor();
+            const updatedName=name+" revised";
+            await loginPage.getByLabel("Customer name").fill(updatedName);
+            await loginPage.getByLabel("Quantity",{exact:true}).fill("3");
+            const revised=loginPage.locator("article").filter({hasText:updatedName});
+            await delayedWrite(
+              ()=>loginPage.getByRole("button",{name:"Save changes",exact:true}).click(),
+              ()=>revised.getByText("DRAFT",{exact:true}).waitFor({timeout:15000})
+            );
+            await delayedWrite(
+              ()=>revised.getByRole("button",{name:"Issue",exact:true}).click(),
+              ()=>revised.getByText("ISSUED",{exact:true}).waitFor({timeout:15000})
+            );
+            if(await revised.getByRole("button",{name:"Edit",exact:true}).count())
+              throw new Error("Issued document unexpectedly offers editing");
+            await revised.getByRole("button",{name:"Cancel",exact:true}).click();
+            const confirmation=loginPage.locator("dialog.tos-custom-dialog[open]");
+            await confirmation.waitFor({timeout:10000});
+            await confirmation.getByRole("button",{name:"Keep document",exact:true}).click();
+            await revised.getByText("ISSUED",{exact:true}).waitFor();
+            await revised.getByRole("button",{name:"Cancel",exact:true}).click();
+            await confirmation.waitFor();
+            await delayedWrite(
+              ()=>confirmation.getByRole("button",{name:"Cancel document",exact:true}).click(),
+              ()=>revised.getByText("CANCELLED",{exact:true}).waitFor({timeout:15000})
+            );
+          }
+          if(nativeDialogs)throw new Error("Unexpected native browser dialog in commercial document workflow");
+          console.log("Browser document create, edit, issue, cancel and immediate refresh checks passed");
+
           const state = await loginContext.storageState();
           await loginContext.close();
 
@@ -361,6 +427,7 @@ jobs:
             { path: "/catalog", marker: "Catalog", name: "catalog" },
             { path: "/inventory", marker: "Inventory", name: "inventory" },
             { path: "/purchases", marker: "Purchase", name: "purchases" },
+            { path: "/documents", marker: "Quotations & proforma invoices", name: "documents" },
             { path: "/returns", marker: "Return", name: "returns" },
             { path: "/cashbook", marker: "Cashbook", name: "cashbook" },
             { path: "/operations", marker: "Operation", name: "operations" },
@@ -377,6 +444,7 @@ jobs:
             catalog: [390, 768, 1280],
             inventory: [390, 768, 1280],
             purchases: [390, 768, 1280],
+            documents: [390, 768, 1280],
             returns: [390, 768, 1280],
             cashbook: [390, 768, 1280],
             operations: [390, 768, 1280],

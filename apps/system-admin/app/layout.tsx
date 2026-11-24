@@ -4,6 +4,8 @@ import "./admin-tokens.css";
 import "./admin-shell.css";
 import "./admin-components.css";
 import "./admin-auth.css";
+import "./action-dialog.css";
+import { ActionFeedbackViewport } from "./components/action-feedback";
 import { PlatformAdminProvider } from "./components/platform-admin-session";
 
 export const metadata: Metadata = {
@@ -23,7 +25,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <body><PlatformAdminProvider>{children}</PlatformAdminProvider></body>
+      <body><PlatformAdminProvider>{children}<ActionFeedbackViewport /></PlatformAdminProvider></body>
     </html>
   );
 }

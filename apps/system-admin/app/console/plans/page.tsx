@@ -1,4 +1,7 @@
 "use client";
+import { useActionFeedbackMessages } from "../../components/action-feedback";
+
+import { confirmAction } from "../../components/action-dialog";
 
 import { useMemo, useState, type FormEvent } from "react";
 import { Badge, Banner, PageHeader, Section } from "../../components/admin-ui";
@@ -31,6 +34,7 @@ export default function PlansPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  useActionFeedbackMessages(notice,actionError);
   const canWrite = Boolean(adminUser && WRITE_ROLES.has(adminUser.role));
   const plans = data?.plans ?? [];
   const filtered = useMemo(() => plans.filter((plan) => `${plan.code} ${plan.name}`.toLowerCase().includes(query.toLowerCase())), [plans, query]);
@@ -51,7 +55,7 @@ export default function PlansPage() {
     if (amountMinor === null) { setActionError("Enter a valid non-negative price."); return; }
     const current = editingId ? plans.find((plan) => plan.id === editingId) : null;
     const verb = current ? "update" : "create";
-    if (!window.confirm(`Confirm ${verb} plan ${draft.name || draft.code}? This changes what can be assigned to tenants.`)) return;
+    if (!await confirmAction(`Confirm ${verb} plan ${draft.name || draft.code}? This changes what can be assigned to tenants.`)) return;
     setSaving(true); setActionError(null); setNotice(null);
     const payload = {
       code: draft.code, name: draft.name, description: draft.description || null, currencyCode: draft.currencyCode,

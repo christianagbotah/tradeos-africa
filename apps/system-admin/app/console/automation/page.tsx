@@ -1,4 +1,7 @@
 "use client";
+import { useActionFeedbackMessages } from "../../components/action-feedback";
+
+import { confirmAction, promptAction } from "../../components/action-dialog";
 
 import { useMemo, useState, type FormEvent } from "react";
 import { Banner, PageHeader, Section } from "../../components/admin-ui";
@@ -65,6 +68,7 @@ export default function AutomationPage() {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  useActionFeedbackMessages(null,pageError);
   const [question, setQuestion] = useState("");
   const [queryBusy, setQueryBusy] = useState(false);
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
@@ -96,9 +100,9 @@ export default function AutomationPage() {
   }
 
   async function retryRun(run: AutomationRun) {
-    const reason = window.prompt("Reason for retrying this failed run?")?.trim();
+    const reason = (await promptAction("Reason for retrying this failed run?"))?.trim();
     if (!reason) return;
-    if (!window.confirm("Retry this failed automation run now?")) return;
+    if (!await confirmAction("Retry this failed automation run now?")) return;
     setBusyRunId(run.id);
     setPageError(null);
     try {
@@ -118,7 +122,7 @@ export default function AutomationPage() {
   }
 
   async function evaluatePolicy(policy: AutomationPolicy) {
-    if (!window.confirm(`Evaluate ${policy.name} now?`)) return;
+    if (!await confirmAction(`Evaluate ${policy.name} now?`)) return;
     setPageError(null);
     try {
       const response = await apiFetch("/api/admin/automation/evaluate", {

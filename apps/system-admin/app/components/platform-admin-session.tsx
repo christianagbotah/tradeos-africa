@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AdminShell } from "./admin-shell";
 
@@ -23,6 +23,7 @@ interface AdminSessionContextValue {
   apiFetch(path: string, init?: RequestInit): Promise<Response>;
 }
 
+const ADMIN_MUTATION_EVENT = "tradeos:admin-mutation-confirmed";
 const AdminSessionContext = createContext<AdminSessionContextValue | null>(null);
 
 export function PlatformAdminProvider({ children }: { children: ReactNode }) {
@@ -82,7 +83,10 @@ export function PlatformAdminProvider({ children }: { children: ReactNode }) {
   }, [markSignedOut]);
 
   const authenticatedFetch = useCallback(async (path: string, init?: RequestInit): Promise<Response> => {
-    const response = await fetch(path, { ...init, credentials: "include" });
+    const response = await fetch(path, { cache: "no-store", ...init, credentials: "include" });
+    if (response.ok && ["POST","PUT","PATCH","DELETE"].includes((init?.method??"GET").toUpperCase())) {
+      window.dispatchEvent(new Event(ADMIN_MUTATION_EVENT));
+    }
     if (response.status === 401) markSignedOut();
     return response;
   }, [markSignedOut]);
@@ -129,31 +133,47 @@ export function PlatformAdminConsoleGate({ children }: { children: ReactNode }) 
 }
 
 export function useAdminResource<T>(path: string) {
-  const { apiFetch } = usePlatformAdminSession();
+  const { apiFetch,adminUser } = usePlatformAdminSession();
+  const scope = (adminUser?.id??"signed-out")+":"+path;
+  const scopeRef = useRef(scope);
+  scopeRef.current=scope;
+  const [sourceScope,setSourceScope]=useState(scope);
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const generation=useRef(0);
 
   const reload = useCallback(async () => {
+    const requestId=++generation.current;
+    const current=()=>generation.current===requestId&&scopeRef.current===scope;
+    setSourceScope(scope);
     setLoading(true);
     setError(null);
     try {
-      const response = await apiFetch(path);
+      const response = await apiFetch(path,{cache:"no-store"});
       const body = await response.json().catch(() => ({})) as T & { message?: string };
+      if(!current())return;
       if (!response.ok) throw new Error(body.message ?? `Request failed (${response.status})`);
       setData(body);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Request failed");
+      if(current())setError(requestError instanceof Error ? requestError.message : "Request failed");
     } finally {
-      setLoading(false);
+      if(current())setLoading(false);
     }
-  }, [apiFetch, path]);
+  }, [apiFetch, path, scope]);
 
   useEffect(() => {
+    setData(null);
     void reload();
+    const onMutation=()=>{void reload();};
+    window.addEventListener(ADMIN_MUTATION_EVENT,onMutation);
+    return ()=>{
+      ++generation.current;
+      window.removeEventListener(ADMIN_MUTATION_EVENT,onMutation);
+    };
   }, [reload]);
 
-  return { data, loading, error, reload };
+  return { data:sourceScope===scope?data:null, loading:sourceScope!==scope||loading, error:sourceScope===scope?error:null, reload };
 }
 
 function browserDeviceKey(): string {

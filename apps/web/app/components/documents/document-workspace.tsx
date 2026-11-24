@@ -7,7 +7,6 @@ import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
-import type { CatalogItem } from "../../../lib/catalog-read-model";
 import { confirmAction } from "../ui/action-dialog";
 import { useActionFeedbackMessages } from "../ui/action-feedback";
 import styles from "./document-workspace.module.css";
@@ -22,7 +21,7 @@ interface Summary {
 interface DocumentLineDraft { key:string;itemId:string;unitCode:string;quantity:string }
 interface Detail extends Summary {
   customerId:string|null;customerPhone:string|null;customerEmail:string|null;notes:string;updatedAt:string;
-  lines:Array<{itemId:string;saleUnitCode:string;quantity:number}>;
+  lines:Array<{itemId:string;itemName:string;saleUnitCode:string;quantity:number}>;
 }
 interface DocumentResponse { document:Detail }
 const labelKind=(kind:Kind)=>kind==="QUOTATION"?"Quotation":"Proforma invoice";
@@ -120,7 +119,7 @@ export function DocumentWorkspace() {
             quantity:Number(line.quantity)})),
         }),
       });
-      if(!response.ok)throw new Error(await readApiErrorMessage(response,"Could not create document"));
+      if(!response.ok)throw new Error(await readApiErrorMessage(response,editing?"Could not update document":"Could not create document"));
       const result=await response.json() as DocumentResponse;
       if(scopeRef.current!==scope)return;
       applyDocument(result.document);
@@ -197,12 +196,14 @@ export function DocumentWorkspace() {
                   setLine(line.key,{itemId:e.target.value,unitCode:unit?.code??""});
                 }}>
                   <option value="">Choose item</option>
+                  {line.itemId&&!item?<option value={line.itemId}>{editing?.lines.find(l=>l.itemId===line.itemId)?.itemName??"Item"} (unavailable — replace)</option>:null}
                   {available.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
               </label>
               <div className={styles.lineInputs}>
                 <label className={styles.field}>Sale unit
                   <select value={line.unitCode} onChange={e=>setLine(line.key,{unitCode:e.target.value})}>
+                    {line.unitCode&&!units.some(u=>u.code===line.unitCode)?<option value={line.unitCode}>{line.unitCode} (unavailable)</option>:null}
                     {units.length===0?<option value="">Select item</option>:
                       units.map(unit=><option key={unit.code} value={unit.code}>{unit.label}</option>)}
                   </select>

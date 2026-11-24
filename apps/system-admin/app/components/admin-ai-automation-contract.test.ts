@@ -54,7 +54,7 @@ describe("System Admin AI operations and automation contract", () => {
     for (const token of ["proposedAction", "impact", "target", "evidence", "requiredRole", "reason", "Approve", "Reject"]) {
       expect(card).toContain(token);
     }
-    expect(card).toContain("window.confirm");
+    expect(card).toContain("confirmAction");
   });
 
   it("provides policies, approvals, run history and safe natural-language query UI without horizontal-table dependence", () => {
