@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NetInfo from "@react-native-community/netinfo";
 import * as Crypto from "expo-crypto";
-import { Platform, SafeAreaView, StatusBar, View } from "react-native";
+import { Platform, StatusBar, View } from "react-native";
+import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
+import { WorkspaceHeader } from "./src/components/WorkspaceHeader";
 import { MobileApiClient,type MobileOwnCashShiftStatus } from "./src/api-client";
 import { MobileAppModel, type MobileAppSnapshot } from "./src/app-model";
 import { ActionDialog } from "./src/components/ActionDialog";
@@ -35,6 +37,10 @@ const DEFAULT_API_BASE = "https://tradeosafrica.lightworldtech.com";
  * and `src/screens`. This file holds no inline StyleSheet colors or hex values.
  */
 export default function App() {
+  return <SafeAreaProvider initialMetrics={initialWindowMetrics}><MobileWorkspace /></SafeAreaProvider>;
+}
+
+function MobileWorkspace() {
   const services = useMemo(() => {
     const persistence = createNativeMobilePersistence();
     const api = new MobileApiClient({
@@ -131,12 +137,21 @@ export default function App() {
   const queue = snapshot.bootstrap?.status === "READY" ? snapshot.bootstrap.queue : null;
   const ready = snapshot.bootstrap?.status === "READY" ? snapshot.bootstrap : null;
 
+  const workspaceReady=snapshot.phase==="READY"&&ready!==null;
+  const attendantOnly=ready?.membership.role==="POS_ATTENDANT";
+  const activeScreen=attendantOnly?"sell":screen;
+  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor={colors.midnight}
-      />
+    <SafeAreaView style={[styles.safeArea,workspaceReady&&styles.workspaceSafeArea]}
+      edges={workspaceReady?["top","left","right"]:["top","left","right","bottom"]}>
+      <StatusBar barStyle={workspaceReady?"dark-content":"light-content"} />
+      {workspaceReady&&ready?<WorkspaceHeader
+        businessName={ready.business.name} branchName={ready.branch.name}
+        userName={ready.user.displayName} title={titleByScreen[activeScreen]}
+        online={snapshot.online} syncing={snapshot.syncing}
+        pendingCount={ready.queue.pending} failedCount={ready.queue.failed}
+        onMenu={()=>{if(attendantOnly){if(!checkoutLock.current)setFeedback(signOutFeedback);}else setScreen("more");}}
+        attendantOnly={attendantOnly}/> : null}
       <View style={styles.flex}>
         {snapshot.phase === "BOOTING" ? <LoadingScreen /> : null}
 
@@ -162,7 +177,7 @@ export default function App() {
         {snapshot.phase === "READY" ? (
           <>
             <View style={styles.flex}>
-              {screen === "dashboard" ? (
+              {activeScreen === "dashboard" ? (
                 <DashboardScreen
                   snapshot={snapshot}
                   onGoToSell={() => setScreen("sell")}
@@ -172,7 +187,7 @@ export default function App() {
                   onRefreshCatalog={() => { void refreshCommerce(); }}
                 />
               ) : null}
-              {screen === "sell" ? (
+              {activeScreen === "sell" ? (
                 <PosScreen
                   snapshot={snapshot}
                   search={search}
@@ -187,7 +202,7 @@ export default function App() {
                   onOwnCashShift={ownCashShift}
                 />
               ) : null}
-              {screen === "sales" ? (
+              {activeScreen === "sales" ? (
                 <SalesScreen
                   api={api}
                   snapshot={snapshot}
@@ -195,7 +210,7 @@ export default function App() {
                   onGoToSell={() => setScreen("sell")}
                 />
               ) : null}
-              {screen === "more" ? (
+              {activeScreen === "more" ? (
                 <MoreScreen
                   snapshot={snapshot}
                   appVersion={APP_VERSION}
@@ -206,7 +221,7 @@ export default function App() {
                   onGoToQuestions={() => setScreen("questions")}
                 />
               ) : null}
-              {screen === "questions" && ready ? (
+              {activeScreen === "questions" && ready ? (
                 <BusinessQuestionsScreen
                   key={ready.user.id + ":" + ready.membership.businessId + ":" + ready.branch.id + ":" + ready.membership.role}
                   api={api}
@@ -214,12 +229,10 @@ export default function App() {
                   branchId={ready.branch.id}
                   role={ready.membership.role}
                   online={snapshot.online === true}
-                  pendingCount={ready.queue.pending}
-                  failedCount={ready.queue.failed}
                   onBack={() => setScreen("more")}
                 />
               ) : null}
-              {screen === "notifications" && ready ? (
+              {activeScreen === "notifications" && ready ? (
                 <NotificationsScreen
                   key={ready.user.id + ":" + ready.membership.businessId + ":" + ready.branch.id + ":" + ready.membership.role}
                   api={api}
@@ -227,15 +240,15 @@ export default function App() {
                   branchId={ready.branch.id}
                   role={ready.membership.role}
                   online={snapshot.online === true}
-                  pendingCount={ready.queue.pending}
-                  failedCount={ready.queue.failed}
                   onBack={() => setScreen("more")}
                 />
               ) : null}
             </View>
             <BottomNav
-              active={screen === "notifications" || screen === "questions" ? "more" : screen}
+              active={activeScreen === "notifications" || activeScreen === "questions" ? "more" : activeScreen}
               onChange={setScreen}
+              attendantOnly={attendantOnly}
+              onSignOut={()=>{if(!checkoutLock.current)setFeedback(signOutFeedback);}}
               pendingCount={queue?.pending ?? 0}
               failedCount={queue?.failed ?? 0}
             />
@@ -251,5 +264,6 @@ export default function App() {
 // Tiny local styles — no inline colors; the design system owns palette + spacing.
 const styles = {
   safeArea: { flex: 1, backgroundColor: colors.midnight } as const,
-  flex: { flex: 1 } as const,
+  workspaceSafeArea: { backgroundColor: colors.surface } as const,
+  flex: { flex: 1, minHeight:0 } as const,
 };

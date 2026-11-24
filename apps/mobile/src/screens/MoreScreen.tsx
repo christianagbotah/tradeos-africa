@@ -4,7 +4,6 @@ import { Button } from "../components/Button";
 import { Card, HeroCard } from "../components/Card";
 import { Icon, IconTile } from "../components/icons";
 import { StatCard } from "../components/StatCard";
-import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { colors, radius, spacing, typography } from "../theme";
 import type { MobileAppSnapshot } from "../app-model";
 
@@ -35,12 +34,6 @@ export function MoreScreen({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <WorkspaceHeader
-        online={snapshot.online}
-        syncing={snapshot.syncing}
-        failedCount={queue.failed}
-        pendingCount={queue.pending}
-      />
 
       <HeroCard padding="comfortable" style={styles.hero}>
         <Text style={styles.heroKicker}>Workspace context</Text>
@@ -191,6 +184,7 @@ function FoundationRow({ title, copy }: { title: string; copy: string }) {
 
 const styles = StyleSheet.create({
   content: {
+    paddingTop: spacing.s4,
     flexGrow: 1,
     backgroundColor: colors.canvas,
     paddingHorizontal: spacing.s4,

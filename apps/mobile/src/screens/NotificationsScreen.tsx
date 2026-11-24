@@ -5,7 +5,6 @@ import type { MobileApiClient } from "../api-client";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
-import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { colors, radius, spacing, typography } from "../theme";
 import { canReadMobileNotifications, notificationResponseMatchesContext } from "../notification-scope";
 
@@ -15,8 +14,6 @@ export type NotificationsScreenProps = {
   branchId: string;
   role: string;
   online: boolean;
-  pendingCount: number;
-  failedCount: number;
   onBack: () => void;
 };
 
@@ -27,7 +24,7 @@ export type NotificationsScreenProps = {
  * Owner approvals stay in the canonical web review workflow.
  */
 export function NotificationsScreen({
-  api, businessId, branchId, role, online, pendingCount, failedCount, onBack,
+  api, businessId, branchId, role, online, onBack,
 }: NotificationsScreenProps) {
   const allowed = canReadMobileNotifications(role);
   const [inbox, setInbox] = useState<BusinessNotificationsResponse | null>(null);
@@ -88,7 +85,6 @@ export function NotificationsScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <WorkspaceHeader online={online} syncing={false} pendingCount={pendingCount} failedCount={failedCount} />
       <View style={styles.heading}>
         <View style={styles.headingText}>
           <Text style={styles.eyebrow}>Business intelligence</Text>

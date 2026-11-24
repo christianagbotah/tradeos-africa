@@ -5,7 +5,6 @@ import type { MobileApiClient } from "../api-client";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
-import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { formatMoney } from "../lib/format";
 import { canAskMobileBusinessQuestions, questionResponseMatchesContext } from "../question-scope";
 import { colors, radius, spacing, typography } from "../theme";
@@ -23,8 +22,6 @@ export type BusinessQuestionsScreenProps = {
   branchId: string;
   role: string;
   online: boolean;
-  pendingCount: number;
-  failedCount: number;
   onBack: () => void;
 };
 
@@ -40,7 +37,7 @@ function readableEvidence(item: BusinessQuestionFact, currencyCode: string | nul
  * crossing accounts. Offline work is entirely unaffected by this optional UI.
  */
 export function BusinessQuestionsScreen({
-  api, businessId, branchId, role, online, pendingCount, failedCount, onBack,
+  api, businessId, branchId, role, online, onBack,
 }: BusinessQuestionsScreenProps) {
   const allowed = canAskMobileBusinessQuestions(role);
   const [question, setQuestion] = useState("");
@@ -88,7 +85,6 @@ export function BusinessQuestionsScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <WorkspaceHeader online={online} syncing={false} pendingCount={pendingCount} failedCount={failedCount} />
       <View style={styles.heading}>
         <View style={styles.headingText}>
           <Text style={styles.eyebrow}>Business intelligence</Text>

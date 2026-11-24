@@ -3,7 +3,6 @@ import { HeroCard } from "../components/Card";
 import { StatCard } from "../components/StatCard";
 import { Banner } from "../components/Banner";
 import { Icon, IconTile } from "../components/icons";
-import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { colors, radius, spacing, typography } from "../theme";
 import type { MobileAppSnapshot, MobileSaleNotice } from "../app-model";
 import { formatRelativeTime } from "../lib/format";
@@ -36,13 +35,6 @@ export function DashboardScreen({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <WorkspaceHeader
-        variant="light"
-        online={snapshot.online}
-        syncing={snapshot.syncing}
-        failedCount={queue.failed}
-        pendingCount={queue.pending}
-      />
 
       <View style={styles.intro}>
         <Text style={styles.pageTitle}>Your workspace</Text>
@@ -200,6 +192,7 @@ function SaleNoticeBanner({ notice }: { notice: MobileSaleNotice }) {
 
 const styles = StyleSheet.create({
   content: {
+    paddingTop: spacing.s4,
     flexGrow: 1,
     backgroundColor: colors.canvas,
     paddingHorizontal: spacing.s4,

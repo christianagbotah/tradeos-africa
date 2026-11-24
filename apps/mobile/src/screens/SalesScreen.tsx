@@ -6,7 +6,6 @@ import { PostedSalesHistory } from "./PostedSalesHistory";
 import type { MobileApiClient } from "../api-client";
 import { Icon, IconTile } from "../components/icons";
 import { StatCard } from "../components/StatCard";
-import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { colors, radius, spacing, typography } from "../theme";
 import type { MobileAppSnapshot } from "../app-model";
 
@@ -28,12 +27,6 @@ export function SalesScreen({ snapshot, api, onSync, onGoToSell }: SalesScreenPr
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <WorkspaceHeader
-        online={snapshot.online}
-        syncing={snapshot.syncing}
-        failedCount={queue.failed}
-        pendingCount={queue.pending}
-      />
 
       <HeroCard padding="comfortable" style={styles.hero}>
         <Text style={styles.heroKicker}>Sales · mobile view</Text>
@@ -137,6 +130,7 @@ export function SalesScreen({ snapshot, api, onSync, onGoToSell }: SalesScreenPr
 
 const styles = StyleSheet.create({
   content: {
+    paddingTop: spacing.s4,
     flexGrow: 1,
     backgroundColor: colors.canvas,
     paddingHorizontal: spacing.s4,

@@ -1,4 +1,5 @@
 import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "./Button";
 import { Icon, type IconName } from "./icons";
 import { colors, radius, shadows, spacing, typography } from "../theme";
@@ -19,8 +20,9 @@ export function ActionDialog({feedback,onDismiss,onConfirm}:{
   if(!feedback)return null;
   const tone=palette[feedback.tone];
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent>
-      <View style={styles.backdrop}>
+    <Modal visible transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent navigationBarTranslucent>
+      <SafeAreaProvider>
+      <SafeAreaView edges={["top","bottom","left","right"]} style={styles.backdrop}>
         <View style={styles.dialog} accessibilityViewIsModal>
           <ScrollView bounces={false} contentContainerStyle={styles.content}>
             <View style={[styles.icon,{backgroundColor:tone.bg}]}><Icon name={tone.icon} color={tone.fg} size={32}/></View>
@@ -36,7 +38,8 @@ export function ActionDialog({feedback,onDismiss,onConfirm}:{
             </View>
           </ScrollView>
         </View>
-      </View>
+      </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }
