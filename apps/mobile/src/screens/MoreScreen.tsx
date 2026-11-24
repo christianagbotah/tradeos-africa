@@ -14,6 +14,9 @@ export type MoreScreenProps = {
   onRefreshCatalog: () => void;
   onGoToNotifications: () => void;
   onGoToQuestions: () => void;
+  onGoToFinance:()=>void;
+  onGoToPurchaseOrders:()=>void;
+  onGoToSuppliers:()=>void;
   onGoToDocuments:()=>void;
   onGoToCatalog:()=>void;
   onGoToInventory:()=>void;
@@ -27,7 +30,7 @@ export function MoreScreen({
   onRefreshCatalog,
   onGoToNotifications,
   onGoToQuestions,
-  onGoToCatalog,onGoToInventory,onGoToDocuments,
+  onGoToCatalog,onGoToInventory,onGoToDocuments,onGoToSuppliers,onGoToPurchaseOrders,onGoToFinance,
   onLogout,
 }: MoreScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
@@ -67,6 +70,9 @@ export function MoreScreen({
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Master data and inventory</Text>
         <Text style={styles.sectionTitle}>Products and stock</Text>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open cashbook and expenses" onPress={onGoToFinance}>Cashbook &amp; expenses</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open purchase orders" onPress={onGoToPurchaseOrders}>Purchase orders</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open suppliers and purchases" onPress={onGoToSuppliers}>Suppliers &amp; purchases</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open quotations and proformas" onPress={onGoToDocuments}>Quotes &amp; proformas</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open catalog" onPress={onGoToCatalog}>Catalog</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open inventory" onPress={onGoToInventory}>Inventory</Button>
