@@ -5,7 +5,7 @@ import { PosAttendantPolicyError } from "./pos-attendant-policy.js";
  * No noncash amounts, arbitrary actor identities, financial settings or day-close.
  */
 const METHODS = ["CASH", "MOMO", "CARD", "BANK", "OTHER"] as const;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Mode = "SHIFT_OPEN_CREATE" | "SHIFT_CLOSE_CREATE";
 export function assertPosAttendantShiftPayload(type:Mode,raw:unknown):void {
   if(!raw || typeof raw!=="object" || Array.isArray(raw))throw new PosAttendantPolicyError(

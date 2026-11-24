@@ -13,6 +13,10 @@ const closing={shiftId,closingBalances:[
   {method:"OTHER",countedMinor:0},
 ]};
 describe("authenticated POS attendant cash shift request policy",()=>{
+  it("accepts canonical 8-4-4-4-12 PostgreSQL UUIDs",()=>{
+    expect(dayId.split("-").map(part=>part.length)).toEqual([8,4,4,4,12]);
+    expect(()=>assertPosAttendantShiftPayload("SHIFT_OPEN_CREATE",opening)).not.toThrow();
+  });
   it("allows only own cash-only shift payloads",()=>{
     expect(()=>assertPosAttendantShiftPayload("SHIFT_OPEN_CREATE",opening)).not.toThrow();
     expect(()=>assertPosAttendantShiftPayload("SHIFT_CLOSE_CREATE",closing)).not.toThrow();
