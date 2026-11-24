@@ -450,8 +450,27 @@ jobs:
               const ctx = await browser.newContext({ storageState: state, viewport: { width, height: 900 } });
               const p = await ctx.newPage();
               try {
-                await p.goto(`${WEB}${path}`, { waitUntil: "networkidle", timeout: 30000 });
+                const branchPolicyView = path.includes("section=branches");
+                let policyReads = 0;
+                if (branchPolicyView) {
+                  p.on("request", request => {
+                    if (request.url().includes("/v1/operations/sale-shift-policy")) policyReads++;
+                  });
+                }
+                await p.goto(`${WEB}${path}`, {
+                  waitUntil: branchPolicyView ? "domcontentloaded" : "networkidle",
+                  timeout: 30000,
+                });
+                if (branchPolicyView) {
+                  await p.locator('[aria-label="Shift before sale policy"]')
+                    .waitFor({ state: "visible", timeout: 30000 });
+                  await p.getByText("Current setting:", { exact: false })
+                    .waitFor({ state: "visible", timeout: 30000 });
+                }
                 await p.waitForTimeout(1200);
+                if (branchPolicyView && policyReads > 3) {
+                  failures.push(shot+"-"+width+": repeated shift policy GET requests ("+policyReads+")");
+                }
                 if (clickName) {
                   await p.getByRole("button", { name: clickName, exact: true }).first().click();
                 }
@@ -494,7 +513,13 @@ jobs:
               await p.locator("#settings-business-name").waitFor({ state: "visible" });
               if (await p.locator("#settings-new-business-name").count()) failures.push("settings-business-modes: create remained open after Edit business");
 
-              await p.goto(`${WEB}/settings?section=branches`, { waitUntil: "networkidle", timeout: 30000 });
+              await p.goto(`${WEB}/settings?section=branches`, {
+                waitUntil: "domcontentloaded", timeout: 30000,
+              });
+              await p.locator('[aria-label="Shift before sale policy"]')
+                .waitFor({ state: "visible", timeout: 30000 });
+              await p.getByText("Current setting:", { exact: false })
+                .waitFor({ state: "visible", timeout: 30000 });
               await p.getByRole("button", { name: "Edit", exact: true }).first().click();
               await p.locator(".tos-settings__branch-editor-shell").waitFor({ state: "visible" });
               await p.getByRole("button", { name: "Add branch", exact: true }).click();

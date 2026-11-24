@@ -3,6 +3,7 @@ import { registerMerchantBillingRoutes } from "./merchant-billing/routes.js";
 import { registerCashForecastRoutes } from "./cash-forecast.js";
 import { registerReportRoutes } from "./reports.js";
 import { registerOperationsRoutes } from "./operations.js";
+import { registerShiftSalePolicyRoutes } from "./operations/shift-sale-policy-routes.js";
 import { registerTreasuryRoutes } from "./treasury.js";
 import { registerCashbookRoutes } from "./cashbook.js";
 import { registerSupplierInventoryRoutes } from "./suppliers-inventory.js";
@@ -96,6 +97,7 @@ export function buildApp(pool: DatabasePool) {
   registerSupplierInventoryRoutes(app, pool);
   registerCashbookRoutes(app, pool);
   registerOperationsRoutes(app,pool);
+  registerShiftSalePolicyRoutes(app,pool);
   registerTreasuryRoutes(app,pool);
   registerReportRoutes(app,pool);
   registerCashForecastRoutes(app,pool);

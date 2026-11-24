@@ -13,6 +13,7 @@ import { requireHubtelPosConnection } from "./hubtel-pos-config.js";
 import {requireHubtelPreference} from "../payment-providers/service.js";
 import {resolveCustomerPrice} from "./price-rules.js";
 import {consumeApprovedDiscount} from "./discount-approvals.js";
+import {assertBranchShiftAtSaleTime} from "../operations/shift-sale-policy.js";
 
 export type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT" | "OTHER";
 
@@ -115,6 +116,13 @@ export async function applySaleMutationInTransaction(
     );
     const businessCurrency = branch.rows[0]?.currency_code;
     if (!businessCurrency) throw new SaleMutationError("Branch was not found for this business", "BRANCH_NOT_FOUND");
+
+    // Strict shift policy is opt-in per branch and evaluated as-of the
+    // original offline sale timestamp, before any economic writes.
+    await assertBranchShiftAtSaleTime(client,{
+      businessId:context.businessId,branchId:context.branchId,
+      cashierStaffId:payload.cashierStaffId,occurredAt:context.occurredAt,
+    });
 
     const currencyCode = (payload.currencyCode ?? businessCurrency).toUpperCase();
     if (!/^[A-Z]{3}$/.test(currencyCode)) throw new SaleMutationError("Currency must be a three-letter code");
