@@ -9,6 +9,7 @@ const ROLE_LABELS: Record<BusinessRole, string> = {
   ADMIN: "Administrator",
   MANAGER: "Manager",
   CASHIER: "Cashier",
+  POS_ATTENDANT: "POS attendant · cash-only POS",
   SALES: "Sales",
   INVENTORY: "Inventory",
   ACCOUNTANT: "Accountant",
@@ -16,7 +17,7 @@ const ROLE_LABELS: Record<BusinessRole, string> = {
   VIEWER: "Viewer",
 };
 
-const ADMIN_ROLES: readonly BusinessRole[] = ["MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER"];
+const ADMIN_ROLES: readonly BusinessRole[] = ["MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER"];
 
 export interface StaffEditorValue {
   displayName: string;

@@ -12,6 +12,8 @@ import {
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
+// A POS attendant may print only receipts from their own completed sales.
+const RECEIPT_ROLES: readonly BusinessRole[] = [...READ_ROLES, "POS_ATTENDANT"];
 const REFUND_REVIEW_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "ACCOUNTANT",
 ];
@@ -483,7 +485,11 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
       try {
         const auth=await authenticateAccessToken(pool,request.headers.authorization);
         const businessId=required(request.query.businessId,"businessId");
-        await requireBusinessRole(pool,auth,businessId,READ_ROLES);
+        const access=await requireBusinessRole(pool,auth,businessId,RECEIPT_ROLES);
+        if (access.role === "POS_ATTENDANT" && !access.staffId) {
+          throw new AuthError("An active staff identity is required",403,"STAFF_ACTOR_REQUIRED");
+        }
+        const ownedStaffId=access.role === "POS_ATTENDANT" ? access.staffId : null;
         const saleId=request.params.saleId;
         if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saleId)){
           throw new SalesReadError("Invalid receipt ID",400,"RECEIPT_ID_INVALID");
@@ -510,8 +516,9 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
            LEFT JOIN branches br ON br.id=s.branch_id AND br.business_id=s.business_id
            LEFT JOIN customers c ON c.id=s.customer_id AND c.business_id=s.business_id
            LEFT JOIN staff st ON st.id=s.cashier_staff_id AND st.business_id=s.business_id
-           WHERE s.id=$1 AND s.business_id=$2`,
-          [saleId,businessId],
+           WHERE s.id=$1 AND s.business_id=$2
+             AND ($3::uuid IS NULL OR s.cashier_staff_id=$3::uuid)`,
+          [saleId,businessId,ownedStaffId],
         );
         const sale=found.rows[0];
         if(!sale)throw new SalesReadError("Sale was not found",404,"SALE_NOT_FOUND");

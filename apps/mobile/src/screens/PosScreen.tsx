@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
@@ -28,7 +28,7 @@ const PAYMENT_METHODS: ReadonlyArray<{ value: MobileImmediatePaymentMethod; labe
   { value: "OTHER", label: "Other" },
 ];
 
-const SALE_ROLES = new Set(["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "STAFF"]);
+const SALE_ROLES = new Set(["OWNER", "ADMIN", "MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "STAFF"]);
 
 export type PosScreenProps = {
   snapshot: MobileAppSnapshot;
@@ -54,6 +54,11 @@ export function PosScreen({
   onCheckout,
  }: PosScreenProps) {
   const [quickServe,setQuickServe] = useState(false);
+  const attendantOnly = snapshot.bootstrap?.status === "READY" &&
+    snapshot.bootstrap.membership.role === "POS_ATTENDANT";
+  useEffect(() => {
+    if (attendantOnly && snapshot.paymentMethod !== "CASH") onPayment("CASH");
+  }, [attendantOnly, snapshot.paymentMethod, onPayment]);
   if (snapshot.bootstrap?.status !== "READY") return null;
   const ready = snapshot.bootstrap;
   const currencyCode = ready.business.currencyCode;
@@ -235,7 +240,7 @@ export function PosScreen({
         <Text style={styles.kicker}>Payment</Text>
         <Text style={styles.paymentTitle}>How is the customer paying?</Text>
         <View style={styles.paymentGrid}>
-          {PAYMENT_METHODS.map((method) => {
+          {PAYMENT_METHODS.filter(method=>!attendantOnly || method.value==="CASH").map((method) => {
             const active = snapshot.paymentMethod === method.value;
             return (
               <Pressable

@@ -31,6 +31,7 @@ export type WorkspaceRole =
   | "ADMIN"
   | "MANAGER"
   | "CASHIER"
+  | "POS_ATTENDANT"
   | "SALES"
   | "INVENTORY"
   | "ACCOUNTANT"

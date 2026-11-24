@@ -3,6 +3,7 @@ export const BUSINESS_ROLES = [
   "ADMIN",
   "MANAGER",
   "CASHIER",
+  "POS_ATTENDANT",
   "SALES",
   "INVENTORY",
   "ACCOUNTANT",

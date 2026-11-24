@@ -46,6 +46,7 @@ interface CheckoutSheetProps {
   initialVoicePaymentSuggestion?: VoiceCheckoutSuggestion | null;
   /** Fast walk-in cash collection without hiding normal payment verification. */
   quickServe?: boolean;
+  cashOnly?: boolean;
 }
 
 interface ServerQuoteLine{
@@ -85,6 +86,7 @@ export function CheckoutSheet({
   initialPaymentMethod,
   initialVoicePaymentSuggestion,
   quickServe = false,
+  cashOnly = false,
 }: CheckoutSheetProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [hubtelSelected,setHubtelSelected] = useState(false);
@@ -189,7 +191,8 @@ export function CheckoutSheet({
     if (!open) {initializedRef.current=false;return;}
     if (open && !initializedRef.current) {
       initializedRef.current=true;
-      const voiceMethod = initialPaymentMethod === "CREDIT"?"CUSTOMER_CREDIT":
+      const voiceMethod = cashOnly ? "CASH" :
+        initialPaymentMethod === "CREDIT"?"CUSTOMER_CREDIT":
         initialPaymentMethod && initialPaymentMethod!=="UNSPECIFIED"?
           initialPaymentMethod:"CASH";
       // Voice cannot mark an electronic payment received without Hubtel status.
@@ -203,7 +206,7 @@ export function CheckoutSheet({
       attemptedSaleRef.current=null;
       setSplitWithCredit(false);
       setPaidNowMinor(null);
-      setCustomer(customers.find(c=>c.id===initialCustomerId&&c.active)??null);
+      setCustomer(cashOnly ? null : customers.find(c=>c.id===initialCustomerId&&c.active)??null);
       setVoiceSuggestion(initialVoicePaymentSuggestion??null);
       setVoiceAmountCopied(false);
       setBusy(false);
@@ -213,7 +216,7 @@ export function CheckoutSheet({
       setReviewVersion(v=>v+1);
     }
   }, [open,initialCustomerId,initialPaymentMethod,
-    initialVoicePaymentSuggestion,customers]);
+    initialVoicePaymentSuggestion,customers,cashOnly]);
 
   useEffect(()=>{
     if(!open||!online||lines.length===0){
@@ -245,7 +248,7 @@ export function CheckoutSheet({
     return ()=>{active=false;};
   },[open,online,businessId,branchId,customer?.id,quoteKey,reviewVersion]);
   useEffect(()=>{
-    if(!open||!online){setApprovals([]);return;}
+    if(!open||!online||cashOnly){setApprovals([]);return;}
     let active=true;
     void getOfflineQueue().authenticatedFetch(
       "/v1/pricing/discount-requests?businessId="+encodeURIComponent(businessId)+
@@ -256,9 +259,9 @@ export function CheckoutSheet({
       if(active)setApprovals(data.requests);
     }).catch(()=>{if(active)setApprovals([]);});
     return ()=>{active=false;};
-  },[open,online,businessId,reviewVersion]);
+  },[open,online,businessId,reviewVersion,cashOnly]);
   useEffect(()=>{
-    if(!open || !online){setHubtelAvailable(false);return;}
+    if(!open || !online || cashOnly){setHubtelAvailable(false);return;}
     let active=true;
     setHubtelAvailable(false);
     setPreferredGateway("HUBTEL");
@@ -273,10 +276,11 @@ export function CheckoutSheet({
       }
     }).catch(()=>{if(active)setHubtelAvailable(false);});
     return ()=>{active=false;};
-  },[open,online,businessId]);
+  },[open,online,businessId,cashOnly]);
   if (!open) return null;
 
   function chooseTender(next:"CASH"|"MOMO"|"CARD"|"CUSTOMER_CREDIT"){
+    if (cashOnly && next !== "CASH") return;
     setPaymentMethod(next);
     setHubtelSelected(next==="MOMO"||next==="CARD");
     setCashReceivedMinor(null);setPaidNowMinor(null);
@@ -288,6 +292,7 @@ export function CheckoutSheet({
     if(!voiceSuggestion||!voicePaymentGuide.action||
       voiceSuggestion.tenderedMinor===null)return;
     if(voicePaymentGuide.action==="SPLIT_CASH"){
+      if (cashOnly) return;
       setSplitWithCredit(true);
       setPaidNowMinor(voiceSuggestion.tenderedMinor);
       setCashReceivedMinor(voiceSuggestion.tenderedMinor);
@@ -587,7 +592,8 @@ export function CheckoutSheet({
                   }} style={{minHeight:44,padding:10,borderRadius:10,fontWeight:800,
                     border:"1px solid var(--tos-border,#d4dfe9)",
                     color:"inherit",background:"transparent",cursor:"pointer"}}>
-                    Customer gave different cash / MoMo / credit / print receipt
+                    {cashOnly ? "Count cash/change or print receipt" :
+                      "Customer gave different cash / MoMo / credit / print receipt"}
                   </button>
                   <p style={{margin:0,fontSize:12,opacity:.8}}>
                     Press Cash paid only after receiving the money. A rejected sale stays open;
@@ -595,13 +601,13 @@ export function CheckoutSheet({
                   </p>
                 </section>
               ) : <>
-              <CustomerPicker customers={customers} selected={customer}
+              {!cashOnly ? <CustomerPicker customers={customers} selected={customer}
                 onSelect={c=>{
                   setCustomer(c);setSelectedApprovals({});
                   setCashReceivedMinor(null);setPaidNowMinor(null);
                   setSplitWithCredit(false);setVoiceSuggestion(null);
                   setVoiceAmountCopied(false);
-                }}/>
+                }}/> : null}
               {online&&quotePending?<p className="tos-callout" role="status">
                 Verifying current customer prices with the server…</p>:null}
               {online&&quoteError?<p className="tos-callout" role="alert">
@@ -610,7 +616,7 @@ export function CheckoutSheet({
               {!online&&customer?<p className="tos-callout">
                 Customer prices are offline estimates and may differ from a
                 negotiated rate. Reconnect before giving a binding price.</p>:null}
-              {online?<section className="tos-section">
+              {online && !cashOnly?<section className="tos-section">
                 <div className="tos-section__head">
                   <h3 className="tos-section__title">Approved price exceptions</h3>
                   <button type="button" style={{padding:"7px 10px",
@@ -664,7 +670,7 @@ export function CheckoutSheet({
                       <span className="tos-pay-card__sub">Count physical cash</span>
                     </span>
                   </button>
-                  <button type="button" className="tos-pay-card"
+                  {!cashOnly ? <button type="button" className="tos-pay-card"
                     aria-pressed={hubtelSelected}
                     onClick={()=>chooseTender("MOMO")}>
                     <span className="tos-pay-card__icon-wrap" aria-hidden="true">
@@ -676,9 +682,9 @@ export function CheckoutSheet({
                         {gatewayName} · verified online checkout
                       </span>
                     </span>
-                  </button>
+                  </button> : null}
                 </div>
-                {hubtelSelected?<section className="tos-section"
+                {hubtelSelected && !cashOnly?<section className="tos-section"
                   aria-label="Electronic payment type">
                   <div className="tos-section__head">
                     <h3 className="tos-section__title">Electronic payment type</h3>
@@ -724,7 +730,7 @@ export function CheckoutSheet({
                     </p>:null}
                   </div>
                 </section>:null}
-                <div style={{paddingTop:10}}>
+                {!cashOnly ? <div style={{paddingTop:10}}>
                   <button type="button" className="tos-pay-card"
                     style={{width:"100%",maxWidth:450}}
                     aria-pressed={!hubtelSelected&&paymentMethod==="CUSTOMER_CREDIT"}
@@ -737,10 +743,10 @@ export function CheckoutSheet({
                       <span className="tos-pay-card__sub">Not a cash or electronic receipt</span>
                     </span>
                   </button>
-                </div>
+                </div> : null}
               </div>
 
-              {voiceSuggestion?<section className="tos-section"
+              {voiceSuggestion && !cashOnly?<section className="tos-section"
                 aria-label="Review spoken payment suggestion">
                 <div className="tos-section__head">
                   <h3 className="tos-section__title">Spoken payment — review required</h3>
@@ -772,7 +778,7 @@ export function CheckoutSheet({
                 Spoken amount copied for review only. Check the physical cash
                 and any customer credit before pressing Charge.
               </p>:null}
-              {customer?.active&&availableCreditMinor!==null&&
+              {!cashOnly && customer?.active&&availableCreditMinor!==null&&
                 !hubtelSelected&&paymentMethod!=="CUSTOMER_CREDIT"?
                 <section className="tos-section">
                   <label style={{display:"flex",alignItems:"center",gap:9,
@@ -802,7 +808,7 @@ export function CheckoutSheet({
                     </p>
                   </div>:null}
                 </section>:null}
-              {paymentMethod==="CUSTOMER_CREDIT"?
+              {!cashOnly && paymentMethod==="CUSTOMER_CREDIT"?
                 <p role="status" className="tos-callout">
                   Pay later requires an active selected customer with available
                   credit and an online credit-limit check. It creates a receivable,

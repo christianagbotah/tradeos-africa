@@ -34,7 +34,7 @@ describe("native food vendor quick-sale UX",()=>{
   });
   it("preserves normal payment selection and role gates",()=>{
     expect(source).toContain("!quickServe?<Card");
-    expect(source).toContain("PAYMENT_METHODS.map");
+    expect(source).toContain('PAYMENT_METHODS.filter(method=>!attendantOnly || method.value==="CASH").map');
     expect(source).toContain('const canSell = SALE_ROLES.has(ready.membership.role);');
     expect(source).toContain("disabled={!canSell||snapshot.checkoutBusy||snapshot.cart.length===0");
   });

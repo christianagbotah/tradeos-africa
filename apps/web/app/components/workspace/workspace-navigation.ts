@@ -32,6 +32,7 @@ export type WorkspaceRole =
   | "ADMIN"
   | "MANAGER"
   | "CASHIER"
+  | "POS_ATTENDANT"
   | "SALES"
   | "INVENTORY"
   | "ACCOUNTANT"
@@ -76,6 +77,7 @@ const WRITE_ROLES: readonly WorkspaceRole[] = [
   "ADMIN",
   "MANAGER",
   "CASHIER",
+  "POS_ATTENDANT",
   "SALES",
   "INVENTORY",
   "ACCOUNTANT",
@@ -115,6 +117,9 @@ export const WORKSPACE_NAV_ITEMS: readonly WorkspaceNavItem[] = [
 /** Returns the nav items visible to the given role. */
 export function visibleNavItems(role: WorkspaceRole | null | undefined): readonly WorkspaceNavItem[] {
   if (!role) return [];
+  // SELL is shared with wider WRITE_ROLES; never let this list implicitly
+  // grant attendant access to pricing/inventory or future write modules.
+  if (role === "POS_ATTENDANT") return WORKSPACE_NAV_ITEMS.filter(item=>item.segment==="sell");
   return WORKSPACE_NAV_ITEMS.filter((item) => (item.visibleTo ?? ALL_ROLES).includes(role));
 }
 
@@ -166,6 +171,8 @@ export interface MobileMoreGroup {
 
 export function mobileMoreNavigationGroups(role: WorkspaceRole | null | undefined): readonly MobileMoreGroup[] {
   if (!role) return [];
+  // A dedicated POS login must never promote other workspace routes.
+  if (role === "POS_ATTENDANT") return [];
   const secondary = secondaryNavItems(role);
   const linksFor = (segments: readonly string[]) => secondary
     .filter((item) => segments.includes(item.segment))

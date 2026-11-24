@@ -16,7 +16,7 @@ import type { DatabasePool } from "./db.js";
 const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
 const CATALOG_DELETE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN"];
 const CATALOG_READ_ROLES: readonly BusinessRole[] = [
-  "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
+  "OWNER", "ADMIN", "MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
 
 export function registerCatalogRoutes(app: FastifyInstance, pool: DatabasePool): void {

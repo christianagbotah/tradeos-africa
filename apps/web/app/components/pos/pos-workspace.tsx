@@ -14,7 +14,7 @@ import { VoiceSaleAssistant } from "./voice-sale-assistant";
 import type { VoicePayment,VoiceCheckoutSuggestion } from "../../../lib/voice-transaction-draft";
 
 export function PosWorkspace() {
-  const { catalog, inventory, customers, session, queue, bump } = useWorkspace();
+  const { catalog, inventory, customers, session, role, queue, bump } = useWorkspace();
   const [lines, setLines] = useState<CartLine[]>([]);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
@@ -24,6 +24,7 @@ export function PosWorkspace() {
   const [voicePayment,setVoicePayment]=useState<VoicePayment>("UNSPECIFIED");
   const [voicePaymentSuggestion,setVoicePaymentSuggestion]=useState<VoiceCheckoutSuggestion|null>(null);
 
+  const cashOnly = role === "POS_ATTENDANT";
   const currencyCode = session?.currencyCode ?? "GHS";
   const online = queue.online;
   const modeKey = session ?
@@ -253,6 +254,7 @@ export function PosWorkspace() {
         }}
       />:null}
       <CheckoutSheet
+        cashOnly={cashOnly}
         quickServe={quickMode}
         initialCustomerId={voiceCustomerId}
         initialPaymentMethod={voicePayment}

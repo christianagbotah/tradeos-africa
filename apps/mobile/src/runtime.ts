@@ -56,7 +56,7 @@ export type MobileSaleCaptureResult = {
   errorMessage?: string;
 };
 
-const saleRoles = new Set(["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "STAFF"]);
+const saleRoles = new Set(["OWNER", "ADMIN", "MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "STAFF"]);
 
 export type MobileRuntimeOptions = {
   api: RuntimeApi;
@@ -174,6 +174,9 @@ export class MobileRuntime {
     const ready = this.requireReady();
     if (!saleRoles.has(ready.membership.role)) {
       throw new MobileRuntimeError("Your current role does not have permission to create sales.");
+    }
+    if (ready.membership.role === "POS_ATTENDANT" && paymentMethod !== "CASH") {
+      throw new MobileRuntimeError("POS attendants can record cash only; ask a cashier or supervisor for other tenders.");
     }
 
     const clientMutationId = this.options.createMutationId();

@@ -16,7 +16,7 @@ import {
 import type { DatabasePool } from "./db.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
-  "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
+  "OWNER", "ADMIN", "MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
 
 export function registerBusinessRoutes(app: FastifyInstance, pool: DatabasePool): void {

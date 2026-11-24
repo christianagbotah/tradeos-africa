@@ -520,6 +520,10 @@
   padding: 0 env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
 }
 
+/* A dedicated shop attendant sees POS and Sign out, not empty "More" tools. */
+.tos-bottomnav[data-pos-attendant="true"] .tos-bottomnav__inner {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .tos-bottomnav__inner {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
