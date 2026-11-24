@@ -3,6 +3,8 @@ import {ActivityIndicator,Pressable,ScrollView,StyleSheet,Text,View} from "react
 import {MobileApiError,type MobileApiClient,type MobileCustomer,type MobileCustomerDetail} from "../api-client";
 import type {MobileActionFeedback} from "../action-feedback";
 import {canReadCustomers,canEditCustomer,filterCustomers,confirmedCustomerRows,insertConfirmedCustomer,normalizeCustomerContact,type CustomerContactDraft,type CustomerFilter} from "../customer-directory";
+import {CustomerFinancePanel} from "./CustomerFinancePanel";
+import type {CustomerReceiptInput,ReceiptOutcome} from "../customer-payment";
 import {Button} from "../components/Button";
 import {Card} from "../components/Card";
 import {Input} from "../components/Input";
@@ -13,10 +15,10 @@ import {formatMoney} from "../lib/format";
 import {displaySaleDate} from "../sales-history";
 import {colors,radius,spacing,typography} from "../theme";
 
-type Props={api:Pick<MobileApiClient,"getCustomers"|"getCustomer"|"updateCustomerContact"|"createCustomerContact">;businessId:string;role:string;currencyCode:string;timezone:string;online:boolean;onFeedback:(feedback:MobileActionFeedback)=>void};
+type Props={api:Pick<MobileApiClient,"getCustomers"|"getCustomer"|"updateCustomerContact"|"createCustomerContact"|"getMoneyAccounts"|"getMoneyDefaults"|"updateCustomerCredit">;businessId:string;branchId:string;onReceipt:(input:CustomerReceiptInput)=>Promise<ReceiptOutcome>;role:string;currencyCode:string;timezone:string;online:boolean;onFeedback:(feedback:MobileActionFeedback)=>void};
 const FILTERS:readonly {value:CustomerFilter;label:string}[]=[{value:"ALL",label:"All"},{value:"ACTIVE",label:"Active"},{value:"INACTIVE",label:"Inactive"},{value:"OWES",label:"Owes balance"}];
 
-export function CustomersScreen({api,businessId,role,currencyCode,timezone,online,onFeedback}:Props){
+export function CustomersScreen({api,businessId,branchId,role,currencyCode,timezone,online,onFeedback,onReceipt}:Props){
   const allowed=canReadCustomers(role),canEdit=canEditCustomer(role);
   const [query,setQuery]=useState("");
   const [filter,setFilter]=useState<CustomerFilter>("ALL");
@@ -153,6 +155,7 @@ export function CustomersScreen({api,businessId,role,currencyCode,timezone,onlin
             <Button variant="secondary" fullWidth disabled={saving} accessibilityLabel="Cancel editing" onPress={()=>setEdit(null)}>Cancel editing</Button>
           </>:canEdit?<Button variant="gold" accessibilityLabel="Edit customer contact" onPress={()=>setEdit({name:detail.customer.name,phone:detail.customer.phone??"",email:detail.customer.email??"",expectedUpdatedAt:detail.customer.updatedAt})}>Edit contact</Button>:null}
           <Button variant="secondary" size="compact" disabled={saving} accessibilityLabel="Reload customer details" onPress={()=>void openCustomer(selected)}>Reload details</Button>
+          {!edit?<CustomerFinancePanel key={detail.customer.id} api={api} customer={detail.customer} businessId={businessId} branchId={branchId} role={role} currencyCode={currencyCode} online={online} onReceipt={onReceipt} onFeedback={onFeedback} onRefresh={async()=>{await Promise.all([openCustomer(detail.customer.id),reload()]);}}/>:null}
           <Text style={styles.sectionTitle}>Credit obligations</Text>
           {detail.obligations.length===0?<Text style={styles.muted}>No credit obligations.</Text>:detail.obligations.map(item=><View key={item.id} style={styles.row}><View style={styles.flex}><Text style={styles.rowTitle}>Due {displaySaleDate(item.dueAt,timezone)}</Text><Text style={styles.muted}>Original {formatMoney(item.originalMinor,currencyCode)}</Text></View><Text style={styles.rowTitle}>{formatMoney(item.openMinor,currencyCode)}</Text></View>)}
           <Text style={styles.sectionTitle}>Recent account activity</Text>

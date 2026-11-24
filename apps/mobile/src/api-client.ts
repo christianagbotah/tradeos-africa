@@ -84,6 +84,9 @@ export type MobileInventoryItem = {
 
 export type MobileInventoryResponse = { items: MobileInventoryItem[] };
 
+export type CustomerPaymentMethod="CASH"|"MOMO"|"CARD"|"BANK"|"OTHER";
+export type MobileMoneyAccount={id:string;businessId:string;branchId:string|null;name:string;method:string;currencyCode:string;active:boolean};
+export type MobileMoneyDefault={branchId:string;method:string;moneyAccountId:string};
 export type MobileCustomer={
   id:string;name:string;phone:string|null;email:string|null;active:boolean;
   balanceMinor:number;creditEnabled:boolean;creditLimitMinor:number|null;availableCreditMinor:number|null;
@@ -210,6 +213,15 @@ export class MobileApiClient {
     return this.authorizedJson<MobileInventoryResponse>(`/v1/inventory?${query.toString()}`, { method: "GET" });
   }
 
+  getMoneyAccounts(businessId:string,branchId:string):Promise<{accounts:MobileMoneyAccount[]}>{
+    return this.authorizedJson("/v1/money-accounts?"+new URLSearchParams({businessId,branchId}).toString(),{method:"GET"});
+  }
+  getMoneyDefaults(businessId:string,branchId:string):Promise<{defaults:MobileMoneyDefault[]}>{
+    return this.authorizedJson("/v1/money-account-defaults?"+new URLSearchParams({businessId,branchId}).toString(),{method:"GET"});
+  }
+  updateCustomerCredit(businessId:string,customerId:string,input:Pick<CustomerUpdateInput,"expectedUpdatedAt"|"creditLimitMinor"|"creditTermsDays"|"active">):Promise<{customer:MobileCustomer}>{
+    return this.authorizedJson("/v1/customers/"+encodeURIComponent(customerId),{method:"PATCH",body:JSON.stringify({businessId,expectedUpdatedAt:input.expectedUpdatedAt,creditLimitMinor:input.creditLimitMinor,creditTermsDays:input.creditTermsDays,active:input.active})});
+  }
   getCustomers(businessId:string,search=""):Promise<{customers:MobileCustomer[]}>{
     const query=new URLSearchParams({businessId,limit:"200"});
     if(search.trim())query.set("query",search.trim());

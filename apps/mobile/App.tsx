@@ -17,6 +17,7 @@ import { MoreScreen } from "./src/screens/MoreScreen";
 import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import { BusinessQuestionsScreen } from "./src/screens/BusinessQuestionsScreen";
 import { PosScreen } from "./src/screens/PosScreen";
+import type { CustomerReceiptInput } from "./src/customer-payment";
 import { CustomersScreen } from "./src/screens/CustomersScreen";
 import { SalesScreen } from "./src/screens/SalesScreen";
 import { ErrorScreen, LoadingScreen, NeedsBusinessScreen } from "./src/screens/BootScreens";
@@ -127,6 +128,16 @@ function MobileWorkspace() {
     setSearch("");
     setScreen("dashboard");
   };
+  const recordCustomerReceipt=async(input:CustomerReceiptInput)=>{
+    if(checkoutLock.current)throw new Error("Another transaction is in progress.");
+    checkoutLock.current=true;
+    try{
+      return await runtime.recordCustomerReceipt(input,snapshot.online===true);
+    }finally{
+      try{if(model.snapshot.phase==="READY")setSnapshot(await model.refreshQueueState());}
+      finally{checkoutLock.current=false;}
+    }
+  };
   const retry = async () => setSnapshot(await model.start());
 
   const addCart = (item: Parameters<typeof model.addCart>[0]) => setSnapshot(model.addCart(item));
@@ -151,7 +162,7 @@ function MobileWorkspace() {
         userName={ready.user.displayName} title={titleByScreen[activeScreen]}
         online={snapshot.online} syncing={snapshot.syncing}
         pendingCount={ready.queue.pending} failedCount={ready.queue.failed}
-        onMenu={()=>{if(attendantOnly){if(!checkoutLock.current)setFeedback(signOutFeedback);}else setScreen("more");}}
+        onMenu={()=>{if(attendantOnly){if(!checkoutLock.current)setFeedback(signOutFeedback);}else if(!checkoutLock.current)setScreen("more");}}
         attendantOnly={attendantOnly}/> : null}
       <View style={styles.flex}>
         {snapshot.phase === "BOOTING" ? <LoadingScreen /> : null}
@@ -216,6 +227,7 @@ function MobileWorkspace() {
                   key={ready.user.id+":"+ready.membership.businessId+":"+ready.membership.role}
                   api={api} businessId={ready.membership.businessId}
                   role={ready.membership.role} currencyCode={ready.business.currencyCode}
+                  branchId={ready.branch.id} onReceipt={recordCustomerReceipt}
                   timezone={ready.branch.timezone} online={snapshot.online===true}
                   onFeedback={setFeedback}/>
               ) : null}
@@ -255,7 +267,7 @@ function MobileWorkspace() {
             </View>
             <BottomNav
               active={activeScreen === "notifications" || activeScreen === "questions" ? "more" : activeScreen}
-              onChange={setScreen}
+              onChange={next=>{if(!checkoutLock.current)setScreen(next);}}
               attendantOnly={attendantOnly}
               onSignOut={()=>{if(!checkoutLock.current)setFeedback(signOutFeedback);}}
               pendingCount={queue?.pending ?? 0}

@@ -430,3 +430,29 @@ describe("native POS attendant owned cash shift",()=>{
     expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
   });
 });
+
+describe("native customer receipts",()=>{
+  const receipt={customerId:"customer-1",moneyAccountId:"account-1",method:"CASH" as const,amountMinor:1230};
+  it("submits canonical customer payment with selected branch and account",async()=>{
+    const {runtime,persistence,api}=createHarness();
+    await persistence.saveSession(session);await runtime.bootstrap();
+    expect(await runtime.recordCustomerReceipt(receipt,true)).toBe("SYNCED");
+    expect(api.pushes[0]?.mutations[0]).toMatchObject({businessId:business1,branchId:branch1,mutationType:"CUSTOMER_PAYMENT_CREATE",payload:receipt});
+  });
+  it("retains original mutation and blocks duplicate after connection loss",async()=>{
+    const {runtime,persistence,api}=createHarness();
+    await persistence.saveSession(session);await runtime.bootstrap();api.pushError=new Error("lost response");
+    expect(await runtime.recordCustomerReceipt(receipt,true)).toBe("PENDING");
+    const snapshot=await runtime.queue.getSnapshot();
+    await expect(runtime.recordCustomerReceipt(receipt,true)).rejects.toThrow("pending or rejected");
+    expect((await runtime.queue.getSnapshot()).pending).toEqual(snapshot.pending);
+  });
+  it("rejects another receipt after a server rejection and disallows offline capture",async()=>{
+    const {runtime,persistence,api}=createHarness();
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.recordCustomerReceipt(receipt,false)).rejects.toThrow();
+    api.rejectNextPush={code:"TEST",message:"Rejected"};
+    expect(await runtime.recordCustomerReceipt(receipt,true)).toBe("NEEDS_REVIEW");
+    await expect(runtime.recordCustomerReceipt(receipt,true)).rejects.toThrow("pending or rejected");
+  });
+});
