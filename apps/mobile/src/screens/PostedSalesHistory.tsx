@@ -91,7 +91,7 @@ export function PostedSalesHistory({api,businessId,branchId,role,timezone,online
           <Text style={styles.muted}>{displaySaleDate(row.completedAt??row.createdAt,timezone)}</Text>
           <Text style={styles.muted} numberOfLines={1}>{row.id.slice(0,8).toUpperCase()} · {row.payments.map(p=>p.method.replaceAll("_"," ")).join(", ")||"No payment recorded"}</Text>
         </View>
-        <View style={styles.amountGroup}><Text style={styles.amount}>{formatMoney(row.totalMinor,row.currencyCode)}</Text><Text style={styles.status}>{row.status.replaceAll("_"," ")}</Text>{row.refundTotalMinor>0?<Text style={styles.refund}>Refund {formatMoney(row.refundTotalMinor,row.currencyCode)}</Text>:null}</View>
+        <View style={styles.amountGroup}><Text style={styles.amount}>{formatMoney(row.totalMinor,row.currencyCode)}</Text><Text style={styles.status}>{row.status.replaceAll("_"," ")}</Text>{row.refundTotalMinor>0?<Text style={styles.refund}>Refund {formatMoney(row.refundTotalMinor,row.currencyCode)}</Text>:null}{row.refundPendingMinor>0?<Text style={styles.refund}>Pending {formatMoney(row.refundPendingMinor,row.currencyCode)}</Text>:null}{row.refundSettledMinor>0?<Text style={styles.muted}>Settled {formatMoney(row.refundSettledMinor,row.currencyCode)}</Text>:null}{row.refundFailedMinor>0?<Text style={styles.refund}>Failed {formatMoney(row.refundFailedMinor,row.currencyCode)}</Text>:null}</View>
         <Icon name="arrowRight" size={16} color={colors.textMuted}/>
       </Pressable>)}
       {rows?.length===100?<Text style={styles.muted}>Showing the latest 100 matching sales. Search to find an older transaction.</Text>:null}
