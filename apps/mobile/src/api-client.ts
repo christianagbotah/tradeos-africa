@@ -115,7 +115,7 @@ export type MobileSaleDetail={
   id:string;businessId:string;branchId:string;status:string;currencyCode:string;totalMinor:number;
   completedAt:string|null;createdAt:string;
   customer:{id:string;name:string|null;phone:string|null}|null;cashierName:string|null;
-  lines:Array<{id:string;itemName:string;quantity:number;saleUnitCode:string;unitNetMinor:number;lineTotalMinor:number;quantityReturned:number}>;
+  lines:Array<{id:string;itemName:string;itemKind?:"PRODUCT"|"SERVICE"|"PREPARED_PRODUCT";quantity:number;saleUnitCode:string;unitNetMinor:number;lineTotalMinor:number;quantityReturned:number;quantityReturnable?:number}>;
   payments:Array<{id:string;method:string;amountMinor:number;status:string;refundedMinor:number}>;
 };
 
