@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useRef,useState} from "react";
 import {ActivityIndicator,Pressable,ScrollView,StyleSheet,Text,View} from "react-native";
-import {type MobileApiClient,type MobileCatalogItem,type MobileInventoryItem,type MobileInventoryDetail} from "../api-client";
+import {MobileApiError,type MobileApiClient,type MobileCatalogItem,type MobileInventoryItem,type MobileInventoryDetail} from "../api-client";
 import {canBrowseStock,canManageCatalog,simpleCatalogDraft,catalogContactPatch,reconcileCatalog} from "../catalog-workspace";
 import {Button} from "../components/Button";
 import {Card} from "../components/Card";
@@ -51,11 +51,17 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
  }
  async function save(action:"create"|"edit"|"status"){
    if(lock.current||!online||!write||uncertain)return;
+   let createInput:ReturnType<typeof simpleCatalogDraft>|null=null;
+   let editInput:ReturnType<typeof catalogContactPatch>|null=null;
+   try{
+     if(action==="create"&&draft)createInput=simpleCatalogDraft(draft);
+     if(action==="edit"&&selected&&edit)editInput=catalogContactPatch(selected,edit.name,edit.sku,edit.prices);
+   }catch(e){setError(e instanceof Error?e.message:"Check item details.");return;}
    lock.current=true;setSaving(true);setError(null);
    try{
      let result:{item:MobileCatalogItem};
-     if(action==="create"&&draft)result=await api.createCatalogItem(businessId,simpleCatalogDraft(draft));
-     else if(selected&&action==="edit"&&edit)result=await api.updateCatalogItem(businessId,selected.id,catalogContactPatch(selected,edit.name,edit.sku,edit.prices));
+     if(action==="create"&&createInput)result=await api.createCatalogItem(businessId,createInput);
+     else if(selected&&action==="edit"&&editInput)result=await api.updateCatalogItem(businessId,selected.id,editInput);
      else if(selected&&action==="status"&&confirmStatus)result=await api.updateCatalogItem(businessId,selected.id,{expectedUpdatedAt:selected.updatedAt,active:!selected.active});
      else return;
      if(!live.current)return;
@@ -67,7 +73,7 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
      if(!live.current)return;
      setError(e instanceof Error?e.message:"Catalog change not confirmed.");
      // No automatic replay of non-idempotent creation if response is lost.
-     if(action==="create"){setUncertain(true);void refresh();}
+     if(action==="create"&&!(e instanceof MobileApiError&&[400,403,409,422].includes(e.statusCode))){setUncertain(true);void refresh();}
    }finally{lock.current=false;if(live.current)setSaving(false);}
  }
  const q=query.trim().toLowerCase();
