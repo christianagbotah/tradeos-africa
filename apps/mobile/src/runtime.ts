@@ -22,6 +22,7 @@ import {
   type MobileImmediatePaymentMethod,
   type MobileSellableItem,
 } from "./pos-model";
+import {canManageDays,canManageOwnShift,type OperationTransaction} from "./operations-workspace";
 import type {TreasuryTransaction} from "./treasury-workspace";
 import {canManageTreasury,canRecordExpense,type FinanceTransaction} from "./finance-workspace";
 import {canManageSuppliers,canPaySuppliers,type SupplierTransaction} from "./supplier-workspace";
@@ -89,6 +90,7 @@ export class MobileRuntime {
   private stockAdjustmentBusy=false;
   private supplierTransactionBusy=false;
   private financeBusy=false;
+  private operationsBusy=false;
   private saleReversalBusy=false;
 
   constructor(private readonly options: MobileRuntimeOptions) {
@@ -381,6 +383,26 @@ export class MobileRuntime {
       if(after.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
       return "SYNCED";
     }finally{this.saleReversalBusy=false;}
+  }
+
+  async recordOperation(input:OperationTransaction,online:boolean):Promise<ReceiptOutcome>{
+    const ready=this.requireReady();
+    const allowed=["OPERATING_DAY_OPEN_CREATE","OPERATING_DAY_CLOSE_CREATE","SHIFT_OPEN_CREATE","SHIFT_CLOSE_CREATE"];
+    if(!online||this.operationsBusy||!allowed.includes(input.type)||!(input.type.startsWith("OPERATING_DAY")?canManageDays(ready.membership.role):canManageOwnShift(ready.membership.role)))throw new MobileRuntimeError("An authorized online operations session is required.");
+    const closing=input.type.includes("CLOSE"),balances=closing?input.payload.closingBalances:input.payload.openingBalances;
+    if(!balances||balances.length!==5||new Set(balances.map(b=>b.method)).size!==5||balances.some(b=>!paymentMethods.includes(b.method)||!Number.isSafeInteger(b.countedMinor)||b.countedMinor<0))throw new MobileRuntimeError("Enter all five counted balances.");
+    this.operationsBusy=true;
+    try{
+      const state=await this.queue.getSnapshot();
+      if([...state.pending,...state.failed.map(x=>x.mutation)].some(x=>x.businessId===ready.business.id&&x.branchId===ready.branch.id&&(closing||allowed.includes(x.mutationType))))throw new MobileRuntimeError("Resolve pending or rejected branch transactions before changing this interval.");
+      const clientMutationId=this.options.createMutationId();
+      if(!await this.queue.enqueue({clientId:await this.options.persistence.getOrCreateDeviceKey(),clientMutationId,businessId:ready.business.id,branchId:ready.branch.id,mutationType:input.type,occurredAt:this.options.now(),payload:input.payload}))throw new MobileRuntimeError("Operation already queued.");
+      try{await this.flush(true);}catch{/* Preserve original submission. */}
+      const result=await this.queue.getSnapshot();
+      if(result.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
+      if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
+      return "SYNCED";
+    }finally{this.operationsBusy=false;}
   }
 
   async flush(online: boolean): Promise<FlushSummary> {

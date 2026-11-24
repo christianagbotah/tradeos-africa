@@ -139,6 +139,10 @@ export type MobileSaleDetail={
 /** Restricted POS attendant view from /v1/operations/current.
  * Only own CASH is present; no business-day balances or other staff details.
  */
+export type MobileOperationBalance={method:string;openingCountedMinor:number;movementMinor:number;expectedClosingMinor:number;closingCountedMinor:number|null;varianceMinor:number|null};
+export type MobileOperationInterval={id:string;businessId:string;branchId:string;currencyCode:string;status:"OPEN"|"CLOSED";openedAt:string;closedAt:string|null;note:string|null;openedByStaffId:string;closedByStaffId:string|null;balances:MobileOperationBalance[];businessDate?:string;staffId?:string;operatingDayId?:string};
+export type MobileOperationsCurrent={operatingDay:MobileOperationInterval|null;shift:MobileOperationInterval|null;openShiftCount:number};
+export type MobileShiftPolicy={required:boolean;revision:string|null;changedAt:string|null};
 export type MobileOwnCashShiftStatus = {
   operatingDay: { id:string; status:"OPEN"|"CLOSED"; openedAt:string } | null;
   shift: { id:string; status:"OPEN"|"CLOSED"; openedAt:string;
@@ -296,6 +300,21 @@ export class MobileApiClient {
   }
   saveExpenseCategory(businessId:string,input:{name:string;active?:boolean},revision?:{id:string;expectedUpdatedAt:string}):Promise<{category:MobileExpenseCategory}>{
     return this.authorizedJson("/v1/expense-categories"+(revision?"/"+encodeURIComponent(revision.id):""),{method:revision?"PATCH":"POST",body:JSON.stringify({businessId,...input,...(revision?{expectedUpdatedAt:revision.expectedUpdatedAt}:{})})});
+  }
+  getOperationsCurrent(businessId:string,branchId:string):Promise<MobileOperationsCurrent>{
+    return this.authorizedJson("/v1/operations/current?"+new URLSearchParams({businessId,branchId}).toString(),{method:"GET"});
+  }
+  getOperatingDays(businessId:string,branchId:string):Promise<{days:MobileOperationInterval[]}>{
+    return this.authorizedJson("/v1/operations/days?"+new URLSearchParams({businessId,branchId,limit:"30"}).toString(),{method:"GET"});
+  }
+  getStaffShifts(businessId:string,branchId:string,dayId?:string):Promise<{shifts:MobileOperationInterval[]}>{
+    return this.authorizedJson("/v1/operations/shifts?"+new URLSearchParams({businessId,branchId,limit:"100",...(dayId?{dayId}:{})}).toString(),{method:"GET"});
+  }
+  getShiftPolicy(businessId:string,branchId:string):Promise<{policy:MobileShiftPolicy}>{
+    return this.authorizedJson("/v1/operations/sale-shift-policy?"+new URLSearchParams({businessId,branchId}).toString(),{method:"GET"});
+  }
+  updateShiftPolicy(businessId:string,branchId:string,input:{required:boolean;expectedRevision:string|null;reason:string}):Promise<{policy:MobileShiftPolicy}>{
+    return this.authorizedJson("/v1/operations/sale-shift-policy?"+new URLSearchParams({businessId,branchId}).toString(),{method:"PATCH",body:JSON.stringify(input)});
   }
   getOwnCashShift(businessId:string,branchId:string):Promise<MobileOwnCashShiftStatus>{
     const query=new URLSearchParams({businessId,branchId});
