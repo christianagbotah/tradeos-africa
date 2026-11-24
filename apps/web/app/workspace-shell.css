@@ -850,6 +850,19 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* Quick price setup on the item sheet. */
+.tos-catalog-price-setup__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--tos-space-3);
+  align-items: end;
+}
+.tos-catalog-price-setup__error { color: var(--tos-danger, #b42318); margin: 0; }
+.tos-catalog-price-setup__notice { color: var(--tos-text-strong); margin: 0; }
+@media (max-width: 768px) {
+  .tos-catalog-price-setup__row { grid-template-columns: minmax(0, 1fr); }
+  .tos-catalog-price-setup__row > button { width: 100%; }
+}
 .tos-catalog-unit-grid {
   align-items: end;
 }
