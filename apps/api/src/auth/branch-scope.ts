@@ -14,10 +14,10 @@ export async function requireBranchScope(
     throw new AuthError("This POS attendant has no access to that branch.",403,BRANCH_SCOPE_DENIED);
   }
   const rows = await pool.query(
-    \`SELECT 1 FROM pos_attendant_branch_assignments ba
+    `SELECT 1 FROM pos_attendant_branch_assignments ba
        JOIN branches br ON br.id=ba.branch_id AND br.business_id=ba.business_id
       WHERE ba.business_id=$1 AND ba.staff_id=$2 AND ba.branch_id=$3
-        AND br.is_active=true LIMIT 1\`,
+        AND br.is_active=true LIMIT 1`,
     [access.businessId,access.staffId,branchId],
   );
   if (!rows.rowCount) throw new AuthError(
@@ -32,9 +32,9 @@ export async function requireAnyBranchScope(
   if (access.role !== "POS_ATTENDANT") return;
   if (!access.staffId) throw new AuthError("No assigned branch.",403,BRANCH_SCOPE_DENIED);
   const rows = await pool.query(
-    \`SELECT 1 FROM pos_attendant_branch_assignments ba
+    `SELECT 1 FROM pos_attendant_branch_assignments ba
        JOIN branches br ON br.id=ba.branch_id AND br.business_id=ba.business_id
-      WHERE ba.business_id=$1 AND ba.staff_id=$2 AND br.is_active=true LIMIT 1\`,
+      WHERE ba.business_id=$1 AND ba.staff_id=$2 AND br.is_active=true LIMIT 1`,
     [access.businessId,access.staffId],
   );
   if (!rows.rowCount) throw new AuthError(
@@ -47,9 +47,9 @@ export async function visibleBranchesForAccess<T extends {id:string}>(
 ): Promise<T[]> {
   if (access.role !== "POS_ATTENDANT") return [...branches];
   const allowed = await pool.query<{branch_id:string}>(
-    \`SELECT ba.branch_id FROM pos_attendant_branch_assignments ba
+    `SELECT ba.branch_id FROM pos_attendant_branch_assignments ba
        JOIN branches br ON br.id=ba.branch_id AND br.business_id=ba.business_id
-      WHERE ba.business_id=$1 AND ba.staff_id=$2 AND br.is_active=true\`,
+      WHERE ba.business_id=$1 AND ba.staff_id=$2 AND br.is_active=true`,
     [access.businessId,access.staffId],
   );
   const ids = new Set(allowed.rows.map(row=>row.branch_id));

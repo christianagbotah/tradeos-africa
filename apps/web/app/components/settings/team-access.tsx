@@ -174,7 +174,7 @@ export function TeamAccess({ online }: { online: boolean }) {
     setFeedback(null);
     try{
       const response=await getOfflineQueue().authenticatedFetch(
-        \`/v1/staff/\${encodeURIComponent(member.id)}/branches?businessId=\${encodeURIComponent(businessId)}\`,
+        `/v1/staff/${encodeURIComponent(member.id)}/branches?businessId=${encodeURIComponent(businessId)}`,
         {cache:"no-store"},
       );
       if(!response.ok)throw new Error(await readApiErrorMessage(response,"Branch assignments could not be loaded"));
@@ -191,7 +191,7 @@ export function TeamAccess({ online }: { online: boolean }) {
     setFeedback(null);
     try{
       const response=await getOfflineQueue().authenticatedFetch(
-        \`/v1/staff/\${encodeURIComponent(branchEditor.staffId)}/branches\`,
+        `/v1/staff/${encodeURIComponent(branchEditor.staffId)}/branches`,
         {method:"PUT",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({businessId,branchIds:branchEditor.selected})},
       );
@@ -199,7 +199,7 @@ export function TeamAccess({ online }: { online: boolean }) {
       const result=await response.json() as {branchIds:string[]};
       setBranchEditor(null);
       setFeedback({tone:"success",text:result.branchIds.length>0?
-        \`Branch access saved for \${result.branchIds.length} location(s).\`:
+        `Branch access saved for ${result.branchIds.length} location(s).`:
         "All branch access revoked. The POS attendant can no longer sign in."});
     }catch(error){
       setFeedback({tone:"error",text:errorMessage(error,"Branch assignment failed")});
@@ -306,7 +306,7 @@ export function TeamAccess({ online }: { online: boolean }) {
               {(businessContext?.branches??[]).filter(branch=>branch.active).map(branch=>(
                 <label key={branch.id} style={{display:"flex",gap:10,alignItems:"center",
                   minHeight:44,cursor:"pointer",fontWeight:600}}>
-                  <input type="checkbox" aria-label={\`Allow \${branch.name}\`}
+                  <input type="checkbox" aria-label={`Allow ${branch.name}`}
                     checked={branchEditor.selected.includes(branch.id)}
                     onChange={event=>setBranchEditor(old=>old?{
                       ...old,selected:event.target.checked?
