@@ -10,6 +10,7 @@ import Fastify from "fastify";
 import type { ClientMutation, SyncPushRequest } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
 import { assertPosAttendantSalePayload, PosAttendantPolicyError } from "./auth/pos-attendant-policy.js";
+import { requireBranchScope } from "./auth/branch-scope.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authenticateAccessToken, AuthError, type AuthContext } from "./auth/security.js";
 import { registerBusinessRoutes } from "./businesses.js";
@@ -153,6 +154,7 @@ async function authorizeAndEnrichSyncBatch(
     // This test must run on the authenticated database role, not a role string
     // supplied by an offline client or included inside the payload.
     if (access.role === "POS_ATTENDANT") {
+      await requireBranchScope(pool,access,normalizedMutation.branchId);
       if (normalizedMutation.mutationType !== "SALE_CREATE") {
         throw new AuthError("POS-only staff cannot perform this action", 403, "ROLE_FORBIDDEN");
       }

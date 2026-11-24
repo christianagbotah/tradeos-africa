@@ -3,6 +3,7 @@ import { quantityFromUnits, quantityUnits } from "./commerce/valuation.js";
 import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
+import { requireBranchScope } from "./auth/branch-scope.js";
 import type { DatabasePool } from "./db.js";
 import { createSupplier, deleteUnusedSupplier, loadSupplier, SUPPLIER_DELETE_ROLES, SUPPLIER_WRITE_ROLES, SupplierServiceError, updateSupplier } from "./supplier-service.js";
 
@@ -119,6 +120,7 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       const businessId = required(request.query.businessId,"businessId");
       const branchId = required(request.query.branchId,"branchId");
       const access = await requireBusinessRole(pool,auth,businessId,POS_STOCK_READ_ROLES);
+      await requireBranchScope(pool,access,branchId);
       await assertBranch(pool,businessId,branchId);
       const query = request.query.query?.trim() ?? "";
       // POS-only stock search returns item identity and sellable availability.

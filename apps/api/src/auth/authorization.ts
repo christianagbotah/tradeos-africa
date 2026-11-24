@@ -1,5 +1,6 @@
 import type { DatabasePool } from "../db.js";
 import { AuthError, type AuthContext } from "./security.js";
+import { requireAnyBranchScope } from "./branch-scope.js";
 
 export type BusinessRole = "OWNER" | "ADMIN" | "MANAGER" | "CASHIER" | "POS_ATTENDANT" | "SALES" | "INVENTORY" | "ACCOUNTANT" | "STAFF" | "VIEWER";
 
@@ -36,10 +37,12 @@ export async function requireBusinessRole(
   if (!allowedRoles.includes(row.role)) {
     throw new AuthError("Your role cannot perform this action", 403, "ROLE_FORBIDDEN");
   }
-  return {
+  const access: BusinessAccess = {
     membershipId: row.membership_id,
     businessId,
     role: row.role,
     staffId: row.staff_id,
   };
+  await requireAnyBranchScope(pool, access);
+  return access;
 }

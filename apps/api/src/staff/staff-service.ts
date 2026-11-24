@@ -153,6 +153,11 @@ export async function updateStaff(
          WHERE business_id=$1 AND staff_id=$2`,
         [businessId, staffId, nextRole],
       );
+      // Role changes revoke old branch grants, including away-and-back.
+      await client.query(
+        "DELETE FROM pos_attendant_branch_assignments WHERE business_id=$1 AND staff_id=$2",
+        [businessId,staffId],
+      );
     }
 
     const invitationSensitiveChange =

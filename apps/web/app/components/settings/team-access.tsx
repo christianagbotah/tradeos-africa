@@ -10,7 +10,7 @@ import { IconEdit, IconPlus, IconRefresh, IconUsers } from "../ui/icons";
 import { useWorkspace } from "../workspace/use-workspace";
 import { StaffEditor, type StaffEditorValue } from "./staff-editor";
 
-const ADMIN_MANAGEABLE_ROLES: readonly BusinessRole[] = ["MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER"];
+const ADMIN_MANAGEABLE_ROLES: readonly BusinessRole[] = ["MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER"];
 
 type TeamEditorMode = { kind: "view" } | { kind: "create" } | { kind: "edit"; staffId: string };
 type TeamFeedback = { tone: "success" | "error" | "info"; text: string } | null;
@@ -30,7 +30,7 @@ export function canManageStaffRole(actorRole: string | null | undefined, targetR
 }
 
 export function TeamAccess({ online }: { online: boolean }) {
-  const { session, role } = useWorkspace();
+  const { session, role, businessContext } = useWorkspace();
   const businessId = session?.businessId ?? null;
   const readable = canReadTeam(role);
   const mutable = canMutateTeam(role);
@@ -42,6 +42,9 @@ export function TeamAccess({ online }: { online: boolean }) {
   const [feedback, setFeedback] = useState<TeamFeedback>(null);
   useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
   const [oneTimeInvite, setOneTimeInvite] = useState<OneTimeInvite>(null);
+  const [branchEditor, setBranchEditor] = useState<{
+    staffId:string; selected:string[]; loading:boolean
+  } | null>(null);
 
   const editingStaff = useMemo(
     () => mode.kind === "edit" ? staff.find((member) => member.id === mode.staffId) ?? null : null,
@@ -67,6 +70,7 @@ export function TeamAccess({ online }: { online: boolean }) {
   useEffect(() => {
     setMode({ kind: "view" });
     setOneTimeInvite(null);
+    setBranchEditor(null);
     setFeedback(null);
     setStaff([]);
     if (readable && online) void loadTeam();
@@ -97,9 +101,16 @@ export function TeamAccess({ online }: { online: boolean }) {
         },
       );
       if (!response.ok) throw new Error(await readApiErrorMessage(response, editing ? "Staff member could not be updated" : "Staff member could not be created"));
+      const saved=await response.json() as {staff?:StaffDirectoryItem};
       setMode({ kind: "view" });
       await loadTeam();
-      setFeedback({ tone: "success", text: editing ? "Staff details updated." : "Staff member added." });
+      if(value.role==="POS_ATTENDANT" && (!editing || editing.role!=="POS_ATTENDANT")
+        && saved.staff?.id){
+        setBranchEditor({staffId:saved.staff.id,selected:[],loading:false});
+        setFeedback({tone:"info",text:"Staff saved. Select allowed branches below and save access before inviting this POS attendant."});
+      }else{
+        setFeedback({ tone: "success", text: editing ? "Staff details updated." : "Staff member added." });
+      }
     } catch (error) {
       setFeedback({ tone: "error", text: errorMessage(error, "Staff change failed") });
     } finally {
@@ -155,6 +166,46 @@ export function TeamAccess({ online }: { online: boolean }) {
     }
   };
 
+  const openBranchAssignments = async (member:StaffDirectoryItem) => {
+    if(!businessId||!online||busyId||member.role!=="POS_ATTENDANT"||
+      !canManageStaffRole(role,member.role))return;
+    if(branchEditor?.staffId===member.id){setBranchEditor(null);return;}
+    setBranchEditor({staffId:member.id,selected:[],loading:true});
+    setFeedback(null);
+    try{
+      const response=await getOfflineQueue().authenticatedFetch(
+        `/v1/staff/${encodeURIComponent(member.id)}/branches?businessId=${encodeURIComponent(businessId)}`,
+        {cache:"no-store"},
+      );
+      if(!response.ok)throw new Error(await readApiErrorMessage(response,"Branch assignments could not be loaded"));
+      const result=await response.json() as {branchIds:string[]};
+      setBranchEditor({staffId:member.id,selected:result.branchIds,loading:false});
+    }catch(error){
+      setBranchEditor(null);
+      setFeedback({tone:"error",text:errorMessage(error,"Cannot load POS branch assignments")});
+    }
+  };
+  const saveBranchAssignments = async () => {
+    if(!branchEditor||branchEditor.loading||!businessId||!online||busyId)return;
+    setBusyId("branches:"+branchEditor.staffId);
+    setFeedback(null);
+    try{
+      const response=await getOfflineQueue().authenticatedFetch(
+        `/v1/staff/${encodeURIComponent(branchEditor.staffId)}/branches`,
+        {method:"PUT",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({businessId,branchIds:branchEditor.selected})},
+      );
+      if(!response.ok)throw new Error(await readApiErrorMessage(response,"Branch assignment failed"));
+      const result=await response.json() as {branchIds:string[]};
+      setBranchEditor(null);
+      setFeedback({tone:"success",text:result.branchIds.length>0?
+        `Branch access saved for ${result.branchIds.length} location(s).`:
+        "All branch access revoked. The POS attendant can no longer sign in."});
+    }catch(error){
+      setFeedback({tone:"error",text:errorMessage(error,"Branch assignment failed")});
+    }finally{setBusyId(null);}
+  };
+
   const copyInviteLink = async () => {
     if (!oneTimeInvite) return;
     try {
@@ -190,6 +241,12 @@ export function TeamAccess({ online }: { online: boolean }) {
     return (
       <div className="tos-team__actions">
         <Button size="sm" variant="ghost" icon={<IconEdit />} disabled={!online || Boolean(busyId)} onClick={() => startEdit(member)}>Edit</Button>
+        {member.role==="POS_ATTENDANT" ? (
+          <Button size="sm" variant="outline" disabled={!online || Boolean(busyId)}
+            onClick={()=>void openBranchAssignments(member)}>
+            Assign branches
+          </Button>
+        ):null}
         {!hasActiveAccess && member.active ? (
           <Button size="sm" variant="outline" disabled={!online || Boolean(busyId)} loading={busyId === `invite:${member.id}`} onClick={() => void invite(member)}>
             {hasPendingInvite ? "New invite" : "Invite"}
@@ -236,6 +293,42 @@ export function TeamAccess({ online }: { online: boolean }) {
           </div>
         </div>
       ) : null}
+
+      {branchEditor && mutable ? (
+        <section className="tos-section" aria-label="POS attendant branch assignments"
+          style={{marginBottom:16,padding:16,border:"1px solid var(--tos-border,#cfd8e3)",
+            borderRadius:12}}>
+          <h3 style={{marginTop:0,fontSize:18}}>Branch access · {staff.find(s=>s.id===branchEditor.staffId)?.displayName??"Attendant"}</h3>
+          <p style={{marginBottom:12}}>Select the active locations where this POS attendant may sell.
+            Leaving all unchecked revokes POS access immediately on the server.</p>
+          {branchEditor.loading ? <p role="status">Loading branch assignments…</p> : (
+            <div style={{display:"grid",gap:10}}>
+              {(businessContext?.branches??[]).filter(branch=>branch.active).map(branch=>(
+                <label key={branch.id} style={{display:"flex",gap:10,alignItems:"center",
+                  minHeight:44,cursor:"pointer",fontWeight:600}}>
+                  <input type="checkbox" aria-label={`Allow ${branch.name}`}
+                    checked={branchEditor.selected.includes(branch.id)}
+                    onChange={event=>setBranchEditor(old=>old?{
+                      ...old,selected:event.target.checked?
+                        [...old.selected,branch.id]:
+                        old.selected.filter(id=>id!==branch.id),
+                    }:old)}/>
+                  <span>{branch.name} ({branch.code})</span>
+                </label>
+              ))}
+              {(businessContext?.branches??[]).filter(branch=>branch.active).length===0 ?
+                <p role="alert">No active branches available. Create a branch in Business Settings first.</p>:null}
+              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                <Button variant="primary" disabled={Boolean(busyId)}
+                  loading={busyId==="branches:"+branchEditor.staffId}
+                  onClick={()=>void saveBranchAssignments()}>Save branch access</Button>
+                <Button variant="ghost" disabled={Boolean(busyId)}
+                  onClick={()=>setBranchEditor(null)}>Cancel</Button>
+              </div>
+            </div>
+          )}
+        </section>
+      ):null}
 
       {mode.kind === "create" && mutable ? <StaffEditor actorRole={role} busy={busyId === "create"} onSubmit={saveStaff} onCancel={() => setMode({ kind: "view" })} /> : null}
       {mode.kind === "edit" && editingStaff && mutable ? <StaffEditor actorRole={role} staff={editingStaff} busy={busyId === editingStaff.id} onSubmit={saveStaff} onCancel={() => setMode({ kind: "view" })} /> : null}

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { DatabasePool,DatabaseClient } from "../db.js";
 import {withTransaction} from "../db.js";
 import {authenticateAccessToken,AuthError} from "../auth/security.js";
+import {requireBranchScope} from "../auth/branch-scope.js";
 import {requireBusinessRole,type BusinessAccess,type BusinessRole} from "../auth/authorization.js";
 import {PriceRuleError,pricingFail,pricingUuid,pricingUnit,pricingMinor,pricingQty,
   ensureCustomer,priceCatalogBase,resolveCustomerPrice} from "./price-rules.js";
@@ -59,6 +60,7 @@ export function registerPricingRoutes(app:FastifyInstance,pool:DatabasePool){
         throw new AuthError("POS-only staff cannot access negotiated customer prices",403,"ROLE_FORBIDDEN");
       }
       const branchId=pricingUuid(req.body?.branchId,"branchId");
+      await requireBranchScope(pool,a,branchId);
       const customer=optionalCustomer(req.body?.customerId);
       const lines=req.body?.lines;
       if(!Array.isArray(lines)||lines.length===0||lines.length>50)
