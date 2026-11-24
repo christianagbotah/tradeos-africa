@@ -21,6 +21,7 @@ import type { SaleReversal } from "./src/sale-reversal";
 import type { StockAdjustment } from "./src/inventory-adjustment";
 import type { CustomerReceiptInput } from "./src/customer-payment";
 import { FinanceScreen } from "./src/screens/FinanceScreen";
+import type { TreasuryTransaction } from "./src/treasury-workspace";
 import type { FinanceTransaction } from "./src/finance-workspace";
 import { PurchaseOrdersScreen } from "./src/screens/PurchaseOrdersScreen";
 import { SuppliersScreen } from "./src/screens/SuppliersScreen";
@@ -159,7 +160,7 @@ function MobileWorkspace() {
     try{return await runtime.recordSupplierTransaction(input,snapshot.online===true);}
     finally{try{setSnapshot(await model.refreshQueueState());void refreshCommerce();}finally{checkoutLock.current=false;}}
   };
-  const recordFinanceTransaction=async(input:FinanceTransaction)=>{
+  const recordFinanceTransaction=async(input:FinanceTransaction|TreasuryTransaction)=>{
     if(checkoutLock.current)throw new Error("Another transaction is in progress.");
     checkoutLock.current=true;
     try{return await runtime.recordFinanceTransaction(input,snapshot.online===true);}

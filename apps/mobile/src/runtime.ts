@@ -22,6 +22,7 @@ import {
   type MobileImmediatePaymentMethod,
   type MobileSellableItem,
 } from "./pos-model";
+import type {TreasuryTransaction} from "./treasury-workspace";
 import {canManageTreasury,canRecordExpense,type FinanceTransaction} from "./finance-workspace";
 import {canManageSuppliers,canPaySuppliers,type SupplierTransaction} from "./supplier-workspace";
 import {canReverseSale,type SaleReversal} from "./sale-reversal";
@@ -345,14 +346,14 @@ export class MobileRuntime {
     }finally{this.supplierTransactionBusy=false;}
   }
 
-  async recordFinanceTransaction(input:FinanceTransaction,online:boolean):Promise<ReceiptOutcome>{
+  async recordFinanceTransaction(input:FinanceTransaction|TreasuryTransaction,online:boolean):Promise<ReceiptOutcome>{
     const ready=this.requireReady();
-    if(!online||this.financeBusy||!(input.type==="EXPENSE_CREATE"?canRecordExpense(ready.membership.role):input.type==="MONEY_TRANSFER_CREATE"&&canManageTreasury(ready.membership.role)))throw new MobileRuntimeError("An authorized online finance session is required.");
-    if(!Number.isSafeInteger(input.payload.amountMinor)||input.payload.amountMinor<=0)throw new MobileRuntimeError("Invalid financial amount.");
+    if(!online||this.financeBusy||!((input.type==="EXPENSE_CREATE"||input.type==="MONEY_RECONCILIATION_CREATE")?canRecordExpense(ready.membership.role):["MONEY_TRANSFER_CREATE","MONEY_RECONCILIATION_RESOLVE"].includes(input.type)&&canManageTreasury(ready.membership.role)))throw new MobileRuntimeError("An authorized online finance session is required.");
+    if((input.type==="EXPENSE_CREATE"||input.type==="MONEY_TRANSFER_CREATE")&&(!Number.isSafeInteger(input.payload.amountMinor)||input.payload.amountMinor<=0))throw new MobileRuntimeError("Invalid financial amount.");
     this.financeBusy=true;
     try{
       const state=await this.queue.getSnapshot();
-      if([...state.pending,...state.failed.map(x=>x.mutation)].some(x=>x.businessId===ready.business.id&&["EXPENSE_CREATE","MONEY_TRANSFER_CREATE"].includes(x.mutationType)))throw new MobileRuntimeError("Reconcile the previous finance transaction in the sync queue before submitting another.");
+      if([...state.pending,...state.failed.map(x=>x.mutation)].some(x=>x.businessId===ready.business.id&&["EXPENSE_CREATE","MONEY_TRANSFER_CREATE","MONEY_RECONCILIATION_CREATE","MONEY_RECONCILIATION_RESOLVE"].includes(x.mutationType)))throw new MobileRuntimeError("Reconcile the previous finance transaction in the sync queue before submitting another.");
       const clientMutationId=this.options.createMutationId();
       if(!await this.queue.enqueue({clientId:await this.options.persistence.getOrCreateDeviceKey(),clientMutationId,businessId:ready.business.id,branchId:ready.branch.id,mutationType:input.type,occurredAt:this.options.now(),payload:input.payload}))throw new MobileRuntimeError("Transaction already queued.");
       try{await this.flush(true);}catch{/* Preserve original submission. */}

@@ -82,6 +82,8 @@ export type MobilePurchaseOrderSummary={id:string;businessId:string;branchId:str
 export type MobilePurchaseOrder=MobilePurchaseOrderSummary&{fulfillmentStatus:"NOT_RECEIVED"|"PARTIAL"|"RECEIVED";canReceive:boolean;receivedTotalMinor:number;priceVarianceMinor:number;lines:Array<{id:string;itemId:string;itemName:string;purchaseUnitCode:string;purchaseUnitLabel:string;quantity:number;remainingQuantity:number;receivedQuantity:number;unitCostMinor:number;lineTotalMinor:number}>;receipts:Array<{id:string;receivedAt:string;totalMinor:number;settlementMethod:string}>};
 export type MobilePurchaseOrderInput={businessId:string;branchId:string;clientRequestId:string;supplierId:string;notes:string;expectedDeliveryDate?:string;lines:Array<{itemId:string;purchaseUnitCode:string;quantity:number;unitCostMinor:number}>};
 export type MobileTreasuryAccount=MobileMoneyAccount&{kind:string;balanceMinor:number;allowNegative:boolean;provider:string|null;referenceLabel:string|null;updatedAt:string};
+export type MobileReconciliation={id:string;branchId:string;moneyAccountId:string;accountName:string;type:"CASH_COUNT"|"STATEMENT";periodStart:string;periodEnd:string;expectedBalanceMinor:number;observedBalanceMinor:number;differenceMinor:number;status:"MATCHED"|"VARIANCE"|"RESOLVED";note:string|null;occurredAt:string;resolutionNote:string|null};
+export type MobileAccountDraft={name:string;method:CustomerPaymentMethod;kind:"CASH_DRAWER"|"MOMO_WALLET"|"CARD_CLEARING"|"BANK_ACCOUNT"|"OTHER";provider:string|null;referenceLabel:string|null;allowNegative:boolean;branchId:string|null;currencyCode:string};
 export type MobileExpenseCategory={id:string;name:string;active:boolean;system:boolean;updatedAt:string};
 export type MobileCashbookEntry={id:string;moneyAccountId:string;branchId:string;currencyCode:string;method:string;amountDeltaMinor:number;entryType:string;occurredAt:string};
 export type MobileExpense={id:string;branchId:string;moneyAccountId:string;currencyCode:string;amountMinor:number;categoryName:string;description:string|null;payee:string|null;method:string;status:string;occurredAt:string};
@@ -106,7 +108,7 @@ export type MobileInventoryResponse = { items: MobileInventoryItem[] };
 
 export type CustomerPaymentMethod="CASH"|"MOMO"|"CARD"|"BANK"|"OTHER";
 export type MobileMoneyAccount={id:string;businessId:string;branchId:string|null;name:string;method:string;currencyCode:string;active:boolean};
-export type MobileMoneyDefault={branchId:string;method:string;moneyAccountId:string};
+export type MobileMoneyDefault={branchId:string;method:string;moneyAccountId:string;updatedAt?:string};
 export type MobileCustomer={
   id:string;name:string;phone:string|null;email:string|null;active:boolean;
   balanceMinor:number;creditEnabled:boolean;creditLimitMinor:number|null;availableCreditMinor:number|null;
@@ -267,6 +269,18 @@ export class MobileApiClient {
   }
   changePurchaseOrderStatus(businessId:string,id:string,action:"issue"|"cancel"):Promise<{order:MobilePurchaseOrder}>{
     return this.authorizedJson("/v1/purchase-orders/"+encodeURIComponent(id)+"/"+action,{method:"POST",body:JSON.stringify({businessId})});
+  }
+  createTreasuryAccount(businessId:string,input:MobileAccountDraft):Promise<{account:MobileTreasuryAccount}>{
+    return this.authorizedJson("/v1/money-accounts",{method:"POST",body:JSON.stringify({businessId,...input})});
+  }
+  updateTreasuryAccount(businessId:string,id:string,input:{expectedUpdatedAt:string;name:string;provider:string|null;referenceLabel:string|null;allowNegative:boolean;active:boolean}):Promise<{account:MobileTreasuryAccount}>{
+    return this.authorizedJson("/v1/money-accounts/"+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify({businessId,...input})});
+  }
+  setMoneyDefault(businessId:string,branchId:string,method:string,moneyAccountId:string,expectedUpdatedAt:string):Promise<MobileMoneyDefault>{
+    return this.authorizedJson("/v1/money-account-defaults",{method:"PUT",body:JSON.stringify({businessId,branchId,method,moneyAccountId,expectedUpdatedAt})});
+  }
+  getReconciliations(businessId:string,branchId:string):Promise<{reconciliations:MobileReconciliation[]}>{
+    return this.authorizedJson("/v1/money-reconciliations?"+new URLSearchParams({businessId,branchId,limit:"100"}).toString(),{method:"GET"});
   }
   getTreasuryAccounts(businessId:string,branchId:string):Promise<{accounts:MobileTreasuryAccount[];totalBalanceMinor:number}>{
     return this.authorizedJson("/v1/money-accounts?"+new URLSearchParams({businessId,branchId}).toString(),{method:"GET"});
