@@ -22,6 +22,7 @@ import {
   type MobileImmediatePaymentMethod,
   type MobileSellableItem,
 } from "./pos-model";
+import {canManageTreasury,canRecordExpense,type FinanceTransaction} from "./finance-workspace";
 import {canManageSuppliers,canPaySuppliers,type SupplierTransaction} from "./supplier-workspace";
 import {buildStockAdjustment,type StockAdjustment} from "./inventory-adjustment";
 import {canManageCatalog} from "./catalog-workspace";
@@ -85,6 +86,7 @@ export class MobileRuntime {
   private customerReceiptBusy=false;
   private stockAdjustmentBusy=false;
   private supplierTransactionBusy=false;
+  private financeBusy=false;
 
   constructor(private readonly options: MobileRuntimeOptions) {
     this.queue = new OfflineMutationQueue(options.queueStorage, {
@@ -339,6 +341,24 @@ export class MobileRuntime {
       if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
       return "SYNCED";
     }finally{this.supplierTransactionBusy=false;}
+  }
+
+  async recordFinanceTransaction(input:FinanceTransaction,online:boolean):Promise<ReceiptOutcome>{
+    const ready=this.requireReady();
+    if(!online||this.financeBusy||!(input.type==="EXPENSE_CREATE"?canRecordExpense(ready.membership.role):input.type==="MONEY_TRANSFER_CREATE"&&canManageTreasury(ready.membership.role)))throw new MobileRuntimeError("An authorized online finance session is required.");
+    if(!Number.isSafeInteger(input.payload.amountMinor)||input.payload.amountMinor<=0)throw new MobileRuntimeError("Invalid financial amount.");
+    this.financeBusy=true;
+    try{
+      const state=await this.queue.getSnapshot();
+      if([...state.pending,...state.failed.map(x=>x.mutation)].some(x=>x.businessId===ready.business.id&&["EXPENSE_CREATE","MONEY_TRANSFER_CREATE"].includes(x.mutationType)))throw new MobileRuntimeError("Reconcile the previous finance transaction in the sync queue before submitting another.");
+      const clientMutationId=this.options.createMutationId();
+      if(!await this.queue.enqueue({clientId:await this.options.persistence.getOrCreateDeviceKey(),clientMutationId,businessId:ready.business.id,branchId:ready.branch.id,mutationType:input.type,occurredAt:this.options.now(),payload:input.payload}))throw new MobileRuntimeError("Transaction already queued.");
+      try{await this.flush(true);}catch{/* Preserve original submission. */}
+      const result=await this.queue.getSnapshot();
+      if(result.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
+      if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
+      return "SYNCED";
+    }finally{this.financeBusy=false;}
   }
 
   async flush(online: boolean): Promise<FlushSummary> {

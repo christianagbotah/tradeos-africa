@@ -81,6 +81,11 @@ export type MobilePurchaseDetail={purchase:MobilePurchase&{businessId:string;bra
 export type MobilePurchaseOrderSummary={id:string;businessId:string;branchId:string;supplierId:string;supplierName:string;orderNumber:string;status:"DRAFT"|"ISSUED"|"CANCELLED";currencyCode:string;totalMinor:number;notes:string;expectedDeliveryDate:string|null;updatedAt:string};
 export type MobilePurchaseOrder=MobilePurchaseOrderSummary&{fulfillmentStatus:"NOT_RECEIVED"|"PARTIAL"|"RECEIVED";canReceive:boolean;receivedTotalMinor:number;priceVarianceMinor:number;lines:Array<{id:string;itemId:string;itemName:string;purchaseUnitCode:string;purchaseUnitLabel:string;quantity:number;remainingQuantity:number;receivedQuantity:number;unitCostMinor:number;lineTotalMinor:number}>;receipts:Array<{id:string;receivedAt:string;totalMinor:number;settlementMethod:string}>};
 export type MobilePurchaseOrderInput={businessId:string;branchId:string;clientRequestId:string;supplierId:string;notes:string;expectedDeliveryDate?:string;lines:Array<{itemId:string;purchaseUnitCode:string;quantity:number;unitCostMinor:number}>};
+export type MobileTreasuryAccount=MobileMoneyAccount&{kind:string;balanceMinor:number;allowNegative:boolean;provider:string|null;referenceLabel:string|null;updatedAt:string};
+export type MobileExpenseCategory={id:string;name:string;active:boolean;system:boolean;updatedAt:string};
+export type MobileCashbookEntry={id:string;moneyAccountId:string;branchId:string;currencyCode:string;method:string;amountDeltaMinor:number;entryType:string;occurredAt:string};
+export type MobileExpense={id:string;branchId:string;moneyAccountId:string;currencyCode:string;amountMinor:number;categoryName:string;description:string|null;payee:string|null;method:string;status:string;occurredAt:string};
+export type MobileCashbook={entries:MobileCashbookEntry[];summary:{inflowMinor:number;outflowMinor:number;netMinor:number};totals:Array<{currencyCode:string;method:string;balanceMinor:number;inflowMinor:number;outflowMinor:number}>};
 export type MobileCatalogResponse = { items: MobileCatalogItem[] };
 
 export type MobileInventoryItem = {
@@ -261,6 +266,21 @@ export class MobileApiClient {
   }
   changePurchaseOrderStatus(businessId:string,id:string,action:"issue"|"cancel"):Promise<{order:MobilePurchaseOrder}>{
     return this.authorizedJson("/v1/purchase-orders/"+encodeURIComponent(id)+"/"+action,{method:"POST",body:JSON.stringify({businessId})});
+  }
+  getTreasuryAccounts(businessId:string,branchId:string):Promise<{accounts:MobileTreasuryAccount[];totalBalanceMinor:number}>{
+    return this.authorizedJson("/v1/money-accounts?"+new URLSearchParams({businessId,branchId}).toString(),{method:"GET"});
+  }
+  getCashbook(businessId:string,branchId:string):Promise<MobileCashbook>{
+    return this.authorizedJson("/v1/cashbook?"+new URLSearchParams({businessId,branchId,limit:"100"}).toString(),{method:"GET"});
+  }
+  getExpenses(businessId:string,branchId:string):Promise<{expenses:MobileExpense[]}>{
+    return this.authorizedJson("/v1/expenses?"+new URLSearchParams({businessId,branchId,limit:"100"}).toString(),{method:"GET"});
+  }
+  getExpenseCategories(businessId:string):Promise<{categories:MobileExpenseCategory[]}>{
+    return this.authorizedJson("/v1/expense-categories?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
+  }
+  saveExpenseCategory(businessId:string,input:{name:string;active?:boolean},revision?:{id:string;expectedUpdatedAt:string}):Promise<{category:MobileExpenseCategory}>{
+    return this.authorizedJson("/v1/expense-categories"+(revision?"/"+encodeURIComponent(revision.id):""),{method:revision?"PATCH":"POST",body:JSON.stringify({businessId,...input,...(revision?{expectedUpdatedAt:revision.expectedUpdatedAt}:{})})});
   }
   getOwnCashShift(businessId:string,branchId:string):Promise<MobileOwnCashShiftStatus>{
     const query=new URLSearchParams({businessId,branchId});
