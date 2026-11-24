@@ -14,6 +14,7 @@ export type MoreScreenProps = {
   onRefreshCatalog: () => void;
   onGoToNotifications: () => void;
   onGoToQuestions: () => void;
+  onGoToDocuments:()=>void;
   onGoToCatalog:()=>void;
   onGoToInventory:()=>void;
   onLogout: () => void;
@@ -26,7 +27,7 @@ export function MoreScreen({
   onRefreshCatalog,
   onGoToNotifications,
   onGoToQuestions,
-  onGoToCatalog,onGoToInventory,
+  onGoToCatalog,onGoToInventory,onGoToDocuments,
   onLogout,
 }: MoreScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
@@ -66,6 +67,7 @@ export function MoreScreen({
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Master data and inventory</Text>
         <Text style={styles.sectionTitle}>Products and stock</Text>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open quotations and proformas" onPress={onGoToDocuments}>Quotes &amp; proformas</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open catalog" onPress={onGoToCatalog}>Catalog</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open inventory" onPress={onGoToInventory}>Inventory</Button>
       </Card>

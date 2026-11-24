@@ -19,6 +19,7 @@ import { BusinessQuestionsScreen } from "./src/screens/BusinessQuestionsScreen";
 import { PosScreen } from "./src/screens/PosScreen";
 import type { StockAdjustment } from "./src/inventory-adjustment";
 import type { CustomerReceiptInput } from "./src/customer-payment";
+import { DocumentsScreen } from "./src/screens/DocumentsScreen";
 import { CatalogStockScreen } from "./src/screens/CatalogStockScreen";
 import { CustomersScreen } from "./src/screens/CustomersScreen";
 import { SalesScreen } from "./src/screens/SalesScreen";
@@ -70,7 +71,7 @@ function MobileWorkspace() {
   const [search, setSearch] = useState("");
   const [feedback,setFeedback]=useState<MobileActionFeedback|null>(null);
   const checkoutLock=useRef(false);
-  const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions" | "catalog" | "inventory">("dashboard");
+  const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions" | "catalog" | "inventory" | "documents">("dashboard");
 
   useEffect(() => {
     let mounted = true;
@@ -160,7 +161,7 @@ function MobileWorkspace() {
   const workspaceReady=snapshot.phase==="READY"&&ready!==null;
   const attendantOnly=ready?.membership.role==="POS_ATTENDANT";
   const activeScreen=attendantOnly?"sell":screen;
-  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",customers:"Customers",catalog:"Catalog",inventory:"Inventory",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
+  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",customers:"Customers",catalog:"Catalog",inventory:"Inventory",documents:"Quotes & proformas",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
   return (
     <SafeAreaView style={[styles.safeArea,workspaceReady&&styles.workspaceSafeArea]}
       edges={workspaceReady?["top","left","right"]:["top","left","right","bottom"]}>
@@ -246,6 +247,11 @@ function MobileWorkspace() {
                   queueVersion={ready.queue.pending+":"+ready.queue.failed} onBack={()=>setScreen("more")}
                   onFeedback={setFeedback} onAdjustment={recordStockAdjustment} onCatalogChanged={()=>{void refreshCommerce();}}/>
               ):null}
+              {activeScreen==="documents"&&ready?<DocumentsScreen
+                key={ready.user.id+":"+ready.business.id+":"+ready.branch.id+":"+ready.membership.role}
+                api={api} businessId={ready.business.id} branchId={ready.branch.id} role={ready.membership.role}
+                online={snapshot.online===true} currencyCode={ready.business.currencyCode}
+                onFeedback={setFeedback} onBack={()=>setScreen("more")}/>:null}
               {activeScreen === "more" ? (
                 <MoreScreen
                   snapshot={snapshot}
@@ -254,6 +260,7 @@ function MobileWorkspace() {
                   onRefreshCatalog={() => { void refreshCommerce(); }}
                   onLogout={() => { if(!checkoutLock.current)setFeedback(signOutFeedback); }}
                   onGoToNotifications={() => setScreen("notifications")}
+                  onGoToDocuments={()=>setScreen("documents")}
                   onGoToCatalog={()=>setScreen("catalog")}
                   onGoToInventory={()=>setScreen("inventory")}
                   onGoToQuestions={() => setScreen("questions")}
@@ -283,7 +290,7 @@ function MobileWorkspace() {
               ) : null}
             </View>
             <BottomNav
-              active={activeScreen === "notifications" || activeScreen === "questions" || activeScreen==="catalog" || activeScreen==="inventory" ? "more" : activeScreen}
+              active={activeScreen === "notifications" || activeScreen === "questions" || activeScreen==="catalog" || activeScreen==="inventory" || activeScreen==="documents" ? "more" : activeScreen}
               onChange={next=>{if(!checkoutLock.current)setScreen(next);}}
               attendantOnly={attendantOnly}
               onSignOut={()=>{if(!checkoutLock.current)setFeedback(signOutFeedback);}}
