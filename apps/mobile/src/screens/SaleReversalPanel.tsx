@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from "react";
 import {View,Text,StyleSheet} from "react-native";
 import type {MobileApiClient,MobileSaleDetail,MobileCatalogItem} from "../api-client";
-import {availableDispositions,buildReversal,positiveQuantity,refundMethods,returnable,type SaleReversal,type Disposition,type RefundMethod,type ReplacementLine} from "../sale-reversal";
+import {availableDispositions,buildReversal,guardedReversal,positiveQuantity,refundMethods,returnable,type SaleReversal,type Disposition,type RefundMethod,type ReplacementLine} from "../sale-reversal";
 import type {ReceiptOutcome} from "../customer-payment";
 import type {MobileActionFeedback} from "../action-feedback";
 import {Button} from "../components/Button";
@@ -31,7 +31,7 @@ export function SaleReversalPanel({sale,api,onRecord,onRefresh,onFeedback}:Props
      try{
        const lines=Object.entries(returned).filter(([,r])=>r.quantity.trim()!=="").map(([saleLineId,r])=>({saleLineId,quantity:positiveQuantity(r.quantity),disposition:r.disposition}));
        const replacements:ReplacementLine[]=replacement.map(r=>({...r,quantity:positiveQuantity(r.quantity)}));
-       setReview(buildReversal(sale,reason,method,lines,replacements,catalog,mode==="exchange"));setError(null);
+       setReview(guardedReversal(sale,buildReversal(sale,reason,method,lines,replacements,catalog,mode==="exchange"),catalog));setError(null);
      }catch(e){setError((e as Error).message);}
      return;
    }
@@ -46,13 +46,14 @@ export function SaleReversalPanel({sale,api,onRecord,onRefresh,onFeedback}:Props
    finally{lock.current=false;if(live.current)setBusy(false);}
  }
  if(!sale.lines.some(l=>returnable(l)>0)||!["COMPLETED","PARTIALLY_REFUNDED"].includes(sale.status))return null;
+ if(sale.reversalAmountGuard!==true)return <Banner tone="info" title="After-sale services" message="This server requires an update before native returns and exchanges can safely post financial amounts."/>;
  const candidates=catalog.filter(i=>!search.trim()||(i.name+" "+(i.sku??"")).toLowerCase().includes(search.trim().toLowerCase())).slice(0,15);
  return <View style={styles.panel}>
  <Text style={styles.title}>After-sale service</Text>
  {!mode?<View style={styles.row}><Button variant="secondary" style={styles.flex} accessibilityLabel="Return or refund sale" onPress={()=>reset("return")}>Return / refund</Button><Button variant="gold" style={styles.flex} accessibilityLabel="Exchange sale" onPress={()=>reset("exchange")}>Exchange</Button></View>:<>
  <Banner tone="info" message="Choose the original sale lines. TradeOS calculates refund and exchange amounts on the server. Do not pay or collect an estimated difference."/>
  {sale.lines.filter(l=>returnable(l)>0).map(l=>{
-   const row=returned[l.id],dispositions=availableDispositions(l);
+   const row=returned[l.id],dispositions=availableDispositions(l).filter(d=>mode!=="exchange"||d!=="NOT_RETURNED");
    return <View style={styles.line} key={l.id}><Text style={styles.title}>{l.itemName}</Text><Text style={styles.muted}>Returnable: {returnable(l)} {l.saleUnitCode}</Text>
    <Input label="Return quantity (blank to skip)" value={row?.quantity??""} editable={!busy&&!review} keyboardType="decimal-pad" onChangeText={quantity=>setReturned(old=>({...old,[l.id]:{quantity,disposition:old[l.id]?.disposition??dispositions[0]!}}))}/>
    <View style={styles.row}>{dispositions.map(d=><Button key={d} size="compact" variant={(row?.disposition??dispositions[0])===d?"gold":"secondary"} disabled={busy||!!review} accessibilityLabel={l.itemName+" "+d} onPress={()=>setReturned(old=>({...old,[l.id]:{quantity:old[l.id]?.quantity??"",disposition:d}}))}>{d.replaceAll("_"," ")}</Button>)}</View></View>;
@@ -66,7 +67,7 @@ export function SaleReversalPanel({sale,api,onRecord,onRefresh,onFeedback}:Props
  <Text style={styles.title}>{mode==="return"?"Refund method":"Difference settlement method"}</Text>
  <View style={styles.row}>{refundMethods.filter(m=>m!=="CUSTOMER_CREDIT"||!!sale.customer?.id).map(m=><Button key={m} size="compact" variant={method===m?"gold":"secondary"} disabled={busy||!!review} accessibilityLabel={m} onPress={()=>setMethod(m)}>{m.replaceAll("_"," ")}</Button>)}</View>
  {error?<Banner tone="danger" message={error}/>:null}
- {review?<Banner tone="warning" title="Confirm reversal" message="This posts a financial reversal and may change stock and customer balances. External payment refunds are not automatically confirmed as paid."/>:null}
+ {review?<Banner tone="warning" title="Confirm financial amount" message={review.type==="RETURN_CREATE"?"Refund "+formatMoney(review.payload.expectedRefundTotalMinor!,sale.currencyCode)+". Confirm any cash payout has been made or credit is authorized. External provider refunds remain pending until verified.":(review.payload.expectedNetDifferenceMinor!>0?"Collect "+formatMoney(review.payload.expectedNetDifferenceMinor!,sale.currencyCode)+" before confirming, or authorize credit.":review.payload.expectedNetDifferenceMinor!<0?"Refund difference "+formatMoney(-review.payload.expectedNetDifferenceMinor!,sale.currencyCode)+". Confirm cash payout or authorized credit; external settlement remains pending.":"Even exchange. No additional payment.")}/>:null}
  <Button loading={busy} accessibilityLabel={review?"Confirm transaction":"Review transaction"} onPress={()=>void submit()}>{review?"Confirm transaction":"Review transaction"}</Button>
  <Button variant="secondary" disabled={busy} accessibilityLabel="Cancel reversal" onPress={()=>reset(null)}>Cancel</Button>
  </>}

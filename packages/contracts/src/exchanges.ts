@@ -8,6 +8,7 @@ export interface ExchangeCreateInput {
   reason: string;
   settlementMethod: ExchangeSettlementMethod;
   moneyAccountId?: string;
+  expectedNetDifferenceMinor?: number;
   returnedLines: Array<{ saleLineId: string; quantity: number; disposition: ExchangeReturnDisposition }>;
   replacementLines: Array<{ itemId: string; saleUnitCode: string; quantity: number }>;
 }

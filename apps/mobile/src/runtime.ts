@@ -328,6 +328,7 @@ export class MobileRuntime {
     const ready=this.requireReady();
     if(!online||!canReverseSale(ready.membership.role)||this.saleReversalBusy)throw new MobileRuntimeError("Connect as an authorized cashier or manager.");
     if(!["RETURN_CREATE","EXCHANGE_CREATE"].includes(input.type)||!input.payload.originalSaleId)throw new MobileRuntimeError("Choose a valid original sale.");
+    if(!Number.isSafeInteger(input.type==="RETURN_CREATE"?input.payload.expectedRefundTotalMinor:input.payload.expectedNetDifferenceMinor))throw new MobileRuntimeError("Review and confirm the financial amount before submitting.");
     this.saleReversalBusy=true;
     try{
       const state=await this.queue.getSnapshot();

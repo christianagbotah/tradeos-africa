@@ -337,6 +337,7 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
           sales: sales.rows.map((sale) => ({
             id: sale.id,
             status: sale.status,
+            reversalAmountGuard: true,
             currencyCode: sale.currency_code,
             totalMinor: Number(sale.total_minor),
             refundTotalMinor: Number(sale.refund_total_minor),
