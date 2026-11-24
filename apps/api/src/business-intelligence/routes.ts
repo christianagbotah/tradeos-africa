@@ -14,6 +14,7 @@ import { unsupportedBranchRanking } from "./question-periods.js";
 import { resolveBusinessFollowUp } from "./question-followups.js";
 import { classifyBusinessQuestion } from "./question-service.js";
 import { listBusinessNotifications, acknowledgeBusinessNotification, BusinessNotificationError } from "./notification-service.js";
+import { listBusinessEventFeed } from "../commerce/internal-event-feed.js";
 import type { BusinessNotificationKind } from "@tradeos/contracts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,6 +22,28 @@ const BRIEFING_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "A
 type Query = { businessId?: string; branchId?: string; range?: string };
 
 export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: DatabasePool): void {
+
+  // Real, durable subscriber for canonical outbox events. Owners and
+  // financial managers only; every request is scoped to an active branch.
+  // This endpoint never exposes raw event/provider payloads.
+  app.get<{ Querystring: Query }>(
+    "/v1/intelligence/activity-feed", async (request, reply) => {
+      try {
+        const scope = await notificationScope(
+          pool, request.headers.authorization, request.query,
+        );
+        const result = await listBusinessEventFeed(
+          pool, scope.businessId, scope.branchId,
+        );
+        return reply.header("Cache-Control", "private, no-store, max-age=0").send(result);
+      } catch (error) {
+        return sendBusinessIntelligenceError(
+          request, reply, error, "BUSINESS_ACTIVITY_FEED_READ_FAILED",
+        );
+      }
+    },
+  );
+
 
   app.get<{ Querystring: Query }>("/v1/intelligence/notifications", async (request, reply) => {
     try {
