@@ -31,6 +31,7 @@ import {
   type WorkspaceRole,
 } from "../../../lib/mutation-builders";
 import type { CatalogItem, CatalogUnit } from "../../../lib/catalog-read-model";
+import { addQuickPriceUnits } from "../../../lib/quick-price-presets";
 
 interface CatalogItemSheetProps {
   item: CatalogItem | null;
@@ -130,6 +131,9 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
   const [trackStock, setTrackStock] = useState(true);
   const [units, setUnits] = useState<UnitRow[]>([]);
   const [conversions, setConversions] = useState<ConversionRow[]>([]);
+  const [quickPrices, setQuickPrices] = useState("");
+  const [quickPriceNotice, setQuickPriceNotice] = useState<string | null>(null);
+  const [quickPriceError, setQuickPriceError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
@@ -159,6 +163,9 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
       setUnits([{ code: "each", label: "Each (piece)", canPurchase: true, canSell: true, canStock: true, priceMinor: null }]);
       setConversions([]);
     }
+    setQuickPrices("");
+    setQuickPriceNotice(null);
+    setQuickPriceError(null);
     setBusy(false);
     setError(null);
     setLifecycleBusy(false);
@@ -226,6 +233,25 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
 
   const setUnit = (idx: number, patch: Partial<UnitRow>) => {
     setUnits((prev) => prev.map((u, i) => (i === idx ? { ...u, ...patch } : u)));
+  };
+  const addPriceButtons = () => {
+    if (!canWrite || busy || kind === "PRODUCT") return;
+    try {
+      const result = addQuickPriceUnits(units, quickPrices, {
+        kind,
+        currencyCode,
+        newItem: !item,
+        hasConversions: conversions.length > 0,
+      });
+      setUnits(result.units);
+      setQuickPriceError(null);
+      setQuickPriceNotice(String(result.added) + " price buttons added" +
+        (result.alreadyPresent ? " · " + result.alreadyPresent + " already configured" : "") +
+        ". Save the item to make these buttons available at POS.");
+    } catch (error) {
+      setQuickPriceNotice(null);
+      setQuickPriceError(error instanceof Error ? error.message : "Could not add prices.");
+    }
   };
   const addUnit = () => {
     setUnits((prev) => [...prev, { code: "", label: "", canPurchase: false, canSell: true, canStock: false, priceMinor: null }]);
@@ -468,6 +494,54 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
               {KIND_OPTIONS.map((k) => <option key={k.value} value={k.value}>{k.label} — {k.desc}</option>)}
             </select>
           </div>
+
+          {/* Owner-facing convenience: use the canonical catalog sale-unit
+              mutation; do not create alternative sale pricing or stock rules. */}
+          {kind !== "PRODUCT" ? (
+            <div className="tos-section tos-catalog-price-setup">
+              <div className="tos-section__head">
+                <h3 className="tos-section__title">Quick Serve price buttons</h3>
+                <span className="tos-section__sub">
+                  {kind === "SERVICE"
+                    ? "Create several service prices, such as 30, 40 and 60. Rename each option below if needed."
+                    : "Enter the amounts people ask for, such as 10, 12, 15, 20, 30. Each becomes a POS price button."}
+                </span>
+              </div>
+              <div className="tos-section__body tos-stack">
+                <div className="tos-catalog-price-setup__row">
+                  <div className="tos-field">
+                    <label className="tos-field__label" htmlFor="cat-quick-prices">
+                      Selling prices ({currencyCode === "GHS" ? "₵" : currencyCode})
+                    </label>
+                    <input
+                      id="cat-quick-prices"
+                      className="tos-input"
+                      type="text"
+                      inputMode="decimal"
+                      value={quickPrices}
+                      onChange={e=>{ setQuickPrices(e.target.value); setQuickPriceError(null); setQuickPriceNotice(null); }}
+                      placeholder="10, 12, 15, 20, 30"
+                      maxLength={160}
+                      disabled={!canWrite || busy}
+                    />
+                  </div>
+                  <Button type="button" variant="outline" size="sm"
+                    icon={<IconPlus className="tos-btn__icon" />}
+                    onClick={addPriceButtons}
+                    disabled={!canWrite || busy || !quickPrices.trim()}>
+                    Add price buttons
+                  </Button>
+                </div>
+                <p className="tos-section__sub">
+                  These prices are for individual prepared portions or services, not
+                  stock measurements. For nails, bottles, bags or yards, use
+                  physical units and conversion factors instead.
+                </p>
+                {quickPriceError ? <p role="alert" className="tos-catalog-price-setup__error">{quickPriceError}</p> : null}
+                {quickPriceNotice ? <p role="status" className="tos-catalog-price-setup__notice">{quickPriceNotice}</p> : null}
+              </div>
+            </div>
+          ) : null}
 
           {/* Units — the canonical multi-unit contract */}
           <div className="tos-section">
