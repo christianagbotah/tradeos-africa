@@ -84,6 +84,22 @@ export type MobileInventoryItem = {
 
 export type MobileInventoryResponse = { items: MobileInventoryItem[] };
 
+export type MobileSaleSummary={
+  id:string; status:string; currencyCode:string; totalMinor:number;
+  refundTotalMinor:number; refundSettledMinor:number; refundPendingMinor:number; refundFailedMinor:number;
+  createdAt:string; completedAt:string|null;
+  customer:{name:string|null;phone:string|null}|null; cashierName:string|null;
+  payments:Array<{method:string;amountMinor:number;status:string}>;
+};
+export type MobileSaleDetail={
+  id:string;businessId:string;branchId:string;status:string;currencyCode:string;totalMinor:number;
+  completedAt:string|null;createdAt:string;
+  customer:{id:string;name:string|null;phone:string|null}|null;cashierName:string|null;
+  lines:Array<{id:string;itemName:string;quantity:number;saleUnitCode:string;unitNetMinor:number;lineTotalMinor:number;quantityReturned:number}>;
+  payments:Array<{id:string;method:string;amountMinor:number;status:string;refundedMinor:number}>;
+};
+
+
 /** Restricted POS attendant view from /v1/operations/current.
  * Only own CASH is present; no business-day balances or other staff details.
  */
@@ -182,6 +198,16 @@ export class MobileApiClient {
     const normalized = search.trim();
     if (normalized) query.set("query", normalized);
     return this.authorizedJson<MobileInventoryResponse>(`/v1/inventory?${query.toString()}`, { method: "GET" });
+  }
+
+  getSales(businessId:string,branchId:string,search=""):Promise<{sales:MobileSaleSummary[]}>{
+    const query=new URLSearchParams({businessId,branchId,limit:"100"});
+    if(search.trim())query.set("query",search.trim());
+    return this.authorizedJson<{sales:MobileSaleSummary[]}>("/v1/sales?"+query.toString(),{method:"GET"});
+  }
+  getSale(businessId:string,saleId:string):Promise<{sale:MobileSaleDetail}>{
+    const query=new URLSearchParams({businessId});
+    return this.authorizedJson<{sale:MobileSaleDetail}>("/v1/sales/"+encodeURIComponent(saleId)+"?"+query.toString(),{method:"GET"});
   }
 
   askBusinessQuestion(

@@ -20,7 +20,7 @@ import { ErrorScreen, LoadingScreen, NeedsBusinessScreen } from "./src/screens/B
 import { colors } from "./src/theme";
 
 const APP_VERSION = "0.0.1";
-const DEFAULT_API_BASE = "https://tradeosafrica.lightworldtech.com/api/mobile";
+const DEFAULT_API_BASE = "https://tradeosafrica.lightworldtech.com";
 
 /**
  * App root — a thin shell that:
@@ -189,6 +189,7 @@ export default function App() {
               ) : null}
               {screen === "sales" ? (
                 <SalesScreen
+                  api={api}
                   snapshot={snapshot}
                   onSync={() => { void sync(); }}
                   onGoToSell={() => setScreen("sell")}
