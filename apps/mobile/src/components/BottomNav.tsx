@@ -3,7 +3,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Icon, type IconName } from "./icons";
 import { colors, spacing, touch, typography } from "../theme";
 
-export type BottomNavTab = "dashboard" | "sell" | "sales" | "more";
+export type BottomNavTab = "dashboard" | "sell" | "sales" | "customers" | "more";
 
 export type BottomNavProps = {
   active: BottomNavTab;
@@ -29,6 +29,8 @@ const TABS: readonly TabDef[] = [
     accessibilityLabel: "Sell tab", accessibilityHint: "Open the point-of-sale workspace" },
   { key: "sales", label: "Sales", icon: "sales",
     accessibilityLabel: "Sales tab", accessibilityHint: "View recent sales and the offline sync queue" },
+  { key: "customers", label: "Customers", icon: "customers",
+    accessibilityLabel: "Customers tab", accessibilityHint: "Browse customer accounts and balances" },
   { key: "more", label: "More", icon: "more",
     accessibilityLabel: "More tab", accessibilityHint: "Open sync settings, branch context, and sign out" },
 ] as const;

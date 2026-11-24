@@ -17,6 +17,7 @@ import { MoreScreen } from "./src/screens/MoreScreen";
 import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import { BusinessQuestionsScreen } from "./src/screens/BusinessQuestionsScreen";
 import { PosScreen } from "./src/screens/PosScreen";
+import { CustomersScreen } from "./src/screens/CustomersScreen";
 import { SalesScreen } from "./src/screens/SalesScreen";
 import { ErrorScreen, LoadingScreen, NeedsBusinessScreen } from "./src/screens/BootScreens";
 import { colors } from "./src/theme";
@@ -140,7 +141,7 @@ function MobileWorkspace() {
   const workspaceReady=snapshot.phase==="READY"&&ready!==null;
   const attendantOnly=ready?.membership.role==="POS_ATTENDANT";
   const activeScreen=attendantOnly?"sell":screen;
-  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
+  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",customers:"Customers",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
   return (
     <SafeAreaView style={[styles.safeArea,workspaceReady&&styles.workspaceSafeArea]}
       edges={workspaceReady?["top","left","right"]:["top","left","right","bottom"]}>
@@ -209,6 +210,14 @@ function MobileWorkspace() {
                   onSync={() => { void sync(); }}
                   onGoToSell={() => setScreen("sell")}
                 />
+              ) : null}
+              {activeScreen === "customers" && ready ? (
+                <CustomersScreen
+                  key={ready.user.id+":"+ready.membership.businessId+":"+ready.membership.role}
+                  api={api} businessId={ready.membership.businessId}
+                  role={ready.membership.role} currencyCode={ready.business.currencyCode}
+                  timezone={ready.branch.timezone} online={snapshot.online===true}
+                  onFeedback={setFeedback}/>
               ) : null}
               {activeScreen === "more" ? (
                 <MoreScreen

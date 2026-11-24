@@ -1,5 +1,5 @@
 import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
-import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse } from "@tradeos/contracts";
+import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerUpdateInput } from "@tradeos/contracts";
 import { type MobileSessionTokens, MobilePersistence } from "./storage";
 
 export type MobilePlatform = "ANDROID" | "IOS";
@@ -84,6 +84,16 @@ export type MobileInventoryItem = {
 
 export type MobileInventoryResponse = { items: MobileInventoryItem[] };
 
+export type MobileCustomer={
+  id:string;name:string;phone:string|null;email:string|null;active:boolean;
+  balanceMinor:number;creditEnabled:boolean;creditLimitMinor:number|null;availableCreditMinor:number|null;
+  creditTermsDays:number;createdAt:string;updatedAt:string;
+};
+export type MobileCustomerDetail={
+  customer:MobileCustomer;
+  obligations:Array<{id:string;saleId:string;originalMinor:number;openMinor:number;issuedAt:string;dueAt:string}>;
+  ledger:Array<{id:string;branchId:string;currencyCode:string;entryType:string;balanceDeltaMinor:number;occurredAt:string}>;
+};
 export type MobileSaleSummary={
   id:string; status:string; currencyCode:string; totalMinor:number;
   refundTotalMinor:number; refundSettledMinor:number; refundPendingMinor:number; refundFailedMinor:number;
@@ -200,6 +210,20 @@ export class MobileApiClient {
     return this.authorizedJson<MobileInventoryResponse>(`/v1/inventory?${query.toString()}`, { method: "GET" });
   }
 
+  getCustomers(businessId:string,search=""):Promise<{customers:MobileCustomer[]}>{
+    const query=new URLSearchParams({businessId,limit:"200"});
+    if(search.trim())query.set("query",search.trim());
+    return this.authorizedJson<{customers:MobileCustomer[]}>("/v1/customers?"+query.toString(),{method:"GET"});
+  }
+  getCustomer(businessId:string,customerId:string):Promise<MobileCustomerDetail>{
+    const query=new URLSearchParams({businessId,limit:"100"});
+    return this.authorizedJson<MobileCustomerDetail>("/v1/customers/"+encodeURIComponent(customerId)+"?"+query.toString(),{method:"GET"});
+  }
+  updateCustomerContact(businessId:string,customerId:string,input:Pick<CustomerUpdateInput,"name"|"phone"|"email"|"expectedUpdatedAt">):Promise<{customer:MobileCustomer}>{
+    return this.authorizedJson<{customer:MobileCustomer}>("/v1/customers/"+encodeURIComponent(customerId),{
+      method:"PATCH",body:JSON.stringify({businessId,name:input.name,phone:input.phone,email:input.email,expectedUpdatedAt:input.expectedUpdatedAt}),
+    });
+  }
   getSales(businessId:string,branchId:string,search=""):Promise<{sales:MobileSaleSummary[]}>{
     const query=new URLSearchParams({businessId,branchId,limit:"100"});
     if(search.trim())query.set("query",search.trim());
