@@ -117,6 +117,9 @@ export const WORKSPACE_NAV_ITEMS: readonly WorkspaceNavItem[] = [
 /** Returns the nav items visible to the given role. */
 export function visibleNavItems(role: WorkspaceRole | null | undefined): readonly WorkspaceNavItem[] {
   if (!role) return [];
+  // SELL is shared with wider WRITE_ROLES; never let this list implicitly
+  // grant attendant access to pricing/inventory or future write modules.
+  if (role === "POS_ATTENDANT") return WORKSPACE_NAV_ITEMS.filter(item=>item.segment==="sell");
   return WORKSPACE_NAV_ITEMS.filter((item) => (item.visibleTo ?? ALL_ROLES).includes(role));
 }
 

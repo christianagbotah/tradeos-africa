@@ -63,7 +63,9 @@ describe("A5 and thermal sales receipt print and share contracts",()=>{
   });
   it("keeps receipt generation tenant-scoped and forbids pending payments",()=>{
     expect(api).toContain('"/v1/sales/:saleId/receipt.pdf"');
-    expect(api).toContain('await requireBusinessRole(pool,auth,businessId,READ_ROLES)');
+    expect(api).toContain('const access=await requireBusinessRole(pool,auth,businessId,RECEIPT_ROLES)');
+    expect(api).toContain('s.cashier_staff_id=$3::uuid');
+    expect(api).toContain('[saleId,businessId,ownedStaffId]');
     expect(api).toContain('WHERE s.id=$1 AND s.business_id=$2');
     expect(api).toContain('payments.rows.some(p=>p.status==="PENDING")');
     expect(api).toContain('renderVerifiedSaleReceiptPdf(snapshot,paper)');
