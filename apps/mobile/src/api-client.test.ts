@@ -225,3 +225,32 @@ describe("MobileApiClient commerce reads", () => {
     )).resolves.toEqual(expected);
   });
 });
+
+describe("native POS attendant restricted shift-status API",()=>{
+  it("reads only authenticated branch-scoped current status",async()=>{
+    const businessId="11111111-1111-4111-8111-111111111111";
+    const branchId="22222222-2222-4222-8222-222222222222";
+    const fixture={operatingDay:null,shift:null,openShiftCount:0};
+    const fetchImpl=(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      expect(String(input)).toBe(
+        "https://tradeos.example/api/mobile/v1/operations/current?businessId="+
+        businessId+"&branchId="+branchId);
+      expect(init?.method).toBe("GET");
+      expect((init?.headers as Record<string,string>).authorization).toBe("Bearer access-old");
+      return jsonResponse(fixture);
+    }) as typeof fetch;
+    const {client,persistence}=harness(fetchImpl);
+    await persistence.saveSession(oldSession);
+    await expect(client.getOwnCashShift(businessId,branchId)).resolves.toEqual(fixture);
+  });
+  it("does not return simulated status if branch access is revoked",async()=>{
+    const fetchImpl=(async()=>jsonResponse({
+      error:"BRANCH_SCOPE_DENIED",message:"Not assigned to this branch",
+    },403)) as typeof fetch;
+    const {client,persistence}=harness(fetchImpl);
+    await persistence.saveSession(oldSession);
+    await expect(client.getOwnCashShift("x","y")).rejects.toMatchObject({
+      statusCode:403,code:"BRANCH_SCOPE_DENIED",
+    });
+  });
+});

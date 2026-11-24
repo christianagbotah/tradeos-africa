@@ -84,6 +84,18 @@ export type MobileInventoryItem = {
 
 export type MobileInventoryResponse = { items: MobileInventoryItem[] };
 
+/** Restricted POS attendant view from /v1/operations/current.
+ * Only own CASH is present; no business-day balances or other staff details.
+ */
+export type MobileOwnCashShiftStatus = {
+  operatingDay: { id:string; status:"OPEN"|"CLOSED"; openedAt:string } | null;
+  shift: { id:string; status:"OPEN"|"CLOSED"; openedAt:string;
+    balances:readonly {method:"CASH";openingCountedMinor:number;
+      movementMinor:number;expectedClosingMinor:number}[];
+  } | null;
+  openShiftCount:number;
+};
+
 export type MobileApiClientOptions = {
   baseUrl: string;
   persistence: MobilePersistence;
@@ -156,6 +168,13 @@ export class MobileApiClient {
   getCatalog(businessId: string): Promise<MobileCatalogResponse> {
     const query = new URLSearchParams({ businessId });
     return this.authorizedJson<MobileCatalogResponse>(`/v1/catalog/items?${query.toString()}`, { method: "GET" });
+  }
+
+  getOwnCashShift(businessId:string,branchId:string):Promise<MobileOwnCashShiftStatus>{
+    const query=new URLSearchParams({businessId,branchId});
+    return this.authorizedJson<MobileOwnCashShiftStatus>(
+      "/v1/operations/current?"+query.toString(),{method:"GET"},
+    );
   }
 
   getInventory(businessId: string, branchId: string, search = ""): Promise<MobileInventoryResponse> {
