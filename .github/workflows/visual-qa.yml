@@ -358,7 +358,8 @@ jobs:
           loginPage.on("dialog",async dialog=>{nativeDialogs++;await dialog.dismiss();});
           const dismissFeedback=async()=>{
             const close=loginPage.getByRole("button",{name:"Dismiss notification"});
-            if(await close.count())await close.first().click();
+            await close.first().waitFor({state:"visible",timeout:10000});
+            await close.first().click();
           };
           const delayedWrite=async(trigger,assertVisible)=>{
             let release;
@@ -378,7 +379,7 @@ jobs:
             await loginPage.getByLabel("Document type").selectOption(kind);
             await loginPage.getByLabel("Customer name").fill(name);
             await loginPage.getByLabel("Item 1",{exact:true}).selectOption({label:"Standard Haircut"});
-            await loginPage.getByLabel("Quantity",{exact:true}).fill("2");
+            await loginPage.getByLabel("Quantity 1",{exact:true}).fill("2");
             const row=loginPage.locator("article").filter({hasText:name});
             await delayedWrite(
               ()=>loginPage.getByRole("button",{name:"Create draft",exact:true}).click(),
@@ -388,7 +389,7 @@ jobs:
             await loginPage.getByRole("button",{name:"Save changes",exact:true}).waitFor();
             const updatedName=name+" revised";
             await loginPage.getByLabel("Customer name").fill(updatedName);
-            await loginPage.getByLabel("Quantity",{exact:true}).fill("3");
+            await loginPage.getByLabel("Quantity 1",{exact:true}).fill("3");
             const revised=loginPage.locator("article").filter({hasText:updatedName});
             await delayedWrite(
               ()=>loginPage.getByRole("button",{name:"Save changes",exact:true}).click(),

@@ -170,13 +170,13 @@ export function DocumentWorkspace() {
           <h2>{editing?`Edit ${editing.documentNumber}`:"New document"}</h2>
           <p className={styles.hint}>Catalog prices are confirmed by the server when saving. Editing a draft recalculates at current catalog prices. Tax is not added unless configured by the sales tax system.</p>
           <label className={styles.field}>Document type
-            <select value={kind} disabled={Boolean(editing)} onChange={e=>{setKind(e.target.value as Kind);requestId.current=null;}}>
+            <select aria-label="Document type" value={kind} disabled={Boolean(editing)} onChange={e=>{setKind(e.target.value as Kind);requestId.current=null;}}>
               <option value="QUOTATION">Quotation</option>
               <option value="PROFORMA">Proforma invoice</option>
             </select>
           </label>
           <label className={styles.field}>Existing customer
-            <select value={customerId} onChange={e=>{setCustomerId(e.target.value);requestId.current=null;}}>
+            <select aria-label="Existing customer" value={customerId} onChange={e=>{setCustomerId(e.target.value);requestId.current=null;}}>
               <option value="">Walk-in / new customer</option>
               {customers.filter(c=>c.active).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -190,7 +190,7 @@ export function DocumentWorkspace() {
             const units=item?.units.filter(u=>u.canSell&&u.defaultSalePriceMinor!==null)??[];
             return <div className={styles.line} key={line.key}>
               <label className={styles.field}>Item {index+1}
-                <select value={line.itemId} onChange={e=>{
+                <select aria-label={`Item ${index+1}`} value={line.itemId} onChange={e=>{
                   const next=itemById.get(e.target.value);
                   const unit=next?.units.find(u=>u.canSell&&u.defaultSalePriceMinor!==null);
                   setLine(line.key,{itemId:e.target.value,unitCode:unit?.code??""});
@@ -202,14 +202,14 @@ export function DocumentWorkspace() {
               </label>
               <div className={styles.lineInputs}>
                 <label className={styles.field}>Sale unit
-                  <select value={line.unitCode} onChange={e=>setLine(line.key,{unitCode:e.target.value})}>
+                  <select aria-label={`Sale unit ${index+1}`} value={line.unitCode} onChange={e=>setLine(line.key,{unitCode:e.target.value})}>
                     {line.unitCode&&!units.some(u=>u.code===line.unitCode)?<option value={line.unitCode}>{line.unitCode} (unavailable)</option>:null}
                     {units.length===0?<option value="">Select item</option>:
                       units.map(unit=><option key={unit.code} value={unit.code}>{unit.label}</option>)}
                   </select>
                 </label>
                 <label className={styles.field}>Quantity
-                  <input type="number" min="0.00000001" max="1000000" step="any" value={line.quantity}
+                  <input aria-label={`Quantity ${index+1}`} type="number" min="0.00000001" max="1000000" step="any" value={line.quantity}
                     onChange={e=>setLine(line.key,{quantity:e.target.value})}/>
                 </label>
               </div>
