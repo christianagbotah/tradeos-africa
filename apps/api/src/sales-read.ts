@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
+import { requireBranchScope } from "./auth/branch-scope.js";
 import type { DatabasePool } from "./db.js";
 import { loadRefundEvidenceBranchRollup } from "./refund-evidence-branch-rollup.js";
 import { normalizeRefundInvestigationSearch, refundInvestigationSearchPattern } from "./refund-investigation-search.js";
@@ -498,13 +499,13 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
         try { paper=parseReceiptPaper(request.query.paper); }
         catch {throw new SalesReadError("Select A5, 80mm or 58mm receipt paper",400,"RECEIPT_PAPER_INVALID");}
         const found=await pool.query<{
-          id:string;status:string;completed_at:Date|null;
+          id:string;branch_id:string;status:string;completed_at:Date|null;
           total_minor:string|number;currency_code:string;
           business_name:string;branch_name:string|null;timezone:string|null;
           address:string|null;phone:string|null;customer_name:string|null;
           customer_phone:string|null;cashier_name:string|null;
         }>(
-          `SELECT s.id,s.status,s.completed_at,s.total_minor,s.currency_code,
+          `SELECT s.id,s.branch_id,s.status,s.completed_at,s.total_minor,s.currency_code,
                   b.name AS business_name,br.name AS branch_name,
                   COALESCE(br.timezone,b.timezone) AS timezone,
                   CONCAT_WS(', ',NULLIF(COALESCE(br.address_line1,b.address_line1), ''),
@@ -522,6 +523,7 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
         );
         const sale=found.rows[0];
         if(!sale)throw new SalesReadError("Sale was not found",404,"SALE_NOT_FOUND");
+        await requireBranchScope(pool,access,sale.branch_id);
         if(!["COMPLETED","PARTIALLY_REFUNDED","REFUNDED"].includes(sale.status)||
             !sale.completed_at)throw new SalesReadError(
           "A final receipt is available only for a completed, verified sale.",

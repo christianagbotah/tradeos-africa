@@ -34,6 +34,10 @@ async function setup(){
     [staffId,businessId,"Kofi Attendant","pos-only@tradeos.test"]);
   await pool.query("INSERT INTO business_memberships(business_id,user_id,staff_id,role,status) VALUES($1,$2,$3,'POS_ATTENDANT','ACTIVE')",
     [businessId,attendant.user.id,staffId]);
+  await pool.query(
+    "INSERT INTO pos_attendant_branch_assignments(business_id,staff_id,branch_id,assigned_by_staff_id) VALUES($1,$2,$3,(SELECT staff_id FROM business_memberships WHERE business_id=$1 AND role='OWNER' LIMIT 1))",
+    [businessId,staffId,branchId],
+  );
   const catalog=await app.inject({method:"POST",url:"/v1/catalog/items",
     headers:bearer(owner.session.accessToken),
     payload:{businessId,name:"Waakye",kind:"PREPARED_PRODUCT",units:[

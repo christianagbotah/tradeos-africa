@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
+import { visibleBranchesForAccess } from "./auth/branch-scope.js";
 import {
   createBranch,
   createOwnedBusiness,
@@ -54,7 +55,7 @@ export function registerBusinessRoutes(app: FastifyInstance, pool: DatabasePool)
       return {
         business: context.business,
         membership: { role: access.role, staffId: access.staffId },
-        branches: context.branches,
+        branches: await visibleBranchesForAccess(pool,access,context.branches),
       };
     } catch (error) {
       return sendBusinessError(request, reply, error, "BUSINESS_CONTEXT_FAILED", "Business context could not be loaded.");
