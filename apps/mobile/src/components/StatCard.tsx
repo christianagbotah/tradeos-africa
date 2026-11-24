@@ -51,7 +51,7 @@ export function StatCard({
     >
       <View style={styles.content}>
         <Text style={styles.label} numberOfLines={2}>{label}</Text>
-        <Text style={[styles.value, { color: TONE_VALUE[tone] }]} numberOfLines={1}>
+        <Text style={[styles.value, { color: TONE_VALUE[tone] }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
           {value}
         </Text>
         {hint ? <Text style={[styles.hint, { color: TONE_HINT[tone] }]} numberOfLines={2}>{hint}</Text> : null}

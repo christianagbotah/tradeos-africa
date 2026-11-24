@@ -107,13 +107,12 @@ export default function App() {
     setSnapshot(model.selectPaymentMethod(method));
 
   const queue = snapshot.bootstrap?.status === "READY" ? snapshot.bootstrap.queue : null;
-  const isReady = snapshot.phase === "READY";
   const ready = snapshot.bootstrap?.status === "READY" ? snapshot.bootstrap : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar
-        barStyle={isReady || snapshot.phase === "SIGNED_OUT" ? "dark-content" : "light-content"}
+        barStyle="light-content"
         backgroundColor={colors.midnight}
       />
       <View style={styles.flex}>

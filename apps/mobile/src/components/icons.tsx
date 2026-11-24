@@ -1,17 +1,9 @@
-import { Text, View } from "react-native";
-import type { TextStyle, ViewStyle } from "react-native";
-import { colors, spacing, typography } from "../theme";
+import { View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import type { ViewStyle } from "react-native";
+import { colors, spacing } from "../theme";
 
-/**
- * Lightweight inline icons for TradeOS mobile.
- *
- * No external icon dependency — we render with View + Text glyphs so the bundle
- * stays inside the existing mobile dependency list (Expo, RN, netinfo,
- * async-storage, secure-store, expo-crypto).
- *
- * Glyphs are simple, monochrome, and inherit tint from `color`.
- */
-
+/** Shared native vector icons for a consistent, scalable visual language. */
 export type IconName =
   | "dashboard"
   | "sell"
@@ -50,88 +42,22 @@ export type IconProps = {
   accessibilityLabel?: string;
 };
 
-const GLYPHS: Record<IconName, string> = {
-  dashboard: "⌂",
-  sell: "₵",
-  sales: "▦",
-  more: "⋯",
-  sync: "↻",
-  refresh: "↻",
-  search: "⌕",
-  plus: "+",
-  minus: "−",
-  close: "×",
-  check: "✓",
-  warning: "!",
-  error: "✕",
-  info: "i",
-  lock: "⚿",
-  logout: "⏻",
-  user: "◍",
-  store: "🏬",
-  cart: "🛒",
-  catalog: "☰",
-  wifiOff: "⊘",
-  wifiOn: "◐",
-  spinner: "◌",
-  branch: "⌖",
-  currency: "¤",
-  chart: "📈",
-  shield: "⛨",
-  arrowRight: "→",
-  trash: "⌫",
+const GLYPHS: Record<IconName, React.ComponentProps<typeof Ionicons>["name"]> = {
+  dashboard: "home-outline", sell: "cart-outline", sales: "receipt-outline",
+  more: "grid-outline", sync: "sync-outline", refresh: "refresh-outline",
+  search: "search-outline", plus: "add", minus: "remove", close: "close",
+  check: "checkmark", warning: "warning-outline", error: "alert-circle-outline",
+  info: "information-circle-outline", lock: "lock-closed-outline",
+  logout: "log-out-outline", user: "person-outline", store: "storefront-outline",
+  cart: "cart-outline", catalog: "pricetags-outline", wifiOff: "cloud-offline-outline",
+  wifiOn: "wifi-outline", spinner: "reload-outline", branch: "location-outline",
+  currency: "cash-outline", chart: "stats-chart-outline", shield: "shield-checkmark-outline",
+  arrowRight: "chevron-forward", trash: "trash-outline",
 };
 
 export function Icon({ name, size = 22, color, accessibilityLabel }: IconProps) {
-  const tint = color ?? colors.text;
-  const glyph = GLYPHS[name];
-  // For solid-dot style icons (warning/error/info/wifiOff), render a circular
-  // badge with a single-letter/symbol glyph so they read clearly at small sizes.
-  if (name === "warning" || name === "error" || name === "info" || name === "wifiOff") {
-    const badgeColor = name === "warning" ? colors.warning
-      : name === "error" ? colors.danger
-      : name === "wifiOff" ? colors.danger
-      : colors.info;
-    const badgeText = name === "warning" ? "!"
-      : name === "error" ? "✕"
-      : name === "wifiOff" ? "!"
-      : "i";
-    return (
-      <View
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: badgeColor,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-        accessibilityRole="image"
-        accessibilityLabel={accessibilityLabel}
-      >
-        <Text style={{ color: colors.textInverse, fontSize: size * 0.55, fontWeight: typography.weightBlack }}>
-          {badgeText}
-        </Text>
-      </View>
-    );
-  }
-  return (
-    <Text
-      accessibilityRole="image"
-      accessibilityLabel={accessibilityLabel}
-      style={{
-        color: tint,
-        fontSize: size,
-        lineHeight: size,
-        fontWeight: typography.weightBold,
-        textAlign: "center",
-        textAlignVertical: "center",
-        includeFontPadding: false,
-      } satisfies TextStyle}
-    >
-      {glyph}
-    </Text>
-  );
+  return <Ionicons name={GLYPHS[name]} size={size} color={color ?? colors.text}
+    accessible={Boolean(accessibilityLabel)} accessibilityLabel={accessibilityLabel} />;
 }
 
 /**
