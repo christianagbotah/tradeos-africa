@@ -1,5 +1,5 @@
 import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
-import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerCreateInput, CustomerUpdateInput, FinancialSummaryReport, CreditAgingReport, CashForecastResponse } from "@tradeos/contracts";
+import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerCreateInput, CustomerUpdateInput, StaffDirectoryItem, CreateStaffRequest, UpdateStaffRequest, StaffInvitationResponse, FinancialSummaryReport, CreditAgingReport, CashForecastResponse } from "@tradeos/contracts";
 import { type MobileSessionTokens, MobilePersistence } from "./storage";
 
 export type MobilePlatform = "ANDROID" | "IOS";
@@ -27,19 +27,13 @@ export type MobileMe = {
   memberships: MobileMembership[];
 };
 
-export type MobileBusinessContext = {
-  business: {
-    id: string;
-    name: string;
-    businessType: string;
-    countryCode: string;
-    currencyCode: string;
-    timezone: string;
-    status: string;
-  };
-  membership: { role: string; staffId: string | null };
-  branches: Array<{ id: string; name: string; code: string; timezone: string; active: boolean }>;
-};
+export type MobileContactProfile={email?:string|null;phone?:string|null;addressLine1?:string|null;addressLine2?:string|null;city?:string|null;region?:string|null;postalCode?:string|null};
+export type MobileBusinessProfile=MobileContactProfile&{id:string;name:string;legalName?:string|null;businessType:string;registrationNumber?:string|null;taxId?:string|null;countryCode:string;currencyCode:string;timezone:string;status:string;logoUrl?:string|null};
+export type MobileBranch=MobileContactProfile&{id:string;name:string;code:string;timezone:string;active:boolean;updatedAt?:string};
+export type MobileBusinessContext={business:MobileBusinessProfile;membership:{role:string;staffId:string|null};branches:MobileBranch[]};
+export type MobileBusinessPatch=Partial<Pick<MobileBusinessProfile,"name"|"legalName"|"businessType"|"registrationNumber"|"taxId"|"email"|"phone"|"addressLine1"|"addressLine2"|"city"|"region"|"postalCode"|"timezone">>;
+export type MobileBranchPatch=MobileContactProfile&{name?:string;timezone?:string;code?:string};
+
 
 export type MobileCatalogUnit = {
   code: string;
@@ -300,6 +294,33 @@ export class MobileApiClient {
   }
   saveExpenseCategory(businessId:string,input:{name:string;active?:boolean},revision?:{id:string;expectedUpdatedAt:string}):Promise<{category:MobileExpenseCategory}>{
     return this.authorizedJson("/v1/expense-categories"+(revision?"/"+encodeURIComponent(revision.id):""),{method:revision?"PATCH":"POST",body:JSON.stringify({businessId,...input,...(revision?{expectedUpdatedAt:revision.expectedUpdatedAt}:{})})});
+  }
+  updateBusinessProfile(businessId:string,input:MobileBusinessPatch):Promise<{business:MobileBusinessProfile}>{
+    return this.authorizedJson("/v1/businesses/"+encodeURIComponent(businessId),{method:"PATCH",body:JSON.stringify(input)});
+  }
+  saveBranch(businessId:string,input:MobileBranchPatch,branchId?:string):Promise<{branch:MobileBranch}>{
+    return this.authorizedJson("/v1/businesses/"+encodeURIComponent(businessId)+"/branches"+(branchId?"/"+encodeURIComponent(branchId):""),{method:branchId?"PATCH":"POST",body:JSON.stringify(input)});
+  }
+  changeBranchActive(businessId:string,branchId:string,active:boolean):Promise<{branch:MobileBranch}>{
+    return this.authorizedJson("/v1/businesses/"+encodeURIComponent(businessId)+"/branches/"+encodeURIComponent(branchId)+"/"+(active?"reactivate":"deactivate"),{method:"POST"});
+  }
+  getStaff(businessId:string):Promise<{staff:StaffDirectoryItem[]}>{
+    return this.authorizedJson("/v1/staff?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
+  }
+  saveStaff(input:CreateStaffRequest|UpdateStaffRequest,staffId?:string):Promise<{staff:StaffDirectoryItem}>{
+    return this.authorizedJson("/v1/staff"+(staffId?"/"+encodeURIComponent(staffId):""),{method:staffId?"PATCH":"POST",body:JSON.stringify(input)});
+  }
+  changeStaffActive(businessId:string,staffId:string,active:boolean):Promise<{staff:StaffDirectoryItem}>{
+    return this.authorizedJson("/v1/staff/"+encodeURIComponent(staffId)+"/"+(active?"reactivate":"suspend"),{method:"POST",body:JSON.stringify({businessId})});
+  }
+  inviteStaff(businessId:string,staffId:string):Promise<StaffInvitationResponse>{
+    return this.authorizedJson("/v1/staff/"+encodeURIComponent(staffId)+"/invitations",{method:"POST",body:JSON.stringify({businessId})});
+  }
+  getStaffBranches(businessId:string,staffId:string):Promise<{branchIds:string[]}>{
+    return this.authorizedJson("/v1/staff/"+encodeURIComponent(staffId)+"/branches?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
+  }
+  setStaffBranches(businessId:string,staffId:string,branchIds:string[]):Promise<{branchIds:string[]}>{
+    return this.authorizedJson("/v1/staff/"+encodeURIComponent(staffId)+"/branches",{method:"PUT",body:JSON.stringify({businessId,branchIds})});
   }
   getFinancialReport(businessId:string,branchId:string|null,range:string):Promise<FinancialSummaryReport>{
     return this.authorizedJson("/v1/reports/financial-summary?"+new URLSearchParams({businessId,...(branchId?{branchId}:{}),range}).toString(),{method:"GET"});
