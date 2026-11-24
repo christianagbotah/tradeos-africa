@@ -78,6 +78,9 @@ export type MobileSupplierDetail={supplier:MobileSupplier;obligations:Array<{id:
 export type MobileSupplierInput={name:string;phone:string|null;email:string|null;address:string|null;paymentTermsDays?:number};
 export type MobilePurchase={id:string;supplierId:string;supplierName:string;supplierReference:string|null;totalMinor:number;currencyCode:string;settlementMethod:string;receivedAt:string|null};
 export type MobilePurchaseDetail={purchase:MobilePurchase&{businessId:string;branchId:string};lines:Array<{id:string;itemName:string;purchaseQuantity:number;purchaseUnitCode:string;stockQuantity:number;stockUnitCode:string;unitCostMinor:number;lineCostMinor:number;returnedQuantity:number}>};
+export type MobilePurchaseOrderSummary={id:string;businessId:string;branchId:string;supplierId:string;supplierName:string;orderNumber:string;status:"DRAFT"|"ISSUED"|"CANCELLED";currencyCode:string;totalMinor:number;notes:string;expectedDeliveryDate:string|null;updatedAt:string};
+export type MobilePurchaseOrder=MobilePurchaseOrderSummary&{fulfillmentStatus:"NOT_RECEIVED"|"PARTIAL"|"RECEIVED";canReceive:boolean;receivedTotalMinor:number;priceVarianceMinor:number;lines:Array<{id:string;itemId:string;itemName:string;purchaseUnitCode:string;purchaseUnitLabel:string;quantity:number;remainingQuantity:number;receivedQuantity:number;unitCostMinor:number;lineTotalMinor:number}>;receipts:Array<{id:string;receivedAt:string;totalMinor:number;settlementMethod:string}>};
+export type MobilePurchaseOrderInput={businessId:string;branchId:string;clientRequestId:string;supplierId:string;notes:string;expectedDeliveryDate?:string;lines:Array<{itemId:string;purchaseUnitCode:string;quantity:number;unitCostMinor:number}>};
 export type MobileCatalogResponse = { items: MobileCatalogItem[] };
 
 export type MobileInventoryItem = {
@@ -246,6 +249,18 @@ export class MobileApiClient {
   }
   getPurchase(businessId:string,id:string):Promise<MobilePurchaseDetail>{
     return this.authorizedJson("/v1/purchases/"+encodeURIComponent(id)+"?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
+  }
+  getPurchaseOrders(businessId:string,branchId:string):Promise<{orders:MobilePurchaseOrderSummary[]}>{
+    return this.authorizedJson("/v1/purchase-orders?"+new URLSearchParams({businessId,branchId,limit:"100"}).toString(),{method:"GET"});
+  }
+  getPurchaseOrder(businessId:string,id:string):Promise<{order:MobilePurchaseOrder}>{
+    return this.authorizedJson("/v1/purchase-orders/"+encodeURIComponent(id)+"?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
+  }
+  savePurchaseOrder(input:MobilePurchaseOrderInput,revision?:{id:string;expectedUpdatedAt:string}):Promise<{order:MobilePurchaseOrder}>{
+    return this.authorizedJson("/v1/purchase-orders"+(revision?"/"+encodeURIComponent(revision.id):""),{method:revision?"PATCH":"POST",body:JSON.stringify({...input,...(revision?{expectedUpdatedAt:revision.expectedUpdatedAt}:{})})});
+  }
+  changePurchaseOrderStatus(businessId:string,id:string,action:"issue"|"cancel"):Promise<{order:MobilePurchaseOrder}>{
+    return this.authorizedJson("/v1/purchase-orders/"+encodeURIComponent(id)+"/"+action,{method:"POST",body:JSON.stringify({businessId})});
   }
   getOwnCashShift(businessId:string,branchId:string):Promise<MobileOwnCashShiftStatus>{
     const query=new URLSearchParams({businessId,branchId});

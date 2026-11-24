@@ -326,11 +326,11 @@ export class MobileRuntime {
 
   async recordSupplierTransaction(input:SupplierTransaction,online:boolean):Promise<ReceiptOutcome>{
     const ready=this.requireReady();
-    if(!online||this.supplierTransactionBusy||!(input.type==="PURCHASE_RECEIVE_CREATE"?canManageSuppliers(ready.membership.role):canPaySuppliers(ready.membership.role)))throw new MobileRuntimeError("An authorized online purchasing session is required.");
+    if(!online||this.supplierTransactionBusy||!(input.type==="SUPPLIER_PAYMENT_CREATE"?canPaySuppliers(ready.membership.role):canManageSuppliers(ready.membership.role)))throw new MobileRuntimeError("An authorized online purchasing session is required.");
     this.supplierTransactionBusy=true;
     try{
       const state=await this.queue.getSnapshot();
-      if([...state.pending,...state.failed.map(x=>x.mutation)].some(x=>x.businessId===ready.business.id&&["PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE"].includes(x.mutationType)&&(x.payload as {supplierId?:string})?.supplierId===input.payload.supplierId))throw new MobileRuntimeError("Resolve the previous supplier transaction in the sync queue first.");
+      if([...state.pending,...state.failed.map(x=>x.mutation)].some(x=>x.businessId===ready.business.id&&["PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","PURCHASE_RETURN_CREATE"].includes(x.mutationType)&&(x.payload as {supplierId?:string})?.supplierId===input.payload.supplierId))throw new MobileRuntimeError("Resolve the previous supplier transaction in the sync queue first.");
       const clientMutationId=this.options.createMutationId();
       if(!await this.queue.enqueue({clientId:await this.options.persistence.getOrCreateDeviceKey(),clientMutationId,businessId:ready.business.id,branchId:ready.branch.id,mutationType:input.type,occurredAt:this.options.now(),payload:input.payload}))throw new MobileRuntimeError("Transaction already queued.");
       try{await this.flush(true);}catch{/* Preserve the original durable submission. */}
