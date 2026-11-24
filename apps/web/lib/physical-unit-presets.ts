@@ -32,13 +32,13 @@ export function parsePhysicalFactor(input:string): number {
   }
   return factor;
 }
-export function addPhysicalUnitPreset<U extends PhysicalUnit,C extends PhysicalConversion>(
+export function addPhysicalUnitPreset<U extends PhysicalUnit>(
   currentUnits:readonly U[],
-  currentConversions:readonly C[],
+  currentConversions:readonly PhysicalConversion[],
   id:PhysicalPresetId,
   factorText:string,
   options:{kind:"PRODUCT"|"PREPARED_PRODUCT"|"SERVICE";newItem:boolean},
-):{units:U[];conversions:C[];addedUnits:number;addedConversion:boolean} {
+):{units:U[];conversions:PhysicalConversion[];addedUnits:number;addedConversion:boolean} {
   if(options.kind!=="PRODUCT") {
     throw new Error("Physical unit conversion templates are for stocked products.");
   }
@@ -76,6 +76,6 @@ export function addPhysicalUnitPreset<U extends PhysicalUnit,C extends PhysicalC
   if(conversions.length>=40)throw new Error("Too many conversions are configured for this item.");
   conversions.push({
     fromUnitCode:template.from,toUnitCode:template.to,factor:String(factor),
-  } as C);
+  });
   return {units,conversions,addedUnits:units.length-countBefore,addedConversion:true};
 }
