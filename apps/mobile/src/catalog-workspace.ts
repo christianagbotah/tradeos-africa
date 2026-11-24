@@ -15,3 +15,19 @@ export function catalogContactPatch(item:MobileCatalogItem,name:string,sku:strin
 export function reconcileCatalog(rows:readonly MobileCatalogItem[],item:MobileCatalogItem){
   return [item,...rows.filter(x=>x.id!==item.id)].sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id));
 }
+
+export type AdditionalSaleUnit={label:string;price:string;factor:string};
+export function multiUnitDraft(input:Parameters<typeof simpleCatalogDraft>[0],extras:readonly AdditionalSaleUnit[]):MobileCatalogDraft{
+  const draft=simpleCatalogDraft(input);
+  if(extras.length>20)throw new Error("Use at most 20 additional units.");
+  for(const [index,unit] of extras.entries()){
+    const label=unit.label.trim();
+    if(!label||label.length>120||draft.units.some(u=>u.label.toLowerCase()===label.toLowerCase()))throw new Error("Every unit needs a unique label.");
+    const factor=Number(unit.factor);
+    if(draft.trackStock&&(!Number.isFinite(factor)||factor<=0))throw new Error("Enter a positive stock conversion factor.");
+    const code="sale_"+(index+1);
+    draft.units.push({code,label,canPurchase:false,canSell:true,canStock:false,defaultSalePriceMinor:parseMinorAmount(unit.price,true)});
+    if(draft.trackStock)draft.conversions.push({fromUnitCode:code,toUnitCode:"unit",factor});
+  }
+  return draft;
+}

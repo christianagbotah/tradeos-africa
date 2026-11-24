@@ -17,6 +17,7 @@ import { MoreScreen } from "./src/screens/MoreScreen";
 import { NotificationsScreen } from "./src/screens/NotificationsScreen";
 import { BusinessQuestionsScreen } from "./src/screens/BusinessQuestionsScreen";
 import { PosScreen } from "./src/screens/PosScreen";
+import type { StockAdjustment } from "./src/inventory-adjustment";
 import type { CustomerReceiptInput } from "./src/customer-payment";
 import { CatalogStockScreen } from "./src/screens/CatalogStockScreen";
 import { CustomersScreen } from "./src/screens/CustomersScreen";
@@ -139,6 +140,12 @@ function MobileWorkspace() {
       finally{checkoutLock.current=false;}
     }
   };
+  const recordStockAdjustment=async(input:StockAdjustment)=>{
+    if(checkoutLock.current)throw new Error("Another transaction is in progress.");
+    checkoutLock.current=true;
+    try{return await runtime.recordStockAdjustment(input,snapshot.online===true);}
+    finally{try{setSnapshot(await model.refreshQueueState());}finally{checkoutLock.current=false;}}
+  };
   const retry = async () => setSnapshot(await model.start());
 
   const addCart = (item: Parameters<typeof model.addCart>[0]) => setSnapshot(model.addCart(item));
@@ -237,7 +244,7 @@ function MobileWorkspace() {
                   mode={activeScreen} api={api} businessId={ready.business.id} branchId={ready.branch.id}
                   currencyCode={ready.business.currencyCode} role={ready.membership.role} online={snapshot.online===true}
                   queueVersion={ready.queue.pending+":"+ready.queue.failed} onBack={()=>setScreen("more")}
-                  onFeedback={setFeedback} onCatalogChanged={()=>{void refreshCommerce();}}/>
+                  onFeedback={setFeedback} onAdjustment={recordStockAdjustment} onCatalogChanged={()=>{void refreshCommerce();}}/>
               ):null}
               {activeScreen === "more" ? (
                 <MoreScreen
