@@ -22,6 +22,7 @@ import {
   type MobileImmediatePaymentMethod,
   type MobileSellableItem,
 } from "./pos-model";
+import {canManageSuppliers,canPaySuppliers,type SupplierTransaction} from "./supplier-workspace";
 import {buildStockAdjustment,type StockAdjustment} from "./inventory-adjustment";
 import {canManageCatalog} from "./catalog-workspace";
 import {canCollectCustomerPayment,paymentMethods,type CustomerReceiptInput,type ReceiptOutcome} from "./customer-payment";
@@ -83,6 +84,7 @@ export class MobileRuntime {
   private current: MobileReadyState | null = null;
   private customerReceiptBusy=false;
   private stockAdjustmentBusy=false;
+  private supplierTransactionBusy=false;
 
   constructor(private readonly options: MobileRuntimeOptions) {
     this.queue = new OfflineMutationQueue(options.queueStorage, {
@@ -320,6 +322,23 @@ export class MobileRuntime {
       if(state.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
       return "SYNCED";
     }finally{this.stockAdjustmentBusy=false;}
+  }
+
+  async recordSupplierTransaction(input:SupplierTransaction,online:boolean):Promise<ReceiptOutcome>{
+    const ready=this.requireReady();
+    if(!online||this.supplierTransactionBusy||!(input.type==="PURCHASE_RECEIVE_CREATE"?canManageSuppliers(ready.membership.role):canPaySuppliers(ready.membership.role)))throw new MobileRuntimeError("An authorized online purchasing session is required.");
+    this.supplierTransactionBusy=true;
+    try{
+      const state=await this.queue.getSnapshot();
+      if([...state.pending,...state.failed.map(x=>x.mutation)].some(x=>x.businessId===ready.business.id&&["PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE"].includes(x.mutationType)&&(x.payload as {supplierId?:string})?.supplierId===input.payload.supplierId))throw new MobileRuntimeError("Resolve the previous supplier transaction in the sync queue first.");
+      const clientMutationId=this.options.createMutationId();
+      if(!await this.queue.enqueue({clientId:await this.options.persistence.getOrCreateDeviceKey(),clientMutationId,businessId:ready.business.id,branchId:ready.branch.id,mutationType:input.type,occurredAt:this.options.now(),payload:input.payload}))throw new MobileRuntimeError("Transaction already queued.");
+      try{await this.flush(true);}catch{/* Preserve the original durable submission. */}
+      const result=await this.queue.getSnapshot();
+      if(result.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
+      if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
+      return "SYNCED";
+    }finally{this.supplierTransactionBusy=false;}
   }
 
   async flush(online: boolean): Promise<FlushSummary> {

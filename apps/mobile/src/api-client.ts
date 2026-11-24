@@ -73,6 +73,11 @@ export type MobileDocumentKind="QUOTATION"|"PROFORMA";
 export type MobileDocumentSummary={id:string;businessId:string;branchId:string;documentNumber:string;kind:MobileDocumentKind;status:"DRAFT"|"ISSUED"|"CANCELLED";customerId:string|null;customerName:string;customerPhone:string|null;customerEmail:string|null;currencyCode:string;notes:string;totalMinor:number;expiresAt:string|null;updatedAt:string};
 export type MobileDocument=MobileDocumentSummary&{lines:Array<{id:string;itemId:string;itemName:string;saleUnitCode:string;quantity:number;unitNetMinor:number;lineTotalMinor:number}>};
 export type MobileDocumentInput={businessId:string;branchId:string;clientRequestId:string;kind:MobileDocumentKind;customerId?:string;customerName:string;customerPhone:string;customerEmail:string;notes:string;expiresAt?:string;lines:Array<{itemId:string;saleUnitCode:string;quantity:number}>};
+export type MobileSupplier={id:string;name:string;phone:string|null;email:string|null;address:string|null;paymentTermsDays:number;active:boolean;balanceMinor:number;updatedAt:string};
+export type MobileSupplierDetail={supplier:MobileSupplier;obligations:Array<{id:string;purchaseId:string;originalMinor:number;openMinor:number;dueAt:string}>;ledger:Array<{id:string;currencyCode:string;balanceDeltaMinor:number;method:string;sourceType:string;occurredAt:string}>};
+export type MobileSupplierInput={name:string;phone:string|null;email:string|null;address:string|null;paymentTermsDays?:number};
+export type MobilePurchase={id:string;supplierId:string;supplierName:string;supplierReference:string|null;totalMinor:number;currencyCode:string;settlementMethod:string;receivedAt:string|null};
+export type MobilePurchaseDetail={purchase:MobilePurchase&{businessId:string;branchId:string};lines:Array<{id:string;itemName:string;purchaseQuantity:number;purchaseUnitCode:string;stockQuantity:number;stockUnitCode:string;unitCostMinor:number;lineCostMinor:number;returnedQuantity:number}>};
 export type MobileCatalogResponse = { items: MobileCatalogItem[] };
 
 export type MobileInventoryItem = {
@@ -226,6 +231,21 @@ export class MobileApiClient {
   }
   changeDocumentStatus(businessId:string,id:string,action:"issue"|"cancel"):Promise<{document:MobileDocument}>{
     return this.authorizedJson("/v1/commercial-documents/"+encodeURIComponent(id)+"/"+action,{method:"POST",body:JSON.stringify({businessId})});
+  }
+  getSuppliers(businessId:string,query=""):Promise<{suppliers:MobileSupplier[]}>{
+    return this.authorizedJson("/v1/suppliers?"+new URLSearchParams({businessId,query,limit:"200"}).toString(),{method:"GET"});
+  }
+  getSupplier(businessId:string,id:string):Promise<MobileSupplierDetail>{
+    return this.authorizedJson("/v1/suppliers/"+encodeURIComponent(id)+"?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
+  }
+  saveSupplier(businessId:string,input:MobileSupplierInput,revision?:{id:string;expectedUpdatedAt:string}):Promise<{supplier:MobileSupplier}>{
+    return this.authorizedJson("/v1/suppliers"+(revision?"/"+encodeURIComponent(revision.id):""),{method:revision?"PATCH":"POST",body:JSON.stringify({businessId,...input,...(revision?{expectedUpdatedAt:revision.expectedUpdatedAt}:{})})});
+  }
+  getPurchases(businessId:string,branchId:string):Promise<{purchases:MobilePurchase[]}>{
+    return this.authorizedJson("/v1/purchases?"+new URLSearchParams({businessId,branchId,limit:"100"}).toString(),{method:"GET"});
+  }
+  getPurchase(businessId:string,id:string):Promise<MobilePurchaseDetail>{
+    return this.authorizedJson("/v1/purchases/"+encodeURIComponent(id)+"?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
   }
   getOwnCashShift(businessId:string,branchId:string):Promise<MobileOwnCashShiftStatus>{
     const query=new URLSearchParams({businessId,branchId});
