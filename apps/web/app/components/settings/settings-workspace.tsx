@@ -15,6 +15,7 @@ import { BusinessFields, type BusinessFormState, type BusinessType } from "./bus
 import { BranchFields, type BranchDraft } from "./branch-fields";
 import { ImagePicker } from "./image-picker";
 import { TeamAccess } from "./team-access";
+import { ShiftSalePolicyPanel } from "./shift-sale-policy-panel";
 import { MerchantBillingPanel } from "./merchant-billing-panel";
 import { PaymentProviderPanel } from "./payment-provider-panel";
 import { SmsProviderPanel } from "./sms-provider-panel";
@@ -844,6 +845,8 @@ function BranchesSection({
           </article>
         ))}
       </div>
+
+      <ShiftSalePolicyPanel online={online} canManage={canManage}/>
 
       {!canManage ? <InfoCallout title="Read-only access" text="You can switch between active branches you are allowed to use. Only OWNER and ADMIN can create or edit branch records." /> : null}
 
