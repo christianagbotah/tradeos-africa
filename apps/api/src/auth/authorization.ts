@@ -1,7 +1,7 @@
 import type { DatabasePool } from "../db.js";
 import { AuthError, type AuthContext } from "./security.js";
 
-export type BusinessRole = "OWNER" | "ADMIN" | "MANAGER" | "CASHIER" | "SALES" | "INVENTORY" | "ACCOUNTANT" | "STAFF" | "VIEWER";
+export type BusinessRole = "OWNER" | "ADMIN" | "MANAGER" | "CASHIER" | "POS_ATTENDANT" | "SALES" | "INVENTORY" | "ACCOUNTANT" | "STAFF" | "VIEWER";
 
 export interface BusinessAccess {
   membershipId: string;

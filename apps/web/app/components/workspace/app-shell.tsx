@@ -125,6 +125,7 @@ export function AppShell({ children }: AppShellProps) {
   };
 
   const activeSegment = deriveActiveSegment(pathname);
+  const attendantOnly = role === "POS_ATTENDANT";
   const activeItem = findNavItem(activeSegment);
   const groups = groupedNavItems(role);
   const primary = primaryNavItems(role);
@@ -400,9 +401,11 @@ export function AppShell({ children }: AppShellProps) {
                     <span>{account?.email ?? account?.phoneE164 ?? "TradeOS account"}</span>
                   </div>
                 </div>
+                {!attendantOnly ? <>
                 <Link href="/settings?section=profile" className="tos-account-link" role="menuitem" onClick={() => setAccountOpen(false)}><IconUser />My profile</Link>
                 <Link href="/settings?section=security" className="tos-account-link" role="menuitem" onClick={() => setAccountOpen(false)}><IconShield />Security</Link>
                 <Link href="/settings?section=business" className="tos-account-link" role="menuitem" onClick={() => setAccountOpen(false)}><IconBuilding />Settings</Link>
+                </> : null}
                 <button type="button" className="tos-account-link tos-account-link--danger" role="menuitem" onClick={handleSignOut}>
                   <IconLogout />Sign out
                 </button>
@@ -411,11 +414,27 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </header>
 
-        <main className="tos-content">{children}</main>
+        <main className="tos-content">{attendantOnly && activeSegment !== "sell" ? (
+          <section className="tos-boundary" role="status">
+            <div className="tos-boundary__panel">
+              <h1 className="tos-boundary__title">Sales-only access</h1>
+              <p className="tos-boundary__text">This attendant account can operate the POS.
+                Ask the owner or manager for permission to use another business module.</p>
+              <Link href="/sell" className="tos-btn tos-btn--primary">Return to POS</Link>
+            </div>
+          </section>
+        ) : children}</main>
 
-        <nav className="tos-bottomnav" aria-label="Primary">
+        <nav className="tos-bottomnav" aria-label="Primary" data-pos-attendant={attendantOnly}>
           <div className="tos-bottomnav__inner">
             {primary.map((item) => <BottomNavLink key={item.id} item={item} active={item.segment === activeSegment} />)}
+            {attendantOnly ? (
+              <button type="button" className="tos-bottomnav__link" onClick={handleSignOut}
+                aria-label="Sign out of POS">
+                <IconLogout className="tos-bottomnav__link-icon" />
+                <span>Sign out</span>
+              </button>
+            ) : (
             <button
               ref={moreTriggerRef}
               type="button"
@@ -430,10 +449,11 @@ export function AppShell({ children }: AppShellProps) {
               <IconMore className="tos-bottomnav__link-icon" />
               <span>More</span>
             </button>
+            )}
           </div>
         </nav>
 
-        {moreOpen ? (
+        {moreOpen && !attendantOnly ? (
           <>
             <div className="tos-sheet-scrim" onClick={dismissMore} aria-hidden="true" />
             <div id="tradeos-more-sheet" className="tos-sheet tos-sheet--more" role="dialog"

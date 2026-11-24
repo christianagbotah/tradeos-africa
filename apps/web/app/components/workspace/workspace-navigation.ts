@@ -32,6 +32,7 @@ export type WorkspaceRole =
   | "ADMIN"
   | "MANAGER"
   | "CASHIER"
+  | "POS_ATTENDANT"
   | "SALES"
   | "INVENTORY"
   | "ACCOUNTANT"
@@ -76,6 +77,7 @@ const WRITE_ROLES: readonly WorkspaceRole[] = [
   "ADMIN",
   "MANAGER",
   "CASHIER",
+  "POS_ATTENDANT",
   "SALES",
   "INVENTORY",
   "ACCOUNTANT",
@@ -166,6 +168,8 @@ export interface MobileMoreGroup {
 
 export function mobileMoreNavigationGroups(role: WorkspaceRole | null | undefined): readonly MobileMoreGroup[] {
   if (!role) return [];
+  // A dedicated POS login must never promote other workspace routes.
+  if (role === "POS_ATTENDANT") return [];
   const secondary = secondaryNavItems(role);
   const linksFor = (segments: readonly string[]) => secondary
     .filter((item) => segments.includes(item.segment))

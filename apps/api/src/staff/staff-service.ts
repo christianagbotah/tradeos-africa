@@ -31,7 +31,7 @@ import { withTransaction } from "../db.js";
 const STAFF_READ_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER"];
 const STAFF_MUTATION_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN"];
 const ADMIN_ASSIGNABLE_ROLES: readonly BusinessRole[] = [
-  "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
+  "MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
 
 type StaffRow = {

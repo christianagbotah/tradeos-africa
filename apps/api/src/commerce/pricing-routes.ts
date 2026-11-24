@@ -7,6 +7,7 @@ import {PriceRuleError,pricingFail,pricingUuid,pricingUnit,pricingMinor,pricingQ
   ensureCustomer,priceCatalogBase,resolveCustomerPrice} from "./price-rules.js";
 
 const SELL_ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","CASHIER","SALES","STAFF"];
+const QUOTE_ROLES:readonly BusinessRole[]=[...SELL_ROLES,"POS_ATTENDANT"];
 const CONTROL_ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER"];
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function optionalCustomer(v:unknown):string|null{
@@ -53,7 +54,10 @@ type ReviewBody={businessId?:string;note?:string};
 export function registerPricingRoutes(app:FastifyInstance,pool:DatabasePool){
   app.post<{Body:QuoteBody}>("/v1/pricing/quote",async(req,reply)=>{
     try{
-      const a=await authorized(pool,req.headers.authorization,req.body?.businessId,SELL_ROLES);
+      const a=await authorized(pool,req.headers.authorization,req.body?.businessId,QUOTE_ROLES);
+      if (a.role === "POS_ATTENDANT" && req.body?.customerId) {
+        throw new AuthError("POS-only staff cannot access negotiated customer prices",403,"ROLE_FORBIDDEN");
+      }
       const branchId=pricingUuid(req.body?.branchId,"branchId");
       const customer=optionalCustomer(req.body?.customerId);
       const lines=req.body?.lines;

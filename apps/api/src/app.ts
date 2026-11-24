@@ -9,6 +9,7 @@ import { registerSupplierInventoryRoutes } from "./suppliers-inventory.js";
 import Fastify from "fastify";
 import type { ClientMutation, SyncPushRequest } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
+import { assertPosAttendantSalePayload, PosAttendantPolicyError } from "./auth/pos-attendant-policy.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authenticateAccessToken, AuthError, type AuthContext } from "./auth/security.js";
 import { registerBusinessRoutes } from "./businesses.js";
@@ -40,7 +41,7 @@ import { registerPricingRoutes } from "./commerce/pricing-routes.js";
 import { registerStaffRoutes } from "./staff/routes.js";
 import { ingestSyncBatch, SyncRequestError } from "./sync.js";
 
-const SALE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "STAFF"];
+const SALE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "STAFF"];
 const RETURN_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER"];
 const CUSTOMER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
 const PURCHASE_RECEIVE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"];
@@ -104,6 +105,9 @@ export function buildApp(pool: DatabasePool) {
       const authorized = await authorizeAndEnrichSyncBatch(pool, auth, request.body);
       return await ingestSyncBatch(pool, authorized);
     } catch (error) {
+      if (error instanceof PosAttendantPolicyError) {
+        return reply.code(error.statusCode).send({ error: error.code, message: error.message });
+      }
       if (error instanceof AuthError) {
         return reply.code(error.statusCode).send({ error: error.code, message: error.message });
       }
@@ -145,6 +149,14 @@ async function authorizeAndEnrichSyncBatch(
     if (!access) {
       access = await requireBusinessRole(pool, auth, mutation.businessId, roles);
       accessCache.set(authorizationKey, access);
+    }
+    // This test must run on the authenticated database role, not a role string
+    // supplied by an offline client or included inside the payload.
+    if (access.role === "POS_ATTENDANT") {
+      if (normalizedMutation.mutationType !== "SALE_CREATE") {
+        throw new AuthError("POS-only staff cannot perform this action", 403, "ROLE_FORBIDDEN");
+      }
+      assertPosAttendantSalePayload(normalizedMutation.payload);
     }
     if (!access.staffId) {
       throw new AuthError(

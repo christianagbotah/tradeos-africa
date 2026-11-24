@@ -9,6 +9,7 @@ import { createSupplier, deleteUnusedSupplier, loadSupplier, SUPPLIER_DELETE_ROL
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
+const POS_STOCK_READ_ROLES: readonly BusinessRole[] = [...READ_ROLES, "POS_ATTENDANT"];
 type SupplierCreateBody = SupplierCreateInput & { businessId: string };
 type SupplierUpdateBody = SupplierUpdateInput & { businessId: string };
 
@@ -117,9 +118,38 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = required(request.query.businessId,"businessId");
       const branchId = required(request.query.branchId,"branchId");
-      await requireBusinessRole(pool,auth,businessId,READ_ROLES);
+      const access = await requireBusinessRole(pool,auth,businessId,POS_STOCK_READ_ROLES);
       await assertBranch(pool,businessId,branchId);
       const query = request.query.query?.trim() ?? "";
+      // POS-only stock search returns item identity and sellable availability.
+      // Do not query or return costs, COGS or quarantine/damaged valuations.
+      if (access.role === "POS_ATTENDANT") {
+        const stock = await pool.query<{
+          id:string;sku:string|null;name:string;stock_unit_code:string;
+          available:string|number;
+        }>(
+          `
+          SELECT ci.id,ci.sku,ci.name,ci.stock_unit_code,
+                 COALESCE(SUM(im.quantity_delta) FILTER
+                   (WHERE im.location_type='AVAILABLE'),0) AS available
+          FROM catalog_items ci
+          LEFT JOIN inventory_movements im ON im.business_id=ci.business_id
+            AND im.item_id=ci.id AND im.branch_id=$2
+          WHERE ci.business_id=$1 AND ci.is_active=true
+            AND ci.kind='PRODUCT' AND ci.track_stock=true
+            AND ($3='' OR ci.name ILIKE $4 OR COALESCE(ci.sku,'') ILIKE $4)
+          GROUP BY ci.id,ci.sku,ci.name,ci.stock_unit_code
+          ORDER BY ci.name,ci.id
+        `,
+          [businessId,branchId,query,"%"+query+"%"],
+        );
+        return {
+          items: stock.rows.map(row=>({
+            id:row.id,sku:row.sku,name:row.name,
+            stockUnitCode:row.stock_unit_code,available:Number(row.available),
+          })),
+        };
+      }
       const result = await pool.query<{
         id: string; sku: string | null; name: string; stock_unit_code: string;
         available: string | number; quarantine: string | number; damaged: string | number; waste: string | number;
