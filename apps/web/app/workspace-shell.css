@@ -851,6 +851,7 @@
 }
 
 /* Quick price setup on the item sheet. */
+.tos-catalog-price-setup { min-width: 0; }
 .tos-catalog-price-setup__row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

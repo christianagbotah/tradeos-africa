@@ -27,6 +27,7 @@ describe("price-driven waakye, fish and service onboarding",()=>{
     expect(contract).toContain("CATALOG_WRITE_ROLES");
   });
   it("keeps controls usable on narrow phones",()=>{
+    expect(css).toContain(".tos-catalog-price-setup {");
     expect(css).toContain(".tos-catalog-price-setup__row");
     expect(css).toContain("grid-template-columns: minmax(0, 1fr)");
     expect(css).toContain(".tos-catalog-price-setup__row > button { width: 100%; }");
