@@ -17,7 +17,7 @@ import type {
   MobileImmediatePaymentMethod,
   MobileSellableItem,
 } from "../pos-model";
-import { groupMobileQuickServeItems } from "../pos-model";
+import { visibleQuickServeGroups, QUICK_SERVE_PAGE_SIZE } from "../pos-model";
 import {PdfDeliveryPanel} from "./PdfDeliveryPanel";
 import type {MobileApiClient,MobileOwnCashShiftStatus} from "../api-client";
 import {PosCashShiftPanel} from "./PosCashShiftPanel";
@@ -63,6 +63,9 @@ export function PosScreen({
   onOwnCashShift,
  }: PosScreenProps) {
   const [quickServe,setQuickServe] = useState(false);
+  const [quickLimit,setQuickLimit]=useState(QUICK_SERVE_PAGE_SIZE);
+  const catalogScope=snapshot.bootstrap?.status==="READY"?snapshot.bootstrap.business.id+":"+snapshot.bootstrap.branch.id:"";
+  useEffect(()=>setQuickLimit(QUICK_SERVE_PAGE_SIZE),[search,catalogScope]);
   const attendantOnly = snapshot.bootstrap?.status === "READY" &&
     snapshot.bootstrap.membership.role === "POS_ATTENDANT";
   useEffect(() => {
@@ -74,6 +77,7 @@ export function PosScreen({
   const canSell = SALE_ROLES.has(ready.membership.role);
   const items = snapshot.commerce?.items ?? [];
   const visibleItems = filterItems(items, search);
+  const quickCatalog=quickServe?visibleQuickServeGroups(visibleItems,quickLimit):null;
   const total = items.length === 0 && snapshot.cart.length > 0
     ? snapshot.cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0)
     : cartTotal(snapshot.cart);
@@ -173,7 +177,7 @@ export function PosScreen({
 
       {quickServe?(
         <View style={styles.quickFoodList} accessibilityLabel="Quick Serve food buttons">
-          {groupMobileQuickServeItems(visibleItems).slice(0,30).map(group=>(
+          {quickCatalog?.groups.map(group=>(
             <Card key={group.itemId} padding="compact" style={styles.quickFoodCard}>
               <Text style={styles.quickFoodName}>{group.name}</Text>
               <View style={styles.quickPortions}>
@@ -199,6 +203,11 @@ export function PosScreen({
               </View>
             </Card>
           ))}
+          {quickCatalog?.hasMore?<Button variant="secondary" fullWidth
+            accessibilityLabel="Show more Quick Serve products"
+            onPress={()=>setQuickLimit(limit=>limit+QUICK_SERVE_PAGE_SIZE)}>
+            {`Show more · ${quickCatalog.groups.length} of ${quickCatalog.totalGroups}`}
+          </Button>:null}
         </View>
       ):(
       <View style={styles.catalogList}>
