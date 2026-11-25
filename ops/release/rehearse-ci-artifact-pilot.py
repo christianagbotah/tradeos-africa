@@ -171,13 +171,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def rehearse(sha: str, folder: Path, output: Path) -> dict:
+def rehearse(sha: str, folder: Path, output: Path, *, profile: str = "pilot") -> dict:
     # Inspect SHA, digest, provenance marker, exact manifest, payload and all
     # symlink chains BEFORE creating any output directory.
-    metadata = inspect_mod.inspect(sha, folder)
-    if metadata['deployable'] is not False:
-        raise Rejected('rehearsal is allowed only for nondeployable pilot artifacts')
-    archive = folder / f'tradeos-runtime-pilot-{sha}.tar.gz'
+    metadata = inspect_mod.inspect(sha, folder) if profile == 'pilot' else inspect_mod.inspect(sha, folder, profile=profile)
+    if metadata['deployable'] is not (profile == 'release'):
+        raise Rejected('artifact profile mismatch')
+    archive = folder / f'tradeos-runtime-{profile}-{sha}.tar.gz'
     before_sha256 = _sha256(archive)
     destination = require_new_sandbox(output)
     created = False
@@ -219,7 +219,8 @@ def rehearse(sha: str, folder: Path, output: Path) -> dict:
                     raise Rejected('resolved archive symlink escapes quarantine')
         return {
             'sourceCommit': sha,
-            'deployable': False,
+            'deployable': profile == 'release',
+            'authorizedToDeploy': False,
             'sandbox': str(destination),
             'extractedMembers': len(members),
             'expandedRegularBytes': metadata['expandedBytes'],
