@@ -480,6 +480,15 @@ export class MobileRuntime {
     return this.current;
   }
 
+  /** Re-read every business's durable queue before allowing an installer handoff. */
+  async canPrepareAppUpdate():Promise<boolean>{
+    if(this.workspaceSwitching||this.transactionBusy()||!this.current)return false;
+    const ready=this.current;
+    const queue=await this.queue.getSnapshot();
+    return this.sameReadyScope(this.current,ready)&&!this.workspaceSwitching&&!this.transactionBusy()&&
+      queue.pending.length===0&&queue.failed.length===0;
+  }
+
   async getQueueState(): Promise<QueueState> {
     return this.queue.getState(this.current?.membership.businessId ?? null);
   }

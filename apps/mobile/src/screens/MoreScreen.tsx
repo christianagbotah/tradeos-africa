@@ -11,6 +11,7 @@ import type { MobileAppSnapshot } from "../app-model";
 export type MoreScreenProps = {
   snapshot: MobileAppSnapshot;
   appVersion: string;
+  canDownloadUpdate:()=>Promise<boolean>;
   onSync: () => void;
   onRefreshCatalog: () => void;
   onGoToNotifications: () => void;
@@ -32,6 +33,7 @@ export type MoreScreenProps = {
 export function MoreScreen({
   snapshot,
   appVersion,
+  canDownloadUpdate,
   onSync,
   onRefreshCatalog,
   onGoToNotifications,
@@ -74,7 +76,7 @@ export function MoreScreen({
       </HeroCard>
       <Button variant="secondary" fullWidth accessibilityLabel="Switch business or branch" onPress={onGoToWorkspaceSwitch}>Switch business or branch</Button>
 
-      <AndroidUpdatePanel manual online={snapshot.online===true} cart={snapshot.cart.length} pending={queue.pending} busy={snapshot.syncing||snapshot.checkoutBusy}/>
+      <AndroidUpdatePanel manual online={snapshot.online===true} cart={snapshot.cart.length} pending={queue.pending} failed={queue.failed} blocked={queue.blocked} canDownload={canDownloadUpdate} busy={snapshot.syncing||snapshot.checkoutBusy}/>
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Master data and inventory</Text>
         <Text style={styles.sectionTitle}>Products and stock</Text>
