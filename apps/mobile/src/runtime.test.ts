@@ -302,6 +302,24 @@ describe("MobileRuntime commerce", () => {
     });
   });
 
+  it("returns the exact completed sale ID only when the matching server acknowledgement identifies a completed sale", async () => {
+    const saleId="12345678-1234-4123-8123-123456789012";
+    for(const status of ["COMPLETED","AWAITING_PAYMENT",null] as const){
+      const api=new FakeApi();
+      const original=api.push.bind(api);
+      api.push=async request=>{
+        const response=await original(request);
+        return {...response,mutationResults:response.mutationResults.map(result=>({...result,...(status?{result:{saleId,status}}:{})}))};
+      };
+      const {runtime}=await readyHarness(api);
+      const cart=addCartItem([],projectSellableItems(api.catalog.items,api.inventory.items)[0]!);
+      const result=await runtime.createSale(cart,"CASH",true);
+      expect(result.outcome).toBe("SYNCED");
+      if(status==="COMPLETED")expect(result.completedSaleId).toBe(saleId);
+      else expect(Object.hasOwn(result,"completedSaleId")).toBe(false);
+    }
+  });
+
   it("moves a server-rejected sale to review instead of deleting evidence", async () => {
     const api = new FakeApi();
     api.rejectNextPush = { code: "INSUFFICIENT_STOCK", message: "Stock changed before sync" };
