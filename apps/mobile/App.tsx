@@ -126,6 +126,11 @@ function MobileWorkspace() {
       }
     }finally{checkoutLock.current=false;}
   };
+  const canDownloadUpdate=useCallback(async()=>{
+    const safe=()=>{const state=model.snapshot;return state.phase==="READY"&&state.online===true&&!state.cart.length&&!state.checkoutBusy&&!state.syncing&&!checkoutLock.current;};
+    if(!safe())return false;
+    try{return await runtime.canPrepareAppUpdate()&&safe();}catch{return false;}
+  },[model,runtime]);
   const getCurrentPending=useCallback(()=>runtime.getCurrentBusinessPendingCount(),[runtime]);
   const getOwnCashShift = useCallback((businessId:string,branchId:string)=>
     api.getOwnCashShift(businessId,branchId),[api]);
@@ -217,7 +222,7 @@ function MobileWorkspace() {
         pendingCount={ready.queue.pending} failedCount={ready.queue.failed}
         onMenu={()=>{if(attendantOnly){if(!checkoutLock.current)setFeedback(signOutFeedback);}else if(!checkoutLock.current)setScreen("more");}}
         attendantOnly={attendantOnly}/> : null}
-      {workspaceReady&&ready&&!attendantOnly?<AndroidUpdatePanel online={snapshot.online===true} cart={snapshot.cart.length} pending={ready.queue.pending} busy={snapshot.syncing||snapshot.checkoutBusy||checkoutLock.current}/>:null}
+      {workspaceReady&&ready&&!attendantOnly?<AndroidUpdatePanel online={snapshot.online===true} cart={snapshot.cart.length} pending={ready.queue.pending} failed={ready.queue.failed} blocked={ready.queue.blocked} canDownload={canDownloadUpdate} busy={snapshot.syncing||snapshot.checkoutBusy||checkoutLock.current}/>:null}
       <View style={styles.flex}>
         {snapshot.phase === "BOOTING" ? <LoadingScreen /> : null}
 
@@ -353,6 +358,7 @@ function MobileWorkspace() {
                 <MoreScreen
                   snapshot={snapshot}
                   appVersion={APP_VERSION}
+                  canDownloadUpdate={canDownloadUpdate}
                   onSync={() => { void sync(); }}
                   onRefreshCatalog={() => { void refreshCommerce(); }}
                   onLogout={() => { if(!checkoutLock.current)setFeedback(signOutFeedback); }}

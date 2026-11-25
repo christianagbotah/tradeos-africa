@@ -27,10 +27,27 @@ export function selectAndroidUpdate(input:unknown,installed:number):AndroidUpdat
  return matches.sort((a,b)=>b.build-a.build)[0]??null;
 }
 export async function checkAndroidUpdate(installed:number,fetcher:typeof fetch=fetch){
- const response=await fetcher(updateFeed,{headers:{Accept:"application/vnd.github+json"}});
- if(!response.ok)throw new Error("Update service unavailable.");
- return selectAndroidUpdate(await response.json(),installed);
+ const controller=new AbortController();
+ const timer=setTimeout(()=>controller.abort(),12000);
+ try{
+  const response=await fetcher(updateFeed,{headers:{Accept:"application/vnd.github+json"},signal:controller.signal});
+  if(!response.ok)throw new Error("Update service unavailable.");
+  return selectAndroidUpdate(await response.json(),installed);
+ }finally{clearTimeout(timer);}
 }
-export function canOfferUpdate(online:boolean,cart:number,pending:number,busy:boolean){
- return online&&cart===0&&pending===0&&!busy;
+// Both automatic and manual panels use one in-flight request and one short-lived
+// successful result. A failed refresh invalidates the previous result.
+type CachedUpdate={build:number;checkedAt:number;update:AndroidUpdate|null};
+let cache:CachedUpdate|null=null;
+let inFlight:{build:number;promise:Promise<AndroidUpdate|null>}|null=null;
+export function getSharedAndroidUpdate(build:number,force=false):Promise<AndroidUpdate|null>{
+ if(inFlight?.build===build)return inFlight.promise;
+ if(!force&&cache?.build===build&&Date.now()-cache.checkedAt<3600000)return Promise.resolve(cache.update);
+ const promise=checkAndroidUpdate(build).then(update=>{
+  cache={build,checkedAt:Date.now(),update};return update;
+ }).catch(error=>{cache=null;throw error;}).finally(()=>{if(inFlight?.promise===promise)inFlight=null;});
+ inFlight={build,promise};return promise;
+}
+export function canOfferUpdate(online:boolean,cart:number,pending:number,busy:boolean,failed=0,blocked=0){
+ return online&&cart===0&&pending===0&&!busy&&failed===0&&blocked===0;
 }

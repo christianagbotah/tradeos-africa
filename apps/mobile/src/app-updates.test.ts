@@ -21,5 +21,7 @@ describe("Android update discovery",()=>{
   expect(canOfferUpdate(true,1,0,false)).toBe(false);
   expect(canOfferUpdate(true,0,1,false)).toBe(false);
   expect(canOfferUpdate(true,0,0,true)).toBe(false);
+  expect(canOfferUpdate(true,0,0,false,1)).toBe(false);
+  expect(canOfferUpdate(true,0,0,false,0,1)).toBe(false);
  });
 });
