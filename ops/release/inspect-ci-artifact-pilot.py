@@ -36,12 +36,14 @@ def safe_member_name(raw: str) -> str:
     return '/'.join(segments)
 
 
-def inspect(sha: str, directory: Path) -> dict:
+def inspect(sha: str, directory: Path, *, profile: str = "pilot") -> dict:
+    if profile not in ("pilot", "release"):
+        raise Rejected("invalid artifact profile")
     if not SHA_PATTERN.fullmatch(sha):
         raise Rejected('expected full lowercase Git commit SHA')
     if not directory.is_dir() or directory.is_symlink():
         raise Rejected('artifact directory must be a real directory')
-    name = f'tradeos-runtime-pilot-{sha}.tar.gz'
+    name = f'tradeos-runtime-{profile}-{sha}.tar.gz'
     archive = directory / name
     checksum = directory / (name + '.sha256')
     for file in (archive, checksum):
@@ -119,17 +121,31 @@ def inspect(sha: str, directory: Path) -> dict:
             return item
 
         manifest_item = regular_member('manifest.json')
-        if manifest_item.size > 8192:
+        if manifest_item.size > (32768 if profile == 'release' else 8192):
             raise Rejected('manifest unexpectedly large')
         stream = tar.extractfile(manifest_item)
         if stream is None:
             raise Rejected('manifest unreadable')
         manifest = json.load(stream)
-        if not isinstance(manifest, dict) or manifest.get('schemaVersion') != 1 or \
-                manifest.get('type') != 'TRADEOS_CI_RUNTIME_ARTIFACT_PILOT' or \
-                manifest.get('deployable') is not False or \
-                manifest.get('sourceCommit') != sha or manifest.get('requiredNodeMajor') != 22:
-            raise Rejected('manifest is not an exact, nondeployable CI pilot for the requested SHA')
+        if not isinstance(manifest, dict) or manifest.get('sourceCommit') != sha or manifest.get('requiredNodeMajor') != 22:
+            raise Rejected('manifest identity mismatch')
+        if profile == 'pilot':
+            if manifest.get('schemaVersion') != 1 or manifest.get('type') != 'TRADEOS_CI_RUNTIME_ARTIFACT_PILOT' or manifest.get('deployable') is not False:
+                raise Rejected('manifest is not an exact, nondeployable CI pilot for the requested SHA')
+        else:
+            if manifest.get('schemaVersion') != 2 or manifest.get('type') != 'TRADEOS_SIGNED_RUNTIME_RELEASE' or manifest.get('deployable') is not True or manifest.get('requiresOperatorApproval') is not True or manifest.get('environment') != 'staging':
+                raise Rejected('not an explicitly operator-gated staging release')
+            checksums = manifest.get('migrationChecksums')
+            migrations = {k.rsplit('/', 1)[1]: v for k,v in members.items() if k.startswith('packages/db/migrations/') and k.count('/') == 3 and k.endswith('.sql')}
+            if not isinstance(checksums, dict) or not migrations or set(checksums) != set(migrations):
+                raise Rejected('release migration manifest mismatch')
+            for name, member in migrations.items():
+                if not re.fullmatch(r'[0-9]{4}_[A-Za-z0-9_-]+\.sql', name) or not member.isfile() or member.size < 1 or member.size > 3*1024*1024:
+                    raise Rejected('invalid migration file in release')
+                body = tar.extractfile(member)
+                if body is None or hashlib.sha256(body.read()).hexdigest() != checksums[name]:
+                    raise Rejected('release migration digest mismatch')
+            regular_member('apps/api/dist/scripts/apply-migrations.js')
         for key in ('apps/api/dist/server.js', 'apps/api/package.json',
                     'bin/start-api.sh', 'bin/start-web.sh',
                     'bin/start-system-admin.sh', 'bin/runtime-env.sh'):
@@ -186,10 +202,11 @@ def inspect(sha: str, directory: Path) -> dict:
                 raise Rejected('symlink chain references missing archive content')
 
     return {
-        'type': 'TradeOS nondeployable pilot intake',
+        'type': 'TradeOS nondeployable pilot intake' if profile == 'pilot' else 'TradeOS gated release intake',
         'sourceCommit': sha,
         'checksumVerified': True,
-        'deployable': False,
+        'deployable': profile == 'release',
+        'authorizedToDeploy': False,
         'compressedBytes': archive.stat().st_size,
         'expandedBytes': expanded,
         'memberCount': len(members),

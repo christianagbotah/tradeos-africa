@@ -7,6 +7,17 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 sha="${1:-}"
 output="${2:-}"
+profile="${3:-pilot}"
+if [[ "$#" -lt 2 || "$#" -gt 3 || ( "$profile" != pilot && "$profile" != release ) ]]; then
+  echo 'Expected pilot or explicit release packaging profile' >&2; exit 64
+fi
+if [[ "$profile" == release ]]; then
+  [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted &&
+     "${GITHUB_REF:-}" == refs/heads/main && "${GITHUB_EVENT_NAME:-}" == push &&
+     "${GITHUB_WORKFLOW:-}" == 'TradeOS Signed Runtime Release Candidate' ]] || {
+     echo 'Release packaging requires the dedicated main-push workflow' >&2; exit 65;
+  }
+fi
 if [[ "${CI:-}" != 'true' || ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
   echo 'Requires CI=true and the full verified GitHub SHA' >&2
   exit 64
@@ -94,10 +105,10 @@ done
 cp -a -- "$repo_root/packages/db/migrations" "$stage/packages/db/"
 # Not an executable deployment recipe: current production launcher remains in
 # place until a separate migration with proven auth, migration & rollback safety.
-node - "$stage/manifest.json" "$sha" <<'NODE'
-const fs=require('node:fs');
-const [file, sha]=process.argv.slice(2);
-fs.writeFileSync(file,JSON.stringify({
+node - "$stage/manifest.json" "$sha" "$profile" <<'NODE'
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
+const [file, sha, profile]=process.argv.slice(2);
+const pilot={
   schemaVersion:1,
   type:'TRADEOS_CI_RUNTIME_ARTIFACT_PILOT',
   deployable:false,
@@ -106,7 +117,11 @@ fs.writeFileSync(file,JSON.stringify({
   requiredNodeMajor:22,
   includes:['API production runtime','Web standalone runtime','Admin standalone runtime','SQL migrations','Node 22 source-light launchers'],
   excludes:['environment files','database contents','uploads','payment records','rollback snapshots'],
-},null,2)+'\n');
+};
+const dir=path.join(path.dirname(file),'packages/db/migrations');
+const migrationChecksums=Object.fromEntries(fs.readdirSync(dir).filter(n=>/^[0-9]{4}_[A-Za-z0-9_-]+\.sql$/.test(n)).sort().map(n=>[n,crypto.createHash('sha256').update(fs.readFileSync(path.join(dir,n))).digest('hex')]));
+const manifest=profile==='release'?{...pilot,schemaVersion:2,type:'TRADEOS_SIGNED_RUNTIME_RELEASE',deployable:true,requiresOperatorApproval:true,environment:'staging',migrationChecksums}:pilot;
+fs.writeFileSync(file,JSON.stringify(manifest,null,2)+'\n');
 NODE
 
 # Validate expected payload and reject accidental secret/development sources.
@@ -141,7 +156,7 @@ function visit(dir){
 visit(root);
 NODE
 
-archive="$output/tradeos-runtime-pilot-$sha.tar.gz"
+archive="$output/tradeos-runtime-$profile-$sha.tar.gz"
 # Deterministic metadata: archive can be independently rehashed upon retrieval.
 tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
   -czf "$archive" -C "$stage" .
@@ -150,6 +165,6 @@ tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
   sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256"
   sha256sum --check "$(basename "$archive").sha256"
 )
-cp -- "$stage/manifest.json" "$output/tradeos-runtime-pilot-$sha.manifest.json"
+cp -- "$stage/manifest.json" "$output/tradeos-runtime-$profile-$sha.manifest.json"
 printf 'ARTIFACT_PILOT=%s\n' "$archive"
 du -h "$archive"
