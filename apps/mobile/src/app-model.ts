@@ -40,6 +40,13 @@ export type MobileAppSnapshot = {
   saleNotice: MobileSaleNotice | null;
 };
 
+/** Shared UI/model gate: offline sales remain available, but a running
+ * synchronization must finish before another sale can be captured. */
+export function canSubmitMobileSale(state: MobileAppSnapshot): boolean {
+  return state.phase==="READY"&&state.bootstrap?.status==="READY"&&
+    state.cart.length>0&&!state.checkoutBusy&&!state.syncing;
+}
+
 const emptyQueue: QueueState = { pending: 0, blocked: 0, failed: 0 };
 
 export class MobileAppModel {
@@ -171,7 +178,7 @@ export class MobileAppModel {
   }
 
   async checkout(): Promise<MobileAppSnapshot> {
-    if (this.transitionBusy || this.state.phase !== "READY" || this.state.bootstrap?.status !== "READY" || this.state.cart.length === 0 || this.state.checkoutBusy || this.state.syncing) {
+    if (this.transitionBusy || !canSubmitMobileSale(this.state) || this.state.bootstrap?.status !== "READY") {
       return this.snapshot;
     }
     const currentReady = this.state.bootstrap;

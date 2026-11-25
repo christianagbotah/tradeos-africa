@@ -6,7 +6,7 @@ import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-nati
 import { AndroidUpdatePanel } from "./src/components/AndroidUpdatePanel";
 import { WorkspaceHeader } from "./src/components/WorkspaceHeader";
 import { MobileApiClient,type MobileOwnCashShiftStatus } from "./src/api-client";
-import { MobileAppModel, type MobileAppSnapshot } from "./src/app-model";
+import { MobileAppModel, type MobileAppSnapshot , canSubmitMobileSale} from "./src/app-model";
 import { ActionDialog } from "./src/components/ActionDialog";
 import { saleActionFeedback, signOutFeedback, type MobileActionFeedback } from "./src/action-feedback";
 import { BottomNav, type BottomNavTab } from "./src/components/BottomNav";
@@ -115,7 +115,7 @@ function MobileWorkspace() {
     else if(next.phase==="READY"&&next.online===true)void refreshCommerce();
   };
   const checkout = async (quickServe:boolean) => {
-    if(checkoutLock.current||model.snapshot.cart.length===0||model.snapshot.checkoutBusy)return;
+    if(checkoutLock.current||!canSubmitMobileSale(model.snapshot))return;
     checkoutLock.current=true;
     try{
       const operation=model.checkout();setSnapshot(model.snapshot);
