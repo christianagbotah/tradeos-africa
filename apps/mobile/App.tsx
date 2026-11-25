@@ -20,6 +20,7 @@ import { PosScreen } from "./src/screens/PosScreen";
 import type { SaleReversal } from "./src/sale-reversal";
 import type { StockAdjustment } from "./src/inventory-adjustment";
 import type { CustomerReceiptInput } from "./src/customer-payment";
+import { BusinessAdminScreen } from "./src/screens/BusinessAdminScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { OperationsScreen } from "./src/screens/OperationsScreen";
 import type { OperationTransaction } from "./src/operations-workspace";
@@ -81,7 +82,7 @@ function MobileWorkspace() {
   const [search, setSearch] = useState("");
   const [feedback,setFeedback]=useState<MobileActionFeedback|null>(null);
   const checkoutLock=useRef(false);
-  const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions" | "catalog" | "inventory" | "documents" | "suppliers" | "purchaseOrders" | "finance" | "operations" | "reports">("dashboard");
+  const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions" | "catalog" | "inventory" | "documents" | "suppliers" | "purchaseOrders" | "finance" | "operations" | "reports" | "businessAdmin">("dashboard");
 
   useEffect(() => {
     let mounted = true;
@@ -195,7 +196,7 @@ function MobileWorkspace() {
   const workspaceReady=snapshot.phase==="READY"&&ready!==null;
   const attendantOnly=ready?.membership.role==="POS_ATTENDANT";
   const activeScreen=attendantOnly?"sell":screen;
-  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",customers:"Customers",catalog:"Catalog",inventory:"Inventory",documents:"Quotes & proformas",suppliers:"Suppliers & purchases",purchaseOrders:"Purchase orders",finance:"Cashbook & expenses",operations:"Operating days & shifts",reports:"Reports & analytics",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
+  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",customers:"Customers",catalog:"Catalog",inventory:"Inventory",documents:"Quotes & proformas",suppliers:"Suppliers & purchases",purchaseOrders:"Purchase orders",finance:"Cashbook & expenses",operations:"Operating days & shifts",reports:"Reports & analytics",businessAdmin:"Business administration",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
   return (
     <SafeAreaView style={[styles.safeArea,workspaceReady&&styles.workspaceSafeArea]}
       edges={workspaceReady?["top","left","right"]:["top","left","right","bottom"]}>
@@ -312,6 +313,13 @@ function MobileWorkspace() {
                 api={api} businessId={ready.business.id} branchId={ready.branch.id} branchName={ready.branch.name}
                 role={ready.membership.role} online={snapshot.online===true} currencyCode={ready.business.currencyCode}
                 onBack={()=>setScreen("more")}/>:null}
+              {activeScreen==="businessAdmin"&&ready?<BusinessAdminScreen
+                key={ready.user.id+":"+ready.business.id+":"+ready.branch.id+":"+ready.membership.role}
+                api={api} businessId={ready.business.id} branchId={ready.branch.id} role={ready.membership.role}
+                staffId={ready.membership.staffId} online={snapshot.online===true}
+                portalOrigin={process.env.EXPO_PUBLIC_TRADEOS_API_BASE??DEFAULT_API_BASE}
+                onChanged={()=>{if(!checkoutLock.current){checkoutLock.current=true;void model.start().then(setSnapshot).finally(()=>{checkoutLock.current=false;});}}}
+                onFeedback={setFeedback} onBack={()=>setScreen("more")}/>:null}
               {activeScreen === "more" ? (
                 <MoreScreen
                   snapshot={snapshot}
@@ -320,6 +328,7 @@ function MobileWorkspace() {
                   onRefreshCatalog={() => { void refreshCommerce(); }}
                   onLogout={() => { if(!checkoutLock.current)setFeedback(signOutFeedback); }}
                   onGoToNotifications={() => setScreen("notifications")}
+                  onGoToBusinessAdmin={()=>setScreen("businessAdmin")}
                   onGoToReports={()=>setScreen("reports")}
                   onGoToOperations={()=>setScreen("operations")}
                   onGoToFinance={()=>setScreen("finance")}
@@ -355,7 +364,7 @@ function MobileWorkspace() {
               ) : null}
             </View>
             <BottomNav
-              active={activeScreen === "notifications" || activeScreen === "questions" || activeScreen==="catalog" || activeScreen==="inventory" || activeScreen==="documents" || activeScreen==="suppliers" || activeScreen==="purchaseOrders" || activeScreen==="finance" || activeScreen==="operations" || activeScreen==="reports" ? "more" : activeScreen}
+              active={activeScreen === "notifications" || activeScreen === "questions" || activeScreen==="catalog" || activeScreen==="inventory" || activeScreen==="documents" || activeScreen==="suppliers" || activeScreen==="purchaseOrders" || activeScreen==="finance" || activeScreen==="operations" || activeScreen==="reports" || activeScreen==="businessAdmin" ? "more" : activeScreen}
               onChange={next=>{if(!checkoutLock.current)setScreen(next);}}
               attendantOnly={attendantOnly}
               onSignOut={()=>{if(!checkoutLock.current)setFeedback(signOutFeedback);}}
