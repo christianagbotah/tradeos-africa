@@ -115,6 +115,10 @@ jobs:
       - name: Verify release-only archive acceptance tests
         run: |
           node --test test/signed-release-readiness.test.mjs
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s test -p test_root_backup_evidence.py -v
+          bash -n ops/release/signed-release-intake.sh
+          bash -n ops/release/install-root-signed-intake.sh
+          bash -n ops/release/root-signed-intake-entrypoint.sh
           PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s test -p test_signed_runtime_release.py -v
 
       - name: Smoke test archive after clean extraction on GitHub runner
