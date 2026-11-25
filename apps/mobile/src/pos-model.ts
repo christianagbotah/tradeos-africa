@@ -51,11 +51,28 @@ export function projectSellableItems(catalog: readonly MobileCatalogItem[], inve
     })));
 }
 
+// Match words across the item and its selling unit, not just within one field.
+// Keep the original item/unit identity and price intact; searching never
+// modifies the cart or automatically chooses a substitute.
+function normalizeSearch(value: string): string {
+  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+function compactSku(value: string): string {
+  return value.replace(/[\s._/-]+/g, "");
+}
 export function filterSellableItems(items: readonly MobileSellableItem[], query: string): MobileSellableItem[] {
-  const normalized = query.trim().toLocaleLowerCase();
+  const normalized = normalizeSearch(query);
   if (!normalized) return [...items];
-  return items.filter((item) => [item.name, item.sku ?? "", item.unitLabel, item.unitCode]
-    .some((value) => value.toLocaleLowerCase().includes(normalized)));
+  const terms = normalized.split(/\s+/);
+  return items.filter((item) => {
+    const fields = [item.name, item.sku ?? "", item.unitLabel, item.unitCode].map(normalizeSearch);
+    const sku = compactSku(fields[1] ?? "");
+    return terms.every(term => {
+      const code = compactSku(term);
+      return fields.some(value => value.includes(term)) ||
+        (code.length >= 2 && sku.includes(code));
+    });
+  });
 }
 
 export function addCartItem(cart: readonly MobileCartLine[], item: MobileSellableItem): MobileCartLine[] {
