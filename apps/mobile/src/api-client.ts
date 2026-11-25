@@ -1,5 +1,6 @@
+import type {PaymentVault,PaymentConnection,GatewayOptions,ProviderEnvironment,ProviderAction,SmsVault,SmsProvider,SmsConnection} from "./provider-workspace";
 import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
-import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerCreateInput, CustomerUpdateInput, FinancialSummaryReport, CreditAgingReport, CashForecastResponse } from "@tradeos/contracts";
+import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerCreateInput, CustomerUpdateInput, StaffDirectoryItem, CreateStaffRequest, UpdateStaffRequest, StaffInvitationResponse, FinancialSummaryReport, CreditAgingReport, CashForecastResponse } from "@tradeos/contracts";
 import { type MobileSessionTokens, MobilePersistence } from "./storage";
 
 export type MobilePlatform = "ANDROID" | "IOS";
@@ -27,19 +28,13 @@ export type MobileMe = {
   memberships: MobileMembership[];
 };
 
-export type MobileBusinessContext = {
-  business: {
-    id: string;
-    name: string;
-    businessType: string;
-    countryCode: string;
-    currencyCode: string;
-    timezone: string;
-    status: string;
-  };
-  membership: { role: string; staffId: string | null };
-  branches: Array<{ id: string; name: string; code: string; timezone: string; active: boolean }>;
-};
+export type MobileContactProfile={email?:string|null;phone?:string|null;addressLine1?:string|null;addressLine2?:string|null;city?:string|null;region?:string|null;postalCode?:string|null};
+export type MobileBusinessProfile=MobileContactProfile&{id:string;name:string;legalName?:string|null;businessType:string;registrationNumber?:string|null;taxId?:string|null;countryCode:string;currencyCode:string;timezone:string;status:string;logoUrl?:string|null};
+export type MobileBranch=MobileContactProfile&{id:string;name:string;code:string;timezone:string;active:boolean;updatedAt?:string};
+export type MobileBusinessContext={business:MobileBusinessProfile;membership:{role:string;staffId:string|null};branches:MobileBranch[]};
+export type MobileBusinessPatch=Partial<Pick<MobileBusinessProfile,"name"|"legalName"|"businessType"|"registrationNumber"|"taxId"|"email"|"phone"|"addressLine1"|"addressLine2"|"city"|"region"|"postalCode"|"timezone">>;
+export type MobileBranchPatch=MobileContactProfile&{name?:string;timezone?:string;code?:string};
+
 
 export type MobileCatalogUnit = {
   code: string;
@@ -301,6 +296,57 @@ export class MobileApiClient {
   saveExpenseCategory(businessId:string,input:{name:string;active?:boolean},revision?:{id:string;expectedUpdatedAt:string}):Promise<{category:MobileExpenseCategory}>{
     return this.authorizedJson("/v1/expense-categories"+(revision?"/"+encodeURIComponent(revision.id):""),{method:revision?"PATCH":"POST",body:JSON.stringify({businessId,...input,...(revision?{expectedUpdatedAt:revision.expectedUpdatedAt}:{})})});
   }
+  private providerPath(businessId:string,suffix:string){
+    if(!this.baseUrl.startsWith("https://"))throw new Error("Provider settings require HTTPS.");
+    return "/v1/businesses/"+encodeURIComponent(businessId)+suffix;
+  }
+  getPaymentVault(businessId:string):Promise<PaymentVault>{
+    return this.authorizedJson(this.providerPath(businessId,"/payment-gateways/merchant-connections"),{method:"GET"});
+  }
+  getGatewayOptions(businessId:string):Promise<GatewayOptions>{
+    return this.authorizedJson(this.providerPath(businessId,"/payment-gateways"),{method:"GET"});
+  }
+  setGatewayPreference(businessId:string,providerCode:string,expectedRevision:number):Promise<unknown>{
+    return this.authorizedJson(this.providerPath(businessId,"/payment-gateways/preference"),{method:"PUT",body:JSON.stringify({providerCode,expectedRevision})});
+  }
+  changePaymentCredentials(businessId:string,provider:string,environment:ProviderEnvironment,action:ProviderAction,input:{currentPassword:string;expectedRevision:number;fields?:Record<string,string>}):Promise<{connection:PaymentConnection}>{
+    const base=this.providerPath(businessId,"/payment-gateways/merchant-connections"),path=base+"/"+encodeURIComponent(provider)+"/"+environment;
+    const url=action==="verify"?provider==="HUBTEL"?base+"/HUBTEL/verify":path+"/verify":action==="request"?path+"/request-activation":path;
+    return this.authorizedJson(url,{method:action==="save"?"PUT":action==="revoke"?"DELETE":"POST",body:JSON.stringify({...input,...(action==="verify"&&provider==="HUBTEL"?{environment}:{})})});
+  }
+  getSmsVault(businessId:string):Promise<SmsVault>{
+    return this.authorizedJson(this.providerPath(businessId,"/sms-providers/connections"),{method:"GET"});
+  }
+  changeSmsCredentials(businessId:string,provider:SmsProvider,action:"save"|"revoke",input:{currentPassword:string;expectedRevision:number;apiSecret?:string;senderId?:string;accountId?:string|null}):Promise<{connection:SmsConnection}>{
+    return this.authorizedJson(this.providerPath(businessId,"/sms-providers/connections/"+provider),{method:action==="save"?"PUT":"DELETE",body:JSON.stringify(input)});
+  }
+  updateBusinessProfile(businessId:string,input:MobileBusinessPatch):Promise<{business:MobileBusinessProfile}>{
+    return this.authorizedJson("/v1/businesses/"+encodeURIComponent(businessId),{method:"PATCH",body:JSON.stringify(input)});
+  }
+  saveBranch(businessId:string,input:MobileBranchPatch,branchId?:string):Promise<{branch:MobileBranch}>{
+    return this.authorizedJson("/v1/businesses/"+encodeURIComponent(businessId)+"/branches"+(branchId?"/"+encodeURIComponent(branchId):""),{method:branchId?"PATCH":"POST",body:JSON.stringify(input)});
+  }
+  changeBranchActive(businessId:string,branchId:string,active:boolean):Promise<{branch:MobileBranch}>{
+    return this.authorizedJson("/v1/businesses/"+encodeURIComponent(businessId)+"/branches/"+encodeURIComponent(branchId)+"/"+(active?"reactivate":"deactivate"),{method:"POST"});
+  }
+  getStaff(businessId:string):Promise<{staff:StaffDirectoryItem[]}>{
+    return this.authorizedJson("/v1/staff?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
+  }
+  saveStaff(input:CreateStaffRequest|UpdateStaffRequest,staffId?:string):Promise<{staff:StaffDirectoryItem}>{
+    return this.authorizedJson("/v1/staff"+(staffId?"/"+encodeURIComponent(staffId):""),{method:staffId?"PATCH":"POST",body:JSON.stringify(input)});
+  }
+  changeStaffActive(businessId:string,staffId:string,active:boolean):Promise<{staff:StaffDirectoryItem}>{
+    return this.authorizedJson("/v1/staff/"+encodeURIComponent(staffId)+"/"+(active?"reactivate":"suspend"),{method:"POST",body:JSON.stringify({businessId})});
+  }
+  inviteStaff(businessId:string,staffId:string):Promise<StaffInvitationResponse>{
+    return this.authorizedJson("/v1/staff/"+encodeURIComponent(staffId)+"/invitations",{method:"POST",body:JSON.stringify({businessId})});
+  }
+  getStaffBranches(businessId:string,staffId:string):Promise<{branchIds:string[]}>{
+    return this.authorizedJson("/v1/staff/"+encodeURIComponent(staffId)+"/branches?"+new URLSearchParams({businessId}).toString(),{method:"GET"});
+  }
+  setStaffBranches(businessId:string,staffId:string,branchIds:string[]):Promise<{branchIds:string[]}>{
+    return this.authorizedJson("/v1/staff/"+encodeURIComponent(staffId)+"/branches",{method:"PUT",body:JSON.stringify({businessId,branchIds})});
+  }
   getFinancialReport(businessId:string,branchId:string|null,range:string):Promise<FinancialSummaryReport>{
     return this.authorizedJson("/v1/reports/financial-summary?"+new URLSearchParams({businessId,...(branchId?{branchId}:{}),range}).toString(),{method:"GET"});
   }
@@ -425,6 +471,26 @@ export class MobileApiClient {
     } finally {
       await this.options.persistence.clearSession();
     }
+  }
+
+  async downloadDocumentPdf(kind:"receipt"|"document",businessId:string,branchId:string,id:string,paper:"A5"|"80mm"|"58mm"):Promise<Uint8Array>{
+    if(!this.baseUrl.startsWith("https://"))throw new Error("PDF delivery requires HTTPS.");
+    const path=(kind==="receipt"?"/v1/sales/"+encodeURIComponent(id)+"/receipt.pdf":"/v1/commercial-documents/"+encodeURIComponent(id)+"/pdf")+"?"+new URLSearchParams({businessId,branchId,paper}).toString();
+    const session=await this.options.persistence.loadSession();
+    if(!session)throw new SessionExpiredError();
+    // Binary exports must never retry under a different account. A stale
+    // session is refreshed through the ordinary workspace request path.
+    const response=await this.fetchAuthorized(path,{method:"GET"},session.accessToken);
+    if(response.status===401)throw new SessionExpiredError("Refresh the workspace before exporting a PDF.");
+    if(!response.ok)throw new Error("The server could not release a verified PDF.");
+    if(!response.headers.get("content-type")?.toLowerCase().startsWith("application/pdf"))throw new Error("The response is not a PDF.");
+    const length=Number(response.headers.get("content-length")??0);
+    if(length>6_000_000)throw new Error("PDF exceeds the supported size.");
+    const data=new Uint8Array(await response.arrayBuffer());
+    if(data.length<5||data.length>6_000_000||String.fromCharCode(...data.slice(0,5))!=="%PDF-")throw new Error("Invalid PDF response.");
+    const active=await this.options.persistence.loadSession();
+    if(!active||active.accessToken!==session.accessToken||active.refreshToken!==session.refreshToken)throw new SessionExpiredError("Session changed during PDF export.");
+    return data;
   }
 
   private async authorizedJson<T>(path: string, init: RequestInit): Promise<T> {

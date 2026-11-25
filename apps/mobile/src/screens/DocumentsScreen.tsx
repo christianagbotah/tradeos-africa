@@ -3,6 +3,7 @@ import {ActivityIndicator,Pressable,ScrollView,StyleSheet,Text,View} from "react
 import * as Crypto from "expo-crypto";
 import {MobileApiError,type MobileApiClient,type MobileDocument,type MobileDocumentSummary,type MobileCatalogItem} from "../api-client";
 import {buildDocumentInput,canReadDocuments,canWriteDocuments,canCancelDocuments,documentMatchesScope,editDocumentDraft,reconcileDocuments,type DocumentDraft} from "../document-workspace";
+import {PdfDeliveryPanel} from "./PdfDeliveryPanel";
 import {Button} from "../components/Button";
 import {Input} from "../components/Input";
 import {Card} from "../components/Card";
@@ -10,7 +11,7 @@ import {Banner} from "../components/Banner";
 import {formatMoney} from "../lib/format";
 import type {MobileActionFeedback} from "../action-feedback";
 import {colors,spacing,typography} from "../theme";
-type Props={api:Pick<MobileApiClient,"getDocuments"|"getDocument"|"getCatalog"|"saveDocument"|"changeDocumentStatus">;businessId:string;branchId:string;role:string;online:boolean;currencyCode:string;onFeedback:(feedback:MobileActionFeedback)=>void;onBack:()=>void};
+type Props={api:Pick<MobileApiClient,"getDocuments"|"getDocument"|"getCatalog"|"saveDocument"|"changeDocumentStatus"|"downloadDocumentPdf">;businessId:string;branchId:string;role:string;online:boolean;currencyCode:string;onFeedback:(feedback:MobileActionFeedback)=>void;onBack:()=>void};
 export function DocumentsScreen({api,businessId,branchId,role,online,currencyCode,onFeedback,onBack}:Props){
  const read=canReadDocuments(role),write=canWriteDocuments(role);
  const [rows,setRows]=useState<MobileDocumentSummary[]>([]),[catalog,setCatalog]=useState<MobileCatalogItem[]>([]);
@@ -93,6 +94,7 @@ export function DocumentsScreen({api,businessId,branchId,role,online,currencyCod
     <Text style={styles.muted}>{selected.kind} · {selected.status} · {selected.customerName}</Text>
     {selected.lines.map(l=><View key={l.id} style={styles.row}><View style={styles.flex}><Text style={styles.heading}>{l.itemName}</Text><Text style={styles.muted}>{l.quantity} {l.saleUnitCode} @ {formatMoney(l.unitNetMinor,selected.currencyCode)}</Text></View><Text style={styles.heading}>{formatMoney(l.lineTotalMinor,selected.currencyCode)}</Text></View>)}
     <Text style={styles.title}>{formatMoney(selected.totalMinor,selected.currencyCode)}</Text><Text style={styles.muted}>{selected.notes}</Text>
+    {!action&&!draft?<PdfDeliveryPanel key={selected.id+":pdf"} api={api} kind="document" businessId={businessId} branchId={branchId} id={selected.id} online={online} disabled={busy}/>:null}
     {selected.status==="DRAFT"&&write&&!action?<><Button variant="gold" accessibilityLabel="Edit draft document" onPress={()=>setDraft(editDocumentDraft(selected,Crypto.randomUUID()))}>Edit draft</Button><Button accessibilityLabel="Issue document" onPress={()=>setAction("issue")}>Issue document</Button></>:null}
     {selected.status!=="CANCELLED"&&canCancelDocuments(role)&&!action?<Button variant="secondary" accessibilityLabel="Cancel document" onPress={()=>setAction("cancel")}>Cancel document</Button>:null}
     {action?<><Banner tone="warning" message={action==="issue"?"Issue this draft? Issued documents cannot be edited.":"Cancel this document? Its audit history remains."}/><Button loading={busy} variant={action==="cancel"?"danger":"primary"} accessibilityLabel={"Confirm "+action} onPress={()=>void transition()}>Confirm {action}</Button><Button variant="secondary" disabled={busy} accessibilityLabel="Keep document unchanged" onPress={()=>setAction(null)}>Keep unchanged</Button></>:null}

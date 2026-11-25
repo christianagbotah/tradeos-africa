@@ -150,6 +150,38 @@ export class MobileRuntime {
     return ready;
   }
 
+  /** Select only a currently authorized business and active visible branch.
+   * Never mutate a queued transaction's tenant or branch.
+   */
+  async getCurrentBusinessPendingCount():Promise<number>{
+    const ready=this.requireReady();return (await this.queue.getSnapshot()).pending.filter(m=>m.businessId===ready.business.id).length;
+  }
+
+  async switchWorkspace(businessId:string,branchId:string):Promise<MobileReadyState>{
+    const previous=this.requireReady();
+    if(previous.membership.role==="POS_ATTENDANT")throw new MobileRuntimeError("Ask an administrator to change your POS workspace.");
+    const session=await this.options.persistence.loadSession();
+    if(!session)throw new SessionExpiredError();
+    const pendingHere=()=>this.queue.getSnapshot().then(q=>q.pending.some(m=>m.businessId===previous.business.id));
+    if(await pendingHere())throw new MobileRuntimeError("Sync pending transactions in your current business before switching.");
+    const me=await this.options.api.getMe();
+    if(me.user.id!==previous.user.id)throw new SessionExpiredError("Account changed. Sign in again.");
+    const membership=me.memberships.find(m=>m.businessId===businessId&&m.businessStatus==="ACTIVE");
+    if(!membership)throw new MobileRuntimeError("You no longer have access to this business.");
+    const context=await this.options.api.getBusinessContext(businessId);
+    const branch=context.branches.find(b=>b.id===branchId&&b.active);
+    if(context.business.id!==businessId||context.business.status!=="ACTIVE"||!branch||context.membership.role!==membership.role||context.membership.staffId!==membership.staffId)
+      throw new MobileRuntimeError("The selected workspace is no longer available.");
+    const targetQueue=await this.queue.getState(businessId);
+    const active=await this.options.persistence.loadSession();
+    if(this.current!==previous||!active||active.accessToken!==session.accessToken||active.refreshToken!==session.refreshToken)
+      throw new MobileRuntimeError("Session changed. Refresh before switching.");
+    if(await pendingHere())throw new MobileRuntimeError("Sync pending transactions before switching.");
+    await this.options.persistence.saveWorkspaceSelection({businessId,branchId});
+    const ready:MobileReadyState={status:"READY",user:me.user,membership,business:context.business,branch,queue:targetQueue};
+    this.current=ready;return ready;
+  }
+
   async login(identifier: string, password: string): Promise<MobileBootstrapState> {
     await this.options.api.login(identifier, password);
     return this.bootstrap();
@@ -233,7 +265,9 @@ export class MobileRuntime {
     if (snapshot.pending.some((entry) => entry.clientMutationId === clientMutationId)) {
       return { clientMutationId, outcome: "PENDING", queue };
     }
-    return { clientMutationId, outcome: "SYNCED", queue };
+    return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)
+      ?{clientMutationId,outcome:"SYNCED",queue}
+      :{clientMutationId,outcome:"NEEDS_REVIEW",queue,errorCode:"ACKNOWLEDGEMENT_UNVERIFIED",errorMessage:"Posting could not be verified. Check server history before recording another sale."};
   }
 
   /**
@@ -259,6 +293,8 @@ export class MobileRuntime {
     const id=closed?status.shift?.id:status.operatingDay.id;
     if(!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
       throw new MobileRuntimeError("Refresh to verify the current day or shift ID.");
+    const existing=await this.queue.getSnapshot();
+    if([...existing.pending,...existing.failed.map(x=>x.mutation)].some(m=>m.businessId===ready.business.id&&m.branchId===ready.branch.id&&["SHIFT_OPEN_CREATE","SHIFT_CLOSE_CREATE"].includes(m.mutationType)))throw new MobileRuntimeError("Resolve the previous shift action before submitting another.");
     const cash={method:"CASH",countedMinor};
     const payload=closed
       ? {shiftId:id,closingBalances:[cash,...(["MOMO","CARD","BANK","OTHER"] as const)
@@ -282,6 +318,7 @@ export class MobileRuntime {
     if(snapshot.pending.some(row=>row.clientMutationId===clientMutationId))
       throw new MobileRuntimeError(
         "Shift change saved on this device but NOT confirmed. Sync the pending action before submitting another.");
+    if(!this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id))throw new MobileRuntimeError("Shift posting could not be verified. Check the server before retrying.");
     return {closed,clientMutationId};
   }
 
@@ -309,7 +346,7 @@ export class MobileRuntime {
       const state=await this.queue.getSnapshot();
       if(state.failed.some(row=>row.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(state.pending.some(row=>row.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.customerReceiptBusy=false;}
   }
 
@@ -327,7 +364,7 @@ export class MobileRuntime {
       const state=await this.queue.getSnapshot();
       if(state.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(state.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.stockAdjustmentBusy=false;}
   }
 
@@ -344,7 +381,7 @@ export class MobileRuntime {
       const result=await this.queue.getSnapshot();
       if(result.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.supplierTransactionBusy=false;}
   }
 
@@ -362,7 +399,7 @@ export class MobileRuntime {
       const result=await this.queue.getSnapshot();
       if(result.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.financeBusy=false;}
   }
 
@@ -381,7 +418,7 @@ export class MobileRuntime {
       const after=await this.queue.getSnapshot();
       if(after.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(after.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.saleReversalBusy=false;}
   }
 
@@ -401,7 +438,7 @@ export class MobileRuntime {
       const result=await this.queue.getSnapshot();
       if(result.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.operationsBusy=false;}
   }
 

@@ -1,6 +1,8 @@
 import { useCallback,useEffect,useRef,useState } from "react";
 import { ActivityIndicator,Pressable,StyleSheet,Text,View } from "react-native";
 import type { MobileApiClient,MobileSaleSummary,MobileSaleDetail } from "../api-client";
+import {PdfDeliveryPanel} from "./PdfDeliveryPanel";
+import {receiptAvailable} from "../pdf-delivery";
 import {SaleReversalPanel} from "./SaleReversalPanel";
 import {canReverseSale,type SaleReversal} from "../sale-reversal";
 import type {ReceiptOutcome} from "../customer-payment";
@@ -15,7 +17,7 @@ import { colors,radius,spacing,typography } from "../theme";
 import { formatMoney,formatQuantity } from "../lib/format";
 import { canReadSalesHistory,displaySaleDate,saleMatchesScope } from "../sales-history";
 
-type Props={api:Pick<MobileApiClient,"getSales"|"getSale"|"getCatalog">;businessId:string;branchId:string;role:string;timezone:string;online:boolean;syncing:boolean;pendingCount:number;onReversal:(input:SaleReversal)=>Promise<ReceiptOutcome>;onFeedback:(feedback:MobileActionFeedback)=>void};
+type Props={api:Pick<MobileApiClient,"getSales"|"getSale"|"getCatalog"|"downloadDocumentPdf">;businessId:string;branchId:string;role:string;timezone:string;online:boolean;syncing:boolean;pendingCount:number;onReversal:(input:SaleReversal)=>Promise<ReceiptOutcome>;onFeedback:(feedback:MobileActionFeedback)=>void};
 export function PostedSalesHistory({api,businessId,branchId,role,timezone,online,syncing,pendingCount,onReversal,onFeedback}:Props){
   const allowed=canReadSalesHistory(role);
   const [query,setQuery]=useState("");
@@ -80,6 +82,7 @@ export function PostedSalesHistory({api,businessId,branchId,role,timezone,online
           <Text style={styles.muted}>{detail.status} · {displaySaleDate(detail.completedAt??detail.createdAt,timezone)}</Text>
           <Text style={styles.muted}>{detail.customer?.name??"Walk-in customer"} · {detail.cashierName??"Cashier unavailable"}</Text>
           {detail.lines.map(line=><View key={line.id} style={styles.line}><View style={styles.flex}><Text style={styles.rowTitle}>{line.itemName}</Text><Text style={styles.muted}>{formatQuantity(line.quantity)} {line.saleUnitCode} @ {formatMoney(line.unitNetMinor,detail.currencyCode)}</Text>{line.quantityReturned>0?<Text style={styles.refund}>Returned: {formatQuantity(line.quantityReturned)}</Text>:null}</View><Text style={styles.amount}>{formatMoney(line.lineTotalMinor,detail.currencyCode)}</Text></View>)}
+          {receiptAvailable(detail)?<PdfDeliveryPanel key={detail.id+":pdf"} api={api} kind="receipt" businessId={businessId} branchId={branchId} id={detail.id} online={online}/>:null}
           {canReverseSale(role)?<SaleReversalPanel key={detail.id} sale={detail} api={api} onRecord={onReversal} onFeedback={onFeedback} onRefresh={()=>{void openSale(detail.id);void reload();}}/>:null}
           <Text style={styles.title}>Payments</Text>
           {detail.payments.map(payment=><View key={payment.id} style={styles.line}><View style={styles.flex}><Text style={styles.rowTitle}>{payment.method.replaceAll("_"," ")}</Text><Text style={styles.muted}>{payment.status}</Text>{payment.refundedMinor>0?<Text style={styles.refund}>Refunded {formatMoney(payment.refundedMinor,detail.currencyCode)}</Text>:null}</View><Text style={styles.amount}>{formatMoney(payment.amountMinor,detail.currencyCode)}</Text></View>)}

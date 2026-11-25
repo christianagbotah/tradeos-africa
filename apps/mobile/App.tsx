@@ -3,6 +3,7 @@ import NetInfo from "@react-native-community/netinfo";
 import * as Crypto from "expo-crypto";
 import { Platform, StatusBar, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
+import { AndroidUpdatePanel } from "./src/components/AndroidUpdatePanel";
 import { WorkspaceHeader } from "./src/components/WorkspaceHeader";
 import { MobileApiClient,type MobileOwnCashShiftStatus } from "./src/api-client";
 import { MobileAppModel, type MobileAppSnapshot } from "./src/app-model";
@@ -20,6 +21,9 @@ import { PosScreen } from "./src/screens/PosScreen";
 import type { SaleReversal } from "./src/sale-reversal";
 import type { StockAdjustment } from "./src/inventory-adjustment";
 import type { CustomerReceiptInput } from "./src/customer-payment";
+import { WorkspaceSwitchScreen } from "./src/screens/WorkspaceSwitchScreen";
+import { ProviderSettingsScreen } from "./src/screens/ProviderSettingsScreen";
+import { BusinessAdminScreen } from "./src/screens/BusinessAdminScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
 import { OperationsScreen } from "./src/screens/OperationsScreen";
 import type { OperationTransaction } from "./src/operations-workspace";
@@ -81,7 +85,7 @@ function MobileWorkspace() {
   const [search, setSearch] = useState("");
   const [feedback,setFeedback]=useState<MobileActionFeedback|null>(null);
   const checkoutLock=useRef(false);
-  const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions" | "catalog" | "inventory" | "documents" | "suppliers" | "purchaseOrders" | "finance" | "operations" | "reports">("dashboard");
+  const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions" | "catalog" | "inventory" | "documents" | "suppliers" | "purchaseOrders" | "finance" | "operations" | "reports" | "businessAdmin" | "providers" | "workspaceSwitch">("dashboard");
 
   useEffect(() => {
     let mounted = true;
@@ -122,6 +126,7 @@ function MobileWorkspace() {
       }
     }finally{checkoutLock.current=false;}
   };
+  const getCurrentPending=useCallback(()=>runtime.getCurrentBusinessPendingCount(),[runtime]);
   const getOwnCashShift = useCallback((businessId:string,branchId:string)=>
     api.getOwnCashShift(businessId,branchId),[api]);
   const ownCashShift = async (
@@ -195,7 +200,7 @@ function MobileWorkspace() {
   const workspaceReady=snapshot.phase==="READY"&&ready!==null;
   const attendantOnly=ready?.membership.role==="POS_ATTENDANT";
   const activeScreen=attendantOnly?"sell":screen;
-  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",customers:"Customers",catalog:"Catalog",inventory:"Inventory",documents:"Quotes & proformas",suppliers:"Suppliers & purchases",purchaseOrders:"Purchase orders",finance:"Cashbook & expenses",operations:"Operating days & shifts",reports:"Reports & analytics",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
+  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",customers:"Customers",catalog:"Catalog",inventory:"Inventory",documents:"Quotes & proformas",suppliers:"Suppliers & purchases",purchaseOrders:"Purchase orders",finance:"Cashbook & expenses",operations:"Operating days & shifts",reports:"Reports & analytics",businessAdmin:"Business administration",providers:"Payment & SMS integrations",workspaceSwitch:"Switch workspace",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
   return (
     <SafeAreaView style={[styles.safeArea,workspaceReady&&styles.workspaceSafeArea]}
       edges={workspaceReady?["top","left","right"]:["top","left","right","bottom"]}>
@@ -207,6 +212,7 @@ function MobileWorkspace() {
         pendingCount={ready.queue.pending} failedCount={ready.queue.failed}
         onMenu={()=>{if(attendantOnly){if(!checkoutLock.current)setFeedback(signOutFeedback);}else if(!checkoutLock.current)setScreen("more");}}
         attendantOnly={attendantOnly}/> : null}
+      {workspaceReady&&ready&&!attendantOnly?<AndroidUpdatePanel online={snapshot.online===true} cart={snapshot.cart.length} pending={ready.queue.pending} busy={snapshot.syncing||snapshot.checkoutBusy||checkoutLock.current}/>:null}
       <View style={styles.flex}>
         {snapshot.phase === "BOOTING" ? <LoadingScreen /> : null}
 
@@ -312,6 +318,31 @@ function MobileWorkspace() {
                 api={api} businessId={ready.business.id} branchId={ready.branch.id} branchName={ready.branch.name}
                 role={ready.membership.role} online={snapshot.online===true} currencyCode={ready.business.currencyCode}
                 onBack={()=>setScreen("more")}/>:null}
+              {activeScreen==="businessAdmin"&&ready?<BusinessAdminScreen
+                key={ready.user.id+":"+ready.business.id+":"+ready.branch.id+":"+ready.membership.role}
+                api={api} businessId={ready.business.id} branchId={ready.branch.id} role={ready.membership.role}
+                staffId={ready.membership.staffId} online={snapshot.online===true}
+                portalOrigin={process.env.EXPO_PUBLIC_TRADEOS_API_BASE??DEFAULT_API_BASE}
+                onChanged={()=>{if(!checkoutLock.current){checkoutLock.current=true;void model.start().then(setSnapshot).finally(()=>{checkoutLock.current=false;});}}}
+                onFeedback={setFeedback} onBack={()=>setScreen("more")}/>:null}
+              {activeScreen==="providers"&&ready?<ProviderSettingsScreen
+                key={ready.user.id+":"+ready.business.id+":"+ready.branch.id+":"+ready.membership.role}
+                api={api} businessId={ready.business.id} role={ready.membership.role} online={snapshot.online===true}
+                onFeedback={setFeedback} onBack={()=>setScreen("more")}/>:null}
+              {activeScreen==="workspaceSwitch"&&ready?<WorkspaceSwitchScreen
+                key={ready.user.id+":"+ready.business.id+":"+ready.branch.id}
+                api={api} ready={ready} online={snapshot.online===true} cartCount={snapshot.cart.length} syncing={snapshot.syncing} getCurrentPending={getCurrentPending}
+                onBack={()=>setScreen("more")}
+                onSwitch={async(businessId,branchId)=>{
+                  if(checkoutLock.current)throw new Error("A transaction is in progress.");
+                  checkoutLock.current=true;
+                  try{
+                    const operation=model.switchWorkspace(businessId,branchId);setSnapshot(model.snapshot);
+                    const next=await operation;setSnapshot(next);setSearch("");setScreen("dashboard");
+                    setFeedback({tone:"success",title:"Workspace changed",message:"The selected business and branch are now active."});
+                  }catch(e){setSnapshot(model.snapshot);setFeedback({tone:"warning",title:"Workspace not changed",message:e instanceof Error?e.message:"Refresh the workspace."});throw e;}
+                  finally{checkoutLock.current=false;}
+                }}/>:null}
               {activeScreen === "more" ? (
                 <MoreScreen
                   snapshot={snapshot}
@@ -320,6 +351,9 @@ function MobileWorkspace() {
                   onRefreshCatalog={() => { void refreshCommerce(); }}
                   onLogout={() => { if(!checkoutLock.current)setFeedback(signOutFeedback); }}
                   onGoToNotifications={() => setScreen("notifications")}
+                  onGoToWorkspaceSwitch={()=>setScreen("workspaceSwitch")}
+                  onGoToProviders={()=>setScreen("providers")}
+                  onGoToBusinessAdmin={()=>setScreen("businessAdmin")}
                   onGoToReports={()=>setScreen("reports")}
                   onGoToOperations={()=>setScreen("operations")}
                   onGoToFinance={()=>setScreen("finance")}
@@ -355,7 +389,7 @@ function MobileWorkspace() {
               ) : null}
             </View>
             <BottomNav
-              active={activeScreen === "notifications" || activeScreen === "questions" || activeScreen==="catalog" || activeScreen==="inventory" || activeScreen==="documents" || activeScreen==="suppliers" || activeScreen==="purchaseOrders" || activeScreen==="finance" || activeScreen==="operations" || activeScreen==="reports" ? "more" : activeScreen}
+              active={activeScreen === "notifications" || activeScreen === "questions" || activeScreen==="catalog" || activeScreen==="inventory" || activeScreen==="documents" || activeScreen==="suppliers" || activeScreen==="purchaseOrders" || activeScreen==="finance" || activeScreen==="operations" || activeScreen==="reports" || activeScreen==="businessAdmin" || activeScreen==="providers" || activeScreen==="workspaceSwitch" ? "more" : activeScreen}
               onChange={next=>{if(!checkoutLock.current)setScreen(next);}}
               attendantOnly={attendantOnly}
               onSignOut={()=>{if(!checkoutLock.current)setFeedback(signOutFeedback);}}

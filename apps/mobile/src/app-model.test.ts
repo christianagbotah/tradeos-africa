@@ -30,6 +30,7 @@ class FakeRuntime {
   flushSummary: FlushSummary = { ...emptyQueue, applied: 0, received: 0, rejected: 0, attempted: 0 };
   error: Error | null = null;
 
+  async switchWorkspace() { if(this.error)throw this.error; if(this.loginState.status!=="READY")throw new Error("Not ready");return this.loginState; }
   async bootstrap() { if (this.error) throw this.error; return this.bootstrapState; }
   async login() { if (this.error) throw this.error; return this.loginState; }
   async flush(online: boolean) { this.flushCalls.push(online); return this.flushSummary; }
@@ -214,4 +215,19 @@ describe("MobileAppModel commerce and cart", () => {
     model.setView("SELL");
     expect(model.snapshot.view).toBe("SELL");
   });
+});
+
+describe("workspace switch model",()=>{
+ it("resets commerce and tender and rejects switching with an unsold cart",async()=>{
+  const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+  const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+  model.addCart(runtime.commerceSnapshot.items[0]!);
+  await expect(model.switchWorkspace("other","branch")).rejects.toThrow();
+  model.removeCart(model.snapshot.cart[0]!.key);
+  if(ready.status!=="READY")throw new Error("invalid fixture");
+  runtime.loginState={...ready,business:{...ready.business,id:"other"},membership:{...ready.membership,businessId:"other"},branch:{...ready.branch,id:"branch"}};
+  model.selectPaymentMethod("MOMO");
+  const next=await model.switchWorkspace("other","branch");
+  expect(next).toMatchObject({phase:"READY",cart:[],paymentMethod:"CASH",bootstrap:{business:{id:"other"},branch:{id:"branch"}}});
+ });
 });

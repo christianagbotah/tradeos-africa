@@ -456,3 +456,28 @@ describe("native customer receipts",()=>{
     await expect(runtime.recordCustomerReceipt(receipt,true)).rejects.toThrow("pending or rejected");
   });
 });
+
+describe("workspace switching",()=>{
+  it("persists only authorized active business and branch and preserves other queued records",async()=>{
+    const {runtime,persistence}=createHarness();
+    await persistence.saveSession(session);
+    await runtime.bootstrap();
+    await runtime.queue.enqueue(saleMutation("other-business",business2,branch2));
+    const state=await runtime.switchWorkspace(business2,branch2);
+    expect(state).toMatchObject({business:{id:business2},branch:{id:branch2},queue:{pending:1}});
+    expect(await persistence.loadWorkspaceSelection()).toEqual({businessId:business2,branchId:branch2});
+    expect((await runtime.queue.getSnapshot()).pending).toMatchObject([{businessId:business2,branchId:branch2,clientMutationId:"other-business"}]);
+  });
+  it("rejects a foreign branch, lost membership and unresolved current pending sales",async()=>{
+    const {runtime,persistence,api}=createHarness();
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.switchWorkspace(business2,branch1)).rejects.toThrow();
+    api.me={...me,memberships:[me.memberships[0]!]};
+    await expect(runtime.switchWorkspace(business2,branch2)).rejects.toThrow();
+    api.me=me;
+    await runtime.queue.enqueue(saleMutation("current-business",business1,branch1));
+    await expect(runtime.switchWorkspace(business2,branch2)).rejects.toThrow("Sync pending");
+    expect(await persistence.loadWorkspaceSelection()).toEqual({businessId:business1,branchId:branch1});
+    expect((await runtime.queue.getSnapshot()).pending[0]?.clientMutationId).toBe("current-business");
+  });
+});

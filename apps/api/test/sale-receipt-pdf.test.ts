@@ -1,7 +1,7 @@
 import {describe,it,expect} from "vitest";
 import {
-  renderVerifiedSaleReceiptPdf,parseReceiptPaper,receiptPdfFilename,
-  type VerifiedReceiptSnapshot,type ReceiptPaper,
+  renderCommercialDocumentPdf,renderVerifiedSaleReceiptPdf,parseReceiptPaper,receiptPdfFilename,
+  type CommercialPdfSnapshot,type VerifiedReceiptSnapshot,type ReceiptPaper,
 } from "../src/sale-receipt-pdf.js";
 
 const sale:VerifiedReceiptSnapshot={
@@ -78,4 +78,16 @@ describe("authenticated sales receipt PDF layouts",()=>{
       ...sale,totalMinor:Number.NaN,
     })).rejects.toThrow("RECEIPT_AMOUNT_INVALID");
   });
+});
+
+describe("commercial PDF layouts",()=>{
+ const quote:CommercialPdfSnapshot={documentId:sale.saleId,documentNumber:"Q-2026-000001",kind:"QUOTATION",status:"DRAFT",createdAt:sale.completedAt,expiresAt:null,customerPhone:"+233241234567",customerEmail:"test@example.test",notes:"Delivery after confirmation.",businessName:sale.businessName,branchName:sale.branchName,address:sale.address,phone:sale.phone,timezone:sale.timezone,customerName:sale.customerName,currencyCode:sale.currencyCode,totalMinor:sale.totalMinor,lines:sale.lines};
+ it.each(["A5","80mm","58mm"] as ReceiptPaper[])("renders commercial documents on %s",async paper=>{
+  const pdf=await renderCommercialDocumentPdf(quote,paper);
+  expect(pdf.subarray(0,5).toString()).toBe("%PDF-");
+  expect(pageCount(pdf)).toBe(1);
+  expect(pdf.toString("latin1")).toContain("QUOTATION Q-2026-000001");
+  expect(pdf.toString("latin1")).not.toContain("Verified sales receipt");
+ });
+ it("refuses inconsistent totals",async()=>{await expect(renderCommercialDocumentPdf({...quote,totalMinor:1})).rejects.toThrow("COMMERCIAL_PDF_TOTAL_MISMATCH");});
 });

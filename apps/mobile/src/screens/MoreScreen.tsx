@@ -1,4 +1,5 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { AndroidUpdatePanel } from "../components/AndroidUpdatePanel";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
 import { Card, HeroCard } from "../components/Card";
@@ -14,6 +15,9 @@ export type MoreScreenProps = {
   onRefreshCatalog: () => void;
   onGoToNotifications: () => void;
   onGoToQuestions: () => void;
+  onGoToWorkspaceSwitch:()=>void;
+  onGoToProviders:()=>void;
+  onGoToBusinessAdmin:()=>void;
   onGoToReports:()=>void;
   onGoToOperations:()=>void;
   onGoToFinance:()=>void;
@@ -32,7 +36,7 @@ export function MoreScreen({
   onRefreshCatalog,
   onGoToNotifications,
   onGoToQuestions,
-  onGoToCatalog,onGoToInventory,onGoToDocuments,onGoToSuppliers,onGoToPurchaseOrders,onGoToFinance,onGoToOperations,onGoToReports,
+  onGoToCatalog,onGoToInventory,onGoToDocuments,onGoToSuppliers,onGoToPurchaseOrders,onGoToFinance,onGoToOperations,onGoToReports,onGoToBusinessAdmin,onGoToProviders,onGoToWorkspaceSwitch,
   onLogout,
 }: MoreScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
@@ -68,10 +72,14 @@ export function MoreScreen({
           </View>
         </View>
       </HeroCard>
+      <Button variant="secondary" fullWidth accessibilityLabel="Switch business or branch" onPress={onGoToWorkspaceSwitch}>Switch business or branch</Button>
 
+      <AndroidUpdatePanel manual online={snapshot.online===true} cart={snapshot.cart.length} pending={queue.pending} busy={snapshot.syncing||snapshot.checkoutBusy}/>
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Master data and inventory</Text>
         <Text style={styles.sectionTitle}>Products and stock</Text>
+        {["OWNER","ADMIN"].includes(ready.membership.role)?<Button variant="secondary" fullWidth accessibilityLabel="Open payment and SMS settings" onPress={onGoToProviders}>Payment &amp; SMS integrations</Button>:null}
+        <Button variant="secondary" fullWidth accessibilityLabel="Open business administration" onPress={onGoToBusinessAdmin}>Business administration</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open financial reports" onPress={onGoToReports}>Reports &amp; analytics</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open operating days and shifts" onPress={onGoToOperations}>Operating days &amp; shifts</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open cashbook and expenses" onPress={onGoToFinance}>Cashbook &amp; expenses</Button>
