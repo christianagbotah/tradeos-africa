@@ -1,0 +1,77 @@
+name: Build TradeOS iOS simulator preview
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ios-simulator-preview-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  simulator:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      CI: 'true'
+      EXPO_PUBLIC_TRADEOS_API_BASE: https://tradeosafrica.lightworldtech.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Inspect Apple build tools
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          pod --version
+          uname -m
+      - run: corepack enable
+      - name: Install locked mobile dependencies
+        run: pnpm --filter @tradeos/mobile... install --frozen-lockfile
+      - name: Verify shared packages and mobile application
+        run: |
+          pnpm --filter @tradeos/contracts build
+          pnpm --filter @tradeos/client-core build
+          pnpm --filter @tradeos/mobile typecheck
+          pnpm --filter @tradeos/mobile test
+      - name: Generate standalone iOS simulator project
+        working-directory: apps/mobile
+        run: |
+          node -e 'const fs=require("fs"),p="app.json",c=JSON.parse(fs.readFileSync(p)); c.expo.name="TradeOS Africa Preview"; c.expo.ios.bundleIdentifier="com.lightworldtech.tradeos.preview"; fs.writeFileSync(p,JSON.stringify(c,null,2));'
+          pnpm exec expo prebuild --platform ios --no-install --clean
+      - name: Resolve native CocoaPods dependencies
+        working-directory: apps/mobile/ios
+        run: pod install
+      - name: Compile release simulator application
+        working-directory: apps/mobile/ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace=$(find . -maxdepth 1 -name '*.xcworkspace' -print)
+          test -n "$workspace"
+          test -d "$workspace"
+          scheme=$(basename "$workspace" .xcworkspace)
+          xcodebuild -workspace "$workspace" -list
+          xcodebuild -workspace "$workspace" -scheme "$scheme" -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/tradeos-ios-build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO ONLY_ACTIVE_ARCH=YES ARCHS="$(uname -m)" build
+      - name: Verify simulator bundle and archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find "$RUNNER_TEMP/tradeos-ios-build/Build/Products/Release-iphonesimulator" -maxdepth 1 -type d -name '*.app' -print)
+          test -d "$app"
+          identifier=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
+          test "$identifier" = com.lightworldtech.tradeos.preview
+          executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Info.plist")
+          test -f "$app/$executable"
+          test -s "$app/main.jsbundle"
+          xcrun vtool -show-build "$app/$executable" | tee "$RUNNER_TEMP/tradeos-platform.txt"
+          grep -q 'IOSSIMULATOR' "$RUNNER_TEMP/tradeos-platform.txt"
+          mkdir -p preview-ios
+          ditto -c -k --sequesterRsrc --keepParent "$app" preview-ios/TradeOS-Africa-iOS-Simulator.zip
+          printf 'SIMULATOR_ONLY\nsource=%s\narchitecture=%s\n' "$GITHUB_SHA" "$(uname -m)" > preview-ios/BUILD.txt
+          (cd preview-ios && shasum -a 256 TradeOS-Africa-iOS-Simulator.zip > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradeos-ios-simulator-preview-${{ github.sha }}
+          path: preview-ios/
+          if-no-files-found: error
+          retention-days: 14
