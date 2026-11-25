@@ -153,3 +153,13 @@ export function groupMobileQuickServeItems(
   }
   return [...groups.values()];
 }
+
+/** Progressive disclosure without a silent catalog limit. Keep all price
+ * options for a product together; expanding never splits a product group. */
+export const QUICK_SERVE_PAGE_SIZE = 30;
+export function visibleQuickServeGroups(items: readonly MobileSellableItem[], requestedLimit=QUICK_SERVE_PAGE_SIZE) {
+  const limit=Number.isSafeInteger(requestedLimit)&&requestedLimit>=QUICK_SERVE_PAGE_SIZE
+    ? requestedLimit : QUICK_SERVE_PAGE_SIZE;
+  const groups=groupMobileQuickServeItems(items);
+  return {groups:groups.slice(0,limit),totalGroups:groups.length,hasMore:groups.length>limit};
+}
