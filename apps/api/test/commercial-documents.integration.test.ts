@@ -57,6 +57,10 @@ describe("tenant-scoped commercial quotations and proformas",()=>{
     expect(doc.status).toBe("DRAFT");
     expect(doc.documentNumber).toMatch(/^Q-\d{4}-000001$/);
     expect(doc.totalMinor).toBe(3000);
+    const pdf=await app.inject({method:"GET",url:"/v1/commercial-documents/"+doc.id+"/pdf?businessId="+scope.businessId+"&branchId="+scope.branchId+"&paper=A5",headers:bearer(token)});
+    expect(pdf.statusCode).toBe(200);expect(pdf.headers["content-type"]).toContain("application/pdf");expect(pdf.rawPayload.subarray(0,5).toString()).toBe("%PDF-");
+    const wrongBranch=await app.inject({method:"GET",url:"/v1/commercial-documents/"+doc.id+"/pdf?businessId="+scope.businessId+"&branchId="+randomUUID(),headers:bearer(token)});
+    expect(wrongBranch.statusCode).toBe(404);
     expect(doc.lines).toMatchObject([{itemName:"Service item",lineTotalMinor:3000}]);
     const retry=await app.inject({method:"POST",url:"/v1/commercial-documents",
       headers:bearer(token),payload:request});
