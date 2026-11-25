@@ -46,6 +46,7 @@ export class MobileAppModel {
   private commerceGeneration=0;
   private sessionGeneration=0;
   private transitionBusy=false;
+  private logoutPending=false;
   private sameScope(ready:MobileReadyState,generation:number):boolean{
     const active=this.state.bootstrap;
     return generation===this.sessionGeneration&&this.state.phase==="READY"&&active?.status==="READY"&&
@@ -75,6 +76,7 @@ export class MobileAppModel {
 
   async start(): Promise<MobileAppSnapshot> {
     if(this.transitionBusy||this.state.checkoutBusy||this.state.syncing)return this.snapshot;
+    if(this.logoutPending)return this.logout();
     this.transitionBusy=true;++this.sessionGeneration;++this.commerceGeneration;
     this.state = { ...this.state, phase: "BOOTING", error: null, syncing: false };
     try {
@@ -106,7 +108,7 @@ export class MobileAppModel {
   }
 
   async login(identifier: string, password: string): Promise<MobileAppSnapshot> {
-    if(this.transitionBusy||this.state.checkoutBusy||this.state.syncing||this.state.phase==="READY")return this.snapshot;
+    if(this.logoutPending||this.transitionBusy||this.state.checkoutBusy||this.state.syncing||this.state.phase==="READY")return this.snapshot;
     this.transitionBusy=true;++this.sessionGeneration;++this.commerceGeneration;
     this.state = { ...this.state, phase: "BOOTING", error: null, syncing: false };
     try {
@@ -250,18 +252,13 @@ export class MobileAppModel {
       return this.snapshot;
     }
     const previous=this.state;
-    let blocked=false;
+    const previouslyPending=this.logoutPending;
+    this.logoutPending=true;
     this.transitionBusy=true;++this.sessionGeneration;++this.commerceGeneration;
     this.state={...this.state,phase:"BOOTING",commerce:null,commerceLoading:false};
     try {
       await this.runtime.logout();
-    } catch(error){
-      if(error instanceof MobileRuntimeBusyError){
-        blocked=true;this.state={...previous,error:error.message,commerceLoading:false};
-      }
-      // Runtime always clears the local session for a non-busy logout.
-    } finally {
-      if(!blocked){
+      this.logoutPending=false;
       const queue = await this.safeQueueState();
       this.state = {
         ...this.state,
@@ -277,9 +274,18 @@ export class MobileAppModel {
         checkoutBusy: false,
         saleNotice: null,
       };
+    } catch(error){
+      if(error instanceof MobileRuntimeBusyError&&!previouslyPending){
+        this.logoutPending=false;
+        this.state={...previous,error:error.message,commerceLoading:false};
+      }else{
+        // Keep the UI closed and retry sign-out rather than restoring an
+        // account whose local credentials could not be removed.
+        this.state={...this.state,phase:"ERROR",bootstrap:null,commerce:null,
+          commerceLoading:false,cart:[],saleNotice:null,syncing:false,
+          checkoutBusy:false,error:"TradeOS could not verify local sign-out. Retry to finish signing out."};
       }
-      this.transitionBusy=false;
-    }
+    } finally {this.transitionBusy=false;}
     return this.snapshot;
   }
 

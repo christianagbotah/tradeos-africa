@@ -21,6 +21,7 @@ class FakeRuntime {
   commerceCalls: boolean[] = [];
   saleCalls: Array<{ cart: readonly MobileCartLine[]; paymentMethod: MobileImmediatePaymentMethod; online: boolean }> = [];
   logoutCalls = 0;
+  logoutError: Error | null = null;
   queueState: QueueState = emptyQueue;
   commerceSnapshot: MobileCommerceSnapshot = {
     source: "LIVE", fetchedAt: "2026-10-10T23:50:00.000Z", warning: null,
@@ -40,7 +41,7 @@ class FakeRuntime {
     if (this.error) throw this.error;
     return this.saleResult;
   }
-  async logout() { this.logoutCalls += 1; }
+  async logout() { this.logoutCalls += 1; if(this.logoutError)throw this.logoutError; }
   async getQueueState() { return this.queueState; }
 }
 
@@ -94,6 +95,26 @@ describe("MobileAppModel state transitions", () => {
 
     await model.connectivityChanged(true);
     expect(runtime.flushCalls).toEqual([true]);
+  });
+
+  it("requires retry when local sign-out fails and does not reopen the previous account", async()=>{
+    const runtime=new FakeRuntime();
+    runtime.bootstrapState=ready;
+    runtime.logoutError=new Error("private storage error");
+    const model=new MobileAppModel(runtime);
+    await model.start();
+    await model.loadCommerce();
+    model.addCart(runtime.commerceSnapshot.items[0]!);
+    const failed=await model.logout();
+    expect(failed).toMatchObject({phase:"ERROR",bootstrap:null,commerce:null,cart:[]});
+    expect(failed.error).toContain("Retry");
+    expect(failed.error).not.toContain("private storage error");
+    expect((await model.login("other","secret")).phase).toBe("ERROR");
+    expect((await model.start()).phase).toBe("ERROR");
+    runtime.logoutError=null;
+    runtime.queueState={pending:1,blocked:1,failed:0};
+    expect(await model.start()).toMatchObject({phase:"SIGNED_OUT",bootstrap:{status:"SIGNED_OUT",queue:runtime.queueState}});
+    expect(runtime.logoutCalls).toBe(3);
   });
 
   it("signs out into a queue-aware local state", async () => {
