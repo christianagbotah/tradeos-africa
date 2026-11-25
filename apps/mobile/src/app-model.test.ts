@@ -30,6 +30,7 @@ class FakeRuntime {
   flushSummary: FlushSummary = { ...emptyQueue, applied: 0, received: 0, rejected: 0, attempted: 0 };
   error: Error | null = null;
 
+  async switchWorkspace() { if(this.error)throw this.error; if(this.loginState.status!=="READY")throw new Error("Not ready");return this.loginState; }
   async bootstrap() { if (this.error) throw this.error; return this.bootstrapState; }
   async login() { if (this.error) throw this.error; return this.loginState; }
   async flush(online: boolean) { this.flushCalls.push(online); return this.flushSummary; }

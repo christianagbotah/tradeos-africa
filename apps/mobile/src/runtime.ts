@@ -150,6 +150,34 @@ export class MobileRuntime {
     return ready;
   }
 
+  /** Select only a currently authorized business and active visible branch.
+   * Never mutate a queued transaction's tenant or branch.
+   */
+  async switchWorkspace(businessId:string,branchId:string):Promise<MobileReadyState>{
+    const previous=this.requireReady();
+    if(previous.membership.role==="POS_ATTENDANT")throw new MobileRuntimeError("Ask an administrator to change your POS workspace.");
+    const session=await this.options.persistence.loadSession();
+    if(!session)throw new SessionExpiredError();
+    const queue=await this.queue.getState(previous.business.id);
+    if(queue.pending>0)throw new MobileRuntimeError("Sync pending transactions in your current business before switching.");
+    const me=await this.options.api.getMe();
+    if(me.user.id!==previous.user.id)throw new SessionExpiredError("Account changed. Sign in again.");
+    const membership=me.memberships.find(m=>m.businessId===businessId&&m.businessStatus==="ACTIVE");
+    if(!membership)throw new MobileRuntimeError("You no longer have access to this business.");
+    const context=await this.options.api.getBusinessContext(businessId);
+    const branch=context.branches.find(b=>b.id===branchId&&b.active);
+    if(context.business.id!==businessId||context.business.status!=="ACTIVE"||!branch||context.membership.role!==membership.role||context.membership.staffId!==membership.staffId)
+      throw new MobileRuntimeError("The selected workspace is no longer available.");
+    const targetQueue=await this.queue.getState(businessId);
+    const active=await this.options.persistence.loadSession();
+    if(this.current!==previous||!active||active.accessToken!==session.accessToken||active.refreshToken!==session.refreshToken)
+      throw new MobileRuntimeError("Session changed. Refresh before switching.");
+    if((await this.queue.getState(previous.business.id)).pending>0)throw new MobileRuntimeError("Sync pending transactions before switching.");
+    await this.options.persistence.saveWorkspaceSelection({businessId,branchId});
+    const ready:MobileReadyState={status:"READY",user:me.user,membership,business:context.business,branch,queue:targetQueue};
+    this.current=ready;return ready;
+  }
+
   async login(identifier: string, password: string): Promise<MobileBootstrapState> {
     await this.options.api.login(identifier, password);
     return this.bootstrap();

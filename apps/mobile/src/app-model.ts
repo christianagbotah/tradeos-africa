@@ -17,7 +17,7 @@ import {
 } from "./pos-model";
 import { QueueStorageCorruptError } from "./storage";
 
-type AppRuntime = Pick<MobileRuntime, "bootstrap" | "login" | "flush" | "loadCommerce" | "createSale" | "logout" | "getQueueState">;
+type AppRuntime = Pick<MobileRuntime, "bootstrap" | "login" | "flush" | "loadCommerce" | "createSale" | "logout" | "getQueueState" | "switchWorkspace">;
 
 export type MobileAppPhase = "BOOTING" | "SIGNED_OUT" | "NEEDS_BUSINESS" | "READY" | "ERROR";
 
@@ -73,6 +73,24 @@ export class MobileAppModel {
     } catch (error) {
       this.state = { ...this.state, phase: "ERROR", bootstrap: null, error: safeMobileErrorMessage(error), syncing: false };
       return this.snapshot;
+    }
+  }
+
+  async switchWorkspace(businessId:string,branchId:string):Promise<MobileAppSnapshot>{
+    if(this.state.phase!=="READY"||this.state.bootstrap?.status!=="READY"||this.state.online!==true||this.state.checkoutBusy||this.state.syncing||this.state.cart.length)
+      throw new MobileRuntimeError("Connect online, finish the current cart and wait for synchronization before switching.");
+    const previous=this.state.bootstrap;
+    if(previous.business.id===businessId&&previous.branch.id===branchId)return this.snapshot;
+    ++this.commerceGeneration;
+    this.state={...this.state,phase:"BOOTING",commerce:null,commerceLoading:false,error:null,saleNotice:null};
+    try{
+      const next=await this.runtime.switchWorkspace(businessId,branchId);
+      this.state={...this.state,cart:[],paymentMethod:"CASH",view:"SELL",saleNotice:null};
+      this.applyBootstrap(next);
+      return this.loadCommerce();
+    }catch(error){
+      this.state={...this.state,phase:"READY",bootstrap:previous,commerce:null,commerceLoading:false,error:safeMobileErrorMessage(error)};
+      throw error;
     }
   }
 
@@ -168,7 +186,7 @@ export class MobileAppModel {
     const current=this.state.bootstrap;
     if(this.state.phase!=="READY"||current?.status!=="READY")return this.snapshot;
     const queue=await this.runtime.getQueueState();
-    if(this.state.phase==="READY"&&this.state.bootstrap?.status==="READY"&&this.state.bootstrap.membership.businessId===current.membership.businessId&&this.state.bootstrap.user.id===current.user.id){
+    if(this.state.phase==="READY"&&this.state.bootstrap?.status==="READY"&&this.state.bootstrap.membership.businessId===current.membership.businessId&&this.state.bootstrap.branch.id===current.branch.id&&this.state.bootstrap.user.id===current.user.id){
       this.state={...this.state,bootstrap:{...this.state.bootstrap,queue}};
     }
     return this.snapshot;
@@ -229,6 +247,10 @@ export class MobileAppModel {
   }
 
   private applyBootstrap(bootstrap: MobileBootstrapState): MobileAppSnapshot {
+    const old=this.state.bootstrap;
+    if(old?.status==="READY"&&(bootstrap.status!=="READY"||old.user.id!==bootstrap.user.id||old.business.id!==bootstrap.business.id||old.branch.id!==bootstrap.branch.id||old.membership.role!==bootstrap.membership.role)){
+      ++this.commerceGeneration;this.state={...this.state,commerce:null,commerceLoading:false,cart:[],paymentMethod:"CASH",saleNotice:null};
+    }
     this.state = {
       ...this.state,
       phase: bootstrap.status,
