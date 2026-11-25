@@ -209,6 +209,22 @@ describe("MobileRuntime durable sync", () => {
     expect((await runtime.queue.getSnapshot()).pending.map((mutation) => mutation.clientMutationId)).toEqual(["other-1"]);
   });
 
+  it("closes the active runtime when secure session removal fails and permits sign-out retry",async()=>{
+    const {runtime,persistence,secure}=createHarness();
+    await persistence.saveSession(session);
+    await runtime.bootstrap();
+    await runtime.queue.enqueue(saleMutation("pending-retry",business1,branch1));
+    const remove=secure.removeItem.bind(secure);
+    secure.removeItem=async()=>{throw new Error("secure storage unavailable");};
+    await expect(runtime.logout()).rejects.toThrow("secure storage unavailable");
+    expect(runtime.getCurrentReadyState()).toBeNull();
+    expect(await persistence.loadSession()).not.toBeNull();
+    secure.removeItem=remove;
+    await runtime.logout();
+    expect(await persistence.loadSession()).toBeNull();
+    expect((await runtime.queue.getSnapshot()).pending.map(m=>m.clientMutationId)).toEqual(["pending-retry"]);
+  });
+
   it("signs out without deleting pending offline queue evidence", async () => {
     const { runtime, persistence, api } = createHarness();
     await persistence.saveSession(session);

@@ -495,12 +495,15 @@ export class MobileRuntime {
 
   async logout(): Promise<void> {
     if(this.workspaceSwitching||this.transactionBusy())throw new MobileRuntimeBusyError("Wait for the current transaction or synchronization before signing out.");
+    this.workspaceSwitching=true;
+    // Revoke the in-memory commerce scope immediately. A failed secure-store
+    // removal must not leave this runtime ready to submit another transaction.
+    this.current=null;
     try {
-      await this.options.api.logout();
-    } finally {
+      try { await this.options.api.logout(); } catch { /* Local sign-out can succeed offline. */ }
       await this.options.persistence.clearSession();
-      this.current = null;
-    }
+      if(await this.options.persistence.loadSession())throw new MobileRuntimeError("Local sign-out could not be verified. Retry signing out.");
+    } finally { this.workspaceSwitching=false; }
   }
 
   private requireReady(): MobileReadyState {
