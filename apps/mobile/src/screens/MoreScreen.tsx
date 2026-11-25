@@ -14,6 +14,7 @@ export type MoreScreenProps = {
   onRefreshCatalog: () => void;
   onGoToNotifications: () => void;
   onGoToQuestions: () => void;
+  onGoToWorkspaceSwitch:()=>void;
   onGoToProviders:()=>void;
   onGoToBusinessAdmin:()=>void;
   onGoToReports:()=>void;
@@ -34,7 +35,7 @@ export function MoreScreen({
   onRefreshCatalog,
   onGoToNotifications,
   onGoToQuestions,
-  onGoToCatalog,onGoToInventory,onGoToDocuments,onGoToSuppliers,onGoToPurchaseOrders,onGoToFinance,onGoToOperations,onGoToReports,onGoToBusinessAdmin,onGoToProviders,
+  onGoToCatalog,onGoToInventory,onGoToDocuments,onGoToSuppliers,onGoToPurchaseOrders,onGoToFinance,onGoToOperations,onGoToReports,onGoToBusinessAdmin,onGoToProviders,onGoToWorkspaceSwitch,
   onLogout,
 }: MoreScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
@@ -70,6 +71,7 @@ export function MoreScreen({
           </View>
         </View>
       </HeroCard>
+      <Button variant="secondary" fullWidth accessibilityLabel="Switch business or branch" onPress={onGoToWorkspaceSwitch}>Switch business or branch</Button>
 
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Master data and inventory</Text>

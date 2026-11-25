@@ -20,6 +20,7 @@ import { PosScreen } from "./src/screens/PosScreen";
 import type { SaleReversal } from "./src/sale-reversal";
 import type { StockAdjustment } from "./src/inventory-adjustment";
 import type { CustomerReceiptInput } from "./src/customer-payment";
+import { WorkspaceSwitchScreen } from "./src/screens/WorkspaceSwitchScreen";
 import { ProviderSettingsScreen } from "./src/screens/ProviderSettingsScreen";
 import { BusinessAdminScreen } from "./src/screens/BusinessAdminScreen";
 import { ReportsScreen } from "./src/screens/ReportsScreen";
@@ -83,7 +84,7 @@ function MobileWorkspace() {
   const [search, setSearch] = useState("");
   const [feedback,setFeedback]=useState<MobileActionFeedback|null>(null);
   const checkoutLock=useRef(false);
-  const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions" | "catalog" | "inventory" | "documents" | "suppliers" | "purchaseOrders" | "finance" | "operations" | "reports" | "businessAdmin" | "providers">("dashboard");
+  const [screen, setScreen] = useState<BottomNavTab | "notifications" | "questions" | "catalog" | "inventory" | "documents" | "suppliers" | "purchaseOrders" | "finance" | "operations" | "reports" | "businessAdmin" | "providers" | "workspaceSwitch">("dashboard");
 
   useEffect(() => {
     let mounted = true;
@@ -197,7 +198,7 @@ function MobileWorkspace() {
   const workspaceReady=snapshot.phase==="READY"&&ready!==null;
   const attendantOnly=ready?.membership.role==="POS_ATTENDANT";
   const activeScreen=attendantOnly?"sell":screen;
-  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",customers:"Customers",catalog:"Catalog",inventory:"Inventory",documents:"Quotes & proformas",suppliers:"Suppliers & purchases",purchaseOrders:"Purchase orders",finance:"Cashbook & expenses",operations:"Operating days & shifts",reports:"Reports & analytics",businessAdmin:"Business administration",providers:"Payment & SMS integrations",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
+  const titleByScreen={dashboard:"Dashboard",sell:"Sell (POS)",sales:"Sales",customers:"Customers",catalog:"Catalog",inventory:"Inventory",documents:"Quotes & proformas",suppliers:"Suppliers & purchases",purchaseOrders:"Purchase orders",finance:"Cashbook & expenses",operations:"Operating days & shifts",reports:"Reports & analytics",businessAdmin:"Business administration",providers:"Payment & SMS integrations",workspaceSwitch:"Switch workspace",more:"More",notifications:"Notifications",questions:"Business intelligence"} as const;
   return (
     <SafeAreaView style={[styles.safeArea,workspaceReady&&styles.workspaceSafeArea]}
       edges={workspaceReady?["top","left","right"]:["top","left","right","bottom"]}>
@@ -325,6 +326,20 @@ function MobileWorkspace() {
                 key={ready.user.id+":"+ready.business.id+":"+ready.branch.id+":"+ready.membership.role}
                 api={api} businessId={ready.business.id} role={ready.membership.role} online={snapshot.online===true}
                 onFeedback={setFeedback} onBack={()=>setScreen("more")}/>:null}
+              {activeScreen==="workspaceSwitch"&&ready?<WorkspaceSwitchScreen
+                key={ready.user.id+":"+ready.business.id+":"+ready.branch.id}
+                api={api} ready={ready} online={snapshot.online===true} cartCount={snapshot.cart.length} syncing={snapshot.syncing}
+                onBack={()=>setScreen("more")}
+                onSwitch={async(businessId,branchId)=>{
+                  if(checkoutLock.current)throw new Error("A transaction is in progress.");
+                  checkoutLock.current=true;
+                  try{
+                    const operation=model.switchWorkspace(businessId,branchId);setSnapshot(model.snapshot);
+                    const next=await operation;setSnapshot(next);setSearch("");setScreen("dashboard");
+                    setFeedback({tone:"success",title:"Workspace changed",message:"The selected business and branch are now active."});
+                  }catch(e){setSnapshot(model.snapshot);setFeedback({tone:"warning",title:"Workspace not changed",message:e instanceof Error?e.message:"Refresh the workspace."});throw e;}
+                  finally{checkoutLock.current=false;}
+                }}/>:null}
               {activeScreen === "more" ? (
                 <MoreScreen
                   snapshot={snapshot}
@@ -333,6 +348,7 @@ function MobileWorkspace() {
                   onRefreshCatalog={() => { void refreshCommerce(); }}
                   onLogout={() => { if(!checkoutLock.current)setFeedback(signOutFeedback); }}
                   onGoToNotifications={() => setScreen("notifications")}
+                  onGoToWorkspaceSwitch={()=>setScreen("workspaceSwitch")}
                   onGoToProviders={()=>setScreen("providers")}
                   onGoToBusinessAdmin={()=>setScreen("businessAdmin")}
                   onGoToReports={()=>setScreen("reports")}
@@ -370,7 +386,7 @@ function MobileWorkspace() {
               ) : null}
             </View>
             <BottomNav
-              active={activeScreen === "notifications" || activeScreen === "questions" || activeScreen==="catalog" || activeScreen==="inventory" || activeScreen==="documents" || activeScreen==="suppliers" || activeScreen==="purchaseOrders" || activeScreen==="finance" || activeScreen==="operations" || activeScreen==="reports" || activeScreen==="businessAdmin" || activeScreen==="providers" ? "more" : activeScreen}
+              active={activeScreen === "notifications" || activeScreen === "questions" || activeScreen==="catalog" || activeScreen==="inventory" || activeScreen==="documents" || activeScreen==="suppliers" || activeScreen==="purchaseOrders" || activeScreen==="finance" || activeScreen==="operations" || activeScreen==="reports" || activeScreen==="businessAdmin" || activeScreen==="providers" || activeScreen==="workspaceSwitch" ? "more" : activeScreen}
               onChange={next=>{if(!checkoutLock.current)setScreen(next);}}
               attendantOnly={attendantOnly}
               onSignOut={()=>{if(!checkoutLock.current)setFeedback(signOutFeedback);}}
