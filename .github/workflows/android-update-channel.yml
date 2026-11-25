@@ -1,0 +1,118 @@
+name: Publish signed Android update-channel preview
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tradeos-signed-android-update-channel
+  cancel-in-progress: false
+jobs:
+  android:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: android-preview-signing
+    env:
+      CI: 'true'
+      EXPO_PUBLIC_TRADEOS_API_BASE: https://tradeosafrica.lightworldtech.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: corepack enable
+      - name: Validate signing prerequisites
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_PREVIEW_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_PREVIEW_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_PREVIEW_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_PREVIEW_KEY_PASSWORD }}
+          CERT_SHA256: ${{ vars.ANDROID_PREVIEW_CERT_SHA256 }}
+        run: |
+          set -eu
+          test -n "$KEYSTORE" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD"
+          [[ "$CERT_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]
+          # No automatic key generation or debug signing fallback.
+          build=$((10000 + GITHUB_RUN_NUMBER))
+          test "$build" -lt 2100000000
+          echo "EXPO_PUBLIC_TRADEOS_UPDATE_BUILD=$build" >> "$GITHUB_ENV"
+      - name: Install and validate source
+        run: |
+          pnpm --filter @tradeos/mobile... install --frozen-lockfile
+          pnpm --filter @tradeos/contracts build
+          pnpm --filter @tradeos/client-core build
+          pnpm --filter @tradeos/mobile typecheck
+          pnpm --filter @tradeos/mobile test
+      - name: Generate versioned Android project
+        working-directory: apps/mobile
+        run: |
+          node -e 'const fs=require("fs"),p="app.json",c=JSON.parse(fs.readFileSync(p)); const n=Number(process.env.EXPO_PUBLIC_TRADEOS_UPDATE_BUILD); c.expo.name="TradeOS Africa Preview"; c.expo.android.package="com.lightworldtech.tradeos.preview"; c.expo.android.versionCode=n; c.expo.version="0.1."+n; fs.writeFileSync(p,JSON.stringify(c,null,2));'
+          pnpm exec expo prebuild --platform android --no-install --clean
+      - name: Assemble with persistent signing identity
+        working-directory: apps/mobile/android
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_PREVIEW_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_PREVIEW_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_PREVIEW_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_PREVIEW_KEY_PASSWORD }}
+        run: |
+          set -eu
+          umask 077
+          key="$RUNNER_TEMP/tradeos-update-signing.jks"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$KEYSTORE" | base64 --decode > "$key"
+          unset KEYSTORE
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace \
+            "-Pandroid.injected.signing.store.file=$key" \
+            "-Pandroid.injected.signing.store.password=$STORE_PASSWORD" \
+            "-Pandroid.injected.signing.key.alias=$KEY_ALIAS" \
+            "-Pandroid.injected.signing.key.password=$KEY_PASSWORD"
+      - name: Verify package version and pinned certificate
+        env:
+          CERT_SHA256: ${{ vars.ANDROID_PREVIEW_CERT_SHA256 }}
+        run: |
+          set -eu
+          mkdir -p signed-preview
+          apk=signed-preview/TradeOS-Africa-Update.apk
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "$apk"
+          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          aapt=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          cert=$("$signer" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "${cert,,}" = "${CERT_SHA256,,}"
+          metadata=$("$aapt" dump badging "$apk" | head -1)
+          [[ "$metadata" == *"name='com.lightworldtech.tradeos.preview'"* ]]
+          [[ "$metadata" == *"versionCode='$EXPO_PUBLIC_TRADEOS_UPDATE_BUILD'"* ]]
+          printf '%s\n' "$EXPO_PUBLIC_TRADEOS_UPDATE_BUILD" > signed-preview/BUILD.txt
+          (cd signed-preview && sha256sum TradeOS-Africa-Update.apk > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-update-preview
+          path: signed-preview/
+          if-no-files-found: error
+  publish:
+    needs: android
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-update-preview
+          path: signed-preview
+      - name: Publish exact main commit only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          (cd signed-preview && sha256sum -c SHA256SUMS.txt)
+          build=$(cat signed-preview/BUILD.txt)
+          [[ "$build" =~ ^[0-9]+$ ]]
+          tag="android-update-preview-${build}-${SHA:0:12}"
+          gh release create "$tag" --repo "$REPO" --target "$SHA" --prerelease --title "TradeOS signed Android preview build $build" --notes "Update-channel testing APK. Persistent signing identity verified in CI. Android must confirm installation. Older disposable previews may need a one-time migration; never uninstall with pending local transactions. Not a production release." signed-preview/TradeOS-Africa-Update.apk signed-preview/SHA256SUMS.txt
