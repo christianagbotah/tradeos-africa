@@ -281,8 +281,9 @@ export class MobileRuntime {
     if (snapshot.pending.some((entry) => entry.clientMutationId === clientMutationId)) {
       return { clientMutationId, outcome: "PENDING", queue };
     }
+    const completedSaleId=this.queue.getCompletedSaleId(clientMutationId,ready.business.id,ready.branch.id);
     return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)
-      ?{clientMutationId,outcome:"SYNCED",queue,completedSaleId:this.queue.getCompletedSaleId(clientMutationId,ready.business.id,ready.branch.id)}
+      ?{clientMutationId,outcome:"SYNCED",queue,...(completedSaleId?{completedSaleId}:{})}
       :{clientMutationId,outcome:"NEEDS_REVIEW",queue,errorCode:"ACKNOWLEDGEMENT_UNVERIFIED",errorMessage:"Posting could not be verified. Check server history before recording another sale."};
     }finally{this.saleBusy=false;}
   }
