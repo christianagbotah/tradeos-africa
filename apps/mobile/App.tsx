@@ -125,6 +125,7 @@ function MobileWorkspace() {
       }
     }finally{checkoutLock.current=false;}
   };
+  const getCurrentPending=useCallback(()=>runtime.getCurrentBusinessPendingCount(),[runtime]);
   const getOwnCashShift = useCallback((businessId:string,branchId:string)=>
     api.getOwnCashShift(businessId,branchId),[api]);
   const ownCashShift = async (
@@ -328,7 +329,7 @@ function MobileWorkspace() {
                 onFeedback={setFeedback} onBack={()=>setScreen("more")}/>:null}
               {activeScreen==="workspaceSwitch"&&ready?<WorkspaceSwitchScreen
                 key={ready.user.id+":"+ready.business.id+":"+ready.branch.id}
-                api={api} ready={ready} online={snapshot.online===true} cartCount={snapshot.cart.length} syncing={snapshot.syncing}
+                api={api} ready={ready} online={snapshot.online===true} cartCount={snapshot.cart.length} syncing={snapshot.syncing} getCurrentPending={getCurrentPending}
                 onBack={()=>setScreen("more")}
                 onSwitch={async(businessId,branchId)=>{
                   if(checkoutLock.current)throw new Error("A transaction is in progress.");

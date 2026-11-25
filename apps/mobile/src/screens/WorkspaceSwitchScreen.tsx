@@ -6,9 +6,11 @@ import {Button} from "../components/Button";
 import {Card} from "../components/Card";
 import {Banner} from "../components/Banner";
 import {colors,spacing,typography} from "../theme";
-type Props={api:MobileApiClient;ready:MobileReadyState;online:boolean;cartCount:number;syncing:boolean;onSwitch:(businessId:string,branchId:string)=>Promise<void>;onBack:()=>void};
-export function WorkspaceSwitchScreen({api,ready,online,cartCount,syncing,onSwitch,onBack}:Props){
+type Props={api:MobileApiClient;ready:MobileReadyState;online:boolean;cartCount:number;syncing:boolean;getCurrentPending:()=>Promise<number>;onSwitch:(businessId:string,branchId:string)=>Promise<void>;onBack:()=>void};
+export function WorkspaceSwitchScreen({api,ready,online,cartCount,syncing,getCurrentPending,onSwitch,onBack}:Props){
  const [memberships,setMemberships]=useState<MobileMembership[]>([]),[businessId,setBusinessId]=useState(ready.business.id),[branchId,setBranchId]=useState(ready.branch.id),[context,setContext]=useState<MobileBusinessContext|null>(null);
+ const [pendingHere,setPendingHere]=useState<number|null>(null);
+ useEffect(()=>{let live=true;setPendingHere(null);void getCurrentPending().then(n=>{if(live)setPendingHere(n);}).catch(()=>{});return()=>{live=false;};},[getCurrentPending,ready.queue.pending,syncing]);
  const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[review,setReview]=useState(false),[error,setError]=useState<string|null>(null),[refresh,setRefresh]=useState(0);
  const generation=useRef(0),lock=useRef(false);
  const allowed=ready.membership.role!=="POS_ATTENDANT";
@@ -32,7 +34,7 @@ export function WorkspaceSwitchScreen({api,ready,online,cartCount,syncing,onSwit
   return()=>{++generation.current;};
  },[api,businessId,ready.user.id,online,allowed,refresh]);
  const target=context?.branches.find(b=>b.id===branchId&&b.active);
- const blocked=!online||!allowed||loading||busy||syncing||cartCount>0||ready.queue.pending>0||!target||context?.business.id!==businessId||(businessId===ready.business.id&&branchId===ready.branch.id);
+ const blocked=!online||!allowed||loading||busy||syncing||cartCount>0||pendingHere!==0||!target||context?.business.id!==businessId||(businessId===ready.business.id&&branchId===ready.branch.id);
  async function submit(){
   if(blocked||!review||lock.current)return;
   lock.current=true;setBusy(true);
@@ -44,7 +46,7 @@ export function WorkspaceSwitchScreen({api,ready,online,cartCount,syncing,onSwit
  <Card style={styles.section}><Text style={styles.muted}>CURRENT WORKSPACE</Text><Text style={styles.heading}>{ready.business.name} · {ready.branch.name}</Text><Text style={styles.muted}>{ready.membership.role.replaceAll("_"," ")} · {ready.business.currencyCode==="GHS"?"₵":ready.business.currencyCode}</Text></Card>
  {!online?<Banner tone="warning" message="Workspace switching requires an online permissions check."/>:null}
  {cartCount>0?<Banner tone="warning" message="Complete or clear your current sale cart before switching."/>:null}
- {ready.queue.pending>0?<Banner tone="warning" message="Sync pending transactions in the current business before switching."/>:null}
+ {pendingHere!==0?<Banner tone="warning" message={pendingHere===null?"Verifying pending transactions.":"Sync pending transactions in the current business before switching."}/>:null}
  {ready.queue.failed>0?<Banner tone="info" message="Rejected records remain in their original business queue for review."/>:null}
  {error?<Banner tone="warning" message={error}/>:null}
  <Card style={styles.section}><Text style={styles.heading}>Your businesses</Text>{memberships.map(m=><Button key={m.businessId} variant={businessId===m.businessId?"gold":"secondary"} disabled={busy||review} accessibilityLabel={"Select "+m.businessName} onPress={()=>{if(m.businessId!==businessId){++generation.current;setContext(null);setBranchId("");setBusinessId(m.businessId);}}}>{m.businessName} · {m.role.replaceAll("_"," ")}</Button>)}
