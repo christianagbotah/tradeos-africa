@@ -1,3 +1,4 @@
+import type {PaymentVault,PaymentConnection,GatewayOptions,ProviderEnvironment,ProviderAction,SmsVault,SmsProvider,SmsConnection} from "./provider-workspace";
 import type { SyncPushRequest, SyncResponse } from "@tradeos/client-core/sync-runtime";
 import type { BusinessNotificationsResponse, BusinessNotificationKind, BusinessQuestionResponse, CustomerCreateInput, CustomerUpdateInput, StaffDirectoryItem, CreateStaffRequest, UpdateStaffRequest, StaffInvitationResponse, FinancialSummaryReport, CreditAgingReport, CashForecastResponse } from "@tradeos/contracts";
 import { type MobileSessionTokens, MobilePersistence } from "./storage";
@@ -294,6 +295,30 @@ export class MobileApiClient {
   }
   saveExpenseCategory(businessId:string,input:{name:string;active?:boolean},revision?:{id:string;expectedUpdatedAt:string}):Promise<{category:MobileExpenseCategory}>{
     return this.authorizedJson("/v1/expense-categories"+(revision?"/"+encodeURIComponent(revision.id):""),{method:revision?"PATCH":"POST",body:JSON.stringify({businessId,...input,...(revision?{expectedUpdatedAt:revision.expectedUpdatedAt}:{})})});
+  }
+  private providerPath(businessId:string,suffix:string){
+    if(!this.baseUrl.startsWith("https://"))throw new Error("Provider settings require HTTPS.");
+    return "/v1/businesses/"+encodeURIComponent(businessId)+suffix;
+  }
+  getPaymentVault(businessId:string):Promise<PaymentVault>{
+    return this.authorizedJson(this.providerPath(businessId,"/payment-gateways/merchant-connections"),{method:"GET"});
+  }
+  getGatewayOptions(businessId:string):Promise<GatewayOptions>{
+    return this.authorizedJson(this.providerPath(businessId,"/payment-gateways"),{method:"GET"});
+  }
+  setGatewayPreference(businessId:string,providerCode:string,expectedRevision:number):Promise<unknown>{
+    return this.authorizedJson(this.providerPath(businessId,"/payment-gateways/preference"),{method:"PUT",body:JSON.stringify({providerCode,expectedRevision})});
+  }
+  changePaymentCredentials(businessId:string,provider:string,environment:ProviderEnvironment,action:ProviderAction,input:{currentPassword:string;expectedRevision:number;fields?:Record<string,string>}):Promise<{connection:PaymentConnection}>{
+    const base=this.providerPath(businessId,"/payment-gateways/merchant-connections"),path=base+"/"+encodeURIComponent(provider)+"/"+environment;
+    const url=action==="verify"?provider==="HUBTEL"?base+"/HUBTEL/verify":path+"/verify":action==="request"?path+"/request-activation":path;
+    return this.authorizedJson(url,{method:action==="save"?"PUT":action==="revoke"?"DELETE":"POST",body:JSON.stringify({...input,...(action==="verify"&&provider==="HUBTEL"?{environment}:{})})});
+  }
+  getSmsVault(businessId:string):Promise<SmsVault>{
+    return this.authorizedJson(this.providerPath(businessId,"/sms-providers/connections"),{method:"GET"});
+  }
+  changeSmsCredentials(businessId:string,provider:SmsProvider,action:"save"|"revoke",input:{currentPassword:string;expectedRevision:number;apiSecret?:string;senderId?:string;accountId?:string|null}):Promise<{connection:SmsConnection}>{
+    return this.authorizedJson(this.providerPath(businessId,"/sms-providers/connections/"+provider),{method:action==="save"?"PUT":"DELETE",body:JSON.stringify(input)});
   }
   updateBusinessProfile(businessId:string,input:MobileBusinessPatch):Promise<{business:MobileBusinessProfile}>{
     return this.authorizedJson("/v1/businesses/"+encodeURIComponent(businessId),{method:"PATCH",body:JSON.stringify(input)});
