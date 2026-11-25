@@ -14,6 +14,7 @@ export type MoreScreenProps = {
   onRefreshCatalog: () => void;
   onGoToNotifications: () => void;
   onGoToQuestions: () => void;
+  onGoToProviders:()=>void;
   onGoToBusinessAdmin:()=>void;
   onGoToReports:()=>void;
   onGoToOperations:()=>void;
@@ -33,7 +34,7 @@ export function MoreScreen({
   onRefreshCatalog,
   onGoToNotifications,
   onGoToQuestions,
-  onGoToCatalog,onGoToInventory,onGoToDocuments,onGoToSuppliers,onGoToPurchaseOrders,onGoToFinance,onGoToOperations,onGoToReports,onGoToBusinessAdmin,
+  onGoToCatalog,onGoToInventory,onGoToDocuments,onGoToSuppliers,onGoToPurchaseOrders,onGoToFinance,onGoToOperations,onGoToReports,onGoToBusinessAdmin,onGoToProviders,
   onLogout,
 }: MoreScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
@@ -73,6 +74,7 @@ export function MoreScreen({
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Master data and inventory</Text>
         <Text style={styles.sectionTitle}>Products and stock</Text>
+        {["OWNER","ADMIN"].includes(ready.membership.role)?<Button variant="secondary" fullWidth accessibilityLabel="Open payment and SMS settings" onPress={onGoToProviders}>Payment &amp; SMS integrations</Button>:null}
         <Button variant="secondary" fullWidth accessibilityLabel="Open business administration" onPress={onGoToBusinessAdmin}>Business administration</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open financial reports" onPress={onGoToReports}>Reports &amp; analytics</Button>
         <Button variant="secondary" fullWidth accessibilityLabel="Open operating days and shifts" onPress={onGoToOperations}>Operating days &amp; shifts</Button>
