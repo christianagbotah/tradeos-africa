@@ -473,6 +473,27 @@ export class MobileApiClient {
     }
   }
 
+  async downloadDocumentPdf(kind:"receipt"|"document",businessId:string,branchId:string,id:string,paper:"A5"|"80mm"|"58mm"):Promise<Uint8Array>{
+    if(!this.baseUrl.startsWith("https://"))throw new Error("PDF delivery requires HTTPS.");
+    const path=(kind==="receipt"?"/v1/sales/"+encodeURIComponent(id)+"/receipt.pdf":"/v1/commercial-documents/"+encodeURIComponent(id)+"/pdf")+"?"+new URLSearchParams({businessId,branchId,paper}).toString();
+    const session=await this.options.persistence.loadSession();
+    if(!session)throw new SessionExpiredError();
+    let response=await this.fetchAuthorized(path,{method:"GET"},session.accessToken);
+    if(response.status===401){
+      const refreshed=await this.refreshAfterUnauthorized(session.accessToken);
+      if(refreshed.clientId!==session.clientId)throw new SessionExpiredError();
+      response=await this.fetchAuthorized(path,{method:"GET"},refreshed.accessToken);
+    }
+    if(!response.ok)throw new Error("The server could not release a verified PDF.");
+    if(!response.headers.get("content-type")?.toLowerCase().startsWith("application/pdf"))throw new Error("The response is not a PDF.");
+    const length=Number(response.headers.get("content-length")??0);
+    if(length>6_000_000)throw new Error("PDF exceeds the supported size.");
+    const data=new Uint8Array(await response.arrayBuffer());
+    if(data.length<5||data.length>6_000_000||String.fromCharCode(...data.slice(0,5))!=="%PDF-")throw new Error("Invalid PDF response.");
+    if((await this.options.persistence.loadSession())?.clientId!==session.clientId)throw new SessionExpiredError();
+    return data;
+  }
+
   private async authorizedJson<T>(path: string, init: RequestInit): Promise<T> {
     const session = await this.options.persistence.loadSession();
     if (!session) throw new SessionExpiredError();

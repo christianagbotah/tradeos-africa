@@ -482,7 +482,7 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
   // The PDF is generated from current authenticated, tenant-scoped server
   // records. A redirect, local queue or pending Hubtel transaction is NOT
   // sufficient to release a receipt.
-  app.get<{Params:{saleId:string};Querystring:{businessId?:string;paper?:string}}>(
+  app.get<{Params:{saleId:string};Querystring:{businessId?:string;branchId?:string;paper?:string}}>(
     "/v1/sales/:saleId/receipt.pdf",async(request,reply)=>{
       try {
         const auth=await authenticateAccessToken(pool,request.headers.authorization);
@@ -523,7 +523,7 @@ export function registerSalesReadRoutes(app: FastifyInstance, pool: DatabasePool
           [saleId,businessId,ownedStaffId],
         );
         const sale=found.rows[0];
-        if(!sale)throw new SalesReadError("Sale was not found",404,"SALE_NOT_FOUND");
+        if(!sale||(request.query.branchId!==undefined&&sale.branch_id!==request.query.branchId))throw new SalesReadError("Sale was not found",404,"SALE_NOT_FOUND");
         await requireBranchScope(pool,access,sale.branch_id);
         if(!["COMPLETED","PARTIALLY_REFUNDED","REFUNDED"].includes(sale.status)||
             !sale.completed_at)throw new SalesReadError(
