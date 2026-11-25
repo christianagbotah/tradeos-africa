@@ -113,7 +113,9 @@ jobs:
             "$RUNNER_TEMP/tradeos-release-artifact" release
 
       - name: Verify release-only archive acceptance tests
-        run: PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s test -p test_signed_runtime_release.py -v
+        run: |
+          node --test test/signed-release-readiness.test.mjs
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s test -p test_signed_runtime_release.py -v
 
       - name: Smoke test archive after clean extraction on GitHub runner
         env:

@@ -26,6 +26,8 @@ on:
       - 'test/test_source_light_launchers.py'
       - 'test/read-only-promotion-gate.test.mjs'
       - 'test/read-only-finance-gate.test.mjs'
+      - 'test/signed-release-readiness.test.mjs'
+      - 'test/test_signed_runtime_release.py'
       - 'test/tradeos-staging-backup-restore.test.mjs'
       - 'test/tradeos-staging-backup-timer.test.mjs'
       - 'ops/release/runtime/**'
@@ -55,6 +57,8 @@ on:
       - 'test/test_source_light_launchers.py'
       - 'test/read-only-promotion-gate.test.mjs'
       - 'test/read-only-finance-gate.test.mjs'
+      - 'test/signed-release-readiness.test.mjs'
+      - 'test/test_signed_runtime_release.py'
       - 'test/tradeos-staging-backup-restore.test.mjs'
       - 'test/tradeos-staging-backup-timer.test.mjs'
       - 'ops/release/runtime/**'
@@ -129,6 +133,11 @@ jobs:
 
       - name: Verify read-only finance/refund and offline-queue preflight contracts
         run: node --test test/read-only-finance-gate.test.mjs
+
+      - name: Verify signed release format and preflight
+        run: |
+          node --test test/signed-release-readiness.test.mjs
+          PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s test -p test_signed_runtime_release.py -v
 
       - name: Verify TradeOS isolated PostgreSQL backup and restore fail-closed contracts
         run: node --test test/tradeos-staging-backup-restore.test.mjs
