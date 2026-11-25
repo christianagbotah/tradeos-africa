@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
@@ -21,6 +21,7 @@ import {
   IconWallet,
 } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { expensePayload, postExpense, type ExpenseCategoryOption, type ExpensePostingState } from "../../../lib/expense-posting";
 import {
   buildMoneyTransferPayload,
   buildMoneyReconciliationPayload,
@@ -420,7 +421,7 @@ export function CashbookExpenses() {
               ))}
             </div>
 
-            {tab === "expense" ? <ExpenseForm accounts={accounts} currencyCode={currencyCode} canWrite={canExpense} session={session} onDone={() => { bump(); setNonce((n) => n + 1); }} /> : null}
+            {tab === "expense" ? <ExpenseForm key={session?session.businessId+":"+session.branchId:"no-workspace"} accounts={accounts} currencyCode={currencyCode} canWrite={canExpense} session={session} onDone={() => { bump(); setNonce((n) => n + 1); }} /> : null}
             {tab === "transfer" ? <TransferForm accounts={accounts} currencyCode={currencyCode} canWrite={canTransfer} session={session} onDone={() => { bump(); setNonce((n) => n + 1); }} /> : null}
             {tab === "reconcile" ? <ReconcileForm accounts={accounts} currencyCode={currencyCode} canWrite={canReconcile} session={session} onDone={() => { bump(); setNonce((n) => n + 1); }} /> : null}
             {tab === "adjust" ? <AdjustForm accounts={accounts} currencyCode={currencyCode} canWrite={canAdjust} session={session} onDone={() => { bump(); setNonce((n) => n + 1); }} /> : null}
@@ -633,7 +634,13 @@ interface ActionFormProps {
 function ExpenseForm({ accounts, currencyCode, canWrite, session, onDone }: ActionFormProps) {
   const [amount, setAmount] = useState<number | null>(null);
   const [category, setCategory] = useState("");
-  const [note, setNote] = useState("");
+  const [description, setDescription] = useState("");
+  const [payee, setPayee] = useState("");
+  const [posting, setPosting] = useState<ExpensePostingState | null>(null);
+  const lock = useRef(false);
+  const categories = useApiFetch<{categories:ExpenseCategoryOption[]}>(session ? "/v1/expense-categories?"+new URLSearchParams({businessId:session.businessId}) : null);
+  const activeCategories = (categories.data?.categories??[]).filter(c=>c.active);
+  const selectedCategory = activeCategories.find(c=>c.id===category);
   const [method, setMethod] = useState<PaymentMethod>("CASH");
   const [moneyAccountId, setMoneyAccountId] = useState<string>("");
   const [busy, setBusy] = useState(false);
@@ -646,21 +653,19 @@ function ExpenseForm({ accounts, currencyCode, canWrite, session, onDone }: Acti
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!session || amount === null || amount <= 0 || busy || !canWrite) return;
-    setBusy(true); setError(null);
+    if (!session || lock.current || !canWrite || categories.loading || categories.error || posting?.state==="REVIEW") return;
+    lock.current=true;setBusy(true);setError(null);setPosting(null);
     try {
-      const queue = getOfflineQueue();
-      const payload: Record<string, unknown> = { method, amountMinor: amount, note: note.trim() || null };
-      if (category.trim()) payload.category = category.trim();
-      if (moneyAccountId) payload.moneyAccountId = moneyAccountId;
-      const mutation = queue.build({ businessId: session.businessId, branchId: session.branchId, mutationType: "EXPENSE_CREATE", payload });
-      await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
-      setAmount(null); setCategory(""); setNote("");
-      onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not record expense.");
-    } finally { setBusy(false); }
+      const payload=expensePayload({category:selectedCategory,amountMinor:amount,description,payee,method,moneyAccountId});
+      const result=await postExpense(getOfflineQueue(),session,payload,typeof navigator!=="undefined"?navigator.onLine:true);
+      setPosting(result);
+      // The mutation is already durable. Do not keep the original amount in a
+      // resubmittable form, even when the server has not yet acknowledged it.
+      setAmount(null);setDescription("");setPayee("");
+      if(result.state==="APPLIED")onDone();
+    } catch(err) {
+      setError(err instanceof Error?err.message:"Could not record expense.");
+    } finally {lock.current=false;setBusy(false);}
   };
 
   return (
@@ -672,17 +677,17 @@ function ExpenseForm({ accounts, currencyCode, canWrite, session, onDone }: Acti
           <span className="tos-callout__sub"> The server validates the account, computes the new balance, and records the cashbook movement. If no account is selected, the server uses the default {method.toLowerCase()} account for this branch.</span>
         </span>
       </div>
-      <MoneyInput currencyCode={currencyCode} valueMinor={amount} onChange={setAmount} label="Amount" size="lg" required disabled={!canWrite} />
+      <MoneyInput currencyCode={currencyCode} valueMinor={amount} onChange={setAmount} label="Amount" size="lg" required disabled={!canWrite||busy} />
       <div className="tos-public__form-row">
         <div className="tos-field">
           <label className="tos-field__label" htmlFor="cb-method">Paid from method</label>
-          <select id="cb-method" className="tos-select" value={method} onChange={(e) => { setMethod(e.target.value as PaymentMethod); setMoneyAccountId(""); }} disabled={!canWrite}>
+          <select id="cb-method" className="tos-select" value={method} onChange={(e) => { setMethod(e.target.value as PaymentMethod); setMoneyAccountId(""); }} disabled={!canWrite||busy}>
             {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </div>
         <div className="tos-field">
           <label className="tos-field__label" htmlFor="cb-account">Account (optional)</label>
-          <select id="cb-account" className="tos-select" value={moneyAccountId} onChange={(e) => setMoneyAccountId(e.target.value)} disabled={!canWrite}>
+          <select id="cb-account" className="tos-select" value={moneyAccountId} onChange={(e) => setMoneyAccountId(e.target.value)} disabled={!canWrite||busy}>
             <option value="">{defaultAccount ? `Default (${defaultAccount.name})` : "Default for method"}</option>
             {filteredAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.isDefault ? " · default" : ""}</option>)}
           </select>
@@ -690,14 +695,24 @@ function ExpenseForm({ accounts, currencyCode, canWrite, session, onDone }: Acti
       </div>
       <div className="tos-field">
         <label className="tos-field__label" htmlFor="cb-cat">Category</label>
-        <input id="cb-cat" className="tos-input" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Transport, Rent, Airtime" disabled={!canWrite} />
+        <select id="cb-cat" className="tos-select" value={category} onChange={e=>setCategory(e.target.value)} required disabled={!canWrite||busy||categories.loading||!!categories.error}>
+          <option value="">{categories.loading?"Loading categories…":"Select expense category"}</option>
+          {activeCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        {categories.error?<span role="alert">{categories.error} <button type="button" onClick={categories.refetch}>Retry</button></span>:null}
+        {!categories.loading&&!categories.error&&!activeCategories.length?<span>No active expense categories. Configure a category before recording an expense.</span>:null}
       </div>
       <div className="tos-field">
-        <label className="tos-field__label" htmlFor="cb-note">Note</label>
-        <textarea id="cb-note" className="tos-textarea" value={note} onChange={(e) => setNote(e.target.value)} disabled={!canWrite} />
+        <label className="tos-field__label" htmlFor="cb-description">Description</label>
+        <textarea id="cb-description" className="tos-textarea" value={description} maxLength={1000} onChange={e=>setDescription(e.target.value)} disabled={!canWrite||busy} placeholder="What was the expense for?" />
       </div>
+      <div className="tos-field">
+        <label className="tos-field__label" htmlFor="cb-payee">Payee (optional if description entered)</label>
+        <input id="cb-payee" className="tos-input" value={payee} maxLength={1000} onChange={e=>setPayee(e.target.value)} disabled={!canWrite||busy} />
+      </div>
+      {posting?<div role="status" className={"tos-banner "+(posting.state==="APPLIED"?"tos-banner--success":posting.state==="REJECTED"?"tos-banner--danger":"tos-banner--warning")}>{posting.message}</div>:null}
       {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
-      <Button type="submit" variant="primary" block loading={busy} disabled={!canWrite || amount === null || amount <= 0}>
+      <Button type="submit" variant="primary" block loading={busy} disabled={!canWrite || busy || categories.loading || !!categories.error || !selectedCategory || amount === null || amount <= 0 || (!description.trim()&&!payee.trim()) || posting?.state==="REVIEW"}>
         {canWrite ? "Record expense" : "No permission"}
       </Button>
     </form>
