@@ -2,6 +2,7 @@ import type { QueueState } from "@tradeos/client-core/sync-runtime";
 import { MobileApiError, SessionExpiredError } from "./api-client";
 import {
   MobileRuntimeError,
+  MobileRuntimeBusyError,
   type MobileBootstrapState,
   type MobileCommerceSnapshot,
   type MobileReadyState,
@@ -43,6 +44,14 @@ const emptyQueue: QueueState = { pending: 0, blocked: 0, failed: 0 };
 
 export class MobileAppModel {
   private commerceGeneration=0;
+  private sessionGeneration=0;
+  private transitionBusy=false;
+  private sameScope(ready:MobileReadyState,generation:number):boolean{
+    const active=this.state.bootstrap;
+    return generation===this.sessionGeneration&&this.state.phase==="READY"&&active?.status==="READY"&&
+      active.user.id===ready.user.id&&active.business.id===ready.business.id&&active.branch.id===ready.branch.id&&
+      active.membership.staffId===ready.membership.staffId&&active.membership.role===ready.membership.role;
+  }
   private state: MobileAppSnapshot = {
     phase: "BOOTING",
     bootstrap: null,
@@ -65,6 +74,8 @@ export class MobileAppModel {
   }
 
   async start(): Promise<MobileAppSnapshot> {
+    if(this.transitionBusy||this.state.checkoutBusy||this.state.syncing)return this.snapshot;
+    this.transitionBusy=true;++this.sessionGeneration;++this.commerceGeneration;
     this.state = { ...this.state, phase: "BOOTING", error: null, syncing: false };
     try {
       const next = this.applyBootstrap(await this.runtime.bootstrap());
@@ -73,15 +84,15 @@ export class MobileAppModel {
     } catch (error) {
       this.state = { ...this.state, phase: "ERROR", bootstrap: null, error: safeMobileErrorMessage(error), syncing: false };
       return this.snapshot;
-    }
+    } finally {this.transitionBusy=false;}
   }
 
   async switchWorkspace(businessId:string,branchId:string):Promise<MobileAppSnapshot>{
-    if(this.state.phase!=="READY"||this.state.bootstrap?.status!=="READY"||this.state.online!==true||this.state.checkoutBusy||this.state.syncing||this.state.cart.length)
+    if(this.transitionBusy||this.state.phase!=="READY"||this.state.bootstrap?.status!=="READY"||this.state.online!==true||this.state.checkoutBusy||this.state.syncing||this.state.cart.length)
       throw new MobileRuntimeError("Connect online, finish the current cart and wait for synchronization before switching.");
     const previous=this.state.bootstrap;
     if(previous.business.id===businessId&&previous.branch.id===branchId)return this.snapshot;
-    ++this.commerceGeneration;
+    this.transitionBusy=true;++this.sessionGeneration;++this.commerceGeneration;
     this.state={...this.state,phase:"BOOTING",commerce:null,commerceLoading:false,error:null,saleNotice:null};
     try{
       const next=await this.runtime.switchWorkspace(businessId,branchId);
@@ -91,10 +102,12 @@ export class MobileAppModel {
     }catch(error){
       this.state={...this.state,phase:error instanceof SessionExpiredError?"ERROR":"READY",bootstrap:error instanceof SessionExpiredError?null:previous,commerce:null,commerceLoading:false,error:safeMobileErrorMessage(error)};
       throw error;
-    }
+    } finally {this.transitionBusy=false;}
   }
 
   async login(identifier: string, password: string): Promise<MobileAppSnapshot> {
+    if(this.transitionBusy||this.state.checkoutBusy||this.state.syncing||this.state.phase==="READY")return this.snapshot;
+    this.transitionBusy=true;++this.sessionGeneration;++this.commerceGeneration;
     this.state = { ...this.state, phase: "BOOTING", error: null, syncing: false };
     try {
       const next = this.applyBootstrap(await this.runtime.login(identifier, password));
@@ -110,7 +123,7 @@ export class MobileAppModel {
         syncing: false,
       };
       return this.snapshot;
-    }
+    } finally {this.transitionBusy=false;}
   }
 
   async loadCommerce(): Promise<MobileAppSnapshot> {
@@ -132,36 +145,42 @@ export class MobileAppModel {
   }
 
   addCart(item: MobileSellableItem): MobileAppSnapshot {
+    if(this.transitionBusy||this.state.phase!=="READY"||this.state.checkoutBusy)return this.snapshot;
     this.state = { ...this.state, cart: addCartItem(this.state.cart, item), saleNotice: null, error: null };
     return this.snapshot;
   }
 
   setCartQuantity(key: string, quantity: number): MobileAppSnapshot {
+    if(this.transitionBusy||this.state.phase!=="READY"||this.state.checkoutBusy)return this.snapshot;
     this.state = { ...this.state, cart: updateCartQuantity(this.state.cart, key, quantity), saleNotice: null, error: null };
     return this.snapshot;
   }
 
   removeCart(key: string): MobileAppSnapshot {
+    if(this.transitionBusy||this.state.phase!=="READY"||this.state.checkoutBusy)return this.snapshot;
     this.state = { ...this.state, cart: removeCartLine(this.state.cart, key), saleNotice: null, error: null };
     return this.snapshot;
   }
 
   selectPaymentMethod(paymentMethod: MobileImmediatePaymentMethod): MobileAppSnapshot {
+    if(this.transitionBusy||this.state.phase!=="READY"||this.state.checkoutBusy)return this.snapshot;
     this.state = { ...this.state, paymentMethod, saleNotice: null, error: null };
     return this.snapshot;
   }
 
   async checkout(): Promise<MobileAppSnapshot> {
-    if (this.state.phase !== "READY" || this.state.bootstrap?.status !== "READY" || this.state.cart.length === 0 || this.state.checkoutBusy) {
+    if (this.transitionBusy || this.state.phase !== "READY" || this.state.bootstrap?.status !== "READY" || this.state.cart.length === 0 || this.state.checkoutBusy || this.state.syncing) {
       return this.snapshot;
     }
     const currentReady = this.state.bootstrap;
+    const generation=this.sessionGeneration;
     const cart = this.state.cart;
     const paymentMethod = this.state.paymentMethod;
     this.state = { ...this.state, checkoutBusy: true, error: null, saleNotice: null };
     try {
       const result = await this.runtime.createSale(cart, paymentMethod, this.state.online === true);
-      const ready: MobileReadyState = { ...currentReady, queue: result.queue };
+      if(!this.sameScope(currentReady,generation))return this.snapshot;
+      const ready: MobileReadyState = { ...this.state.bootstrap as MobileReadyState, queue: result.queue };
       const saleNotice: MobileSaleNotice = result.outcome === "SYNCED"
         ? { tone: "success", message: "Sale completed and synchronized." }
         : result.outcome === "PENDING"
@@ -176,7 +195,7 @@ export class MobileAppModel {
         error: null,
       };
     } catch (error) {
-      this.state = { ...this.state, checkoutBusy: false, error: safeMobileErrorMessage(error) };
+      if(this.sameScope(currentReady,generation))this.state = { ...this.state, checkoutBusy: false, error: safeMobileErrorMessage(error) };
     }
     return this.snapshot;
   }
@@ -185,26 +204,29 @@ export class MobileAppModel {
   async refreshQueueState():Promise<MobileAppSnapshot>{
     const current=this.state.bootstrap;
     if(this.state.phase!=="READY"||current?.status!=="READY")return this.snapshot;
+    const generation=this.sessionGeneration;
     const queue=await this.runtime.getQueueState();
-    if(this.state.phase==="READY"&&this.state.bootstrap?.status==="READY"&&this.state.bootstrap.membership.businessId===current.membership.businessId&&this.state.bootstrap.branch.id===current.branch.id&&this.state.bootstrap.user.id===current.user.id){
+    if(generation===this.sessionGeneration&&this.state.phase==="READY"&&this.state.bootstrap?.status==="READY"&&this.state.bootstrap.membership.businessId===current.membership.businessId&&this.state.bootstrap.branch.id===current.branch.id&&this.state.bootstrap.user.id===current.user.id){
       this.state={...this.state,bootstrap:{...this.state.bootstrap,queue}};
     }
     return this.snapshot;
   }
 
   async sync(): Promise<MobileAppSnapshot> {
-    if (this.state.phase !== "READY" || this.state.bootstrap?.status !== "READY") return this.snapshot;
+    if (this.transitionBusy||this.state.syncing||this.state.checkoutBusy||this.state.phase !== "READY" || this.state.bootstrap?.status !== "READY") return this.snapshot;
     const currentReady = this.state.bootstrap;
+    const generation=this.sessionGeneration;
     this.state = { ...this.state, syncing: true, error: null };
     try {
       const summary = await this.runtime.flush(this.state.online === true);
+      if(!this.sameScope(currentReady,generation))return this.snapshot;
       const ready: MobileReadyState = {
-        ...currentReady,
+        ...this.state.bootstrap as MobileReadyState,
         queue: { pending: summary.pending, blocked: summary.blocked, failed: summary.failed },
       };
       this.state = { ...this.state, phase: "READY", bootstrap: ready, syncing: false };
     } catch (error) {
-      this.state = { ...this.state, error: safeMobileErrorMessage(error), syncing: false };
+      if(this.sameScope(currentReady,generation))this.state = { ...this.state, error: safeMobileErrorMessage(error), syncing: false };
     }
     return this.snapshot;
   }
@@ -223,10 +245,23 @@ export class MobileAppModel {
   }
 
   async logout(): Promise<MobileAppSnapshot> {
-    ++this.commerceGeneration;
+    if(this.transitionBusy||this.state.checkoutBusy||this.state.syncing){
+      this.state={...this.state,error:"Wait for the current transaction or synchronization before signing out."};
+      return this.snapshot;
+    }
+    const previous=this.state;
+    let blocked=false;
+    this.transitionBusy=true;++this.sessionGeneration;++this.commerceGeneration;
+    this.state={...this.state,phase:"BOOTING",commerce:null,commerceLoading:false};
     try {
       await this.runtime.logout();
+    } catch(error){
+      if(error instanceof MobileRuntimeBusyError){
+        blocked=true;this.state={...previous,error:error.message,commerceLoading:false};
+      }
+      // Runtime always clears the local session for a non-busy logout.
     } finally {
+      if(!blocked){
       const queue = await this.safeQueueState();
       this.state = {
         ...this.state,
@@ -242,6 +277,8 @@ export class MobileAppModel {
         checkoutBusy: false,
         saleNotice: null,
       };
+      }
+      this.transitionBusy=false;
     }
     return this.snapshot;
   }

@@ -231,3 +231,37 @@ describe("workspace switch model",()=>{
   expect(next).toMatchObject({phase:"READY",cart:[],paymentMethod:"CASH",bootstrap:{business:{id:"other"},branch:{id:"branch"}}});
  });
 });
+
+describe("in-flight mobile scope guards",()=>{
+  it("does not switch, restart or sign out during a delayed sync",async()=>{
+    const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+    const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+    let finish!: (value:FlushSummary)=>void;
+    runtime.flush=async()=>new Promise<FlushSummary>(resolve=>{finish=resolve});
+    const operation=model.sync();
+    expect(model.snapshot.syncing).toBe(true);
+    await expect(model.switchWorkspace("other","branch")).rejects.toThrow();
+    expect((await model.start()).phase).toBe("READY");
+    expect((await model.logout()).phase).toBe("READY");
+    expect(runtime.logoutCalls).toBe(0);
+    finish(runtime.flushSummary);await operation;
+    expect(model.snapshot.syncing).toBe(false);
+    expect((await model.logout()).phase).toBe("SIGNED_OUT");
+  });
+  it("freezes cart and tender during checkout and prevents a duplicate submission",async()=>{
+    const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+    const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+    const item=runtime.commerceSnapshot.items[0]!;
+    model.addCart(item);
+    let finish!:(value:MobileSaleCaptureResult)=>void;
+    let calls=0;
+    runtime.createSale=async()=>{calls++;return new Promise(resolve=>{finish=resolve});};
+    const operation=model.checkout();
+    model.addCart(item);model.setCartQuantity(item.key,4);model.selectPaymentMethod("MOMO");model.removeCart(item.key);
+    expect(model.snapshot.cart[0]?.quantity).toBe(1);
+    expect(model.snapshot.paymentMethod).toBe("CASH");
+    await model.checkout();expect(calls).toBe(1);
+    finish(runtime.saleResult);await operation;
+    expect(model.snapshot.cart).toEqual([]);
+  });
+});
