@@ -27,6 +27,7 @@ on:
       - 'test/read-only-promotion-gate.test.mjs'
       - 'test/read-only-finance-gate.test.mjs'
       - 'test/signed-release-readiness.test.mjs'
+      - 'test/controlled-cutover.test.mjs'
       - 'test/test_root_backup_evidence.py'
       - 'test/test_signed_runtime_release.py'
       - 'test/tradeos-staging-backup-restore.test.mjs'
@@ -59,6 +60,7 @@ on:
       - 'test/read-only-promotion-gate.test.mjs'
       - 'test/read-only-finance-gate.test.mjs'
       - 'test/signed-release-readiness.test.mjs'
+      - 'test/controlled-cutover.test.mjs'
       - 'test/test_root_backup_evidence.py'
       - 'test/test_signed_runtime_release.py'
       - 'test/tradeos-staging-backup-restore.test.mjs'
@@ -139,6 +141,11 @@ jobs:
       - name: Verify signed release format and preflight
         run: |
           node --test test/signed-release-readiness.test.mjs
+          node --test test/controlled-cutover.test.mjs
+          node --check ops/release/activate-signed-runtime.mjs
+          bash -n ops/release/signed-release-activate.sh
+          bash -n ops/release/install-root-signed-activate.sh
+          bash -n ops/release/root-signed-activate-entrypoint.sh
           PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s test -p test_root_backup_evidence.py -v
           bash -n ops/release/signed-release-intake.sh
           bash -n ops/release/install-root-signed-intake.sh
