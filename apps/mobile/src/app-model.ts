@@ -23,7 +23,7 @@ type AppRuntime = Pick<MobileRuntime, "bootstrap" | "login" | "flush" | "loadCom
 export type MobileAppPhase = "BOOTING" | "SIGNED_OUT" | "NEEDS_BUSINESS" | "READY" | "ERROR";
 
 export type MobileWorkspaceView = "SELL" | "SYNC";
-export type MobileSaleNotice = { tone: "success" | "pending" | "review"; message: string };
+export type MobileSaleNotice = { tone: "success" | "pending" | "review"; message: string; completedSaleId?:string };
 
 export type MobileAppSnapshot = {
   phase: MobileAppPhase;
@@ -182,7 +182,7 @@ export class MobileAppModel {
       if(!this.sameScope(currentReady,generation))return this.snapshot;
       const ready: MobileReadyState = { ...this.state.bootstrap as MobileReadyState, queue: result.queue };
       const saleNotice: MobileSaleNotice = result.outcome === "SYNCED"
-        ? { tone: "success", message: "Sale completed and synchronized." }
+        ? { tone: "success", message: "Sale completed and synchronized.", ...(result.completedSaleId?{completedSaleId:result.completedSaleId}:{}) }
         : result.outcome === "PENDING"
           ? { tone: "pending", message: "Sale saved on this device · pending sync." }
           : { tone: "review", message: `Sale saved · needs review${result.errorMessage ? `: ${result.errorMessage}` : "."}` };
