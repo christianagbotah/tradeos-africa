@@ -3,6 +3,7 @@ import NetInfo from "@react-native-community/netinfo";
 import * as Crypto from "expo-crypto";
 import { Platform, StatusBar, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
+import { AndroidUpdatePanel } from "./src/components/AndroidUpdatePanel";
 import { WorkspaceHeader } from "./src/components/WorkspaceHeader";
 import { MobileApiClient,type MobileOwnCashShiftStatus } from "./src/api-client";
 import { MobileAppModel, type MobileAppSnapshot } from "./src/app-model";
@@ -211,6 +212,7 @@ function MobileWorkspace() {
         pendingCount={ready.queue.pending} failedCount={ready.queue.failed}
         onMenu={()=>{if(attendantOnly){if(!checkoutLock.current)setFeedback(signOutFeedback);}else if(!checkoutLock.current)setScreen("more");}}
         attendantOnly={attendantOnly}/> : null}
+      {workspaceReady&&ready&&!attendantOnly?<AndroidUpdatePanel online={snapshot.online===true} cart={snapshot.cart.length} pending={ready.queue.pending} busy={snapshot.syncing||snapshot.checkoutBusy||checkoutLock.current}/>:null}
       <View style={styles.flex}>
         {snapshot.phase === "BOOTING" ? <LoadingScreen /> : null}
 

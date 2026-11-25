@@ -1,4 +1,5 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { AndroidUpdatePanel } from "../components/AndroidUpdatePanel";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
 import { Card, HeroCard } from "../components/Card";
@@ -73,6 +74,7 @@ export function MoreScreen({
       </HeroCard>
       <Button variant="secondary" fullWidth accessibilityLabel="Switch business or branch" onPress={onGoToWorkspaceSwitch}>Switch business or branch</Button>
 
+      <AndroidUpdatePanel manual online={snapshot.online===true} cart={snapshot.cart.length} pending={queue.pending} busy={snapshot.syncing||snapshot.checkoutBusy}/>
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Master data and inventory</Text>
         <Text style={styles.sectionTitle}>Products and stock</Text>
