@@ -314,6 +314,11 @@ export class WebOfflineQueue {
     return this.queueFor(resolved).queue.getSnapshot();
   }
 
+  /** Exact process-local evidence; never infer posting from queue absence. */
+  hasAppliedAcknowledgement(id:string,businessId:string,branchId:string|undefined):boolean {
+    return this.queueFor(businessId).queue.hasAppliedAcknowledgement(id,businessId,branchId);
+  }
+
   /** Returns counts for the active business only. */
   getState(activeBusinessId: string | null): Promise<QueueState> {
     if (!activeBusinessId) return Promise.resolve({ pending: 0, blocked: 0, failed: 0 });
