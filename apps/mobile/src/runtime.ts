@@ -265,7 +265,9 @@ export class MobileRuntime {
     if (snapshot.pending.some((entry) => entry.clientMutationId === clientMutationId)) {
       return { clientMutationId, outcome: "PENDING", queue };
     }
-    return { clientMutationId, outcome: "SYNCED", queue };
+    return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)
+      ?{clientMutationId,outcome:"SYNCED",queue}
+      :{clientMutationId,outcome:"NEEDS_REVIEW",queue,errorCode:"ACKNOWLEDGEMENT_UNVERIFIED",errorMessage:"Posting could not be verified. Check server history before recording another sale."};
   }
 
   /**
@@ -291,6 +293,8 @@ export class MobileRuntime {
     const id=closed?status.shift?.id:status.operatingDay.id;
     if(!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
       throw new MobileRuntimeError("Refresh to verify the current day or shift ID.");
+    const existing=await this.queue.getSnapshot();
+    if([...existing.pending,...existing.failed.map(x=>x.mutation)].some(m=>m.businessId===ready.business.id&&m.branchId===ready.branch.id&&["SHIFT_OPEN_CREATE","SHIFT_CLOSE_CREATE"].includes(m.mutationType)))throw new MobileRuntimeError("Resolve the previous shift action before submitting another.");
     const cash={method:"CASH",countedMinor};
     const payload=closed
       ? {shiftId:id,closingBalances:[cash,...(["MOMO","CARD","BANK","OTHER"] as const)
@@ -314,6 +318,7 @@ export class MobileRuntime {
     if(snapshot.pending.some(row=>row.clientMutationId===clientMutationId))
       throw new MobileRuntimeError(
         "Shift change saved on this device but NOT confirmed. Sync the pending action before submitting another.");
+    if(!this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id))throw new MobileRuntimeError("Shift posting could not be verified. Check the server before retrying.");
     return {closed,clientMutationId};
   }
 
@@ -341,7 +346,7 @@ export class MobileRuntime {
       const state=await this.queue.getSnapshot();
       if(state.failed.some(row=>row.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(state.pending.some(row=>row.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.customerReceiptBusy=false;}
   }
 
@@ -359,7 +364,7 @@ export class MobileRuntime {
       const state=await this.queue.getSnapshot();
       if(state.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(state.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.stockAdjustmentBusy=false;}
   }
 
@@ -376,7 +381,7 @@ export class MobileRuntime {
       const result=await this.queue.getSnapshot();
       if(result.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.supplierTransactionBusy=false;}
   }
 
@@ -394,7 +399,7 @@ export class MobileRuntime {
       const result=await this.queue.getSnapshot();
       if(result.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.financeBusy=false;}
   }
 
@@ -413,7 +418,7 @@ export class MobileRuntime {
       const after=await this.queue.getSnapshot();
       if(after.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(after.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.saleReversalBusy=false;}
   }
 
@@ -433,7 +438,7 @@ export class MobileRuntime {
       const result=await this.queue.getSnapshot();
       if(result.failed.some(x=>x.mutation.clientMutationId===clientMutationId))return "NEEDS_REVIEW";
       if(result.pending.some(x=>x.clientMutationId===clientMutationId))return "PENDING";
-      return "SYNCED";
+      return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)?"SYNCED":"NEEDS_REVIEW";
     }finally{this.operationsBusy=false;}
   }
 
