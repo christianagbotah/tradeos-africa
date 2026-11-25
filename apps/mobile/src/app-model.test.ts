@@ -265,3 +265,16 @@ describe("in-flight mobile scope guards",()=>{
     expect(model.snapshot.cart).toEqual([]);
   });
 });
+
+
+it("shows immediate receipt only for a confirmed completed sale",async()=>{
+ const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+ const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+ const item=runtime.commerceSnapshot.items[0]!;
+ model.addCart(item);
+ runtime.saleResult={...runtime.saleResult,completedSaleId:"12345678-1234-4123-8123-123456789012"};
+ expect((await model.checkout()).saleNotice).toMatchObject({tone:"success",completedSaleId:runtime.saleResult.completedSaleId});
+ model.addCart(item);expect(model.snapshot.saleNotice).toBeNull();
+ runtime.saleResult={...runtime.saleResult,outcome:"PENDING"};
+ expect((await model.checkout()).saleNotice?.completedSaleId).toBeUndefined();
+});

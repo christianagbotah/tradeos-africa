@@ -79,7 +79,11 @@ export type FlushOptions = {
 export class OfflineMutationQueue {
   // Bounded process-local evidence, recorded only after the APPLIED result
   // and durable queue write. Absence from pending is not proof of posting.
-  private readonly acknowledged=new Map<string,{businessId:string;branchId:string|undefined}>();
+  private readonly acknowledged=new Map<string,{businessId:string;branchId:string|undefined;completedSaleId?:string}>();
+  getCompletedSaleId(id:string,businessId:string,branchId:string|undefined):string|undefined{
+    const evidence=this.acknowledged.get(id);
+    return evidence?.businessId===businessId&&evidence.branchId===branchId?evidence.completedSaleId:undefined;
+  }
   hasAppliedAcknowledgement(id:string,businessId:string,branchId:string|undefined):boolean{
     const evidence=this.acknowledged.get(id);
     return !!evidence&&evidence.businessId===businessId&&evidence.branchId===branchId;
@@ -197,7 +201,13 @@ export class OfflineMutationQueue {
 
       const nextSnapshot = { pending: nextPending, failed: nextFailed };
       await this.writeSnapshot(nextSnapshot);
-      for(const m of appliedEvidence)this.acknowledged.set(m.clientMutationId,{businessId:m.businessId,branchId:m.branchId});
+      for(const m of appliedEvidence){
+        const result=resultsById.get(m.clientMutationId)?.result;
+        const sale=result&&typeof result==="object"&&!Array.isArray(result)?result as Record<string,unknown>:null;
+        const completedSaleId=m.mutationType==="SALE_CREATE"&&sale?.status==="COMPLETED"&&typeof sale.saleId==="string"&&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sale.saleId)?sale.saleId:undefined;
+        this.acknowledged.set(m.clientMutationId,{businessId:m.businessId,branchId:m.branchId,...(completedSaleId?{completedSaleId}:{})});
+      }
       while(this.acknowledged.size>1000){const oldest=this.acknowledged.keys().next().value;if(oldest===undefined)break;this.acknowledged.delete(oldest);}
       return {
         ...queueStateFromSnapshot(nextSnapshot, activeBusinessId),

@@ -255,6 +255,7 @@ function MobileWorkspace() {
               ) : null}
               {activeScreen === "sell" ? (
                 <PosScreen
+                  receiptApi={api}
                   snapshot={snapshot}
                   search={search}
                   onSearch={setSearch}

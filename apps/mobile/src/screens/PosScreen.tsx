@@ -17,7 +17,8 @@ import type {
   MobileSellableItem,
 } from "../pos-model";
 import { groupMobileQuickServeItems } from "../pos-model";
-import type {MobileOwnCashShiftStatus} from "../api-client";
+import {PdfDeliveryPanel} from "./PdfDeliveryPanel";
+import type {MobileApiClient,MobileOwnCashShiftStatus} from "../api-client";
 import {PosCashShiftPanel} from "./PosCashShiftPanel";
 import { commerceFreshness, formatMoney, formatQuantity } from "../lib/format";
 
@@ -33,6 +34,7 @@ const SALE_ROLES = new Set(["OWNER", "ADMIN", "MANAGER", "CASHIER", "POS_ATTENDA
 
 export type PosScreenProps = {
   snapshot: MobileAppSnapshot;
+  receiptApi?:Pick<MobileApiClient,"downloadDocumentPdf">;
   search: string;
   onSearch: (value: string) => void;
   onRefresh: () => void;
@@ -47,6 +49,7 @@ export type PosScreenProps = {
 
 export function PosScreen({
   snapshot,
+  receiptApi,
   search,
   onSearch,
   onRefresh,
@@ -82,6 +85,10 @@ export function PosScreen({
       keyboardShouldPersistTaps="handled"
     >
 
+      {receiptApi&&snapshot.saleNotice?.tone==="success"&&snapshot.saleNotice.completedSaleId&&snapshot.online===true?<Card padding="default">
+        <Text style={styles.modeLabel}>Last completed sale</Text>
+        <PdfDeliveryPanel key={ready.user.id+":"+ready.business.id+":"+ready.branch.id+":"+snapshot.saleNotice.completedSaleId} api={receiptApi} kind="receipt" businessId={ready.business.id} branchId={ready.branch.id} id={snapshot.saleNotice.completedSaleId} online={true} disabled={snapshot.checkoutBusy||snapshot.syncing}/>
+      </Card>:null}
       <View style={styles.modeRow}>
         <Pressable accessibilityRole="button" accessibilityLabel="Standard POS mode"
           accessibilityState={{selected:!quickServe,disabled:snapshot.checkoutBusy}}

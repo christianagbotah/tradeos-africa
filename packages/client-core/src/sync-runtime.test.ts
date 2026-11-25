@@ -394,6 +394,16 @@ describe("explicit transaction acknowledgement",()=>{
     expect(queue.hasAppliedAcknowledgement("mutation-1",businessId,"other")).toBe(false);
     expect(await queue.enqueue(mutation())).toBe(false);
   });
+  it("exposes a completed receipt identity only for a scoped durable sale acknowledgement",async()=>{
+    const id="12345678-1234-4123-8123-123456789012";
+    for(const [type,status,expected] of [["SALE_CREATE","COMPLETED",id],["SALE_CREATE","AWAITING_PAYMENT",undefined],["EXPENSE_CREATE","COMPLETED",undefined]] as const){
+      const queue=make(new TestSnapshotStorage());
+      await queue.enqueue({...mutation(),mutationType:type});
+      await queue.flush({activeBusinessId:businessId,online:true,transport:new RecordingTransport({mutationResults:[{...applied,result:{saleId:id,status}}],events:[]})});
+      expect(queue.getCompletedSaleId("mutation-1",businessId,branchId)).toBe(expected);
+      expect(queue.getCompletedSaleId("mutation-1",businessId,"wrong")).toBeUndefined();
+    }
+  });
   it("retains ambiguous duplicate acknowledgements for same-ID retry",async()=>{
     const queue=make(new TestSnapshotStorage());
     await queue.enqueue(mutation());
