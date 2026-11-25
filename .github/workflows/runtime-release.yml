@@ -115,10 +115,11 @@ jobs:
       - name: Verify release-only archive acceptance tests
         run: |
           node --test test/signed-release-readiness.test.mjs
-          node --test test/controlled-cutover.test.mjs test/release-retention-plan.test.mjs
+          node --test test/controlled-cutover.test.mjs test/release-retention-plan.test.mjs test/root-signed-coordinator-upgrade.test.mjs
           node --check ops/release/activate-signed-runtime.mjs
           bash -n ops/release/signed-release-activate.sh
           bash -n ops/release/install-root-signed-activate.sh
+          bash -n ops/release/upgrade-root-signed-activate.sh
           bash -n ops/release/root-signed-activate-entrypoint.sh
           PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s test -p test_root_backup_evidence.py -v
           bash -n ops/release/signed-release-intake.sh
