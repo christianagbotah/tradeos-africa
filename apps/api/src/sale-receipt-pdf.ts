@@ -105,9 +105,16 @@ function printedDate(iso: string, zone: string) {
   }
 }
 
+export interface CommercialPdfSnapshot {
+  documentId:string;documentNumber:string;kind:"QUOTATION"|"PROFORMA";status:"DRAFT"|"ISSUED"|"CANCELLED";
+  createdAt:string;expiresAt:string|null;customerPhone:string;customerEmail:string;notes:string;
+  businessName:string;branchName:string;address:string;phone:string;timezone:string;customerName:string;currencyCode:string;totalMinor:number;
+  lines:VerifiedReceiptSnapshot["lines"];
+}
+type CommercialLabels=Pick<CommercialPdfSnapshot,"documentNumber"|"kind"|"status"|"expiresAt"|"customerPhone"|"customerEmail"|"notes">;
 type Doc = PDFKit.PDFDocument;
 function renderLayout(doc: Doc, data: ReturnType<typeof verified>,
-  paper: ReceiptPaper, height: number, render: boolean): number {
+  paper: ReceiptPaper, height: number, render: boolean, commercial?:CommercialLabels): number {
   const w = paper==="A5"?148*MM:paper==="80mm"?80*MM:58*MM;
   const thermal=paper!=="A5";
   const margin=thermal?(paper==="58mm"?3*MM:4*MM):10*MM;
@@ -159,7 +166,7 @@ function renderLayout(doc: Doc, data: ReturnType<typeof verified>,
     if(render){
       doc.addPage({size:[w,height],margin:0});
       if(pageIndex>0){
-        text("RECEIPT CONTINUED · "+data.saleId.slice(0,8).toUpperCase(),
+        text((commercial?"DOCUMENT CONTINUED · "+commercial.documentNumber:"RECEIPT CONTINUED · "+data.saleId.slice(0,8).toUpperCase()),
           margin,thermal?margin:10*MM,content,base-0.8,true,"center");
       }
     }
@@ -207,16 +214,21 @@ function renderLayout(doc: Doc, data: ReturnType<typeof verified>,
   if(data.phone)centered("Tel: "+data.phone,base-0.7,false,MUTED);
   gap(thermal?3:7);
   rule();
-  centered(data.payments.some(p=>p.method==="CUSTOMER_CREDIT")?
-    "CREDIT SALE RECORD":"SALES RECEIPT",thermal?base+1.2:base+3,true);
-  const status=data.status==="REFUNDED"?"SALE REFUNDED":
-    data.status==="PARTIALLY_REFUNDED"?"PARTIALLY REFUNDED":"SALE COMPLETED";
-  centered(status,base-0.7,true);
-  rule();
-  kv("Receipt",data.saleId.slice(0,8).toUpperCase());
-  kv("Date",printedDate(data.completedAt,data.timezone));
-  kv("Customer",data.customerName||"Walk-in customer");
-  if(data.cashierName)kv("Cashier",data.cashierName);
+  if(commercial){
+    centered(commercial.kind==="QUOTATION"?"QUOTATION":"PROFORMA INVOICE",thermal?base+1.2:base+3,true);
+    centered(commercial.status==="DRAFT"?"DRAFT - NOT ISSUED":commercial.status==="CANCELLED"?"CANCELLED - NOT VALID":"ISSUED - NOT A PAYMENT RECEIPT",base-0.7,true);
+    rule();kv("Document",commercial.documentNumber);kv("Date",printedDate(data.completedAt,data.timezone));
+    if(commercial.expiresAt)kv("Valid until",printedDate(commercial.expiresAt,data.timezone));
+    kv("Customer",data.customerName);
+    if(commercial.customerPhone)kv("Phone",commercial.customerPhone);
+    if(commercial.customerEmail)kv("Email",commercial.customerEmail);
+  }else{
+    centered(data.payments.some(p=>p.method==="CUSTOMER_CREDIT")?"CREDIT SALE RECORD":"SALES RECEIPT",thermal?base+1.2:base+3,true);
+    const status=data.status==="REFUNDED"?"SALE REFUNDED":data.status==="PARTIALLY_REFUNDED"?"PARTIALLY REFUNDED":"SALE COMPLETED";
+    centered(status,base-0.7,true);rule();
+    kv("Receipt",data.saleId.slice(0,8).toUpperCase());kv("Date",printedDate(data.completedAt,data.timezone));
+    kv("Customer",data.customerName||"Walk-in customer");if(data.cashierName)kv("Cashier",data.cashierName);
+  }
   rule();
   if(thermal) {
     centered("ITEMS",base-0.2,true);
@@ -325,7 +337,7 @@ function renderLayout(doc: Doc, data: ReturnType<typeof verified>,
   rule(1);
   const tax=data.lines.reduce((n,l)=>n+l.lineTaxMinor,0);
   if(tax>0)totalLine("Included tax",tax);
-  totalLine("Sale total",data.totalMinor,true);
+  totalLine(commercial?"Document total":"Sale total",data.totalMinor,true);
   for(const p of data.payments) {
     totalLine(p.method.replaceAll("_"," "),p.amountMinor);
   }
@@ -345,34 +357,52 @@ function renderLayout(doc: Doc, data: ReturnType<typeof verified>,
   }
   rule();
   gap(5);
-  centered("Thank you for your business.",base+0.4,true);
-  centered("Reference: "+data.saleId,base-1,false,MUTED);
-  centered("This receipt reflects the recorded sale. Returns and refunds are recorded separately.",
-    base-1,false,MUTED);
+  if(commercial){
+    if(commercial.notes){
+      // Split long notes into bounded segments so each fits on a thermal page.
+      centered("Notes",base,true);
+      const words=commercial.notes.match(/.{1,160}(?:\s|$)|.{1,160}/g)??[];
+      for(const part of words)centered(part.trim(),base-0.5,false);
+    }
+    centered("Not proof of payment. No sale or stock movement is recorded by this document.",base-1,false,MUTED);
+  }else{
+    centered("Thank you for your business.",base+0.4,true);
+    centered("Reference: "+data.saleId,base-1,false,MUTED);
+    centered("This receipt reflects the recorded sale. Returns and refunds are recorded separately.",base-1,false,MUTED);
+  }
   gap(2);
   centered("Powered by TradeOS Africa",base-1,false,MUTED);
   return y;
 }
 
-export async function renderVerifiedSaleReceiptPdf(
-  snapshot:VerifiedReceiptSnapshot,paper:ReceiptPaper="80mm",
-):Promise<Buffer> {
-  const data=verified(snapshot);
+export async function renderVerifiedSaleReceiptPdf(snapshot:VerifiedReceiptSnapshot,paper:ReceiptPaper="80mm"):Promise<Buffer>{
+  return renderPdf(verified(snapshot),paper);
+}
+export async function renderCommercialDocumentPdf(snapshot:CommercialPdfSnapshot,paper:ReceiptPaper="A5"):Promise<Buffer>{
+  if(!["QUOTATION","PROFORMA"].includes(snapshot.kind)||!["DRAFT","ISSUED","CANCELLED"].includes(snapshot.status)||!snapshot.documentNumber||
+    (snapshot.expiresAt!==null&&!Number.isFinite(Date.parse(snapshot.expiresAt))))throw new Error("COMMERCIAL_PDF_INVALID");
+  const commercial:CommercialLabels={kind:snapshot.kind,status:snapshot.status,documentNumber:safeText(snapshot.documentNumber,80),expiresAt:snapshot.expiresAt,
+    customerPhone:safeText(snapshot.customerPhone,40),customerEmail:safeText(snapshot.customerEmail,180),notes:safeText(snapshot.notes,2000)};
+  const data=verified({saleId:snapshot.documentId,status:"COMPLETED",completedAt:snapshot.createdAt,businessName:snapshot.businessName,branchName:snapshot.branchName,address:snapshot.address,phone:snapshot.phone,timezone:snapshot.timezone,customerName:snapshot.customerName,cashierName:"",currencyCode:snapshot.currencyCode,totalMinor:snapshot.totalMinor,lines:snapshot.lines,payments:[]});
+  if(data.lines.reduce((n,l)=>n+BigInt(l.lineTotalMinor),0n)!==BigInt(data.totalMinor))throw new Error("COMMERCIAL_PDF_TOTAL_MISMATCH");
+  return renderPdf(data,paper,commercial);
+}
+async function renderPdf(data:ReturnType<typeof verified>,paper:ReceiptPaper,commercial?:CommercialLabels):Promise<Buffer>{
   const w=paper==="A5"?148*MM:paper==="80mm"?80*MM:58*MM;
   let pageHeight=210*MM;
   if(paper!=="A5"){
     const probe=new PDFDocument({autoFirstPage:false,margin:0});
     probe.addPage({size:[w,6000],margin:0});
-    const measured=renderLayout(probe,data,paper,6000,false);
+    const measured=renderLayout(probe,data,paper,6000,false,commercial);
     pageHeight=Math.max(120,Math.min(1600,measured+Math.max(28,2*(paper==="58mm"?3:4)*MM+10)));
     probe.destroy();
   }
   return await new Promise<Buffer>((resolve,reject)=>{
     const doc=new PDFDocument({autoFirstPage:false,margin:0,bufferPages:true,
       info:{
-        Title:"Verified sales receipt "+data.saleId.slice(0,8).toUpperCase(),
+        Title:commercial?commercial.kind+" "+commercial.documentNumber:"Verified sales receipt "+data.saleId.slice(0,8).toUpperCase(),
         Author:"TradeOS Africa",
-        Subject:"Verified sales record · "+paper,
+        Subject:commercial?"Commercial document - not proof of payment":"Verified sales record · "+paper,
       }});
     const chunks:Buffer[]=[];
     let bytes=0;
@@ -384,7 +414,7 @@ export async function renderVerifiedSaleReceiptPdf(
     doc.once("error",reject);
     doc.once("end",()=>resolve(Buffer.concat(chunks)));
     try{
-      renderLayout(doc,data,paper,pageHeight,true);
+      renderLayout(doc,data,paper,pageHeight,true,commercial);
       doc.end();
     }catch(err){doc.destroy(err instanceof Error?err:new Error("RECEIPT_RENDER_FAILED"));}
   });
