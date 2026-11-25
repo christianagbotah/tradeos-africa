@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FlushSummary, QueueState } from "@tradeos/client-core/sync-runtime";
-import { MobileAppModel, safeMobileErrorMessage } from "./app-model";
+import { MobileAppModel, safeMobileErrorMessage, canSubmitMobileSale } from "./app-model";
 import type { MobileBootstrapState, MobileCommerceSnapshot, MobileSaleCaptureResult } from "./runtime";
 import type { MobileCartLine, MobileImmediatePaymentMethod, MobileSellableItem } from "./pos-model";
 
@@ -268,6 +268,25 @@ describe("in-flight mobile scope guards",()=>{
     finish(runtime.flushSummary);await operation;
     expect(model.snapshot.syncing).toBe(false);
     expect((await model.logout()).phase).toBe("SIGNED_OUT");
+  });
+  it("keeps a prepared cart during synchronization and resumes checkout exactly once",async()=>{
+    const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+    const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+    model.addCart(runtime.commerceSnapshot.items[0]!);
+    expect(canSubmitMobileSale(model.snapshot)).toBe(true);
+    let finish!:(value:FlushSummary)=>void;
+    runtime.flush=async()=>new Promise<FlushSummary>(resolve=>{finish=resolve});
+    const pending=model.sync();
+    expect(canSubmitMobileSale(model.snapshot)).toBe(false);
+    const blocked=await model.checkout();
+    expect(blocked.cart).toHaveLength(1);
+    expect(blocked.saleNotice).toBeNull();
+    expect(runtime.saleCalls).toHaveLength(0);
+    finish(runtime.flushSummary);await pending;
+    expect(canSubmitMobileSale(model.snapshot)).toBe(true);
+    await model.checkout();
+    expect(runtime.saleCalls).toHaveLength(1);
+    expect(canSubmitMobileSale(model.snapshot)).toBe(false);
   });
   it("freezes cart and tender during checkout and prevents a duplicate submission",async()=>{
     const runtime=new FakeRuntime();runtime.bootstrapState=ready;

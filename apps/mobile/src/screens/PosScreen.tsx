@@ -7,6 +7,7 @@ import { EmptyState, LoadingRow } from "../components/EmptyState";
 import { Icon } from "../components/icons";
 import { Input } from "../components/Input";
 import { colors, radius, spacing, touch, typography } from "../theme";
+import { canSubmitMobileSale } from "../app-model";
 import type {
   MobileAppSnapshot,
   MobileSaleNotice,
@@ -295,16 +296,18 @@ export function PosScreen({
         <Button
           variant="gold"
           fullWidth
-          disabled={!canSell || snapshot.cart.length === 0 || snapshot.checkoutBusy}
+          disabled={!canSell || !canSubmitMobileSale(snapshot)}
           loading={snapshot.checkoutBusy}
           accessibilityLabel="Charge sale"
           onPress={()=>onCheckout(quickServe)}
         >
-          {snapshot.checkoutBusy ? "Saving sale…" : `Charge · ${formatMoney(total, currencyCode)}`}
+          {snapshot.checkoutBusy ? "Saving sale…" : snapshot.syncing ? "Synchronizing…" : `Charge · ${formatMoney(total, currencyCode)}`}
         </Button>
 
         <Text style={styles.checkoutHint}>
-          {snapshot.online === false
+          {snapshot.syncing
+            ? "Wait for synchronization to finish. Your current cart is preserved."
+            : snapshot.online === false
             ? "Offline: the sale will be saved on this device and synchronized later."
             : "TradeOS saves locally first, then synchronizes with the server."}
         </Text>
@@ -323,15 +326,15 @@ export function PosScreen({
           <Text style={styles.quickTotal}>{formatMoney(total,currencyCode)}</Text>
         </View>
         <Button variant="gold" fullWidth
-          disabled={!canSell||snapshot.checkoutBusy||snapshot.cart.length===0||
+          disabled={!canSell||!canSubmitMobileSale(snapshot)||
             snapshot.paymentMethod!=="CASH"}
           loading={snapshot.checkoutBusy}
           accessibilityLabel="Cash received, record this sale"
           onPress={()=>onCheckout(quickServe)}>
-          {snapshot.checkoutBusy?"Saving locally…":"Cash received · Record sale"}
+          {snapshot.checkoutBusy?"Saving locally…":snapshot.syncing?"Synchronizing…":"Cash received · Record sale"}
         </Button>
         <Text style={styles.quickStickyNote}>
-          Records locally first. Sync status is shown after each sale.
+          {snapshot.syncing?"Wait for synchronization to finish. Your cart is preserved.":"Records locally first. Sync status is shown after each sale."}
         </Text>
       </View>
     ):null}
