@@ -216,3 +216,18 @@ describe("MobileAppModel commerce and cart", () => {
     expect(model.snapshot.view).toBe("SELL");
   });
 });
+
+describe("workspace switch model",()=>{
+ it("resets commerce and tender and rejects switching with an unsold cart",async()=>{
+  const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+  const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+  model.addCart(runtime.commerceSnapshot.items[0]!);
+  await expect(model.switchWorkspace("other","branch")).rejects.toThrow();
+  model.removeCart(model.snapshot.cart[0]!.key);
+  if(ready.status!=="READY")throw new Error("invalid fixture");
+  runtime.loginState={...ready,business:{...ready.business,id:"other"},membership:{...ready.membership,businessId:"other"},branch:{...ready.branch,id:"branch"}};
+  model.selectPaymentMethod("MOMO");
+  const next=await model.switchWorkspace("other","branch");
+  expect(next).toMatchObject({phase:"READY",cart:[],paymentMethod:"CASH",bootstrap:{business:{id:"other"},branch:{id:"branch"}}});
+ });
+});

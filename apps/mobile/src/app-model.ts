@@ -89,7 +89,7 @@ export class MobileAppModel {
       this.applyBootstrap(next);
       return this.loadCommerce();
     }catch(error){
-      this.state={...this.state,phase:"READY",bootstrap:previous,commerce:null,commerceLoading:false,error:safeMobileErrorMessage(error)};
+      this.state={...this.state,phase:error instanceof SessionExpiredError?"ERROR":"READY",bootstrap:error instanceof SessionExpiredError?null:previous,commerce:null,commerceLoading:false,error:safeMobileErrorMessage(error)};
       throw error;
     }
   }
