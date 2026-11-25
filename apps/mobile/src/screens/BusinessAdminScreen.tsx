@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from "react";
 import {ScrollView,Text,View,StyleSheet,Share} from "react-native";
 import type {BusinessRole,StaffDirectoryItem} from "@tradeos/contracts";
-import type {MobileApiClient,MobileBusinessContext,MobileBusinessPatch,MobileBranch,MobileBranchPatch} from "../api-client";
+import type {MobileApiClient,MobileBusinessContext,MobileBusinessPatch,MobileBranchPatch} from "../api-client";
 import {canManageBusiness,canReadStaff,assignableRoles,canEditStaff,validateName,validateBranchCode,validateAssignments,canDeactivateBranch} from "../business-admin-workspace";
 import type {MobileActionFeedback} from "../action-feedback";
 import {Button} from "../components/Button";
@@ -63,7 +63,7 @@ export function BusinessAdminScreen({api,businessId,branchId,role,staffId,online
     setStaff(old=>[r.staff,...old.filter(s=>s.id!==r.staff.id)]);
    }
    reset();onFeedback({tone:"success",title:"Saved",message:"The server confirmed the change."});void refresh();
-  }catch(e){if(live.current){setError(e instanceof Error?e.message:"Save not confirmed. Review the current record before retrying.");void refresh();}}
+  }catch(e){if(live.current){if(!draft.id)setDraft(null);setError((e instanceof Error?e.message:"Save not confirmed.")+(!draft.id?" Review the refreshed directory before creating another record.":""));void refresh();}}
   finally{lock.current=false;if(live.current)setBusy(false);}
  }
  async function runConfirm(){
