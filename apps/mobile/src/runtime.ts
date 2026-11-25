@@ -83,9 +83,17 @@ export class MobileRuntimeError extends Error {
   }
 }
 
+export class MobileRuntimeBusyError extends MobileRuntimeError {}
+
 export class MobileRuntime {
   readonly queue: OfflineMutationQueue;
   private current: MobileReadyState | null = null;
+  private workspaceSwitching=false;
+  private activeFlushes=0;
+  private saleBusy=false;
+  private shiftBusy=false;
+  private transactionBusy():boolean{return this.saleBusy||this.shiftBusy||this.customerReceiptBusy||this.stockAdjustmentBusy||this.supplierTransactionBusy||this.financeBusy||this.operationsBusy||this.saleReversalBusy||this.activeFlushes>0;}
+  private sameReadyScope(a:MobileReadyState|null,b:MobileReadyState|null):boolean{return !!a&&!!b&&a.user.id===b.user.id&&a.business.id===b.business.id&&a.branch.id===b.branch.id&&a.membership.staffId===b.membership.staffId&&a.membership.role===b.membership.role;}
   private customerReceiptBusy=false;
   private stockAdjustmentBusy=false;
   private supplierTransactionBusy=false;
@@ -159,7 +167,10 @@ export class MobileRuntime {
 
   async switchWorkspace(businessId:string,branchId:string):Promise<MobileReadyState>{
     const previous=this.requireReady();
+    if(this.transactionBusy())throw new MobileRuntimeError("Wait for the current transaction or synchronization to finish.");
     if(previous.membership.role==="POS_ATTENDANT")throw new MobileRuntimeError("Ask an administrator to change your POS workspace.");
+    this.workspaceSwitching=true;
+    try{
     const session=await this.options.persistence.loadSession();
     if(!session)throw new SessionExpiredError();
     const pendingHere=()=>this.queue.getSnapshot().then(q=>q.pending.some(m=>m.businessId===previous.business.id));
@@ -180,6 +191,7 @@ export class MobileRuntime {
     await this.options.persistence.saveWorkspaceSelection({businessId,branchId});
     const ready:MobileReadyState={status:"READY",user:me.user,membership,business:context.business,branch,queue:targetQueue};
     this.current=ready;return ready;
+    }finally{this.workspaceSwitching=false;}
   }
 
   async login(identifier: string, password: string): Promise<MobileBootstrapState> {
@@ -227,6 +239,9 @@ export class MobileRuntime {
       throw new MobileRuntimeError("POS attendants can record cash only; ask a cashier or supervisor for other tenders.");
     }
 
+    if(this.saleBusy)throw new MobileRuntimeError("A sale is already being recorded.");
+    this.saleBusy=true;
+    try{
     const clientMutationId = this.options.createMutationId();
     const mutation = buildSaleMutation({
       clientId: await this.options.persistence.getOrCreateDeviceKey(),
@@ -252,7 +267,7 @@ export class MobileRuntime {
     const snapshot = await this.queue.getSnapshot();
     const failed = snapshot.failed.find((entry) => entry.mutation.clientMutationId === clientMutationId);
     const queue = await this.queue.getState(ready.membership.businessId);
-    this.current = { ...ready, queue };
+    if(this.sameReadyScope(this.current,ready))this.current = { ...this.current!, queue };
     if (failed) {
       return {
         clientMutationId,
@@ -268,6 +283,7 @@ export class MobileRuntime {
     return this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id)
       ?{clientMutationId,outcome:"SYNCED",queue}
       :{clientMutationId,outcome:"NEEDS_REVIEW",queue,errorCode:"ACKNOWLEDGEMENT_UNVERIFIED",errorMessage:"Posting could not be verified. Check server history before recording another sale."};
+    }finally{this.saleBusy=false;}
   }
 
   /**
@@ -293,6 +309,9 @@ export class MobileRuntime {
     const id=closed?status.shift?.id:status.operatingDay.id;
     if(!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
       throw new MobileRuntimeError("Refresh to verify the current day or shift ID.");
+    if(this.shiftBusy)throw new MobileRuntimeError("A shift action is already in progress.");
+    this.shiftBusy=true;
+    try{
     const existing=await this.queue.getSnapshot();
     if([...existing.pending,...existing.failed.map(x=>x.mutation)].some(m=>m.businessId===ready.business.id&&m.branchId===ready.branch.id&&["SHIFT_OPEN_CREATE","SHIFT_CLOSE_CREATE"].includes(m.mutationType)))throw new MobileRuntimeError("Resolve the previous shift action before submitting another.");
     const cash={method:"CASH",countedMinor};
@@ -320,6 +339,7 @@ export class MobileRuntime {
         "Shift change saved on this device but NOT confirmed. Sync the pending action before submitting another.");
     if(!this.queue.hasAppliedAcknowledgement(clientMutationId,ready.business.id,ready.branch.id))throw new MobileRuntimeError("Shift posting could not be verified. Check the server before retrying.");
     return {closed,clientMutationId};
+    }finally{this.shiftBusy=false;}
   }
 
   /** Record money already received, not initiate a provider charge. Durable
@@ -443,19 +463,15 @@ export class MobileRuntime {
   }
 
   async flush(online: boolean): Promise<FlushSummary> {
-    const activeBusinessId = this.current?.membership.businessId ?? null;
-    const summary = await this.queue.flush({
-      activeBusinessId,
-      online,
-      transport: this.options.api,
-    });
-    if (this.current) {
-      this.current = {
-        ...this.current,
-        queue: { pending: summary.pending, blocked: summary.blocked, failed: summary.failed },
-      };
-    }
-    return summary;
+    if(this.workspaceSwitching)throw new MobileRuntimeError("Workspace is changing. Wait before synchronizing.");
+    const ready=this.current;
+    const activeBusinessId=ready?.membership.businessId??null;
+    this.activeFlushes++;
+    try{
+      const summary=await this.queue.flush({activeBusinessId,online,transport:this.options.api});
+      if(this.sameReadyScope(this.current,ready))this.current={...this.current!,queue:{pending:summary.pending,blocked:summary.blocked,failed:summary.failed}};
+      return summary;
+    }finally{this.activeFlushes--;}
   }
 
   getCurrentReadyState(): MobileReadyState | null {
@@ -467,6 +483,7 @@ export class MobileRuntime {
   }
 
   async logout(): Promise<void> {
+    if(this.workspaceSwitching||this.transactionBusy())throw new MobileRuntimeBusyError("Wait for the current transaction or synchronization before signing out.");
     try {
       await this.options.api.logout();
     } finally {
@@ -476,6 +493,7 @@ export class MobileRuntime {
   }
 
   private requireReady(): MobileReadyState {
+    if(this.workspaceSwitching)throw new MobileRuntimeError("Workspace is changing. Wait before continuing.");
     if (!this.current) throw new MobileRuntimeError("Open an active TradeOS business before using mobile commerce.");
     return this.current;
   }

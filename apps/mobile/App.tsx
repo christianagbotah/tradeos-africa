@@ -132,16 +132,21 @@ function MobileWorkspace() {
   const ownCashShift = async (
     status:MobileOwnCashShiftStatus,countedMinor:number,note:string,
   ) => {
+    if(checkoutLock.current)throw new Error("Another transaction is in progress.");
+    checkoutLock.current=true;
     try {
       await runtime.recordOwnCashShift(status,countedMinor,note,snapshot.online===true);
     } finally {
-      setSnapshot(await model.sync());
+      try{setSnapshot(await model.refreshQueueState());}finally{checkoutLock.current=false;}
     }
   };
   const logout = async () => {
     if(checkoutLock.current)return;
     setFeedback(null);
-    setSnapshot(await model.logout());
+    const next=await model.logout();setSnapshot(next);
+    if(next.phase!=="SIGNED_OUT"){
+      setFeedback({tone:"warning",title:"Sign-out pending",message:next.error??"Wait for the current action to finish."});return;
+    }
     setPassword("");
     setSearch("");
     setScreen("dashboard");
