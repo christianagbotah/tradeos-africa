@@ -200,4 +200,49 @@ jobs:
           name: tradeos-runtime-release-${{ github.sha }}
           path: ${{ runner.temp }}/tradeos-release-artifact/*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
+
+  archive-release:
+    name: Preserve attested runtime in GitHub Releases (no deployment)
+    needs: release
+    # Public repositories require an explicit disclosure decision. The
+    # source-light archive contains server executables and migration schema.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (github.event.repository.private == true || vars.TRADEOS_PUBLIC_RUNTIME_RELEASES == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: tradeos-runtime-release-${{ github.sha }}
+          path: ${{ runner.temp }}/tradeos-runtime-publication
+      - name: Verify exact archive and preserve immutable version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$REPO" = christianagbotah/tradeos-africa
+          [[ "$SHA" =~ ^[a-f0-9]{40}$ ]]
+          cd "$RUNNER_TEMP/tradeos-runtime-publication"
+          archive="tradeos-runtime-release-$SHA.tar.gz"
+          manifest="tradeos-runtime-release-$SHA.manifest.json"
+          test -f "$archive" && test -f "$archive.sha256" && test -f "$manifest"
+          expected=$(sha256sum "$archive")
+          test "$(cat "$archive.sha256")" = "$expected"
+          bash "$GITHUB_WORKSPACE/ops/release/verify-attested-runtime-release.sh" "$SHA" "$PWD/$archive"
+          jq -e --arg sha "$SHA" '.sourceCommit == $sha and .schemaVersion == 2 and .type == "TRADEOS_SIGNED_RUNTIME_RELEASE" and .requiresOperatorApproval == true' "$manifest"
+          tag="runtime-staging-$SHA"
+          # A release is never overwritten or retargeted. A tag left by a
+          # failed publication may be reused only if it has the exact SHA.
+          if ! gh api --method POST "repos/$REPO/git/refs" -f "ref=refs/tags/$tag" -f "sha=$SHA" >/dev/null; then
+            gh api "repos/$REPO/git/ref/tags/$tag" | jq -e --arg sha "$SHA" '.object.type == "commit" and .object.sha == $sha' >/dev/null
+          fi
+          gh release create "$tag" --repo "$REPO" --verify-tag --prerelease --title "TradeOS staging runtime $SHA" --notes "CI-built, checksum-verified and attested server runtime. This archive is NOT authorization to deploy or restore a database. No live environment, customer data or production secrets are included. Operator approval and migration, finance, backup and capacity gates remain mandatory." "$archive" "$archive.sha256" "$manifest"
