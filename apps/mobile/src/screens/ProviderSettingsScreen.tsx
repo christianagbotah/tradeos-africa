@@ -75,7 +75,7 @@ export function ProviderSettingsScreen({api,businessId,role,online,onFeedback,on
    if(!live.current)return;
    onFeedback({tone:"success",title:"Provider settings updated",message:action==="request"?"Activation request recorded. Collection remains disabled until approved.":action==="verify"?"Read-only verification confirmed; live collection is not enabled by verification.":action==="preference"?"Preference saved. This does not enable collection.":action==="revoke"?"Credentials revoked. Existing payments still require reconciliation.":"Credentials saved in the server vault. This does not activate collection or sending."});
    void refresh();
-  }catch{if(live.current){setError("Change not confirmed. Refresh and inspect the current status before trying again.");}}
+  }catch{if(live.current){setPayment(null);setMessaging(null);setGateway(null);setError("Change not confirmed. Refresh and inspect the current status before trying again.");}}
   finally{lock.current=false;if(live.current){clear();setBusy(false);}}
  }
  return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
