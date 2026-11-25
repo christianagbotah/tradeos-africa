@@ -478,19 +478,18 @@ export class MobileApiClient {
     const path=(kind==="receipt"?"/v1/sales/"+encodeURIComponent(id)+"/receipt.pdf":"/v1/commercial-documents/"+encodeURIComponent(id)+"/pdf")+"?"+new URLSearchParams({businessId,branchId,paper}).toString();
     const session=await this.options.persistence.loadSession();
     if(!session)throw new SessionExpiredError();
-    let response=await this.fetchAuthorized(path,{method:"GET"},session.accessToken);
-    if(response.status===401){
-      const refreshed=await this.refreshAfterUnauthorized(session.accessToken);
-      if(refreshed.clientId!==session.clientId)throw new SessionExpiredError();
-      response=await this.fetchAuthorized(path,{method:"GET"},refreshed.accessToken);
-    }
+    // Binary exports must never retry under a different account. A stale
+    // session is refreshed through the ordinary workspace request path.
+    const response=await this.fetchAuthorized(path,{method:"GET"},session.accessToken);
+    if(response.status===401)throw new SessionExpiredError("Refresh the workspace before exporting a PDF.");
     if(!response.ok)throw new Error("The server could not release a verified PDF.");
     if(!response.headers.get("content-type")?.toLowerCase().startsWith("application/pdf"))throw new Error("The response is not a PDF.");
     const length=Number(response.headers.get("content-length")??0);
     if(length>6_000_000)throw new Error("PDF exceeds the supported size.");
     const data=new Uint8Array(await response.arrayBuffer());
     if(data.length<5||data.length>6_000_000||String.fromCharCode(...data.slice(0,5))!=="%PDF-")throw new Error("Invalid PDF response.");
-    if((await this.options.persistence.loadSession())?.clientId!==session.clientId)throw new SessionExpiredError();
+    const active=await this.options.persistence.loadSession();
+    if(!active||active.accessToken!==session.accessToken||active.refreshToken!==session.refreshToken)throw new SessionExpiredError("Session changed during PDF export.");
     return data;
   }
 
