@@ -5,6 +5,7 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {controlledCutover} from './controlled-cutover.mjs';
 import {assessReleaseRetention} from './release-retention-plan.mjs';
+import {verifyRuntimeTree} from './verify-runtime-tree.mjs';
 const [sha,quarantine,approved,...extra]=process.argv.slice(2);
 const releases='/home/lightworld/releases/tradeos-staging';
 const current='/home/lightworld/webapps/tradeos-staging';
@@ -109,8 +110,12 @@ try{
    if(mainIdentity()!==sha)fail('Main advanced before staging');
    // Remove inherited ACLs before the same-filesystem rename; the runtime
    // remains root-owned and app-readable, with no dependency installation.
-   run('/usr/bin/setfacl',['-Rb',quarantine]);
+   // Strip access AND default ACLs without following symbolic links.
+   // Verify ownership, modes and internal links before introducing the
+   // separately trusted environment link or moving into the release root.
+   run('/usr/bin/setfacl',['-R','-P','-b','-k','--',quarantine]);
    fs.chmodSync(quarantine,0o755);
+   verifyRuntimeTree(quarantine);
    fs.symlinkSync(envFile,path.join(quarantine,'.env.staging'));
    fs.renameSync(quarantine,target);
   },

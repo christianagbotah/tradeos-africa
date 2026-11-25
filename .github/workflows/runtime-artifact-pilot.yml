@@ -30,6 +30,7 @@ on:
       - 'test/controlled-cutover.test.mjs'
       - 'test/release-retention-plan.test.mjs'
       - 'test/root-signed-coordinator-upgrade.test.mjs'
+      - 'test/verify-runtime-tree.test.mjs'
       - 'test/test_root_backup_evidence.py'
       - 'test/test_signed_runtime_release.py'
       - 'test/tradeos-staging-backup-restore.test.mjs'
@@ -65,6 +66,7 @@ on:
       - 'test/controlled-cutover.test.mjs'
       - 'test/release-retention-plan.test.mjs'
       - 'test/root-signed-coordinator-upgrade.test.mjs'
+      - 'test/verify-runtime-tree.test.mjs'
       - 'test/test_root_backup_evidence.py'
       - 'test/test_signed_runtime_release.py'
       - 'test/tradeos-staging-backup-restore.test.mjs'
@@ -145,7 +147,7 @@ jobs:
       - name: Verify signed release format and preflight
         run: |
           node --test test/signed-release-readiness.test.mjs
-          node --test test/controlled-cutover.test.mjs test/release-retention-plan.test.mjs test/root-signed-coordinator-upgrade.test.mjs
+          node --test test/controlled-cutover.test.mjs test/release-retention-plan.test.mjs test/root-signed-coordinator-upgrade.test.mjs test/verify-runtime-tree.test.mjs
           node --check ops/release/activate-signed-runtime.mjs
           bash -n ops/release/signed-release-activate.sh
           bash -n ops/release/install-root-signed-activate.sh

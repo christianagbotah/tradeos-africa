@@ -87,6 +87,6 @@ mv -T -- "$ENTRY" "$ENTRY_BACKUP"; moved_entry=1
 /bin/bash "$installer" "$checkout" "$sha" --install
 verify_install
 [[ "$(cat "$CURRENT/installer-source-commit")" == "$sha" ]] || fail 'new coordinator has incorrect source identity'
-[[ -f "$CURRENT/release-retention-plan.mjs" ]] || fail 'retention safeguard missing'
+[[ -f "$CURRENT/release-retention-plan.mjs" && -f "$CURRENT/verify-runtime-tree.mjs" ]] || fail 'retention or runtime integrity safeguard missing'
 complete=1
 printf 'coordinator_upgrade_verified=true source_sha=%s old_tools_preserved=true no_activation=true\n' "$sha"

@@ -12,6 +12,7 @@ SCRIPT_FILES=(
   activate-signed-runtime.mjs
   controlled-cutover.mjs
   release-retention-plan.mjs
+  verify-runtime-tree.mjs
   verify-attested-runtime-release.sh
   inspect-ci-artifact-pilot.py
   rehearse-ci-artifact-pilot.py
