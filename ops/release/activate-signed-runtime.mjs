@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {controlledCutover} from './controlled-cutover.mjs';
+import {assessReleaseRetention} from './release-retention-plan.mjs';
 const [sha,quarantine,approved,...extra]=process.argv.slice(2);
 const releases='/home/lightworld/releases/tradeos-staging';
 const current='/home/lightworld/webapps/tradeos-staging';
@@ -56,6 +57,11 @@ function pids(){
  const list=JSON.parse(run('/usr/bin/pm2',['jlist']));
  return names.map(name=>list.filter(p=>p.name===name));
 }
+function retention(active,rollback){
+ const linked=fs.realpathSync(current);
+ if(path.dirname(linked)!==releases)fail('Active release escapes registered root');
+ return assessReleaseRetention({active,rollback,current:path.basename(linked),entries:fs.readdirSync(releases,{withFileTypes:true}).map(e=>({name:e.name,kind:e.isSymbolicLink()?'symlink':e.isDirectory()?'directory':e.isFile()?'file':'other'}))});
+}
 function healthyAt(target){
  common('verify_configured_health');
  return fs.realpathSync(current)===target&&pids().every(group=>group.length===1&&group[0].pm2_env?.status==='online'&&Number.isInteger(group[0].pid)&&group[0].pid>0&&
@@ -81,6 +87,8 @@ try{
  const previous=path.join(releases,previousSha),rollback=path.join(releases,oldRollback),target=path.join(releases,sha);
  if(!fs.lstatSync(current).isSymbolicLink()||fs.realpathSync(current)!==previous||!fs.lstatSync(previous).isDirectory()||!fs.lstatSync(rollback).isDirectory()||fs.existsSync(target))fail('Release or rollback identity mismatch');
  if(mainIdentity()!==sha)fail('Main advanced');
+ const inventory=retention(previousSha,oldRollback);
+ if(!inventory.readyForNewRelease)fail('Unmanaged release inventory requires independent recovery review before staging');
  const journalFile=path.join(meta,'activation-journal.json');
  if(fs.existsSync(journalFile)){
   const old=JSON.parse(rootFile(journalFile));
@@ -136,5 +144,8 @@ try{
   restore:async()=>{common('activate_release_target',[previous]);restart();if(!healthyAt(previous))fail('Rollback health failed');writeAtomic('last-successful-release',previousSha+'\n');writeAtomic('previous-release',oldRollback+'\n');},
  };
  const result=await controlledCutover(ops,{sha,previousSha,explicitApproval:true});
- console.log(JSON.stringify(result));
+ // Report the old rollback for review. A completed cutover is not an
+ // authorization to delete historical runtimes. A later activation must
+ // not stage another release until the inventory is reconciled.
+ console.log(JSON.stringify({...result,retention:retention(sha,previousSha)}));
 }catch(error){console.error('Activation held or failed: '+(error instanceof AggregateError?'Recovery required':error.message));process.exitCode=65;}
