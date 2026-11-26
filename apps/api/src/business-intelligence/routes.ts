@@ -6,7 +6,7 @@ import { authenticateAccessToken, AuthError } from "../auth/security.js";
 import { ReportError } from "../reports.js";
 import { buildBusinessBriefing } from "./briefing-service.js";
 import { listBusinessAttention, evaluateBusinessAttention } from "./attention-service.js";
-import { listBusinessActions, generateBusinessActions, transitionBusinessAction, listBusinessActionHistory, BusinessActionError } from "./action-service.js";
+import { listBusinessActions, generateBusinessActions, transitionBusinessAction, listBusinessActionHistory, explainBusinessAction, BusinessActionError } from "./action-service.js";
 import { readMerchantAutomation, configureMerchantAutomation, proposeMerchantAutomation, decideMerchantAutomationRun, MerchantAutomationError } from "./merchant-automation-service.js";
 import { loadInventoryIntelligence, InventoryIntelligenceError, type InventoryPlanningHorizon } from "./inventory-intelligence-service.js";
 import { answerBusinessQuestion, BusinessQuestionError } from "./question-service.js";
@@ -201,6 +201,19 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
       return sendBusinessIntelligenceError(request, reply, error, "BUSINESS_ACTION_GENERATION_FAILED");
     }
   });
+
+  app.get<{ Params: { actionId: string }; Querystring: Query }>(
+    "/v1/intelligence/actions/:actionId/explanation", async (request, reply) => {
+      try {
+        const { businessId, branchId } = await readAuthorizedScope(pool, request.headers.authorization, request.query);
+        const actionId = validUuid(request.params.actionId, "actionId");
+        const explanation = await explainBusinessAction(pool,businessId,branchId,actionId);
+        return reply.header("Cache-Control","private, no-store, max-age=0").send(explanation);
+      } catch (error) {
+        return sendBusinessIntelligenceError(request,reply,error,"BUSINESS_ACTION_EXPLANATION_FAILED");
+      }
+    },
+  );
 
   app.get<{ Params: { actionId: string }; Querystring: Query }>(
     "/v1/intelligence/actions/:actionId/history", async (request, reply) => {

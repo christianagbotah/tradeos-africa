@@ -1,5 +1,6 @@
 import type {
   BusinessActionAuditEvent,
+  BusinessActionExplanation,
   BusinessActionHistoryResponse,
   BusinessActionItem,
   BusinessActionListResponse,
@@ -190,6 +191,42 @@ export async function listBusinessActionHistory(
     occurredAt: row.occurred_at.toISOString(),
   }));
   return { businessId, branchId, actionId, events };
+}
+
+/** Source metadata is deliberately allow-listed. Join on both tenant and exact
+ * branch, and never return raw alert evidence, automation input or output. */
+export async function explainBusinessAction(
+  pool: DatabasePool, businessId: string, branchId: string | null, actionId: string,
+): Promise<BusinessActionExplanation> {
+  const result = await pool.query<{
+    reason: string; source_attention_id: string | null; source_automation_run_id: string | null;
+    alert_id: string | null; rule_code: string | null; severity: string | null;
+    alert_state: "OPEN" | "RESOLVED" | "DISMISSED" | null; last_seen_at: Date | null;
+    run_id: string | null; approved_at: Date | null; policy_version: number | null;
+  }>(
+    `SELECT t.reason,t.source_attention_id,t.source_automation_run_id,
+       a.id AS alert_id,a.rule_code,a.severity,a.state AS alert_state,a.last_seen_at,
+       r.id AS run_id,r.approved_at,r.policy_version
+     FROM business_action_items t
+     LEFT JOIN business_attention_items a ON a.id=t.source_attention_id
+       AND a.business_id=t.business_id AND a.branch_id IS NOT DISTINCT FROM t.branch_id
+     LEFT JOIN business_automation_runs r ON r.id=t.source_automation_run_id
+       AND r.business_id=t.business_id AND r.branch_id IS NOT DISTINCT FROM t.branch_id
+       AND r.state='SUCCEEDED' AND r.approved_at IS NOT NULL AND r.approved_by_user_id IS NOT NULL
+     WHERE t.id=$1 AND t.business_id=$2 AND t.branch_id IS NOT DISTINCT FROM $3::uuid`,
+    [actionId,businessId,branchId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new BusinessActionError("Follow-up task was not found.",404,"BUSINESS_ACTION_NOT_FOUND");
+  const sourceAlert = row.alert_id && row.rule_code && row.severity && row.alert_state && row.last_seen_at
+    ? {ruleCode:row.rule_code,severity:row.severity,state:row.alert_state,lastSeenAt:row.last_seen_at.toISOString()}
+    : null;
+  const approval = row.run_id && row.approved_at && row.policy_version !== null
+    ? {approvedAt:row.approved_at.toISOString(),policyVersion:row.policy_version} : null;
+  const origin = row.source_automation_run_id
+    ? (approval && sourceAlert ? "APPROVED_AUTOMATION" : "UNAVAILABLE")
+    : sourceAlert ? "ALERT" : "UNAVAILABLE";
+  return {businessId,branchId,actionId,origin,recordedReason:row.reason,sourceAlert,approval};
 }
 
 function mapRow(row: ActionRow): BusinessActionItem {

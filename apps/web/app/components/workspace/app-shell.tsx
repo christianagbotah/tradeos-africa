@@ -90,7 +90,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [drawerOpen, moreOpen]);
+  }, [drawerOpen, moreOpen, pathname]);
 
   useEffect(() => {
     if (moreOpen) moreCloseRef.current?.focus();

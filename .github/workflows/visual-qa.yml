@@ -501,6 +501,109 @@ jobs:
           const state = await loginContext.storageState();
           await loginContext.close();
 
+          // Merchant UAT regression: exercise client-side navigation (no reload)
+          // and the actual scroll lock, including stock-adjustment open/close.
+          for (const width of [390, 1280]) {
+            const ctx = await browser.newContext({ storageState: state, viewport: { width, height: 600 } });
+            const p = await ctx.newPage();
+            try {
+              await p.goto(`${WEB}/dashboard`, { waitUntil:"domcontentloaded" });
+              await p.getByRole("heading", {name:"Dashboard", exact:true}).waitFor({timeout:30000});
+              await p.evaluate(() => { window.__tradeosNavigationQA = "same-document"; });
+              const navigate = async (path, heading) => {
+                if(width===390) {
+                  await p.getByRole("button", {name:"More navigation"}).click();
+                  await p.locator(`.tos-more-tile[href="${path}"]`).click();
+                } else {
+                  await p.locator(`.tos-sidebar__link[href="${path}"]`).click();
+                }
+                await p.waitForURL(`**${path}`);
+                await p.getByRole("heading", {name:heading, exact:true}).waitFor({timeout:30000});
+                await p.waitForFunction(() => document.body.style.overflow !== "hidden", {timeout:10000});
+                if(await p.evaluate(() => window.__tradeosNavigationQA) !== "same-document")
+                  throw new Error("Navigation unexpectedly reloaded document");
+              };
+              const checkScroll = async () => {
+                await p.waitForFunction(() => {
+                  const el=document.scrollingElement;
+                  return el && el.scrollHeight > el.clientHeight + 30;
+                }, null, {timeout:15000});
+                await p.evaluate(() => window.scrollTo(0,0));
+                await p.waitForFunction(() => window.scrollY === 0);
+                await p.mouse.move(width-36, 350);
+                await p.mouse.wheel(0, 500);
+                await p.waitForFunction(() => window.scrollY > 20, null, {timeout:8000});
+              };
+              await navigate("/inventory","Inventory");
+              await checkScroll();
+              const adjust=width===390
+                ? p.getByRole("button",{name:/Adjust stock for Coca-Cola/})
+                : p.getByRole("button",{name:"Adjust",exact:true}).first();
+              await adjust.click();
+              const sheet=p.getByRole("dialog",{name:"Inventory adjustment"});
+              await sheet.waitFor();
+              await p.waitForFunction(() => document.body.style.overflow === "hidden");
+              await sheet.getByRole("button",{name:"Close",exact:true}).click();
+              await sheet.waitFor({state:"hidden"});
+              await p.waitForFunction(() => document.body.style.overflow !== "hidden");
+              await checkScroll();
+              await navigate("/purchase-orders","Purchase orders");
+              await navigate("/inventory","Inventory");
+              await checkScroll();
+              await p.screenshot({path:`${EVIDENCE}/inventory-navigation-${width}.png`});
+              screenshotCount++;
+              console.log("Inventory client navigation and adjustment scroll regression passed at "+width);
+            } catch(err) { failures.push("inventory-navigation-"+width+": "+err.message); }
+            finally { await ctx.close(); }
+          }
+
+          // Purchase-order layout and product uniqueness: no orders posted.
+          for(const width of [390,1024,1280,1440]) {
+            const ctx=await browser.newContext({storageState:state,viewport:{width,height:850}});
+            const p=await ctx.newPage();
+            try {
+              await p.goto(`${WEB}/purchase-orders`, {waitUntil:"domcontentloaded"});
+              const form=p.getByRole("region",{name:"Create purchase order",exact:true});
+              await form.waitFor({timeout:30000});
+              const add=form.getByRole("button",{name:"+ Add item",exact:true});
+              const first=form.getByLabel("Line 1 item",{exact:true});
+              await first.locator("option").filter({hasText:"Coca-Cola 500ml"}).waitFor({state:"attached",timeout:30000});
+              if(!await add.isDisabled())throw new Error("Add item enabled before selecting product");
+              await first.selectOption({label:"Coca-Cola 500ml"});
+              await add.click();
+              const second=form.getByLabel("Line 2 item",{exact:true});
+              await second.waitFor();
+              if(!await add.isDisabled())throw new Error("Add item enabled with an empty row");
+              if(await second.locator("option").filter({hasText:"Coca-Cola 500ml"}).count())
+                throw new Error("Previously selected product is still selectable");
+              await second.selectOption({label:"Voltic Water 1.5L"});
+              if(await first.locator("option").filter({hasText:"Voltic Water 1.5L"}).count())
+                throw new Error("Later selected product is still selectable in first row");
+              const dimensions=await form.evaluate(el=>{
+                const supplier=el.querySelector("select");
+                const date=el.querySelector('input[type="date"]');
+                const region=el.querySelector('[aria-label^="Purchase order items"]');
+                const add=[...el.querySelectorAll("button")].find(b=>b.textContent.trim()==="+ Add item");
+                const create=[...el.querySelectorAll("button")].find(b=>b.textContent.trim()==="Create draft order");
+                return {sameRow:Math.abs(supplier.getBoundingClientRect().top-date.getBoundingClientRect().top)<2,
+                  rowOverflow:region.scrollWidth-region.clientWidth,
+                  addWidth:add.offsetWidth,createWidth:create.offsetWidth,formWidth:el.clientWidth,
+                  pageOverflow:document.documentElement.scrollWidth-document.documentElement.clientWidth};
+              });
+              if(width>=1024 && (!dimensions.sameRow || dimensions.rowOverflow>2))
+                throw new Error("Desktop field alignment or item grid overflow: "+JSON.stringify(dimensions));
+              if(dimensions.pageOverflow>2 || dimensions.addWidth>=dimensions.formWidth*.7 || dimensions.createWidth>=dimensions.formWidth*.7)
+                throw new Error("Page overflow or full-width action: "+JSON.stringify(dimensions));
+              await p.screenshot({path:`${EVIDENCE}/purchase-order-create-${width}.png`,fullPage:true});
+              screenshotCount++;
+              await form.getByRole("button",{name:"Remove line 2"}).click();
+              if(!await first.locator("option").filter({hasText:"Voltic Water 1.5L"}).count())
+                throw new Error("Removed product did not become selectable again");
+              console.log("Purchase-order layout and uniqueness passed at "+width);
+            } catch(err){failures.push("purchase-order-create-"+width+": "+err.message);}
+            finally {await ctx.close();}
+          }
+
           // === STEP 2: Routes + markers ===
           const routes = [
             { path: "/dashboard", marker: "Dashboard", name: "dashboard" },
@@ -800,6 +903,46 @@ jobs:
                 failures.push(`${label}: crate and bottle must be distinct cart lines`);
               }
 
+              // The cart starts directly under its header and the charge
+              // stays visible while cashier scrolls the item list.
+              if(width<=768){
+                await p.getByRole("button",{name:/View cart, 2 items/}).click();
+                await p.locator('.tos-pos__cart-wrap[data-open="true"]').waitFor();
+                await p.waitForTimeout(400);
+              }
+              const cart=p.getByRole("complementary",{name:"Cart",exact:true});
+              const cartLayout=await cart.evaluate(el=>{
+                const head=el.querySelector(".tos-pos__cart-head").getBoundingClientRect();
+                const first=el.querySelector(".tos-cart-line").getBoundingClientRect();
+                const body=el.querySelector(".tos-pos__cart-body");
+                const foot=el.querySelector(".tos-pos__cart-foot").getBoundingClientRect();
+                const qty=el.querySelector(".tos-cart-line__qty-btn").getBoundingClientRect();
+                return {gap:first.top-head.bottom,footBottom:foot.bottom,viewport:window.innerHeight,
+                  bodyHeight:body.clientHeight,qtyWidth:qty.width,qtyHeight:qty.height};
+              });
+              if(cartLayout.gap>24||cartLayout.gap<0||cartLayout.footBottom>cartLayout.viewport+2||
+                 cartLayout.qtyWidth<44||cartLayout.qtyHeight<44)
+                throw new Error("Cart header gap, charge visibility or touch target: "+JSON.stringify(cartLayout));
+              if(width>768){
+                // Shrink the viewport without navigation or losing the cart.
+                await p.setViewportSize({width,height:720});
+                await p.waitForTimeout(150);
+                const compact=await cart.evaluate(el=>{
+                  const footer=el.querySelector(".tos-pos__cart-foot").getBoundingClientRect();
+                  return {bottom:footer.bottom,viewport:window.innerHeight,bodyHeight:el.querySelector(".tos-pos__cart-body").clientHeight};
+                });
+                if(compact.bottom>compact.viewport+2||compact.bodyHeight<40)
+                  throw new Error("Desktop short-screen charge not visible: "+JSON.stringify(compact));
+                await p.setViewportSize({width,height:900});
+              }
+              if(width<=768){
+                await p.screenshot({path:`${EVIDENCE}/pos-cart-open-${width}.png`});
+                screenshotCount++;
+                await p.locator('.tos-pos__cart-scrim[data-open="true"]').click({position:{x:10,y:10}});
+                await p.locator('.tos-pos__cart-wrap[data-open="false"]').waitFor();
+                await p.waitForTimeout(400);
+              }
+
               // Charge MUST exist, be enabled, and open checkout when clicked.
               const charge = width <= 768
                 ? p.locator(".tos-charge-bar__charge")
@@ -838,9 +981,42 @@ jobs:
                 failures.push(`${label}: cart item details must render before the payment section`);
               }
 
+              const checkout=p.getByRole("dialog",{name:"Checkout",exact:true});
+              const tenders=checkout.getByRole("group",{name:"Payment method",exact:true});
+              const labels=await tenders.getByRole("button").allTextContents();
+              if(JSON.stringify(labels.map(x=>x.trim()))!==JSON.stringify(["Cash","Electronic","Pay later"]))
+                throw new Error("Unexpected primary tender labels: "+JSON.stringify(labels));
+              const rects=await tenders.getByRole("button").evaluateAll(buttons=>buttons.map(b=>{
+                const r=b.getBoundingClientRect();return {top:r.top,right:r.right,left:r.left,width:r.width,height:r.height};
+              }));
+              if(rects.some(r=>Math.abs(r.top-rects[0].top)>2||r.width<44||r.height<44)||
+                 rects[2].right>width+2||rects[0].left<0)
+                throw new Error("Primary tenders must fit one row: "+JSON.stringify(rects));
+              const approval=checkout.getByRole("link",{name:"Request a new discount or view approval status"});
+              await approval.waitFor();
+              if(await approval.getAttribute("href")!=="/pricing")throw new Error("Missing pricing approval destination");
+              await tenders.getByRole("button",{name:"Cash",exact:true}).click();
+              await checkout.getByLabel("Cash received").waitFor();
+              await tenders.getByRole("button",{name:"Electronic",exact:true}).click();
+              const electronic=checkout.getByRole("group",{name:"Electronic payment type",exact:true});
+              await electronic.getByRole("button",{name:/Mobile money/}).waitFor();
+              await electronic.getByRole("button",{name:/Bank card/}).click();
+              if(await electronic.getByRole("button",{name:/Bank card/}).getAttribute("aria-pressed")!=="true")
+                throw new Error("Card tender did not select");
+              await tenders.getByRole("button",{name:"Pay later",exact:true}).click();
+              await checkout.getByText(/Pay later requires an active selected customer/).waitFor();
+              if(await tenders.getByRole("button",{name:"Pay later",exact:true}).getAttribute("aria-pressed")!=="true")
+                throw new Error("Pay later tender did not select");
+              await tenders.getByRole("button",{name:"Cash",exact:true}).click();
+              await checkout.getByLabel("Cash received").waitFor();
+              console.log("Compact cart and three-tender checkout verified at "+width);
               await p.screenshot({ path: `${EVIDENCE}/${checkoutShot}.png`, fullPage: true });
               screenshotCount++;
               console.log(`Captured ${checkoutShot}.png`);
+              await checkout.getByRole("button",{name:"Close checkout"}).click();
+              await checkout.waitFor({state:"hidden"});
+              if(await p.locator(".tos-cart-line").count()!==2)
+                throw new Error("Closing checkout lost cart lines");
             } catch (err) {
               failures.push(`${label}: ${err.message}`);
             }

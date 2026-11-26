@@ -47,3 +47,19 @@ export interface BusinessActionHistoryResponse {
   actionId: string;
   events: BusinessActionAuditEvent[];
 }
+
+/** Read-only provenance, not a live financial recommendation or raw evidence dump. */
+export interface BusinessActionExplanation {
+  businessId: string;
+  branchId: string | null;
+  actionId: string;
+  origin: "ALERT" | "APPROVED_AUTOMATION" | "UNAVAILABLE";
+  recordedReason: string;
+  sourceAlert: {
+    ruleCode: string;
+    severity: string;
+    state: "OPEN" | "RESOLVED" | "DISMISSED";
+    lastSeenAt: string;
+  } | null;
+  approval: { approvedAt: string; policyVersion: number } | null;
+}

@@ -67,6 +67,30 @@ describe("Business action queue", () => {
     });
   });
 
+  it("explains only the selected scoped action, without raw evidence, and distinguishes resolved alerts", async () => {
+    const a=await owner("explain-a"), b=await owner("explain-b");
+    const alert=await addAlert(a);
+    await pool.query("UPDATE business_attention_items SET evidence=$2::jsonb WHERE id=$1",[alert,JSON.stringify([{internal:"DO_NOT_EXPOSE_RAW_EVIDENCE"}])]);
+    const generated=await app.inject({method:"POST",url:`/v1/intelligence/actions/generate${params(a)}`,headers:a.headers});
+    expect(generated.statusCode).toBe(200);
+    const id=generated.json().items[0].id as string;
+    const url=`/v1/intelligence/actions/${id}/explanation`;
+    const read=await app.inject({method:"GET",url:url+params(a),headers:a.headers});
+    expect(read.statusCode).toBe(200);
+    expect(read.headers["cache-control"]).toContain("no-store");
+    expect(read.json()).toMatchObject({businessId:a.businessId,branchId:a.branchId,actionId:id,origin:"ALERT",recordedReason:"Customers are overdue.",sourceAlert:{ruleCode:"RECEIVABLES_OVERDUE",severity:"HIGH",state:"OPEN"},approval:null});
+    expect(read.body).not.toContain("DO_NOT_EXPOSE_RAW_EVIDENCE");
+    await pool.query("UPDATE business_attention_items SET state='RESOLVED' WHERE id=$1",[alert]);
+    const resolved=await app.inject({method:"GET",url:url+params(a),headers:a.headers});
+    expect(resolved.json()).toMatchObject({origin:"ALERT",sourceAlert:{state:"RESOLVED"}});
+    expect((await app.inject({method:"GET",url:url+params(a)})).statusCode).toBe(401);
+    expect((await app.inject({method:"GET",url:url+params(a),headers:b.headers})).statusCode).toBe(403);
+    expect((await app.inject({method:"GET",url:url+params(b),headers:b.headers})).statusCode).toBe(404);
+    expect((await app.inject({method:"GET",url:url+`?businessId=${a.businessId}&branchId=${b.branchId}`,headers:a.headers})).statusCode).toBe(404);
+    await pool.query("UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1",[a.businessId]);
+    expect((await app.inject({method:"GET",url:url+params(a),headers:a.headers})).statusCode).toBe(403);
+  });
+
   it("serializes concurrent retries without duplicate tasks", async () => {
     const b = await owner("races");
     await addAlert(b);

@@ -38,6 +38,7 @@ export function validatePurchaseOrderLines(
   lines:readonly PurchaseOrderDraftLine[],items:readonly CatalogItem[],
 ):boolean {
   if(lines.length<1||lines.length>50)return false;
+  if(new Set(lines.map(line=>line.itemId)).size!==lines.length)return false;
   const byId=new Map(items.map(item=>[item.id,item]));
   let total=0;
   return lines.every(line=>{

@@ -165,6 +165,7 @@ export function PurchaseOrderWorkspace(){
             onClick={()=>setVoiceOpen(true)}>🎙 Speak an order</button>:null}
         </div>
         <p className={styles.muted}>Save a draft, then review and issue it to your supplier.</p>
+        <div className={styles.fields}>
         <label className={styles.field}>Supplier
           <select value={supplierId} disabled={!canWrite||suppliersLoading}
             onChange={e=>{
@@ -176,11 +177,12 @@ export function PurchaseOrderWorkspace(){
             {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </label>
-        {supplierError?<p className={styles.error} role="alert">{supplierError}</p>:null}
         <label className={styles.field}>Expected delivery (optional)
           <input type="date" value={expectedDeliveryDate} disabled={!canWrite}
             onChange={e=>{setExpectedDeliveryDate(e.target.value);dirty();}}/>
         </label>
+        </div>
+        {supplierError?<p className={styles.error} role="alert">{supplierError}</p>:null}
         <div className={styles.lineSection}>
           <div className={styles.lineHeading}><h3>Order items</h3>
             <span>{lines.length} line{lines.length!==1?"s":""}</span></div>
@@ -207,7 +209,7 @@ export function PurchaseOrderWorkspace(){
                           next?purchasableUnits(next)[0]?.code??"":""):l));
                     }}>
                     <option value="">Choose item</option>
-                    {items.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
+                    {items.filter(i=>i.id===line.itemId||!lines.some(other=>other.key!==line.key&&other.itemId===i.id)).map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
                   </select>
                   <select aria-label={`Line ${index+1} purchasing unit`}
                     value={line.purchaseUnitCode} disabled={!canWrite||!item}
@@ -237,8 +239,8 @@ export function PurchaseOrderWorkspace(){
               })}
             </div>
           </div>
-          <button className={styles.secondary} type="button" disabled={!canWrite||lines.length>=50}
-            onClick={()=>{dirty();setLines(prev=>[...prev,makeLine()]);}}>+ Add item</button>
+          <button className={styles.secondary} type="button" disabled={!canWrite||lines.length>=50||lines.some(line=>!line.itemId)||items.every(item=>lines.some(line=>line.itemId===item.id))}
+            onClick={()=>{dirty();setLines(prev=>prev.length>=50||prev.some(line=>!line.itemId)||items.every(item=>prev.some(line=>line.itemId===item.id))?prev:[...prev,makeLine()]);}}>+ Add item</button>
         </div>
         <label className={styles.field}>Notes / terms
           <textarea rows={3} maxLength={2000} disabled={!canWrite} value={notes}
@@ -256,7 +258,7 @@ export function PurchaseOrderWorkspace(){
           <strong>{formatMoney(total,currency)}</strong>
         </div>
         <p className={styles.muted}>Supplier prices and line totals are saved with the document. No purchase receipt, supplier debt or stock is created yet.</p>
-        <button className={styles.primary} type="button"
+        <button className={`${styles.primary} ${styles.createAction}`} type="button"
           disabled={!canWrite||!queue.online||busy||!supplierId||!valid}
           onClick={()=>void create()}>{busy?"Saving…":"Create draft order"}</button>
         {!queue.online?<p className={styles.muted}>Connect to the internet to create or issue orders.</p>:null}
