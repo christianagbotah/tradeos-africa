@@ -1055,7 +1055,10 @@ test('TradeOS System Admin nginx snippet proxies the dedicated host root to loca
   assert.equal(fs.existsSync(systemAdminNginxPath), true, 'System Admin nginx snippet must exist');
   const source = fs.readFileSync(systemAdminNginxPath, 'utf8');
   assert.match(source, /error_page 418 = @tradeosadmin_root;/);
-  assert.match(source, /if \(\$request_uri = "\/"\) \{/);
+  assert.match(source, /if \(\$uri = "\/"\) \{/);
+  assert.doesNotMatch(source, /if \(\$request_uri = "\/"\) \{/);
+  assert.equal((source.match(/proxy_hide_header Cache-Control;/g) ?? []).length, 2);
+  assert.equal((source.match(/add_header Cache-Control "no-store, no-cache, must-revalidate" always;/g) ?? []).length, 2);
   assert.match(source, /location @tradeosadmin_root \{/);
   assert.match(source, /location \^~ \/\s*\{/);
   assert.match(source, /proxy_pass http:\/\/127\.0\.0\.1:3038;/);
