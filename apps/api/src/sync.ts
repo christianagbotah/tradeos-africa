@@ -188,7 +188,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       // modified receipt. The row lock serializes concurrent recovery claims.
       if (!changedLinkedPO && !changedFinancial && prior.status === "REJECTED" &&
           isLegacyPurchaseSettlementRejection(prior.mutation_type, prior.request_payload, prior.result_payload)) {
-        if (!prior.same_request || prior.branch_id !== (mutation.branchId ?? null) ||
+        if (!prior.same_request || !mutation.branchId || prior.branch_id !== mutation.branchId ||
             mutation.mutationType !== "PURCHASE_RECEIVE_CREATE") {
           await client.query("COMMIT");
           return rejection(mutation.clientMutationId, serverReceivedAt, "PURCHASE_REPLAY_CONFLICT",
@@ -215,22 +215,22 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
         }
       }
       if (!recoveringLegacyPurchase) {
-      await client.query("COMMIT");
-      if(changedLinkedPO)return rejection(mutation.clientMutationId,serverReceivedAt,
-        "PURCHASE_REPLAY_CONFLICT",
-        new Error("A supplier-order receipt with this mutation ID was already submitted with different content"));
-      if(changedFinancial)return rejection(mutation.clientMutationId,serverReceivedAt,
-        "FINANCIAL_REPLAY_CONFLICT",
-        new Error("This refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
-      return {
-        clientMutationId: mutation.clientMutationId,
-        status: prior.status,
-        serverReceivedAt: prior.received_at.toISOString(),
-        ...(prior.result_payload !== null ? { result: prior.result_payload } : {}),
-        ...(prior.status === "REJECTED" && isErrorPayload(prior.result_payload)
-          ? { errorCode: prior.result_payload.errorCode, errorMessage: prior.result_payload.errorMessage }
-          : {}),
-      };
+        await client.query("COMMIT");
+        if(changedLinkedPO)return rejection(mutation.clientMutationId,serverReceivedAt,
+          "PURCHASE_REPLAY_CONFLICT",
+          new Error("A supplier-order receipt with this mutation ID was already submitted with different content"));
+        if(changedFinancial)return rejection(mutation.clientMutationId,serverReceivedAt,
+          "FINANCIAL_REPLAY_CONFLICT",
+          new Error("This refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
+        return {
+          clientMutationId: mutation.clientMutationId,
+          status: prior.status,
+          serverReceivedAt: prior.received_at.toISOString(),
+          ...(prior.result_payload !== null ? { result: prior.result_payload } : {}),
+          ...(prior.status === "REJECTED" && isErrorPayload(prior.result_payload)
+            ? { errorCode: prior.result_payload.errorCode, errorMessage: prior.result_payload.errorMessage }
+            : {}),
+        };
       }
     }
 
