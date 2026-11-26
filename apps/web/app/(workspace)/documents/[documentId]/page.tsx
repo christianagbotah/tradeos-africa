@@ -103,7 +103,7 @@ export default function CommercialDocumentDetail() {
       {document.status==="DRAFT"&&["OWNER","ADMIN","MANAGER","CASHIER","SALES"].includes(session?.role??"")&&document.branchId===session?.branchId?<Link href={`/documents?edit=${document.id}`}>Edit draft</Link>:null}
       {document.status==="ISSUED"?<button type="button" onClick={()=>window.print()} aria-label="Print document" title="Print document"><IconPrint aria-hidden="true"/><span>Print</span></button>:null}
       {canPrepare?<div className={styles.pdfControls}>
-        <label>PDF paper <select value={paper} disabled={busy} onChange={event=>setPaper(event.target.value as ReceiptPaper)}>{RECEIPT_PAPER_OPTIONS.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>PDF paper <select aria-label="PDF paper" value={paper} disabled={busy} onChange={event=>setPaper(event.target.value as ReceiptPaper)}>{RECEIPT_PAPER_OPTIONS.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         {!ready?<button type="button" disabled={busy} onClick={()=>void prepare()}>{busy?"Preparing…":"Prepare PDF"}</button>:<>
           <button type="button" disabled={busy} onClick={()=>void deliver(false)} aria-label="Download PDF" title="Download PDF"><IconDownload aria-hidden="true"/><span>Download PDF</span></button>
           <button type="button" disabled={busy} onClick={()=>void deliver(true)} aria-label="Share PDF" title="Share PDF"><IconShare aria-hidden="true"/><span>Share PDF</span></button>
