@@ -323,7 +323,7 @@ export function PosScreen({
         </Text>
       </Card>:(
         <Text style={styles.quickPaymentHint}>
-          Cash only. For MoMo or other payments, use Standard POS. Totals are estimates until confirmed.
+          Cash only. For MoMo or other payments, use Standard POS. Cached totals are estimates until confirmed.
         </Text>
       )}
     </ScrollView>
