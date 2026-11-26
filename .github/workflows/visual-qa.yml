@@ -398,6 +398,58 @@ jobs:
             await refreshed;
             await dismissFeedback();
           };
+          // Verify actual PDF bytes in the browser. The OS share interface is
+          // stubbed only at its boundary; no real customer message is sent.
+          async function verifyCommercialPdf(kind,href,issued){
+            const width=kind==="PROFORMA"?390:1280;
+            const p=await loginContext.newPage();
+            try{
+              await p.setViewportSize({width,height:850});
+              await p.addInitScript(()=>{
+                Object.defineProperty(navigator,"canShare",{configurable:true,value:data=>data.files?.length===1});
+                Object.defineProperty(navigator,"share",{configurable:true,value:async data=>{
+                  const file=data.files?.[0];
+                  window.__pdfShareEvidence={count:data.files?.length,name:file?.name,type:file?.type,
+                    signature:file?await file.slice(0,5).text():null,hasText:Boolean(data.text),size:file?.size};
+                }});
+              });
+              await p.goto(WEB+href,{waitUntil:"domcontentloaded"});
+              await p.locator("#tradeos-commercial-document").waitFor({timeout:30000});
+              const prepare=p.getByRole("button",{name:"Prepare PDF",exact:true});
+              if(!issued){
+                if(await prepare.count()||await p.getByRole("button",{name:"Share PDF",exact:true}).count())
+                  throw new Error("Non-issued document exposes customer sharing");
+                return;
+              }
+              await prepare.waitFor({timeout:15000});
+              const paper=p.getByLabel("PDF paper",{exact:true});
+              for(const size of ["A5","80mm","58mm"]){
+                await paper.selectOption(size);
+                await prepare.click();
+                const downloadButton=p.getByRole("button",{name:"Download PDF",exact:true});
+                await downloadButton.waitFor({timeout:15000});
+                const [download]=await Promise.all([p.waitForEvent("download"),downloadButton.click()]);
+                const {readFile}=await import("node:fs/promises");
+                const bytes=await readFile(await download.path());
+                if(bytes.length<100||bytes.subarray(0,5).toString()!=="%PDF-"||
+                   !download.suggestedFilename().endsWith("-"+size+".pdf"))
+                  throw new Error("Invalid downloaded "+kind+" "+size+" PDF");
+                await prepare.waitFor();
+              }
+              await paper.selectOption("A5");
+              await prepare.click();
+              await p.getByRole("button",{name:"Share PDF",exact:true}).click();
+              await p.getByText("PDF handed to your chosen app. Delivery is not confirmed.",{exact:true}).waitFor();
+              const shared=await p.evaluate(()=>window.__pdfShareEvidence);
+              if(shared?.count!==1||shared?.signature!=="%PDF-"||shared?.type!=="application/pdf"||
+                 shared?.hasText||!shared.name.endsWith("-A5.pdf")||shared.size<100)
+                throw new Error("OS share did not receive actual PDF: "+JSON.stringify(shared));
+              await p.screenshot({path:`${EVIDENCE}/commercial-pdf-${kind.toLowerCase()}-${width}.png`,fullPage:true});
+              screenshotCount++;
+              console.log("Real PDF download and file-only share verified for "+kind+" at "+width);
+            }finally{await p.close();}
+          }
+
           for(const kind of ["PROFORMA","QUOTATION"]){
             const name="Browser QA "+kind;
             await loginPage.getByLabel("Document type").selectOption(kind);
@@ -409,6 +461,9 @@ jobs:
               ()=>loginPage.getByRole("button",{name:"Create draft",exact:true}).click(),
               ()=>row.getByText("DRAFT",{exact:true}).waitFor({timeout:15000})
             );
+            const documentHref=await row.getByRole("link",{name:"View",exact:true}).getAttribute("href");
+            if(!documentHref?.startsWith("/documents/"))throw new Error("Document detail link missing");
+            await verifyCommercialPdf(kind,documentHref,false);
             await row.getByRole("button",{name:"Edit",exact:true}).click();
             await loginPage.getByRole("button",{name:"Save changes",exact:true}).waitFor();
             const updatedName=name+" revised";
@@ -423,6 +478,7 @@ jobs:
               ()=>revised.getByRole("button",{name:"Issue",exact:true}).click(),
               ()=>revised.getByText("ISSUED",{exact:true}).waitFor({timeout:15000})
             );
+            await verifyCommercialPdf(kind,documentHref,true);
             if(await revised.getByRole("button",{name:"Edit",exact:true}).count())
               throw new Error("Issued document unexpectedly offers editing");
             await revised.getByRole("button",{name:"Cancel",exact:true}).click();
@@ -436,6 +492,7 @@ jobs:
               ()=>confirmation.getByRole("button",{name:"Cancel document",exact:true}).click(),
               ()=>revised.getByText("CANCELLED",{exact:true}).waitFor({timeout:15000})
             );
+            await verifyCommercialPdf(kind,documentHref,false);
           }
           await loginPage.unrouteAll({behavior:"wait"});
           if(nativeDialogs)throw new Error("Unexpected native browser dialog in commercial document workflow");

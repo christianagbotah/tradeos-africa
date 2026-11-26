@@ -294,17 +294,21 @@ export function registerCommercialDocumentRoutes(app:FastifyInstance,pool:Databa
         return {document:await loadDocument(pool,businessId,documentId)};
       }catch(error){return sendError(request,reply,error);}
     });
-  app.get<{Params:{documentId:string};Querystring:{businessId?:string;branchId?:string;paper?:string}}>(
+  app.get<{Params:{documentId:string};Querystring:{businessId?:string;branchId?:string;paper?:string;purpose?:string}}>(
     "/v1/commercial-documents/:documentId/pdf",async(request,reply)=>{
       try{
         const businessId=id(request.query.businessId,"businessId"),branchId=id(request.query.branchId,"branchId"),documentId=id(request.params.documentId,"documentId");
         await requireBusinessRole(pool,await authenticateAccessToken(pool,request.headers.authorization),businessId,READ_ROLES);
+        const purpose=request.query.purpose;
+        if(purpose!==undefined&&purpose!=="share")throw new DocumentError("Unknown PDF purpose");
         let paper:ReturnType<typeof parseReceiptPaper>;
         try{paper=parseReceiptPaper(request.query.paper??"A5");}catch{throw new DocumentError("Select A5, 80mm or 58mm paper");}
         const snapshot=await withTransaction(pool,async tx=>{
           await tx.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
           const d=await loadDocument(tx,businessId,documentId);
           if(d.branchId!==branchId)throw new DocumentError("Document not found in this branch","DOCUMENT_NOT_FOUND",404);
+          if(purpose==="share"&&(d.status!=="ISSUED"||(d.expiresAt!==null&&Date.parse(d.expiresAt)<=Date.now())))
+            throw new DocumentError("Only issued, unexpired documents can be prepared for customer sharing","DOCUMENT_NOT_SHAREABLE",409);
           const info=(await tx.query<{business_name:string;branch_name:string;address:string;phone:string;timezone:string}>(`SELECT b.name AS business_name,br.name AS branch_name,CONCAT_WS(', ',COALESCE(br.address_line1,b.address_line1),COALESCE(br.city,b.city)) AS address,COALESCE(br.phone,b.phone,'') AS phone,br.timezone FROM businesses b JOIN branches br ON br.business_id=b.id WHERE b.id=$1 AND br.id=$2`,[businessId,branchId])).rows[0];
           if(!info)throw new DocumentError("Branch not found","BRANCH_NOT_FOUND",404);
           return {documentId:d.id,documentNumber:d.documentNumber,kind:d.kind,status:d.status,createdAt:d.issuedAt??d.createdAt,expiresAt:d.expiresAt,customerPhone:d.customerPhone??"",customerEmail:d.customerEmail??"",notes:d.notes,businessName:info.business_name,branchName:info.branch_name,address:info.address,phone:info.phone,timezone:info.timezone,customerName:d.customerName,currencyCode:d.currencyCode,totalMinor:d.totalMinor,lines:d.lines.map(l=>({name:l.itemName,quantity:l.quantity,unitCode:l.saleUnitCode,unitNetMinor:l.unitNetMinor,lineTaxMinor:l.lineTaxMinor,lineTotalMinor:l.lineTotalMinor}))};
