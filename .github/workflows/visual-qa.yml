@@ -392,7 +392,7 @@ jobs:
               const saleId=result?.result?.saleId;
               if(!saleResponse.ok()||result?.status!=="APPLIED"||!saleId||result.result.totalMinor!==1000)
                 throw new Error("First cash sale was not applied at expected total");
-              await checkout.getByRole("heading",{name:"Sale complete",exact:true}).waitFor({timeout:20000});
+              await checkout.locator(".tos-success__title").filter({hasText:/^Sale complete$/}).waitFor({timeout:20000});
               if(await available()!==4)throw new Error("First sale did not reduce opening stock by exactly one");
               const sale=(await request("/v1/sales/"+encodeURIComponent(saleId)+"?businessId="+encodeURIComponent(businessId),null)).sale;
               if(sale?.status!=="COMPLETED"||sale.totalMinor!==1000||sale.lines?.length!==1||

@@ -501,7 +501,7 @@ export function CheckoutSheet({
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Checkout</span>
-            <h2 className="tos-sheet__title">{result?.paymentPending?"Payment pending":result?"Sale complete":"Take payment"}</h2>
+            <h2 className="tos-sheet__title">{result?.paymentPending?"Payment pending":result?.status==="completed"?"Sale complete":result?"Sale queued":"Take payment"}</h2>
             <p className="tos-sheet__sub">
               {online ? "Online — ready to process" : "Offline — sale will queue locally"}
             </p>

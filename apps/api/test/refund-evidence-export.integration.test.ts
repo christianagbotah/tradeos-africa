@@ -173,7 +173,14 @@ describe("finance-only unresolved refund CSV export", () => {
     expect(res.body).toContain('"NO_EVIDENCE","NOT_ESTABLISHED","FALSE"');
     expect(res.body).toContain('"NOT_ELECTRONIC"');
     expect(res.body).toContain('"MERCHANT_SUPPLIED_UNVERIFIED","NOT_ESTABLISHED","FALSE"');
-    expect(res.body).not.toContain("6693");
+    // The four-digit value may appear coincidentally inside a UUID or
+    // timestamp. Check the actual quoted CSV field and schema, not an
+    // arbitrary substring of random identifiers.
+    expect(res.body).not.toContain('"6693"');
+    expect(lines[0]).not.toMatch(/recipient|last.?4|payout|note/i);
+    for(const line of lines.slice(1)) {
+      expect(line.match(/(?:^|,)"(?:[^"]|"")*"(?=,|$)/g)).toHaveLength(20);
+    }
     expect(res.body).not.toContain("independent provider confirmation is pending");
     const liability=(await pool.query<{status:string;amount_minor:string}>(
       "SELECT status,amount_minor::text FROM refund_transactions WHERE id=$1",
