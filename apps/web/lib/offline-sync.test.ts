@@ -291,3 +291,61 @@ describe("WebOfflineQueue UI mutation rejection visibility", () => {
     expect(snapshot.failed).toHaveLength(1);
   });
 });
+
+describe("cash charge durable recovery",()=>{
+  const businessId="11111111-1111-4111-8111-111111111111";
+  const branchId="22222222-2222-4222-8222-222222222222";
+  const saleId="33333333-3333-4333-8333-333333333333";
+  function cash(queue:WebOfflineQueue){
+    queue.sessions.save({...session(businessId),branchId});
+    return queue.build({businessId,branchId,mutationType:"SALE_CREATE",
+      payload:{paymentMethod:"CASH",currencyCode:"GHS",lines:[{itemId:"item",saleUnitCode:"piece",quantity:1,expectedUnitPriceMinor:1000}]}});
+  }
+  it("does not transmit cash when durable storage fails",async()=>{
+    const storage=new FakeLocalStorage();installWindow(storage);
+    const queue=makeQueue();const mutation=cash(queue);
+    const transport=vi.fn();vi.stubGlobal("fetch",transport);
+    storage.failQueueWrites=true;
+    await expect(queue.submitDurableCashSale(mutation,true)).rejects.toThrow("Offline mutation persistence failed");
+    expect(transport).not.toHaveBeenCalled();
+  });
+  it("persists before transport; a lost response and restart reuse the original identity and price",async()=>{
+    const storage=new FakeLocalStorage();installWindow(storage);
+    const queue=makeQueue();const mutation=cash(queue);
+    const posted=new Set<string>();const requests:unknown[]=[];
+    vi.stubGlobal("fetch",vi.fn(async (_input:unknown,init?:RequestInit)=>{
+      const m=JSON.parse(String(init?.body)).mutations[0];
+      expect(JSON.parse(storage.getItem("tradeos.web.mutationQueue.v2."+businessId)!).pending[0]).toEqual(m);
+      requests.push(m);
+      if(!posted.has(m.clientMutationId)){
+        posted.add(m.clientMutationId);
+        throw new TypeError("Network response lost after posting");
+      }
+      return new Response(JSON.stringify({mutationResults:[{clientMutationId:m.clientMutationId,status:"APPLIED",
+        result:{saleId,status:"COMPLETED",totalMinor:1000}}]}),{status:200});
+    }));
+    expect(await queue.submitDurableCashSale(mutation,true)).toEqual({status:"pending"});
+    expect((await queue.getSnapshot()).pending).toEqual([mutation]);
+    const restarted=makeQueue();
+    expect((await restarted.getSnapshot()).pending).toEqual([mutation]);
+    expect(await restarted.submitDurableCashSale(mutation,true)).toEqual({status:"completed",saleId,totalMinor:1000});
+    expect(requests).toEqual([mutation,mutation]);
+    expect(posted.size).toBe(1);
+    expect((await restarted.getSnapshot()).pending).toHaveLength(0);
+  });
+  it("does not claim a rejected or incomplete server response as a sale",async()=>{
+    const storage=new FakeLocalStorage();installWindow(storage);
+    const queue=makeQueue();const mutation=cash(queue);
+    vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({mutationResults:[{
+      clientMutationId:mutation.clientMutationId,status:"REJECTED",errorCode:"SALE_PRICE_CHANGED_REVIEW_REQUIRED"}]}),{status:200})));
+    expect(await queue.submitDurableCashSale(mutation,true)).toEqual({status:"rejected",message:"SALE_PRICE_CHANGED_REVIEW_REQUIRED"});
+    expect((await queue.getSnapshot()).failed).toHaveLength(1);
+  });
+  it("rejects a cash submission in another branch and never sends it",async()=>{
+    const storage=new FakeLocalStorage();installWindow(storage);
+    const queue=makeQueue();const mutation=cash(queue);
+    const transport=vi.fn();vi.stubGlobal("fetch",transport);
+    await expect(queue.submitDurableCashSale({...mutation,branchId:"wrong"},true)).rejects.toThrow("scope");
+    expect(transport).not.toHaveBeenCalled();
+  });
+});
