@@ -1,9 +1,9 @@
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { HeroCard } from "../components/Card";
+import { Card } from "../components/Card";
 import { StatCard } from "../components/StatCard";
 import { Banner } from "../components/Banner";
 import { Icon, IconTile } from "../components/icons";
-import { colors, radius, spacing, typography } from "../theme";
+import { colors, radius, spacing, typography, touch } from "../theme";
 import type { MobileAppSnapshot, MobileSaleNotice } from "../app-model";
 import { formatRelativeTime } from "../lib/format";
 
@@ -17,12 +17,7 @@ export type DashboardScreenProps = {
 };
 
 export function DashboardScreen({
-  snapshot,
-  onGoToSell,
-  onGoToSales,
-  onGoToMore,
-  onSync,
-  onRefreshCatalog,
+  snapshot, onGoToSell, onGoToSales, onGoToMore, onSync, onRefreshCatalog,
 }: DashboardScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
   const ready = snapshot.bootstrap;
@@ -31,257 +26,124 @@ export function DashboardScreen({
   const lastSync = commerce ? formatRelativeTime(commerce.fetchedAt) : "—";
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-
-      <View style={styles.intro}>
-        <Text style={styles.pageTitle}>Your workspace</Text>
-        <Text style={styles.introText}>Sell, manage and keep your business moving.</Text>
-      </View>
-      <HeroCard padding="comfortable" style={styles.hero}>
-        <Text style={styles.eyebrow}>Current business</Text>
-        <Text style={styles.businessName} numberOfLines={2}>{ready.business.name}</Text>
-        <View style={styles.metaRow}>
-          <Icon name="branch" size={14} color={colors.gold} />
-          <Text style={styles.meta}>{ready.branch.name} · {ready.membership.role}</Text>
-        </View>
-        <View style={styles.heroFooter}>
-          <View style={styles.currencyPill}>
-            <Icon name="currency" size={12} color={colors.gold} />
-            <Text style={styles.currencyText}>{ready.business.currencyCode === "GHS" ? "₵" : ready.business.currencyCode}</Text>
+    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Card background={colors.brandForest} variant="raised" padding="comfortable" style={styles.hero}>
+        <View style={styles.heroHeading}>
+          <IconTile name="store" size={44} tint={colors.gold} background="rgba(255,255,255,0.10)" />
+          <View style={styles.heroContext}>
+            <Text style={styles.eyebrow}>Point of sale</Text>
+            <Text style={styles.businessName}>{ready.business.name}</Text>
+            <Text style={styles.meta}>{ready.branch.name}</Text>
           </View>
-          <Text style={styles.countryText}>{ready.business.countryCode}</Text>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Start a sale" onPress={onGoToSell} style={({pressed}) => [styles.heroAction, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Start a sale"
+          onPress={onGoToSell} style={({pressed}) => [styles.heroAction, pressed && styles.pressed]}>
           <Icon name="sell" size={22} color={colors.midnight} />
           <Text style={styles.heroActionText}>New sale</Text>
           <Icon name="arrowRight" size={18} color={colors.midnight} />
         </Pressable>
-      </HeroCard>
+      </Card>
 
-      {snapshot.saleNotice ? (
-        <SaleNoticeBanner notice={snapshot.saleNotice} />
-      ) : null}
+      {snapshot.saleNotice ? <SaleNoticeBanner notice={snapshot.saleNotice} /> : null}
+      {snapshot.online === false ? <Banner tone="info" title="Working offline"
+        message="Sales are saved on this device and will sync on reconnect." /> : null}
+      {commerce?.warning ? <Banner tone="warning" message={commerce.warning} title="Catalog notice" /> : null}
 
-      <Text style={styles.sectionLabel}>Workspace status</Text>
+      <Text accessibilityRole="header" style={styles.sectionLabel}>Catalog overview</Text>
       <View style={styles.statGrid}>
-        <StatCard
-          style={styles.statTile}
-          label="Pending sync"
-          value={String(queue.pending)}
-          tone={queue.pending > 0 ? "warning" : "neutral"}
-          hint={queue.pending > 0 ? "Will send automatically" : "All caught up"}
-        />
-        <StatCard
-          style={styles.statTile}
-          label="Needs review"
-          value={String(queue.failed)}
-          tone={queue.failed > 0 ? "danger" : "neutral"}
-          hint={queue.failed > 0 ? "Server rejected" : "No rejections"}
-        />
-        <StatCard
-          style={styles.statTile}
-          label="Catalog source"
+        <StatCard style={styles.statTile} label="Sellable items"
+          value={commerce ? String(commerce.items.length) : "—"}
+          tone="neutral" hint={commerce ? "Available in POS" : "Not loaded"} />
+        <StatCard style={styles.statTile} label="Catalog source"
           value={commerce ? (commerce.source === "LIVE" ? "Live" : "Cache") : "—"}
           tone={commerce?.source === "LIVE" ? "positive" : commerce?.source === "CACHE" ? "warning" : "neutral"}
-          hint={lastSync}
-        />
-        <StatCard
-          style={styles.statTile}
-          label="Sellable items"
-          value={String(commerce?.items.length ?? 0)}
-          tone="info"
-          hint={commerce ? "Available in POS" : "Catalog not loaded"}
-        />
+          hint={lastSync} />
       </View>
 
-      <Text style={styles.sectionLabel}>Quick actions</Text>
-      <View style={styles.actions}>
-        <QuickAction
-          icon="sync"
-          tint={colors.info}
-          background={colors.infoSoft}
-          label="Sync now"
-          hint={snapshot.online === false ? "Offline — will sync on reconnect" : "Flush pending sales"}
-          disabled={snapshot.syncing || snapshot.online !== true}
-          loading={snapshot.syncing}
-          onPress={onSync}
-        />
-        <QuickAction
-          icon="refresh"
-          tint={colors.positive}
-          background={colors.positiveSoft}
-          label="Refresh catalog"
-          hint={snapshot.commerceLoading ? "Refreshing…" : "Pull latest stock"}
-          disabled={snapshot.commerceLoading}
-          loading={snapshot.commerceLoading}
-          onPress={onRefreshCatalog}
-        />
-        <QuickAction
-          icon="sales"
-          tint={colors.midnight}
-          background={colors.surfaceSoft}
-          label="View sales queue"
-          hint={`${queue.pending + queue.failed} pending or review`}
-          onPress={onGoToSales}
-        />
-        <QuickAction
-          icon="more"
-          tint={colors.textMuted}
-          background={colors.surfaceSoft}
-          label="More"
-          hint="Settings, branch, sign out"
-          onPress={onGoToMore}
-        />
-      </View>
+      <Text accessibilityRole="header" style={styles.sectionLabel}>Data & sync</Text>
+      <Card padding="none" variant="flat">
+        <View style={styles.queueSummary}>
+          <QueueMetric label="Pending sync" value={queue.pending} tone={queue.pending > 0 ? colors.warning : colors.textStrong} />
+          <QueueMetric label="Needs review" value={queue.failed} tone={queue.failed > 0 ? colors.danger : colors.textStrong} />
+          <QueueMetric label="Blocked" value={queue.blocked} tone={queue.blocked > 0 ? colors.danger : colors.textStrong} />
+        </View>
+        <ActionRow icon="sync" label="Sync now" disabled={snapshot.syncing || snapshot.online !== true}
+          loading={snapshot.syncing} onPress={onSync} />
+        <ActionRow icon="refresh" label="Refresh catalog" disabled={snapshot.commerceLoading}
+          loading={snapshot.commerceLoading} onPress={onRefreshCatalog} />
+        <ActionRow icon="sales" label="View sales queue" onPress={onGoToSales} />
+      </Card>
 
-      {commerce?.warning ? (
-        <Banner tone="warning" message={commerce.warning} title="Catalog notice" />
-      ) : null}
-      {snapshot.online === false ? (
-        <Banner
-          tone="info"
-          message="You are offline. Sales are saved on this device and will sync automatically when the connection returns."
-          title="Working offline"
-        />
-      ) : null}
+      <Text accessibilityRole="header" style={styles.sectionLabel}>Workspace</Text>
+      <Card padding="none" variant="flat">
+        <ActionRow icon="more" label="More" onPress={onGoToMore} first />
+      </Card>
     </ScrollView>
   );
 }
 
-function QuickAction({
-  icon,
-  tint,
-  background,
-  label,
-  hint,
-  onPress,
-  disabled,
-  loading,
+function QueueMetric({label, value, tone}: {label: string; value: number; tone: string}) {
+  return <View style={styles.queueMetric} accessibilityLabel={label + ": " + value}>
+    <Text style={[styles.queueValue, {color: tone}]}>{value}</Text>
+    <Text style={styles.queueLabel}>{label}</Text>
+  </View>;
+}
+
+function ActionRow({
+  icon, label, onPress, disabled, loading, first,
 }: {
   icon: Parameters<typeof IconTile>[0]["name"];
-  tint: string;
-  background: string;
   label: string;
-  hint: string;
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
+  first?: boolean;
 }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label}
       accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       disabled={disabled || loading} onPress={onPress}
-      style={({ pressed }) => [styles.quickActionBtn, (pressed || disabled) && styles.pressed]}>
-      <IconTile name={icon} size={42} tint={tint} background={background} />
-      {loading ? <ActivityIndicator color={tint} /> : null}
-      <Text style={styles.quickActionLabel}>{label}</Text>
-      <Text style={styles.quickActionHint}>{hint}</Text>
+      style={({pressed}) => [styles.actionRow, !first && styles.rowDivider, (pressed || disabled) && styles.pressed]}>
+      <IconTile name={icon} size={36} tint={colors.brandForest} background={colors.positiveSoft} />
+      <Text style={styles.actionLabel}>{label}</Text>
+      {loading ? <ActivityIndicator color={colors.brandForest} /> : <Icon name="arrowRight" size={18} color={colors.textMuted} />}
     </Pressable>
   );
 }
 
-function SaleNoticeBanner({ notice }: { notice: MobileSaleNotice }) {
-  const tone = notice.tone === "success" ? "success"
-    : notice.tone === "pending" ? "warning"
-    : "danger";
+function SaleNoticeBanner({notice}: {notice: MobileSaleNotice}) {
+  const tone = notice.tone === "success" ? "success" : notice.tone === "pending" ? "warning" : "danger";
   return <Banner tone={tone} message={notice.message} title="Sale result" />;
 }
 
 const styles = StyleSheet.create({
   content: {
-    paddingTop: spacing.s4,
-    flexGrow: 1,
-    backgroundColor: colors.canvas,
-    paddingHorizontal: spacing.s4,
-    paddingBottom: spacing.s6 + 4,
-    gap: spacing.s4,
+    paddingTop: spacing.s4, flexGrow: 1, backgroundColor: colors.canvas,
+    paddingHorizontal: spacing.s4, paddingBottom: spacing.s6, gap: spacing.s3,
   },
-  intro: { gap: 4 },
-  pageTitle: { color: colors.textStrong, fontSize: 28, fontWeight: "800", letterSpacing: -0.8 },
-  introText: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
-  hero: { borderColor: colors.midnight, borderRadius: 24 },
-  heroAction: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14,
-    minHeight: 52, borderRadius: 14, backgroundColor: colors.gold, marginTop: 18 },
-  heroActionText: { flex: 1, color: colors.midnight, fontSize: 16, fontWeight: "800" },
-  pressed: { opacity: 0.65 },
-  statTile: { flexGrow: 1, flexBasis: "46%", minWidth: 120 },
-  eyebrow: {
-    color: colors.gold,
-    fontSize: typography.meta,
-    fontWeight: typography.weightHeavy,
-    letterSpacing: typography.kickerTracking,
-    textTransform: "uppercase",
+  hero: {borderColor: colors.brandForest, borderRadius: radius.lg},
+  heroHeading: {flexDirection: "row", alignItems: "flex-start", gap: spacing.s3},
+  heroContext: {flex: 1, minWidth: 0, gap: spacing.s1},
+  eyebrow: {color: colors.gold, fontSize: typography.meta, fontWeight: typography.weightBold},
+  businessName: {color: colors.textInverse, fontSize: 24, fontWeight: typography.weightHeavy, lineHeight: 30},
+  meta: {color: colors.textInverseMuted, fontSize: typography.supporting, lineHeight: typography.supportingLine},
+  heroAction: {
+    flexDirection: "row", alignItems: "center", gap: spacing.s3, padding: spacing.s3,
+    minHeight: touch.minTarget, borderRadius: radius.sm, backgroundColor: colors.gold, marginTop: spacing.s4,
   },
-  businessName: {
-    color: colors.textInverse,
-    fontSize: typography.display,
-    fontWeight: typography.weightBlack,
-    lineHeight: typography.sectionLine + 6,
-    letterSpacing: -0.4,
-    marginTop: spacing.s1,
+  heroActionText: {flex: 1, color: colors.midnight, fontSize: typography.body, fontWeight: typography.weightHeavy},
+  pressed: {opacity: 0.6},
+  sectionLabel: {color: colors.textStrong, fontSize: 19, lineHeight: 25, fontWeight: typography.weightHeavy, marginTop: spacing.s1},
+  statGrid: {flexDirection: "row", flexWrap: "wrap", gap: spacing.s2},
+  statTile: {flexGrow: 1, flexBasis: "46%", minWidth: 120},
+  queueSummary: {flexDirection: "row", flexWrap: "wrap", gap: spacing.s3, padding: spacing.s4},
+  queueMetric: {flexGrow: 1, flexBasis: 78, minWidth: 78, gap: spacing.s1},
+  queueValue: {fontSize: typography.kpi, fontWeight: typography.weightHeavy},
+  queueLabel: {color: colors.textMuted, fontSize: typography.meta, fontWeight: typography.weightBold},
+  actionRow: {
+    flexDirection: "row", alignItems: "center", minHeight: touch.minTarget,
+    gap: spacing.s3, paddingHorizontal: spacing.s4, paddingVertical: spacing.s2,
   },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.s2,
-    marginTop: spacing.s1,
-  },
-  meta: {
-    color: colors.textInverseMuted,
-    fontSize: typography.supporting,
-    fontWeight: typography.weightBold,
-  },
-  heroFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.s2,
-    marginTop: spacing.s3,
-  },
-  currencyPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.s1,
-    paddingHorizontal: spacing.s2 + 2,
-    paddingVertical: spacing.s1,
-    borderRadius: radius.sm,
-    backgroundColor: colors.midnightRaised,
-  },
-  currencyText: {
-    color: colors.gold,
-    fontSize: typography.meta,
-    fontWeight: typography.weightBlack,
-  },
-  countryText: {
-    color: colors.textInverseMuted,
-    fontSize: typography.meta,
-    fontWeight: typography.weightBold,
-  },
-  sectionLabel: {
-    color: colors.textStrong,
-    fontSize: 19,
-    fontWeight: typography.weightHeavy,
-    marginTop: spacing.s2,
-  },
-  statGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.s2 + 2,
-  },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  quickActionBtn: { flexGrow: 1, flexBasis: "46%", minWidth: 120, minHeight: 120,
-    alignItems: "flex-start", padding: 14, gap: 7, borderWidth: 1,
-    backgroundColor: colors.surface, borderRadius: radius.md, borderColor: colors.border },
-  quickActionLabel: {
-    color: colors.textStrong,
-    fontSize: typography.supporting,
-    fontWeight: typography.weightBlack,
-  },
-  quickActionHint: {
-    color: colors.textMuted,
-    fontSize: typography.meta,
-    lineHeight: typography.metaLine,
-  },
+  rowDivider: {borderTopWidth: 1, borderTopColor: colors.border},
+  actionLabel: {flex: 1, color: colors.textStrong, fontSize: typography.body, fontWeight: typography.weightMedium},
 });
