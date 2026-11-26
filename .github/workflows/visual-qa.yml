@@ -846,6 +846,34 @@ jobs:
                 failures.push(`${label}: crate and bottle must be distinct cart lines`);
               }
 
+              // The cart starts directly under its header and the charge
+              // stays visible while cashier scrolls the item list.
+              if(width<=768){
+                await p.getByRole("button",{name:/View cart, 2 items/}).click();
+                await p.locator('.tos-pos__cart-wrap[data-open="true"]').waitFor();
+                await p.waitForTimeout(400);
+              }
+              const cart=p.getByRole("complementary",{name:"Cart",exact:true});
+              const cartLayout=await cart.evaluate(el=>{
+                const head=el.querySelector(".tos-pos__cart-head").getBoundingClientRect();
+                const first=el.querySelector(".tos-cart-line").getBoundingClientRect();
+                const body=el.querySelector(".tos-pos__cart-body");
+                const foot=el.querySelector(".tos-pos__cart-foot").getBoundingClientRect();
+                const qty=el.querySelector(".tos-cart-line__qty-btn").getBoundingClientRect();
+                return {gap:first.top-head.bottom,footBottom:foot.bottom,viewport:window.innerHeight,
+                  bodyHeight:body.clientHeight,qtyWidth:qty.width,qtyHeight:qty.height};
+              });
+              if(cartLayout.gap>24||cartLayout.gap<0||cartLayout.footBottom>cartLayout.viewport+2||
+                 cartLayout.qtyWidth<44||cartLayout.qtyHeight<44)
+                throw new Error("Cart header gap, charge visibility or touch target: "+JSON.stringify(cartLayout));
+              if(width<=768){
+                await p.screenshot({path:`${EVIDENCE}/pos-cart-open-${width}.png`});
+                screenshotCount++;
+                await p.locator('.tos-pos__cart-scrim[data-open="true"]').click({position:{x:10,y:10}});
+                await p.locator('.tos-pos__cart-wrap[data-open="false"]').waitFor();
+                await p.waitForTimeout(400);
+              }
+
               // Charge MUST exist, be enabled, and open checkout when clicked.
               const charge = width <= 768
                 ? p.locator(".tos-charge-bar__charge")
@@ -884,9 +912,42 @@ jobs:
                 failures.push(`${label}: cart item details must render before the payment section`);
               }
 
+              const checkout=p.getByRole("dialog",{name:"Checkout",exact:true});
+              const tenders=checkout.getByRole("group",{name:"Payment method",exact:true});
+              const labels=await tenders.getByRole("button").allTextContents();
+              if(JSON.stringify(labels.map(x=>x.trim()))!==JSON.stringify(["Cash","Electronic","Pay later"]))
+                throw new Error("Unexpected primary tender labels: "+JSON.stringify(labels));
+              const rects=await tenders.getByRole("button").evaluateAll(buttons=>buttons.map(b=>{
+                const r=b.getBoundingClientRect();return {top:r.top,right:r.right,left:r.left,width:r.width,height:r.height};
+              }));
+              if(rects.some(r=>Math.abs(r.top-rects[0].top)>2||r.width<44||r.height<44)||
+                 rects[2].right>width+2||rects[0].left<0)
+                throw new Error("Primary tenders must fit one row: "+JSON.stringify(rects));
+              const approval=checkout.getByRole("link",{name:"Request a new discount or view approval status"});
+              await approval.waitFor();
+              if(await approval.getAttribute("href")!=="/pricing")throw new Error("Missing pricing approval destination");
+              await tenders.getByRole("button",{name:"Cash",exact:true}).click();
+              await checkout.getByLabel("Cash received").waitFor();
+              await tenders.getByRole("button",{name:"Electronic",exact:true}).click();
+              const electronic=checkout.getByRole("group",{name:"Electronic payment type",exact:true});
+              await electronic.getByRole("button",{name:/Mobile money/}).waitFor();
+              await electronic.getByRole("button",{name:/Bank card/}).click();
+              if(await electronic.getByRole("button",{name:/Bank card/}).getAttribute("aria-pressed")!=="true")
+                throw new Error("Card tender did not select");
+              await tenders.getByRole("button",{name:"Pay later",exact:true}).click();
+              await checkout.getByText(/Pay later requires an active selected customer/).waitFor();
+              if(await tenders.getByRole("button",{name:"Pay later",exact:true}).getAttribute("aria-pressed")!=="true")
+                throw new Error("Pay later tender did not select");
+              await tenders.getByRole("button",{name:"Cash",exact:true}).click();
+              await checkout.getByLabel("Cash received").waitFor();
+              console.log("Compact cart and three-tender checkout verified at "+width);
               await p.screenshot({ path: `${EVIDENCE}/${checkoutShot}.png`, fullPage: true });
               screenshotCount++;
               console.log(`Captured ${checkoutShot}.png`);
+              await checkout.getByRole("button",{name:"Close checkout"}).click();
+              await checkout.waitFor({state:"hidden"});
+              if(await p.locator(".tos-cart-line").count()!==2)
+                throw new Error("Closing checkout lost cart lines");
             } catch (err) {
               failures.push(`${label}: ${err.message}`);
             }

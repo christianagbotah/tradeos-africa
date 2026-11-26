@@ -9342,7 +9342,7 @@
 .tos-pos__cart-body>.tos-cart-line{flex:0 0 auto;gap:4px;padding:8px}
 .tos-cart-line__main{gap:1px}
 .tos-cart-line__qty{padding:1px;gap:2px}
-.tos-cart-line__qty-btn{width:40px;height:40px}
+.tos-cart-line__qty-btn{width:44px;height:44px;min-width:44px;min-height:44px}
 .tos-cart-line__qty-val{min-width:28px}
 .tos-pos__cart-foot{position:sticky;bottom:0;z-index:1;flex-shrink:0}
 @media(min-width:769px){.tos-pos__cart-wrap{position:sticky;top:calc(var(--tos-topbar-height) + 12px);align-self:start;height:calc(100dvh - var(--tos-topbar-height) - 32px);max-height:100%;min-height:0}}
