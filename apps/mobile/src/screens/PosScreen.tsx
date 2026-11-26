@@ -17,7 +17,7 @@ import type {
   MobileImmediatePaymentMethod,
   MobileSellableItem,
 } from "../pos-model";
-import { filterSellableItems, visibleQuickServeGroups, QUICK_SERVE_PAGE_SIZE } from "../pos-model";
+import { canAddPosItem, displayCartTotalMinor, filterSellableItems, visibleQuickServeGroups, QUICK_SERVE_PAGE_SIZE } from "../pos-model";
 import {PdfDeliveryPanel} from "./PdfDeliveryPanel";
 import type {MobileApiClient,MobileOwnCashShiftStatus} from "../api-client";
 import {PosCashShiftPanel} from "./PosCashShiftPanel";
@@ -81,9 +81,7 @@ export function PosScreen({
   const items = snapshot.commerce?.items ?? [];
   const visibleItems = filterSellableItems(items, search);
   const quickCatalog=quickServe?visibleQuickServeGroups(visibleItems,quickLimit):null;
-  const total = items.length === 0 && snapshot.cart.length > 0
-    ? snapshot.cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0)
-    : cartTotal(snapshot.cart);
+  const total = displayCartTotalMinor(snapshot.cart);
 
   return (
     <View style={styles.page}>
@@ -186,15 +184,16 @@ export function PosScreen({
                   const outOfStock=item.trackStock&&item.availableStock!==null&&
                     item.availableStock<=0;
                   const selected=snapshot.cart.find(line=>line.key===item.key)?.quantity??0;
+                  const disabled=!canAddPosItem(item,canSell,snapshot.checkoutBusy,true);
                   return <Pressable key={item.key} accessibilityRole="button"
                     accessibilityLabel={"Add "+item.name+", "+item.unitLabel+", "+
                       formatMoney(item.priceMinor,currencyCode)}
-                    accessibilityState={{disabled:!canSell||outOfStock||snapshot.checkoutBusy}}
-                    disabled={!canSell||outOfStock||snapshot.checkoutBusy}
+                    accessibilityState={{disabled}}
+                    disabled={disabled}
                     onPress={()=>onAdd(item)}
                     style={({pressed})=>[styles.quickPortion,
                       pressed&&styles.quickPortionPressed,
-                      (!canSell||outOfStock)&&styles.quickDisabled]}>
+                      disabled&&styles.quickDisabled]}>
                     <Text style={styles.quickPrice}>{formatMoney(item.priceMinor,currencyCode)}</Text>
                     <Text style={styles.quickUnit} numberOfLines={2}>{item.unitLabel}</Text>
                     {selected>0?<Text style={styles.quickSelected}>{selected} in cart</Text>:null}
@@ -218,7 +217,7 @@ export function PosScreen({
             item={item}
             currencyCode={currencyCode}
             onAdd={() => onAdd(item)}
-            disabled={!canSell || snapshot.checkoutBusy || (item.trackStock && item.availableStock !== null && item.availableStock <= 0)}
+            disabled={!canAddPosItem(item,canSell,snapshot.checkoutBusy,false)}
           />
         ))}
       </View>
@@ -239,7 +238,7 @@ export function PosScreen({
             kind="empty"
             icon="cart"
             title="Cart is empty"
-            description="Tap + Add on a catalog unit above to begin a sale."
+            description="Tap + beside a catalog item to begin a sale."
           />
         </Card>
       ) : (
@@ -378,7 +377,7 @@ function CatalogCard({
   return (
     <Card padding="compact" style={styles.catalogCard}>
       <View style={styles.catalogMain}>
-        <Text style={styles.catalogName} >{item.name}</Text>
+        <Text style={styles.catalogName}>{item.name}</Text>
         <Text style={styles.catalogMeta}>
           {item.sku ? `${item.sku} · ` : ""}{item.unitLabel}
         </Text>
@@ -467,10 +466,6 @@ function SaleNoticeBanner({ notice }: { notice: MobileSaleNotice }) {
   return <Banner tone={tone} message={notice.message} title="Sale result" />;
 }
 
-function cartTotal(cart: ReadonlyArray<MobileCartLine>): number {
-  return cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0);
-}
-
 const styles = StyleSheet.create({
   page: {flex:1,backgroundColor:colors.canvas},
   scroll: {flex:1},
@@ -527,13 +522,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-end",
     gap: spacing.s3,
-  },
-  kicker: {
-    color: colors.goldStrong,
-    fontSize: typography.meta,
-    fontWeight: typography.weightBlack,
-    letterSpacing: typography.kickerTracking,
-    textTransform: "uppercase",
   },
   sectionTitle: {
     color: colors.textStrong,
