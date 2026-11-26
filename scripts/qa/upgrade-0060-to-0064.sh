@@ -33,18 +33,21 @@ done
 cmp "$base/before" "$base/restored"
 export DATABASE_URL=postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_upgrade_restored_ci
 migration_dir="$(realpath packages/db/migrations)"
+# This rehearsal includes the additive programme migration; not activation approval.
+test "$(find "$migration_dir" -maxdepth 1 -name '*.sql' | wc -l)" -eq 65
 pnpm --filter @tradeos/api exec tsx src/scripts/apply-migrations.ts "$migration_dir"
-test "$(psql -X -At -d tradeos_upgrade_restored_ci -c "SELECT count(*) FROM lightworld_schema_migrations WHERE state='APPLIED'")" -eq 64
-test "$(psql -X -At -d tradeos_upgrade_restored_ci -c "SELECT count(*) FROM lightworld_schema_migrations")" -eq 64
+test "$(psql -X -At -d tradeos_upgrade_restored_ci -c "SELECT count(*) FROM lightworld_schema_migrations WHERE state='APPLIED'")" -eq 65
+test "$(psql -X -At -d tradeos_upgrade_restored_ci -c "SELECT count(*) FROM lightworld_schema_migrations")" -eq 65
 psql -X -At -v ON_ERROR_STOP=1 -d tradeos_upgrade_restored_ci -f "$base/fingerprint.sql" > "$base/after"
 cmp "$base/before" "$base/after"
 pnpm --filter @tradeos/api exec tsx src/scripts/apply-migrations.ts "$migration_dir" | tee "$base/replay"
-grep -F '0 applied, 64 already applied' "$base/replay"
+grep -F '0 applied, 65 already applied' "$base/replay"
 psql -X -v ON_ERROR_STOP=1 -d tradeos_upgrade_restored_ci <<'SQL'
 DO $$
 BEGIN
  IF (SELECT role FROM staff WHERE id='66666666-6666-4666-8666-666666666666') <> 'CASHIER' THEN RAISE EXCEPTION 'cashier role changed'; END IF;
  IF EXISTS(SELECT 1 FROM branch_shift_sale_policy_events) OR EXISTS(SELECT 1 FROM pos_attendant_branch_assignments) THEN RAISE EXCEPTION 'unexpected opt-in/backfill'; END IF;
+ IF EXISTS(SELECT 1 FROM programme_organisations) OR EXISTS(SELECT 1 FROM programme_memberships) OR EXISTS(SELECT 1 FROM programmes) OR EXISTS(SELECT 1 FROM programme_cohorts) OR EXISTS(SELECT 1 FROM programme_participants) OR EXISTS(SELECT 1 FROM programme_enrolments) OR EXISTS(SELECT 1 FROM programme_requests) OR EXISTS(SELECT 1 FROM programme_audit_events) THEN RAISE EXCEPTION 'unexpected programme backfill'; END IF;
  IF (SELECT sum(amount_delta_minor) FROM cashbook_entries WHERE business_id='11111111-1111-4111-8111-111111111111') <> 2500 THEN RAISE EXCEPTION 'ledger balance changed'; END IF;
  INSERT INTO staff(id,business_id,display_name,role) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','11111111-1111-4111-8111-111111111111','Attendant','POS_ATTENDANT');
  BEGIN
@@ -53,6 +56,14 @@ BEGIN
  EXCEPTION WHEN foreign_key_violation THEN NULL;
  END;
  INSERT INTO pos_attendant_branch_assignments(business_id,staff_id,branch_id,assigned_by_staff_id) VALUES ('11111111-1111-4111-8111-111111111111','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','33333333-3333-4333-8333-333333333333','55555555-5555-4555-8555-555555555555');
-END $$;
+ INSERT INTO programme_organisations(id,name) VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','Synthetic programme A'), ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','Synthetic programme B');
+ INSERT INTO programmes(id,organisation_id,name) VALUES ('dddddddd-dddd-4ddd-8ddd-dddddddddddd','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','Training A');
+ BEGIN
+  INSERT INTO programme_cohorts(organisation_id,programme_id,name,capacity) VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','dddddddd-dddd-4ddd-8ddd-dddddddddddd','Foreign cohort',1);
+  RAISE EXCEPTION 'cross-organisation cohort unexpectedly accepted';
+ EXCEPTION WHEN foreign_key_violation THEN NULL;
+ END;
+ INSERT INTO programme_cohorts(organisation_id,programme_id,name,capacity) VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','dddddddd-dddd-4ddd-8ddd-dddddddddddd','Cohort A',1);
+END $;
 SQL
-printf 'Upgrade rehearsal passed: 60 -> 64, existing table fingerprints preserved, replay and tenant constraints verified. Synthetic data only.\n'
+printf 'Upgrade rehearsal passed: 60 -> 65, existing table fingerprints preserved, replay and tenant constraints verified. Synthetic data only.\n'

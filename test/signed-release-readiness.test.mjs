@@ -4,7 +4,10 @@ import {inspectMigrationDirectory} from '../ops/release/check-promotion-migratio
 import {FINANCE_QUERIES} from '../ops/release/check-promotion-finance.mjs';
 import {assessExpansion,assessCutover,readReleaseSnapshot} from '../ops/release/check-signed-release-readiness.mjs';
 import {fileURLToPath} from 'node:url';
-const files=inspectMigrationDirectory(fileURLToPath(new URL('../packages/db/migrations',import.meta.url)));
+const actualFiles=inspectMigrationDirectory(fileURLToPath(new URL('../packages/db/migrations',import.meta.url)));
+// Exercise the exact previously approved release inventory separately from
+// development-only migrations. Unknown files must remain ineligible.
+const files=new Map([...actualFiles].filter(([name])=>Number(name.slice(0,4))<=64));
 const rows=[...files].filter(([name])=>Number(name.slice(0,4))<=60).map(([migration_name,checksum_sha256])=>({migration_name,checksum_sha256,state:'APPLIED'}));
 const counts=Object.fromEntries(FINANCE_QUERIES.map(([key])=>[key,0]));
 const backup={checksumsVerified:true,isolatedRestoresVerified:3,migrationRows:60,ageSeconds:1};
@@ -38,4 +41,15 @@ test('database read uses a single read-only snapshot and rolls back',async()=>{
  const pool={connect:async()=>({query:async sql=>{commands.push(sql);return {rows:sql.includes('migration_name')?rows:[{total:'0'}]};},release:()=>{released=true;}})};
  const result=await readReleaseSnapshot(pool);
  assert.equal(result.rows.length,60);assert.equal(result.invalidScopes,0);assert.match(commands[0],/READ ONLY/);assert.equal(commands.at(-1),'ROLLBACK');assert.equal(released,true);
+});
+
+test('development programme migration is deliberately not approved for live promotion',()=>{
+ assert.equal(actualFiles.size,65);
+ assert.ok(actualFiles.has('0065_programme_foundation.sql'));
+ assert.equal(assessExpansion(actualFiles,rows).migrationAction,'HOLD');
+ const all=[...actualFiles].map(([migration_name,checksum_sha256])=>({migration_name,checksum_sha256,state:'APPLIED'}));
+ assert.equal(assessExpansion(actualFiles,all).migrationAction,'HOLD');
+ const blocked=assessCutover(actualFiles,rows,counts,0,backup);
+ assert.equal(blocked.checksClear,false);
+ assert.equal(blocked.authorizedToDeploy,false);
 });
