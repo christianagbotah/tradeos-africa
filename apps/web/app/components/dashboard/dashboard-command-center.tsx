@@ -88,6 +88,7 @@ export function DashboardCommandCenter() {
       {/* Storefront actions always remain accessible even if the sales query
           takes time or fails. The sidebar policy determines which are shown. */}
       <DashboardQuickActions role={role} />
+      <BusinessQuestionPanel />
 
       {/* KPI grid — 4-up on desktop, 2x2 on phone. Order is deliberate:
           row 1 = revenue + sales count, row 2 = catalog + sync. */}
@@ -179,7 +180,6 @@ export function DashboardCommandCenter() {
 
       {/* Detailed intelligence follows the everyday sales overview. */}
       <BusinessBriefingPanel />
-      <BusinessQuestionPanel />
 
       {role === "VIEWER" ? (
         <div className="tos-callout tos-callout--info">
