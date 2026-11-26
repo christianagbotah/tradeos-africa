@@ -538,6 +538,50 @@ jobs:
                   throw new Error("Recovered cash payment did not reconcile");
                 console.log("Actual server-posted cash sale with lost reply recovered exactly once at "+width);
               }finally{await fresh.unroute(syncPattern,intercept);}
+              // Use the original online sale for a full, restockable cash
+              // return. The offline and recovered sales remain completed and separate.
+              await page.goto(WEB+"/returns",{waitUntil:"domcontentloaded"});
+              const shortReceipt=saleId.slice(0,8);
+              const trigger=width<=768?
+                page.getByRole("button",{name:"Return goods from receipt "+shortReceipt,exact:true}):
+                page.locator("tr").filter({hasText:"#"+shortReceipt}).getByRole("button",{name:"Return",exact:true});
+              await trigger.click();
+              const correction=page.getByRole("dialog",{name:"Process return",exact:true});
+              await correction.getByRole("button",{name:"Increase return quantity for "+itemName,exact:true}).click();
+              await correction.getByRole("radio",{name:/Restockable/}).click();
+              await correction.locator("#rr-refund-method").selectOption("ORIGINAL_METHOD");
+              await correction.locator("#rr-reason").selectOption("Customer changed mind");
+              await page.screenshot({path:`${EVIDENCE}/first-customer-return-${width}.png`});
+              screenshotCount++;
+              const submittedReturn=page.waitForResponse(r=>r.url().endsWith("/v1/sync")&&r.request().method()==="POST"&&
+                r.request().postDataJSON()?.mutations?.some(m=>m.mutationType==="RETURN_CREATE"&&m.payload?.originalSaleId===saleId),{timeout:45000});
+              await correction.getByRole("button",{name:"Post return (1 line)",exact:true}).click();
+              const returnResponse=await submittedReturn;
+              const returnMutation=returnResponse.request().postDataJSON().mutations.find(m=>m.mutationType==="RETURN_CREATE"&&m.payload.originalSaleId===saleId);
+              const reversal=(await returnResponse.json()).mutationResults?.find(r=>r.clientMutationId===returnMutation.clientMutationId);
+              if(!returnResponse.ok()||reversal?.status!=="APPLIED"||!reversal.result?.returnCaseId||
+                 reversal.result.refundTotalMinor!==1000||reversal.result.pendingRefundMinor!==0)
+                throw new Error("Cash return was not posted and settled");
+              await correction.waitFor({state:"hidden",timeout:20000});
+              if(await available()!==3)throw new Error("Returned item was not restocked exactly once");
+              const refundedSale=(await request("/v1/sales/"+encodeURIComponent(saleId)+"?businessId="+encodeURIComponent(businessId),null)).sale;
+              if(refundedSale?.status!=="REFUNDED"||refundedSale.payments?.length!==1||
+                 refundedSale.payments[0].method!=="CASH"||refundedSale.payments[0].status!=="REVERSED"||
+                 refundedSale.payments[0].refundedMinor!==1000||Number(refundedSale.lines[0].quantityReturnable)!==0)
+                throw new Error("Returned sale or original cash payment did not reverse");
+              const returnReplay=await request("/v1/sync",{mutations:[returnMutation]});
+              const replayedReturn=returnReplay.mutationResults?.find(r=>r.clientMutationId===returnMutation.clientMutationId);
+              if(replayedReturn?.status!=="APPLIED"||replayedReturn.result?.returnCaseId!==reversal.result.returnCaseId||
+                 await available()!==3)
+                throw new Error("Return replay duplicated stock or changed the original return identity");
+              const unchanged=(await request("/v1/sales/"+encodeURIComponent(saleId)+"?businessId="+encodeURIComponent(businessId),null)).sale;
+              if(unchanged.payments?.length!==1||unchanged.payments[0].refundedMinor!==1000)
+                throw new Error("Return replay duplicated cash reversal");
+              await page.goto(WEB+"/sales/receipt/"+encodeURIComponent(saleId),{waitUntil:"domcontentloaded"});
+              await page.locator("#tos-verified-receipt").waitFor({timeout:20000});
+              await page.screenshot({path:`${EVIDENCE}/first-customer-refunded-receipt-${width}.png`,fullPage:true});
+              screenshotCount++;
+              console.log("First-customer full cash return, restock, payment reversal and idempotent replay verified at "+width);
             }finally{await fresh.close();}
           }
 
