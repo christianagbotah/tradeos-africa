@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import type { BusinessActionItem, BusinessActionListResponse, BusinessActionState, BusinessActionHistoryResponse } from "@tradeos/contracts";
+import { useEffect, useRef, useState } from "react";
+import type { BusinessActionItem, BusinessActionListResponse, BusinessActionState, BusinessActionHistoryResponse, BusinessActionExplanation } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { getOfflineQueue } from "../../../lib/offline-sync";
@@ -17,10 +17,22 @@ export function BusinessActionQueue() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [history, setHistory] = useState<BusinessActionHistoryResponse | null>(null);
   const [historyLoading, setHistoryLoading] = useState<string | null>(null);
+  const [explanation, setExplanation] = useState<{scope:string; data:BusinessActionExplanation} | null>(null);
+  const [explanationLoading, setExplanationLoading] = useState<string | null>(null);
+  const explanationSequence = useRef(0);
   const allowed = ROLES.has(role);
   const context = session ? `${session.businessId}:${session.branchId}` : "";
   const contextRef = useRef(context);
   contextRef.current = context;
+  const explanationScope = session && allowed && queue.online ? context + ":" + role : "";
+  const explanationScopeRef = useRef(explanationScope);
+  explanationScopeRef.current = explanationScope;
+  useEffect(() => {
+    ++explanationSequence.current;
+    setExplanation(null);
+    setExplanationLoading(null);
+    return () => { ++explanationSequence.current; };
+  }, [explanationScope]);
 
   const params = session && allowed && queue.online
     ? `businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}`
@@ -123,6 +135,35 @@ export function BusinessActionQueue() {
     }
   }
 
+  async function toggleExplanation(actionId: string) {
+    if (!params || !explanationScope || explanationLoading) return;
+    if (explanation?.scope === explanationScope && explanation.data.actionId === actionId) {
+      setExplanation(null);
+      return;
+    }
+    const requestedScope = explanationScope;
+    const sequence = ++explanationSequence.current;
+    setExplanation(null);
+    setExplanationLoading(actionId);
+    setActionError(null);
+    try {
+      const response = await getOfflineQueue().authenticatedFetch(
+        `/v1/intelligence/actions/${encodeURIComponent(actionId)}/explanation?${params}`,
+        { method: "GET", cache: "no-store" },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      const result = await response.json() as BusinessActionExplanation;
+      if (sequence === explanationSequence.current && explanationScopeRef.current === requestedScope &&
+          result.businessId === session?.businessId && result.branchId === session?.branchId &&
+          result.actionId === actionId) setExplanation({scope:requestedScope,data:result});
+    } catch (err) {
+      if (sequence === explanationSequence.current && explanationScopeRef.current === requestedScope)
+        setActionError(err instanceof Error ? err.message : "Could not verify task origin.");
+    } finally {
+      if (sequence === explanationSequence.current) setExplanationLoading(null);
+    }
+  }
+
   return (
     <section className={styles.panel} aria-labelledby="merchant-follow-up-title">
       <div className={styles.header}>
@@ -177,12 +218,32 @@ export function BusinessActionQueue() {
                         onClick={() => { void changeState(task, "OPEN"); }}>Reopen</button>
                     ) : null}
                     <button className={styles.taskButton} type="button"
+                      disabled={explanationLoading !== null || !queue.online}
+                      aria-expanded={explanation?.scope === explanationScope && explanation.data.actionId === task.id}
+                      onClick={() => { void toggleExplanation(task.id); }}>
+                      {explanationLoading === task.id ? "Loading…" : explanation?.scope === explanationScope && explanation.data.actionId === task.id ? "Hide explanation" : "Why this task?"}
+                    </button>
+                    <button className={styles.taskButton} type="button"
                       disabled={historyLoading !== null || !queue.online}
                       aria-expanded={history?.actionId === task.id}
                       onClick={() => { void toggleHistory(task.id); }}>
                       {historyLoading === task.id ? "Loading…" : history?.actionId === task.id ? "Hide history" : "History"}
                     </button>
                   </div>
+                  {explanation?.scope === explanationScope && explanation.data.actionId === task.id ? (
+                    <div className={styles.history}>
+                      <h4>Why this task?</h4>
+                      <p>{explanation.data.origin === "APPROVED_AUTOMATION"
+                        ? "Created by an owner-approved automation from a business alert."
+                        : explanation.data.origin === "ALERT"
+                          ? "Created from a business alert."
+                          : "The original source could not be verified."}</p>
+                      <p><strong>Recorded reason:</strong> {explanation.data.recordedReason}</p>
+                      {explanation.data.sourceAlert ? <p><strong>Current alert status:</strong> {explanation.data.sourceAlert.state.toLowerCase()} · {explanation.data.sourceAlert.severity.toLowerCase()} priority · last observed {new Date(explanation.data.sourceAlert.lastSeenAt).toLocaleString("en-GH")}</p> : null}
+                      {explanation.data.approval ? <p>Approval recorded {new Date(explanation.data.approval.approvedAt).toLocaleString("en-GH")} · policy version {explanation.data.approval.policyVersion}</p> : null}
+                      <p>For review only. This task does not post payments or stock changes.</p>
+                    </div>
+                  ) : null}
                   {history?.actionId === task.id ? (
                     <div className={styles.history}>
                       <h4>Task history</h4>
