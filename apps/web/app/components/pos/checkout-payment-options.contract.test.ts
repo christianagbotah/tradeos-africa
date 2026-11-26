@@ -27,6 +27,14 @@ describe("POS cash / electronic checkout",()=>{
     expect(checkout.indexOf('if (resultData?.status !== "COMPLETED" || !resultData.saleId)'))
       .toBeLessThan(checkout.indexOf('status: "completed",'));
   });
+  it("clears a submitted basket on every checkout dismissal, but preserves unsubmitted carts",()=>{
+    expect(checkout).toContain('if (busy || submittingRef.current) return;');
+    expect(checkout).toContain('if (result) onComplete();');
+    expect(checkout).toContain('else onClose();');
+    expect(checkout).toContain('tos-sheet-scrim" onClick={closeCheckout}');
+    expect(checkout).toContain('onClick={closeCheckout} disabled={busy} aria-label="Close checkout"');
+    expect(checkout).toContain('onClick={closeCheckout} disabled={busy}>Cancel');
+  });
   it("uses pending Hubtel for both MoMo and card",()=>{
     expect(checkout).toContain('onClick={()=>chooseTender("MOMO")}');
     expect(checkout).toContain('onClick={()=>chooseTender("CARD")}');
