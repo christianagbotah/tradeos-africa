@@ -69,6 +69,7 @@ interface SaleResult {
   totalMinor: number | null;
   message?: string;
   paymentPending?: boolean;
+  reviewRequired?: boolean;
   receiptAvailable?: boolean;
 }
 
@@ -331,7 +332,7 @@ export function CheckoutSheet({
           itemId: l.sellable.itemId,
           saleUnitCode: l.sellable.unitCode,
           quantity: l.quantity,
-          ...(online?{expectedUnitPriceMinor:lineNetMinor(l,i)}:{}),
+          ...(online||(paymentMethod==="CASH"&&!splitWithCredit)?{expectedUnitPriceMinor:lineNetMinor(l,i)}:{}),
           ...(selectedApprovals[l.sellable.key]?{
             priceApprovalId:selectedApprovals[l.sellable.key],
           }:{}),
@@ -357,8 +358,43 @@ export function CheckoutSheet({
         });
       attemptedSaleRef.current={signature,mutation};
 
+      // A cash charge must survive a browser restart or a lost server reply.
+      // Do not use this queue-first path for electronic or credit payments.
+      if(paymentMethod==="CASH"&&!splitWithCredit&&!hubtelSelected){
+        const outcome=await queue.submitDurableCashSale(mutation,online);
+        if(outcome.status==="completed"){
+          if(exactMode){
+            notifyAction({tone:"success",title:"Cash sale recorded",
+              message:"The sale was confirmed. Find the receipt under Sales."});
+            onComplete();
+            return;
+          }
+          setResult({status:"completed",reference:outcome.saleId,
+            totalMinor:outcome.totalMinor,changeMinor,receiptAvailable:true,
+            message:"Sale complete."});
+          return;
+        }
+        if(outcome.status==="rejected"){
+          setResult({status:"pending",reference:mutation.clientMutationId,
+            totalMinor,changeMinor:null,reviewRequired:true,
+            message:outcome.message+" Review the failed transaction in Sync before charging again."});
+          return;
+        }
+        if(exactMode&&!online){
+          notifyAction({tone:"info",title:"Cash sale saved offline",
+            message:"Saved on this device for sync. It is not yet server-confirmed."});
+          onComplete();
+          return;
+        }
+        setResult({status:"pending",reference:mutation.clientMutationId,
+          totalMinor,changeMinor,message:online?
+            "The cash sale was saved locally but server confirmation is unavailable. Check Sales or Sync before charging again.":
+            "You are offline. Sale queued locally and will sync automatically."});
+        return;
+      }
+
       if (online) {
-        // Direct sync push for immediate feedback.
+        // Direct sync push for non-cash and split-payment feedback.
         const res = await queue.authenticatedFetch("/v1/sync", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -518,7 +554,7 @@ export function CheckoutSheet({
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Checkout</span>
-            <h2 className="tos-sheet__title">{result?.paymentPending?"Payment pending":result?.status==="completed"?"Sale complete":result?"Sale queued":"Take payment"}</h2>
+            <h2 className="tos-sheet__title">{result?.reviewRequired?"Review sale":result?.paymentPending?"Payment pending":result?.status==="completed"?"Sale complete":result?"Sale queued":"Take payment"}</h2>
             <p className="tos-sheet__sub">
               {online ? "Online — ready to process" : "Offline — sale will queue locally"}
             </p>
@@ -930,15 +966,15 @@ function SuccessPanel({
         }
       >
         <span className="tos-success__status-row-dot" aria-hidden="true" />
-        {result.paymentPending?"Awaiting verified Hubtel payment":pending?(online?"Queued — processing":"Queued — will sync when online"):"Synced"}
+        {result.reviewRequired?"Server rejected sale — review Sync":result.paymentPending?"Awaiting verified Hubtel payment":pending?(online?"Queued — processing":"Queued — will sync when online"):"Synced"}
       </span>
       <h2 className="tos-success__title">
-        {result.paymentPending?"Payment not yet confirmed":pending?"Sale queued":"Sale complete"}
+        {result.reviewRequired?"Sale needs review":result.paymentPending?"Payment not yet confirmed":pending?"Sale queued":"Sale complete"}
       </h2>
       <p className="tos-success__text">{result.message}</p>
 
       <div className="tos-success__receipt">
-        <span className="tos-success__receipt-label">{result.paymentPending?"Unpaid order reference":"Receipt reference"}</span>
+        <span className="tos-success__receipt-label">{result.paymentPending?"Unpaid order reference":pending?"Transaction reference":"Receipt reference"}</span>
         <span className="tos-success__receipt-ref">{result.reference}</span>
         {result.totalMinor !== null ? (
           <>

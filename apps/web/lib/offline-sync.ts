@@ -314,6 +314,37 @@ export class WebOfflineQueue {
     return this.queueFor(resolved).queue.getSnapshot();
   }
 
+  /**
+   * Cash-only checkout: save the original mutation before ANY network request.
+   * A timeout, lost response or process restart must reuse that durable ID.
+   * Never infer completion from queue absence; use exact scoped server evidence.
+   */
+  async submitDurableCashSale(mutation:QueuedMutation,online:boolean):Promise<
+    {status:"completed";saleId:string;totalMinor:number}|
+    {status:"pending"}|{status:"rejected";message:string}
+  > {
+    const session=this.sessionStore.load();
+    const payload=mutation.payload as Record<string,unknown>|null;
+    if(!session||session.businessId!==mutation.businessId||session.branchId!==mutation.branchId||
+      session.clientId!==mutation.clientId||mutation.mutationType!=="SALE_CREATE"||
+      payload?.paymentMethod!=="CASH"||payload.payments!==undefined||payload.paymentProvider!==undefined)
+      throw new Error("Cash sale scope or payment method is invalid.");
+    const runtime=this.queueFor(mutation.businessId).queue;
+    await runtime.enqueue(mutation);
+    if(online){
+      // Transport failure is ambiguous. Do not rebuild, change the amount or
+      // invite another charge. The persisted request remains available to sync.
+      try {await this.flush({activeBusinessId:mutation.businessId,online:true});}
+      catch { /* preserve durable pending state */ }
+    }
+    const evidence=runtime.getCompletedSale(mutation.clientMutationId,mutation.businessId,mutation.branchId);
+    if(evidence)return {status:"completed",...evidence};
+    const snapshot=await runtime.getSnapshot();
+    const rejected=snapshot.failed.find(f=>f.mutation.clientMutationId===mutation.clientMutationId);
+    if(rejected)return {status:"rejected",message:rejected.result.errorMessage??rejected.result.errorCode??"Server rejected the sale."};
+    return {status:"pending"};
+  }
+
   /** Exact process-local evidence; never infer posting from queue absence. */
   hasAppliedAcknowledgement(id:string,businessId:string,branchId:string|undefined):boolean {
     return this.queueFor(businessId).queue.hasAppliedAcknowledgement(id,businessId,branchId);

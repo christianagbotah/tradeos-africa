@@ -476,6 +476,68 @@ jobs:
                   throw new Error("Offline sale payment did not reconcile exactly once");
                 console.log("First-customer offline cash sale, automatic reconnect and idempotent replay verified at "+width);
               }finally{await fresh.setOffline(false);}
+              // Drop a genuine successful server response after posting the
+              // cash mutation. Block subsequent attempts until we have
+              // inspected the persisted identity and pending-only UI.
+              let posted=null, allowReplay=false;
+              const syncPattern="**/v1/sync";
+              const intercept=async route=>{
+                const req=route.request();
+                const mutations=req.method()==="POST"?req.postDataJSON()?.mutations??[]:[];
+                const cash=mutations.find(m=>m.mutationType==="SALE_CREATE"&&
+                  m.payload?.lines?.some(l=>l.itemId===itemId));
+                if(!cash){await route.continue();return;}
+                if(!posted){
+                  const server=await route.fetch();
+                  const body=await server.json();
+                  posted={mutation:cash,result:body.mutationResults?.find(r=>r.clientMutationId===cash.clientMutationId)};
+                  await route.abort("failed");
+                }else if(!allowReplay){await route.abort("failed");}
+                else await route.continue();
+              };
+              await fresh.route(syncPattern,intercept);
+              try{
+                await tile.click();
+                await (width<=768?page.locator(".tos-charge-bar__charge"):page.locator("aside button:has-text('Charge')")).click();
+                const interrupted=page.getByRole("dialog",{name:"Checkout",exact:true});
+                await interrupted.getByRole("group",{name:"Payment method",exact:true}).getByRole("button",{name:"Cash",exact:true}).click();
+                await interrupted.getByRole("group",{name:"Quick cash amounts",exact:true}).getByRole("button").first().click();
+                await interrupted.getByRole("button",{name:/^Charge /}).click();
+                await interrupted.locator(".tos-success__title").filter({hasText:/^Sale queued$/}).waitFor({timeout:20000});
+                if(posted?.result?.status!=="APPLIED"||posted.result.result?.status!=="COMPLETED"||
+                   !posted.result.result?.saleId)
+                  throw new Error("Fault injection did not capture a successfully posted cash sale");
+                const originalMutation=posted.mutation;
+                const originalSaleId=posted.result.result.saleId;
+                const stored=await page.evaluate(id=>JSON.parse(localStorage.getItem("tradeos.web.mutationQueue.v2."+encodeURIComponent(id))),businessId);
+                if(stored?.pending?.length!==1||
+                   JSON.stringify(stored.pending[0])!==JSON.stringify(originalMutation))
+                  throw new Error("Lost reply did not preserve exact posted cash mutation");
+                if(await interrupted.getByRole("button",{name:"Print receipt",exact:true}).count())
+                  throw new Error("Unconfirmed response offered a receipt");
+                if(await available()!==2)throw new Error("Lost-response sale did not post exactly once");
+                await interrupted.getByRole("button",{name:"Close checkout",exact:true}).click();
+                if(await page.locator(".tos-cart-line").count()!==0)
+                  throw new Error("Interrupted cash checkout retained submitted basket");
+                const recovered=page.waitForResponse(r=>r.url().endsWith("/v1/sync")&&r.request().method()==="POST"&&
+                  r.request().postDataJSON()?.mutations?.some(m=>m.clientMutationId===originalMutation.clientMutationId),{timeout:45000});
+                allowReplay=true;
+                const response=await recovered;
+                const replayed=(await response.json()).mutationResults?.find(r=>r.clientMutationId===originalMutation.clientMutationId);
+                if(replayed?.status!=="APPLIED"||replayed.result?.saleId!==originalSaleId)
+                  throw new Error("Lost-response retry did not recover original sale");
+                await page.waitForFunction(id=>{
+                  const q=JSON.parse(localStorage.getItem("tradeos.web.mutationQueue.v2."+encodeURIComponent(id))||"null");
+                  return q&&q.pending.length===0&&q.failed.length===0;
+                },businessId,{timeout:20000});
+                if(await available()!==2)throw new Error("Lost-response retry duplicated inventory posting");
+                const recoveredSale=(await request("/v1/sales/"+encodeURIComponent(originalSaleId)+"?businessId="+encodeURIComponent(businessId),null)).sale;
+                if(recoveredSale?.status!=="COMPLETED"||recoveredSale.totalMinor!==1000||
+                   recoveredSale.payments?.length!==1||recoveredSale.payments[0].amountMinor!==1000||
+                   recoveredSale.payments[0].method!=="CASH"||recoveredSale.payments[0].status!=="SUCCEEDED")
+                  throw new Error("Recovered cash payment did not reconcile");
+                console.log("Actual server-posted cash sale with lost reply recovered exactly once at "+width);
+              }finally{await fresh.unroute(syncPattern,intercept);}
             }finally{await fresh.close();}
           }
 
