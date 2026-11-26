@@ -27,13 +27,14 @@ export function DashboardScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Card background={colors.brandForest} variant="raised" padding="comfortable" style={styles.hero}>
+      <Card background={colors.midnight} variant="raised" padding="comfortable" style={styles.hero}>
         <View style={styles.heroHeading}>
-          <IconTile name="store" size={44} tint={colors.gold} background="rgba(255,255,255,0.10)" />
+          <IconTile name="store" size={44} tint={colors.gold} background={colors.midnightRaised} />
           <View style={styles.heroContext}>
             <Text style={styles.eyebrow}>Point of sale</Text>
             <Text style={styles.businessName}>{ready.business.name}</Text>
             <Text style={styles.meta}>{ready.branch.name}</Text>
+            <Text style={styles.meta}>{ready.membership.role.replace(/_/g, " ")} · {ready.business.currencyCode === "GHS" ? "₵" : ready.business.currencyCode}</Text>
           </View>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="Start a sale"
@@ -104,9 +105,9 @@ function ActionRow({
       accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       disabled={disabled || loading} onPress={onPress}
       style={({pressed}) => [styles.actionRow, !first && styles.rowDivider, (pressed || disabled) && styles.pressed]}>
-      <IconTile name={icon} size={36} tint={colors.brandForest} background={colors.positiveSoft} />
+      <IconTile name={icon} size={36} tint={colors.midnight} background={colors.goldSoft} />
       <Text style={styles.actionLabel}>{label}</Text>
-      {loading ? <ActivityIndicator color={colors.brandForest} /> : <Icon name="arrowRight" size={18} color={colors.textMuted} />}
+      {loading ? <ActivityIndicator color={colors.midnight} /> : <Icon name="arrowRight" size={18} color={colors.textMuted} />}
     </Pressable>
   );
 }
@@ -121,7 +122,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.s4, flexGrow: 1, backgroundColor: colors.canvas,
     paddingHorizontal: spacing.s4, paddingBottom: spacing.s6, gap: spacing.s3,
   },
-  hero: {borderColor: colors.brandForest, borderRadius: radius.lg},
+  hero: {borderColor: colors.midnight, borderRadius: radius.lg},
   heroHeading: {flexDirection: "row", alignItems: "flex-start", gap: spacing.s3},
   heroContext: {flex: 1, minWidth: 0, gap: spacing.s1},
   eyebrow: {color: colors.gold, fontSize: typography.meta, fontWeight: typography.weightBold},
