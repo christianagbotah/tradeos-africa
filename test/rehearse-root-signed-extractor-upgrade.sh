@@ -102,6 +102,12 @@ QA_FAIL_MOVE=1 reject 73 run activate --upgrade
 check "$activate"
 [[ "$(cat "$activate/installer-source-commit")" == "$old" ]]
 [[ ! -e "$activate-extractor-rollback" ]]
+failed="$root/.tradeos-signed-activate-extractor-failed"
+check "$failed"
+reject 65 run activate --upgrade
+# Simulate explicit operator review by retaining the failed candidate outside
+# the fixture tool directory. Only this isolated test moves the residue.
+mv "$failed" "$fixture/reviewed-failed-candidate"
 run activate --upgrade
 check "$activate"
 check "$activate-extractor-rollback"

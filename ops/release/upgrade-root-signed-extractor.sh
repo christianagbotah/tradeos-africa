@@ -122,6 +122,11 @@ verify_source(){
   fi
   [[ ! -e "$BACKUP" && ! -L "$BACKUP" && ! -e "$FAILED" && ! -L "$FAILED" ]] ||
     fail 'existing rollback or interrupted upgrade requires review'
+  local residue
+  for residue in "$ROOT"/.tradeos-signed-"$kind"-extractor.*; do
+    [[ ! -e "$residue" && ! -L "$residue" ]] ||
+      fail 'existing staged extractor requires operator review'
+  done
 }
 verify_source
 if [[ "$action" == --check ]]; then
@@ -154,7 +159,12 @@ restore(){
     (validate_install "$CURRENT") || status=65
     echo 'Extractor upgrade interrupted; previous toolset retained or restored' >&2
   fi
-  # An incomplete staged tool directory is retained for operator review.
+  # Quarantine any remaining staged toolset. Never silently retry an
+  # interrupted privileged operation; an operator must inspect the residue.
+  if (( !complete )) && [[ -d "$stage" && ! -L "$stage" &&
+      ! -e "$FAILED" && ! -L "$FAILED" ]]; then
+    mv -T -- "$stage" "$FAILED" || status=65
+  fi
   exit "$status"
 }
 trap restore EXIT
