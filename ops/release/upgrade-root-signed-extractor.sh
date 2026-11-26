@@ -55,7 +55,17 @@ current_main(){
 trusted_chain "$checkout"
 trusted_chain "$checkout/ops/release"
 trusted_chain "$ROOT"
-trusted_chain "$LOCK_DIR"
+# RHEL's fixed /var/lock alias resolves to /run/lock on the authorized host.
+# Accept only the standard root-owned alias, never arbitrary indirection.
+canonical_lock="$(realpath -e -- "$LOCK_DIR")"
+if [[ "$canonical_lock" != "$LOCK_DIR" ]]; then
+  trusted_chain /var
+  [[ -L /var/lock && "$(stat -c '%u' -- /var/lock)" == 0 &&
+     "$(realpath -e -- /var/lock)" == /run/lock &&
+     "$canonical_lock" == /run/lock/lightworld-deploy &&
+     ! -L "$LOCK_DIR" ]] || fail 'unsafe lock directory alias'
+fi
+trusted_chain "$canonical_lock"
 trusted_chain /usr/local/sbin
 # Never accept user-controlled Git config or an external .git indirection.
 trusted_chain "$checkout/.git"

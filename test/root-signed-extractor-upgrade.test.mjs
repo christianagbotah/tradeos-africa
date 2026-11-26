@@ -20,7 +20,7 @@ test('fixed paths and one-file scope, exact Git source, root ownership and manif
     'unexpected checksum manifest entries','sha256sum -c --strict --status SHA256SUMS',
     'source bytes do not match reviewed Git object','installed extractor does not match recorded source',
     'non-extractor change requires a different reviewed upgrade','entrypoint requires a different reviewed upgrade',
-    'existing rollback or interrupted upgrade requires review','no_activation=true'])
+    'existing rollback or interrupted upgrade requires review','unsafe lock directory alias','/run/lock/lightworld-deploy','no_activation=true'])
     assert.ok(source.includes(required),required);
   assert.doesNotMatch(source,/rm -rf|rm -f|pm2 |systemctl |pnpm install|apply-migrations/);
 });
