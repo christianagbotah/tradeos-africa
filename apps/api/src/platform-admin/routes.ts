@@ -1,5 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { DatabasePool } from "../db.js";
+import { passwordRecoveryMailSettings, sendPasswordRecoveryEmail } from "../auth/password-recovery-mail.js";
+import { requestPlatformPasswordReset, confirmPlatformPasswordReset } from "./password-recovery-service.js";
 import {
   authenticatePlatformAdmin,
   loginPlatformAdmin,
@@ -14,10 +16,71 @@ import {
   listAdminReleases,
   listAdminTenants,
 } from "./read-service.js";
+import {
+  changeAdminPassword,
+  getAdminProfile,
+  listOwnAdminSessions,
+  revokeOwnAdminSession,
+  updateAdminProfile,
+} from "./profile-service.js";
+import { changeTenantStatus, getTenant360 } from "./tenant-service.js";
+import {
+  createPlan,
+  listPlans,
+  listSubscriptions,
+  setPlanEntitlements,
+  transitionSubscription,
+  updatePlan,
+} from "./subscription-service.js";
+import {
+  createPlatformAdmin,
+  listPlatformAdmins,
+  setPlatformAdminActive,
+  updatePlatformAdminRole,
+} from "./admin-user-service.js";
+import {
+  listHubtelMerchantAccountReviews,reviewHubtelMerchantAccount,
+} from "./hubtel-merchant-reviews.js";
 
 const ADMIN_COOKIE = "__Host-tradeos_admin_session";
 
 export function registerPlatformAdminRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  app.post<{ Body: { email?: unknown } }>("/api/admin/password/forgot", async (request, reply) => {
+    // The administrator link origin is configured separately from merchant UI.
+    const settings = passwordRecoveryMailSettings({
+      ...process.env,
+      TRADEOS_PASSWORD_RESET_PUBLIC_ORIGIN: process.env.TRADEOS_ADMIN_RESET_PUBLIC_ORIGIN,
+    });
+    if (!settings) return reply.code(503).send({
+      error: "ADMIN_RECOVERY_UNAVAILABLE",
+      message: "Administrator email recovery is temporarily unavailable. Contact platform support.",
+    });
+    try {
+      const result = await requestPlatformPasswordReset(pool, request.body?.email, {
+        publicOrigin: settings.publicOrigin,
+        deliver: (mail) => sendPasswordRecoveryEmail(mail, settings),
+        reportDeliveryFailure: () => request.log.error("Administrator recovery mail submission failed"),
+      });
+      reply.header("Cache-Control", "no-store");
+      return reply.code(202).send(result);
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_RECOVERY_FAILED", "Recovery could not be requested.");
+    }
+  });
+
+  app.post<{ Body: { token?: unknown; newPassword?: unknown } }>(
+    "/api/admin/password/reset", async (request, reply) => {
+      try {
+        await confirmPlatformPasswordReset(pool, request.body?.token, request.body?.newPassword);
+        reply.header("Cache-Control","no-store");
+        return { message: "Administrator password reset. Sign in with your new password." };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_RECOVERY_RESET_FAILED", "Password could not be reset.");
+      }
+    },
+  );
+
+
   app.post<{ Body: { identifier?: unknown; password?: unknown; platform?: unknown; deviceKey?: unknown } }>(
     "/api/admin/session/login",
     async (request, reply) => {
@@ -54,6 +117,98 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
     }
   });
 
+  app.get("/api/admin/profile", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { profile: await getAdminProfile(pool, admin) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PROFILE_FAILED", "Administrator profile could not be loaded.");
+    }
+  });
+
+  app.patch<{ Body: { email?: unknown; displayName?: unknown } }>("/api/admin/profile", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { profile: await updateAdminProfile(pool, admin, request.body ?? {}) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PROFILE_UPDATE_FAILED", "Administrator profile could not be updated.");
+    }
+  });
+
+  app.post<{ Body: { currentPassword?: unknown; newPassword?: unknown } }>("/api/admin/profile/password", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      await changeAdminPassword(pool, admin, request.body ?? {});
+      return reply.code(204).send();
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PASSWORD_CHANGE_FAILED", "Administrator password could not be changed.");
+    }
+  });
+
+  app.get("/api/admin/profile/sessions", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { sessions: await listOwnAdminSessions(pool, admin) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_SESSIONS_FAILED", "Administrator sessions could not be loaded.");
+    }
+  });
+
+  app.delete<{ Params: { sessionId: string } }>("/api/admin/profile/sessions/:sessionId", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      await revokeOwnAdminSession(pool, admin, request.params.sessionId);
+      return reply.code(204).send();
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_SESSION_REVOKE_FAILED", "Administrator session could not be revoked.");
+    }
+  });
+
+  app.get("/api/admin/admins", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { admins: await listPlatformAdmins(pool, admin) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_USERS_FAILED", "Platform administrators could not be loaded.");
+    }
+  });
+
+  app.post<{ Body: { email?: unknown; displayName?: unknown; role?: unknown; reason?: unknown } }>(
+    "/api/admin/admins",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return reply.code(201).send({ admin: await createPlatformAdmin(pool, admin, request.body ?? {}) });
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_USER_CREATE_FAILED", "Platform administrator could not be created.");
+      }
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { role?: unknown; reason?: unknown } }>(
+    "/api/admin/admins/:id/role",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { admin: await updatePlatformAdminRole(pool, admin, request.params.id, request.body ?? {}) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_USER_ROLE_FAILED", "Administrator role could not be changed.");
+      }
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { active?: unknown; reason?: unknown } }>(
+    "/api/admin/admins/:id/status",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { admin: await setPlatformAdminActive(pool, admin, request.params.id, request.body ?? {}) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_USER_STATUS_FAILED", "Administrator status could not be changed.");
+      }
+    },
+  );
+
   app.get("/api/admin/tenants", async (request, reply) => {
     try {
       await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
@@ -63,6 +218,27 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
     }
   });
 
+  app.get<{ Params: { id: string } }>("/api/admin/tenants/:id/overview", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { tenant: await getTenant360(pool, admin, request.params.id) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_TENANT_OVERVIEW_FAILED", "Tenant overview could not be loaded.");
+    }
+  });
+
+  app.patch<{ Params: { id: string }; Body: { status?: unknown; reason?: unknown; expectedUpdatedAt?: unknown } }>(
+    "/api/admin/tenants/:id/status",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { tenant: await changeTenantStatus(pool, admin, request.params.id, request.body ?? {}) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_TENANT_STATUS_FAILED", "Tenant status could not be changed.");
+      }
+    },
+  );
+
   app.get<{ Params: { id: string } }>("/api/admin/tenants/:id", async (request, reply) => {
     try {
       await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
@@ -71,6 +247,131 @@ export function registerPlatformAdminRoutes(app: FastifyInstance, pool: Database
       return sendAdminError(request, reply, error, "ADMIN_TENANT_FAILED", "Tenant details could not be loaded.");
     }
   });
+
+  app.get<{ Querystring: { limit?: string } }>(
+    "/api/admin/payments/hubtel/merchant-accounts",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(
+          pool,readAdminCookie(request.headers.cookie));
+        reply.header("Cache-Control","no-store");
+        return await listHubtelMerchantAccountReviews(pool,admin,{
+          limit:Number(request.query?.limit??50),
+        });
+      } catch (error) {
+        return sendAdminError(request,reply,error,
+          "ADMIN_HUBTEL_MERCHANT_REVIEWS_FAILED",
+          "Hubtel merchant account reviews could not be loaded.");
+      }
+    },
+  );
+
+  app.post<{ Params: { businessId: string }; Body: {
+    decision?:unknown;evidenceReference?:unknown;rationale?:unknown;
+    beneficiaryOwnershipConfirmed?:unknown;expectedCredentialRevision?:unknown;
+    expectedReviewVersion?:unknown;
+  } }>(
+    "/api/admin/payments/hubtel/merchant-accounts/:businessId/review",
+    {bodyLimit:4096},
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(
+          pool,readAdminCookie(request.headers.cookie));
+        reply.header("Cache-Control","no-store");
+        return {review:await reviewHubtelMerchantAccount(
+          pool,admin,request.params.businessId,{
+            decision:request.body?.decision,
+            evidenceReference:request.body?.evidenceReference,
+            rationale:request.body?.rationale,
+            beneficiaryOwnershipConfirmed:request.body?.beneficiaryOwnershipConfirmed,
+            expectedCredentialRevision:request.body?.expectedCredentialRevision,
+            expectedReviewVersion:request.body?.expectedReviewVersion,
+          })};
+      } catch (error) {
+        return sendAdminError(request,reply,error,
+          "ADMIN_HUBTEL_MERCHANT_REVIEW_FAILED",
+          "Hubtel merchant account review could not be recorded.");
+      }
+    },
+  );
+
+  app.get("/api/admin/plans", async (request, reply) => {
+    try {
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { plans: await listPlans(pool) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PLANS_FAILED", "Plans could not be loaded.");
+    }
+  });
+
+  app.post<{ Body: Record<string, unknown> }>("/api/admin/plans", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return reply.code(201).send({ plan: await createPlan(pool, admin, request.body ?? {}) });
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PLAN_CREATE_FAILED", "Plan could not be created.");
+    }
+  });
+
+  app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>("/api/admin/plans/:id", async (request, reply) => {
+    try {
+      const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { plan: await updatePlan(pool, admin, request.params.id, request.body ?? {}) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_PLAN_UPDATE_FAILED", "Plan could not be updated.");
+    }
+  });
+
+  app.put<{ Params: { id: string }; Body: { entitlements?: unknown; reason?: unknown; expectedUpdatedAt?: unknown } }>(
+    "/api/admin/plans/:id/entitlements",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { plan: await setPlanEntitlements(pool, admin, request.params.id, request.body ?? {}) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_PLAN_ENTITLEMENTS_FAILED", "Plan entitlements could not be updated.");
+      }
+    },
+  );
+
+  app.get("/api/admin/subscriptions", async (request, reply) => {
+    try {
+      await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+      return { subscriptions: await listSubscriptions(pool) };
+    } catch (error) {
+      return sendAdminError(request, reply, error, "ADMIN_SUBSCRIPTIONS_FAILED", "Subscriptions could not be loaded.");
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: { planId?: unknown; mode?: unknown; reason?: unknown } }>(
+    "/api/admin/tenants/:id/subscription",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        const subscription = await transitionSubscription(pool, admin, {
+          action: "ASSIGN", businessId: request.params.id, planId: request.body?.planId, mode: request.body?.mode, reason: request.body?.reason,
+        });
+        return reply.code(201).send({ subscription });
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_SUBSCRIPTION_CREATE_FAILED", "Subscription could not be assigned.");
+      }
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { action?: unknown; planId?: unknown; reason?: unknown; expectedUpdatedAt?: unknown } }>(
+    "/api/admin/subscriptions/:id",
+    async (request, reply) => {
+      try {
+        const admin = await authenticatePlatformAdmin(pool, readAdminCookie(request.headers.cookie));
+        return { subscription: await transitionSubscription(pool, admin, {
+          subscriptionId: request.params.id, action: request.body?.action, planId: request.body?.planId,
+          reason: request.body?.reason, expectedUpdatedAt: request.body?.expectedUpdatedAt,
+        }) };
+      } catch (error) {
+        return sendAdminError(request, reply, error, "ADMIN_SUBSCRIPTION_UPDATE_FAILED", "Subscription could not be changed.");
+      }
+    },
+  );
 
   app.get("/api/admin/devices", async (request, reply) => {
     try {

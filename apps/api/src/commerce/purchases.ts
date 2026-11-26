@@ -8,12 +8,15 @@ import { allocateSupplierPayment, createSupplierCreditObligation } from "./credi
 export interface PurchaseReceiveMutationPayload {
  moneyAccountId?:string;
   supplierId: string;
+  /** An issued supplier PO, optional for ad-hoc stock receipts. */
+  purchaseOrderId?: string;
   settlementMethod: SettlementMethod;
   supplierReference?: string;
   receivedByStaffId?: string;
   lines: Array<{
     itemId: string;
     purchaseUnitCode: string;
+    purchaseOrderLineId?: string;
     quantity: number;
     unitCostMinor: number;
   }>;
@@ -40,6 +43,8 @@ type PurchaseItemRow = {
   stock_unit_code: string;
 };
 type ConversionRow = { from_unit_code: string; to_unit_code: string; factor: string | number };
+type RuntimePurchaseLine = PurchaseReceiveMutationPayload["lines"][number] & { costMinor?: number };
+type NormalizedPurchaseLine = PurchaseReceiveMutationPayload["lines"][number];
 
 export class PurchaseMutationError extends Error {
   constructor(message: string, readonly code = "PURCHASE_INVALID") { super(message); }
@@ -50,17 +55,56 @@ export async function applyPurchaseReceiveMutation(
   context: PurchaseReceiveContext,
   payload: PurchaseReceiveMutationPayload,
 ): Promise<PurchaseReceiveResult> {
+  const runtimeSettlementMethod = (payload as { settlementMethod?: unknown }).settlementMethod;
+  const legacyBlankSettlementMethod = typeof runtimeSettlementMethod === "string" && runtimeSettlementMethod.trim() === "";
+  if (runtimeSettlementMethod === undefined || runtimeSettlementMethod === null || legacyBlankSettlementMethod) {
+    return applyPurchaseReceiveMutation(pool, context, {
+      ...payload,
+      settlementMethod: "SUPPLIER_CREDIT",
+    });
+  }
   validate(context, payload);
 
   return withTransaction(pool, async (client) => {
     await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${context.businessId}:${context.clientMutationId}`]);
-    const prior = await client.query<{ id: string; total_minor: string | number; status: string; branch_id: string }>(
-      `SELECT id,total_minor,status,branch_id FROM purchases WHERE business_id=$1 AND client_mutation_id=$2`,
+    const prior = await client.query<{ id: string; total_minor: string | number; status: string;
+      branch_id: string; purchase_order_id: string | null; supplier_id:string;
+      settlement_method:string; supplier_reference:string|null }>(
+      `SELECT id,total_minor,status,branch_id,purchase_order_id,supplier_id,
+        settlement_method,supplier_reference FROM purchases
+       WHERE business_id=$1 AND client_mutation_id=$2`,
       [context.businessId, context.clientMutationId],
     );
     const replay = prior.rows[0];
     if (replay) {
       if (replay.branch_id !== context.branchId) throw new PurchaseMutationError("Purchase belongs to another branch", "BRANCH_MISMATCH");
+      if ((replay.purchase_order_id ?? null) !== (payload.purchaseOrderId ?? null)) throw new PurchaseMutationError("Receipt replay references a different supplier order", "PURCHASE_REPLAY_CONFLICT");
+      if (payload.purchaseOrderId) {
+        // Lost-response retries must match the original linked delivery exactly,
+        // rather than silently claiming altered quantities or costs were posted.
+        const actual = (await client.query<{
+          purchase_order_line_id:string|null;item_id:string;purchase_unit_code:string;
+          purchase_quantity:string;unit_cost_minor:string;
+        }>(
+          `SELECT purchase_order_line_id,item_id,purchase_unit_code,
+             purchase_quantity::text,unit_cost_minor::text
+           FROM purchase_lines WHERE business_id=$1 AND purchase_id=$2`,
+          [context.businessId,replay.id])).rows;
+        const previous=actual.map(line=>[
+          line.purchase_order_line_id,line.item_id,line.purchase_unit_code,
+          String(quantityUnits(Number(line.purchase_quantity))),line.unit_cost_minor,
+        ].join("|")).sort();
+        const current=payload.lines.map(line=>[
+          line.purchaseOrderLineId,line.itemId,line.purchaseUnitCode,
+          String(quantityUnits(line.quantity)),String(line.unitCostMinor),
+        ].join("|")).sort();
+        if (replay.supplier_id!==payload.supplierId ||
+            replay.settlement_method!==payload.settlementMethod ||
+            (replay.supplier_reference??"")!==(payload.supplierReference?.trim()??"") ||
+            JSON.stringify(previous)!==JSON.stringify(current))
+          throw new PurchaseMutationError("The same receipt key was used with different delivery information",
+            "PURCHASE_REPLAY_CONFLICT");
+      }
       if (replay.status !== "RECEIVED") throw new PurchaseMutationError("Existing purchase receipt is not active", "PURCHASE_REPLAY_INVALID");
       return {
         purchaseId: replay.id,
@@ -82,13 +126,57 @@ export async function applyPurchaseReceiveMutation(
     const currencyCode = branch.rows[0]?.currency_code;
     if (!currencyCode) throw new PurchaseMutationError("Branch was not found for this business", "BRANCH_NOT_FOUND");
 
+    // Serialize partial receipts on the PO row before calculating remaining
+    // quantities. This prevents simultaneous deliveries over-receiving a line.
+    // Keep this lock before the supplier/product locks to avoid lock inversions.
+    if (payload.purchaseOrderId) {
+      const po = (await client.query<{id:string;branch_id:string;supplier_id:string;status:string}>(
+        `SELECT id,branch_id,supplier_id,status FROM supplier_purchase_orders
+         WHERE id=$1 AND business_id=$2 FOR UPDATE`,
+        [payload.purchaseOrderId,context.businessId])).rows[0];
+      if (!po) throw new PurchaseMutationError("Supplier order was not found", "PO_NOT_FOUND");
+      if (po.branch_id!==context.branchId || po.supplier_id!==payload.supplierId)
+        throw new PurchaseMutationError("Supplier order must match the receipt branch and supplier", "PO_RECEIPT_SCOPE_MISMATCH");
+      if (po.status!=="ISSUED")
+        throw new PurchaseMutationError("Only issued purchase orders can receive goods", "PO_NOT_RECEIVABLE");
+      const lines = (await client.query<{
+        id:string;item_id:string;purchase_unit_code:string;ordered:string;
+        received:string;
+      }>(
+        `SELECT pol.id,pol.item_id,pol.purchase_unit_code,
+           pol.quantity::text AS ordered,
+           COALESCE(SUM(CASE WHEN p.id IS NOT NULL THEN pl.purchase_quantity ELSE 0 END),0)::text AS received
+         FROM supplier_purchase_order_lines pol
+         LEFT JOIN purchase_lines pl ON pl.business_id=pol.business_id
+           AND pl.purchase_order_line_id=pol.id
+         LEFT JOIN purchases p ON p.id=pl.purchase_id AND p.business_id=pol.business_id
+           AND p.purchase_order_id=pol.order_id AND p.status='RECEIVED'
+         WHERE pol.order_id=$1 AND pol.business_id=$2
+         GROUP BY pol.id,pol.item_id,pol.purchase_unit_code,pol.quantity`,
+        [payload.purchaseOrderId,context.businessId])).rows;
+      const byId = new Map(lines.map(line=>[line.id,line]));
+      const seen = new Set<string>();
+      for (const requested of payload.lines) {
+        const lineId = requested.purchaseOrderLineId!;
+        const ordered = byId.get(lineId);
+        if (!ordered || seen.has(lineId) || ordered.item_id!==requested.itemId ||
+            ordered.purchase_unit_code!==requested.purchaseUnitCode)
+          throw new PurchaseMutationError("Every received item must match one unique order line", "PO_LINE_MISMATCH");
+        seen.add(lineId);
+        if (quantityUnits(requested.quantity) >
+            quantityUnits(Number(ordered.ordered))-quantityUnits(Number(ordered.received)))
+          throw new PurchaseMutationError("Received quantity exceeds outstanding purchase order quantity", "PO_OVER_RECEIPT");
+      }
+    }
+
     const supplier = await client.query<{ id: string; name: string; payment_terms_days: number }>(
       `SELECT id,name,payment_terms_days FROM suppliers WHERE id=$1 AND business_id=$2 AND is_active=true FOR UPDATE`,
       [payload.supplierId, context.businessId],
     );
     if (!supplier.rows[0]) throw new PurchaseMutationError("Supplier is not active for this business", "SUPPLIER_NOT_FOUND");
 
-    const purchaseItemIds = [...new Set(payload.lines.map((line) => line.itemId))].sort();
+    const normalizedLines = await normalizePurchaseLines(client, context.businessId, payload.lines);
+    const purchaseItemIds = [...new Set(normalizedLines.map((line) => line.itemId))].sort();
     if (purchaseItemIds.length > 0) {
       await client.query(
         `SELECT id FROM catalog_items WHERE business_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE`,
@@ -99,19 +187,21 @@ export async function applyPurchaseReceiveMutation(
     const purchaseInsert = await client.query<{ id: string }>(
       `INSERT INTO purchases (
          business_id,branch_id,supplier_id,received_by_staff_id,status,currency_code,
-         supplier_reference,total_minor,client_mutation_id,received_at,settlement_method
-       ) VALUES ($1,$2,$3,$4,'RECEIVED',$5,$6,0,$7,$8,$9) RETURNING id`,
+         supplier_reference,total_minor,client_mutation_id,received_at,settlement_method,
+         purchase_order_id
+       ) VALUES ($1,$2,$3,$4,'RECEIVED',$5,$6,0,$7,$8,$9,$10) RETURNING id`,
       [
         context.businessId,context.branchId,payload.supplierId,payload.receivedByStaffId ?? null,currencyCode,
         payload.supplierReference?.trim() || null,context.clientMutationId,context.occurredAt,payload.settlementMethod,
+        payload.purchaseOrderId ?? null,
       ],
     );
     const purchaseId = purchaseInsert.rows[0]?.id;
     if (!purchaseId) throw new PurchaseMutationError("Purchase receipt could not be created", "PURCHASE_CREATE_FAILED");
 
     let totalMinor = 0;
-    for (let index = 0; index < payload.lines.length; index += 1) {
-      const requested = payload.lines[index]!;
+    for (let index = 0; index < normalizedLines.length; index += 1) {
+      const requested = normalizedLines[index]!;
       const item = await loadPurchaseItem(client, context.businessId, requested.itemId, requested.purchaseUnitCode);
       const stockQuantity = await convertToStockQuantity(client, item, requested.purchaseUnitCode, requested.quantity);
       quantityUnits(stockQuantity);
@@ -123,11 +213,12 @@ export async function applyPurchaseReceiveMutation(
       const lineInsert = await client.query<{ id: string }>(
         `INSERT INTO purchase_lines (
            purchase_id,business_id,item_id,item_name_snapshot,purchase_unit_code,purchase_quantity,
-           stock_unit_code,stock_quantity,unit_cost_minor,line_cost_minor
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+           stock_unit_code,stock_quantity,unit_cost_minor,line_cost_minor,purchase_order_line_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
         [
           purchaseId,context.businessId,item.id,item.name,requested.purchaseUnitCode,requested.quantity,
           item.stock_unit_code,stockQuantity,requested.unitCostMinor,lineCostMinor,
+          requested.purchaseOrderLineId ?? null,
         ],
       );
       const purchaseLineId = lineInsert.rows[0]?.id;
@@ -159,8 +250,54 @@ export async function applyPurchaseReceiveMutation(
     }
     if (totalMinor > 0 && isCashMethod(payload.settlementMethod)) await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode,method:payload.settlementMethod,amountDeltaMinor:-totalMinor,entryType:"PURCHASE_PAYMENT",sourceType:"PURCHASE",sourceId:purchaseId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`purchase:${purchaseId}`});
     await writeEvents(client, context, payload, purchaseId, totalMinor);
-    return { purchaseId, status: "RECEIVED", totalMinor, lineCount: payload.lines.length, idempotentReplay: false };
+    return { purchaseId, status: "RECEIVED", totalMinor, lineCount: normalizedLines.length, idempotentReplay: false };
   });
+}
+
+async function normalizePurchaseLines(
+  client: DatabaseClient,
+  businessId: string,
+  lines: PurchaseReceiveMutationPayload["lines"],
+): Promise<NormalizedPurchaseLine[]> {
+  const normalized: NormalizedPurchaseLine[] = [];
+  for (const declaredLine of lines) {
+    const line = declaredLine as RuntimePurchaseLine;
+    const unitCostMinor = line.unitCostMinor ?? line.costMinor;
+    let purchaseUnitCode = typeof line.purchaseUnitCode === "string" ? line.purchaseUnitCode.trim() : "";
+
+    if (!purchaseUnitCode) {
+      const stockUnit = await client.query<{ stock_unit_code: string }>(
+        `SELECT ci.stock_unit_code
+         FROM catalog_items ci
+         JOIN catalog_item_units u
+           ON u.business_id=ci.business_id AND u.item_id=ci.id
+          AND u.unit_code=ci.stock_unit_code AND u.can_purchase=true
+         WHERE ci.id=$1 AND ci.business_id=$2 AND ci.is_active=true AND ci.kind='PRODUCT'
+           AND ci.track_stock=true AND ci.stock_unit_code IS NOT NULL
+         FOR SHARE OF ci`,
+        [line.itemId, businessId],
+      );
+      purchaseUnitCode = stockUnit.rows[0]?.stock_unit_code ?? "";
+      if (!purchaseUnitCode) {
+        throw new PurchaseMutationError("Item/unit is not configured for purchasing", "ITEM_NOT_PURCHASABLE");
+      }
+    }
+
+    if (!Number.isSafeInteger(unitCostMinor) || (unitCostMinor ?? -1) < 0) {
+      throw new PurchaseMutationError("Unit cost must be a non-negative minor-unit integer");
+    }
+    normalized.push({
+      itemId: line.itemId,
+      purchaseUnitCode,
+      // Preserve PO linkage through the legacy-unit normalization step.
+      // Dropping it would cause the DB tenant-scope trigger to reject the
+      // entire linked receipt instead of recording the actual delivery.
+      ...(line.purchaseOrderLineId ? {purchaseOrderLineId:line.purchaseOrderLineId}:{}),
+      quantity: line.quantity,
+      unitCostMinor: unitCostMinor!,
+    });
+  }
+  return normalized;
 }
 
 async function loadPurchaseItem(
@@ -218,13 +355,24 @@ function validate(context: PurchaseReceiveContext, payload: PurchaseReceiveMutat
   if (!settlementMethods.includes(payload.settlementMethod)) throw new PurchaseMutationError("Invalid settlement method");
   if (!payload.receivedByStaffId) throw new PurchaseMutationError("Authenticated staff actor required", "STAFF_ACTOR_REQUIRED");
   if (!payload.supplierId) throw new PurchaseMutationError("supplierId is required", "SUPPLIER_REQUIRED");
+  if (!Array.isArray(payload.lines) || payload.lines.length === 0)
+    throw new PurchaseMutationError("At least one purchase line is required");
+  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (payload.purchaseOrderId && !uuid.test(payload.purchaseOrderId))
+    throw new PurchaseMutationError("Invalid supplier order ID", "PO_ID_INVALID");
+  if (!payload.purchaseOrderId && payload.lines.some(line=>line.purchaseOrderLineId!==undefined))
+    throw new PurchaseMutationError("Order line cannot be linked without an order", "PO_LINE_MISMATCH");
+  if (payload.purchaseOrderId && payload.lines.some(line=>!line.purchaseOrderLineId || !uuid.test(line.purchaseOrderLineId)))
+    throw new PurchaseMutationError("Every PO receipt line needs a valid order line ID", "PO_LINE_MISMATCH");
   if (payload.supplierReference && payload.supplierReference.trim().length > 160) throw new PurchaseMutationError("Supplier reference is too long");
-  if (!Array.isArray(payload.lines) || payload.lines.length === 0) throw new PurchaseMutationError("At least one purchase line is required");
-  for (const line of payload.lines) {
-    if (!line.itemId || !line.purchaseUnitCode?.trim()) throw new PurchaseMutationError("Purchase lines need an item and purchase unit");
+  for (const declaredLine of payload.lines) {
+    const line = declaredLine as RuntimePurchaseLine;
+    const unitCostMinor = line.unitCostMinor ?? line.costMinor;
+    if (!line.itemId) throw new PurchaseMutationError("Purchase lines need an item and purchase unit");
+    if (line.purchaseUnitCode !== undefined && !line.purchaseUnitCode?.trim()) throw new PurchaseMutationError("Purchase lines need an item and purchase unit");
     quantityUnits(line.quantity);
     if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new PurchaseMutationError("Purchase quantity must be positive");
-    if (!Number.isSafeInteger(line.unitCostMinor) || line.unitCostMinor < 0) throw new PurchaseMutationError("Unit cost must be a non-negative minor-unit integer");
+    if (!Number.isSafeInteger(unitCostMinor) || (unitCostMinor ?? -1) < 0) throw new PurchaseMutationError("Unit cost must be a non-negative minor-unit integer");
   }
 }
 
@@ -235,7 +383,8 @@ async function writeEvents(
   purchaseId: string,
   totalMinor: number,
 ): Promise<void> {
-  const eventPayload = JSON.stringify({ supplierId: payload.supplierId, totalMinor, lineCount: payload.lines.length });
+  const eventPayload = JSON.stringify({ supplierId: payload.supplierId, totalMinor,
+    lineCount: payload.lines.length, purchaseOrderId: payload.purchaseOrderId ?? null });
   await client.query(
     `INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at)
      VALUES ($1,$2,$3,'PURCHASE_RECEIVED','PURCHASE',$4,$5,$6::jsonb,$7)`,

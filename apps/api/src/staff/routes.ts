@@ -9,6 +9,7 @@ import type {
 import type { FastifyInstance } from "fastify";
 import { authenticateAccessToken, AuthError } from "../auth/security.js";
 import type { DatabasePool } from "../db.js";
+import { readAttendantAssignments,replaceAttendantAssignments } from "./branch-assignments.js";
 import {
   acceptStaffInvitation,
   createStaff,
@@ -20,6 +21,28 @@ import {
 } from "./staff-service.js";
 
 export function registerStaffRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  app.get<{Params:{staffId:string};Querystring:{businessId?:string}}>(
+    "/v1/staff/:staffId/branches",async(request,reply)=>{
+      try{
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        const branchIds=await readAttendantAssignments(
+          pool,auth,request.query.businessId,request.params.staffId);
+        return reply.header("Cache-Control","private, no-store").send({branchIds});
+      }catch(error){return sendStaffError(request,reply,error,"STAFF_BRANCH_READ_FAILED",
+        "Staff branch assignments could not be loaded.");}
+    },
+  );
+  app.put<{Params:{staffId:string};Body:{businessId?:string;branchIds?:unknown}}>(
+    "/v1/staff/:staffId/branches",async(request,reply)=>{
+      try{
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        const branchIds=await replaceAttendantAssignments(pool,auth,
+          request.body?.businessId,request.params.staffId,request.body?.branchIds);
+        return reply.header("Cache-Control","private, no-store").send({branchIds});
+      }catch(error){return sendStaffError(request,reply,error,"STAFF_BRANCH_UPDATE_FAILED",
+        "Staff branch assignments could not be saved.");}
+    },
+  );
   app.get<{ Querystring: { businessId?: string } }>("/v1/staff", async (request, reply) => {
     try {
       const auth = await authenticateAccessToken(pool, request.headers.authorization);

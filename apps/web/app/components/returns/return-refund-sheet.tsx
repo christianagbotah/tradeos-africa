@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { useWorkspace } from "../workspace/use-workspace";
@@ -16,6 +16,8 @@ import {
   IconWallet,
 } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { enqueueAndConfirmMutation, PendingMutationConfirmationError } from "../../../lib/confirmed-financial-mutation";
+import { notifyAction } from "../ui/action-feedback";
 
 interface SaleDetailLine {
   id: string;
@@ -145,6 +147,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
   const [customReason, setCustomReason] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const pendingPostingRef = useRef<{ targetId: string; mutationId: string } | null>(null);
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "CASHIER"].includes(role);
 
@@ -246,10 +249,29 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
           lines,
         },
       });
-      await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await enqueueAndConfirmMutation(queue, mutation, {
+        businessId: session.businessId,
+        branchId: session.branchId,
+        mutationTypes: ["RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE"],
+        targetField: "originalSaleId",
+        targetId: data.sale.id,
+      }, typeof navigator !== "undefined" ? navigator.onLine : true,
+      pendingPostingRef.current?.targetId === mutation.payload.originalSaleId ?
+        pendingPostingRef.current.mutationId : null);
+      pendingPostingRef.current = null;
       onComplete();
     } catch (err) {
+      if (err instanceof PendingMutationConfirmationError) {
+        pendingPostingRef.current = {
+          targetId: data.sale.id,
+          mutationId: err.mutationId,
+        };
+        // The first queued attempt already issued a global pending toast.
+        // Only alert again if this is a repeated attempt against that queue.
+        if (err.existing) notifyAction({
+          tone: "warning", title: "Awaiting server confirmation", message: err.message,
+        });
+      }
       setSubmitError(err instanceof Error ? err.message : "Could not submit.");
     } finally {
       setBusy(false);
@@ -259,10 +281,11 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
   const eyebrow = mode === "return" ? "Return" : "Refund";
   const title = mode === "return" ? "Process return" : "Issue refund";
   const submitLabel = mode === "return" ? "Post return" : "Post refund";
+  const awaitingConfirmation = pendingPostingRef.current?.targetId === data?.sale.id;
 
   return (
     <>
-      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet-scrim" onClick={() => { if (!busy) onClose(); }} aria-hidden="true" />
       <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label={title}>
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
@@ -270,7 +293,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
             <h2 className="tos-sheet__title">{title}</h2>
             <p className="tos-sheet__sub">Receipt #{saleId.slice(0, 8)} · {fullRefund ? "Full return" : "Partial return"}</p>
           </div>
-          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="tos-sheet__close" onClick={onClose} disabled={busy} aria-label="Close">
             <IconClose style={{ width: 18, height: 18 }} />
           </button>
         </div>
@@ -340,7 +363,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                                 className="tos-return-line__stepper-btn"
                                 onClick={() => setQuantities((p) => ({ ...p, [line.id]: Math.max(0, qty - 1) }))}
                                 aria-label={`Decrease return quantity for ${line.itemName}`}
-                                disabled={busy || qty <= 0}
+                                disabled={busy || awaitingConfirmation || qty <= 0}
                               >−</button>
                               <span className="tos-return-line__stepper-val">{qty}</span>
                               <button
@@ -348,7 +371,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                                 className="tos-return-line__stepper-btn"
                                 onClick={() => setQuantities((p) => ({ ...p, [line.id]: Math.min(line.quantityReturnable, qty + 1) }))}
                                 aria-label={`Increase return quantity for ${line.itemName}`}
-                                disabled={busy || qty >= line.quantityReturnable}
+                                disabled={busy || awaitingConfirmation || qty >= line.quantityReturnable}
                               >+</button>
                             </div>
                           </div>
@@ -385,7 +408,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                         role="radio"
                         aria-checked={restockChoice === opt.value}
                         onClick={() => setRestockChoice(opt.value)}
-                        disabled={busy}
+                        disabled={busy || awaitingConfirmation}
                       >
                         <span className="tos-restock-option__label">{opt.label}</span>
                         <span className="tos-restock-option__hint">{opt.hint}</span>
@@ -406,7 +429,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                   className="tos-select"
                   value={refundMethod}
                   onChange={(e) => setRefundMethod(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || awaitingConfirmation}
                 >
                   {REFUND_METHODS.map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
@@ -423,7 +446,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                   className="tos-select"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || awaitingConfirmation}
                 >
                   {RETURN_REASONS.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -437,7 +460,7 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                     placeholder="Describe the reason…"
                     value={customReason}
                     onChange={(e) => setCustomReason(e.target.value)}
-                    disabled={busy}
+                    disabled={busy || awaitingConfirmation}
                   />
                 ) : null}
               </div>
@@ -489,14 +512,17 @@ export function ReturnRefundSheet({ saleId, mode, onClose, onComplete }: ReturnR
                 </span>
               </div>
 
-              {submitError ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{submitError}</span></div> : null}
+              {submitError ? <div className={awaitingConfirmation ? "tos-banner tos-banner--warning" : "tos-banner tos-banner--danger"} role="status">
+                <span className="tos-banner__title">{submitError}</span>
+                {awaitingConfirmation ? <span>The original queued details are fixed. Selecting Check posting status will only recheck that transaction.</span> : null}
+              </div> : null}
             </>
           ) : null}
         </div>
         <div className="tos-sheet__foot">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button variant="danger" onClick={handleSubmit} loading={busy} disabled={!canWrite || !data || impact.refundMinor <= 0}>
-            {canWrite ? `${submitLabel} (${impact.selectedCount} line${impact.selectedCount === 1 ? "" : "s"})` : "No permission"}
+          <Button variant="danger" onClick={handleSubmit} loading={busy} disabled={!canWrite || !data || (!awaitingConfirmation && impact.refundMinor <= 0)}>
+            {canWrite ? (awaitingConfirmation ? "Check posting status" : `${submitLabel} (${impact.selectedCount} line${impact.selectedCount === 1 ? "" : "s"})`) : "No permission"}
           </Button>
         </div>
       </div>

@@ -9,6 +9,7 @@ import { Button } from "../ui/button";
 import { IconCalendar, IconClose, IconMail, IconPhone, IconReceipt, IconShield, IconWallet } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
+import type { SupplierMutationEvent } from "./supplier-reconciliation";
 import {
   buildSupplierUpdatePayload,
   buildSupplierPaymentPayload,
@@ -45,7 +46,7 @@ interface SupplierSheetProps {
   supplier: Supplier | null;
   onClose: () => void;
   /** Called after a SUPPLIER_UPDATE or SUPPLIER_PAYMENT_CREATE enqueues successfully. */
-  onMutated?: () => void;
+  onMutated?: (event: SupplierMutationEvent) => void;
 }
 
 const PAYMENT_METHODS: ReadonlyArray<{ value: PaymentMethod; label: string }> = [
@@ -73,6 +74,7 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const editFormRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!supplier) return;
@@ -83,6 +85,15 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
     if (typeof document !== "undefined") document.body.style.overflow = "hidden";
     return () => { if (typeof document !== "undefined") document.body.style.overflow = ""; };
   }, [supplier]);
+
+  useEffect(() => {
+    if (!editOpen) return;
+    const frame = requestAnimationFrame(() => {
+      editFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      editFormRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editOpen]);
 
   if (!supplier || !session) return null;
 
@@ -109,7 +120,7 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
       );
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Supplier could not be deleted"));
       bump();
-      onMutated?.();
+      onMutated?.({ kind: "deleted", supplier });
       onClose();
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : "Supplier could not be deleted");
@@ -284,26 +295,37 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
           </div>
 
           {editOpen && session ? (
-            <SupplierEditForm
-              supplier={supplier}
-              onCancel={() => setEditOpen(false)}
-              onSubmit={async (payload) => {
-                const queue = getOfflineQueue();
-                const mutation = queue.build({
-                  businessId: session.businessId,
-                  mutationType: SUPPLIER_UPDATE_TYPE,
-                  payload,
-                });
-                await queue.enqueue(mutation);
-                await queue.flushOrThrow({
-                  activeBusinessId: session.businessId,
-                  online: typeof navigator !== "undefined" ? navigator.onLine : true,
-                });
-                bump();
-                onMutated?.();
-                setEditOpen(false);
-              }}
-            />
+            <div ref={editFormRef} className="tos-sheet__inline-editor">
+              <SupplierEditForm
+                supplier={supplier}
+                onCancel={() => setEditOpen(false)}
+                onSubmit={async (payload) => {
+                  const queue = getOfflineQueue();
+                  const mutation = queue.build({
+                    businessId: session.businessId,
+                    mutationType: SUPPLIER_UPDATE_TYPE,
+                    payload,
+                  });
+                  await queue.enqueue(mutation);
+                  await queue.flushOrThrow({
+                    activeBusinessId: session.businessId,
+                    online: typeof navigator !== "undefined" ? navigator.onLine : true,
+                  });
+                  bump();
+                  onMutated?.({
+                    kind: "updated",
+                    supplier,
+                    changes: {
+                      name: payload.name as string,
+                      phone: payload.phone as string | null,
+                      email: payload.email as string | null,
+                      address: payload.address as string | null,
+                    },
+                  });
+                  setEditOpen(false);
+                }}
+              />
+            </div>
           ) : null}
 
           {paymentOpen && session ? (
@@ -327,7 +349,7 @@ export function SupplierSheet({ supplier, onClose, onMutated }: SupplierSheetPro
                   online: typeof navigator !== "undefined" ? navigator.onLine : true,
                 });
                 bump();
-                onMutated?.();
+                onMutated?.({ kind: "refresh" });
                 setPaymentOpen(false);
               }}
             />

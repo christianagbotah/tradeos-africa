@@ -93,6 +93,9 @@ load_app_config() {
   fi
   _lightworld_assert_config_permissions "$file" || return 1
 
+  # Retention is deletion authority: do not inherit it from the runner's
+  # environment. Only this verified root-owned registry may opt in.
+  RELEASE_RETENTION='off'
   # shellcheck disable=SC1090
   source "$file"
 
@@ -121,6 +124,26 @@ require_release_config() {
   PROCESS_MAX_MEMORY="${PROCESS_MAX_MEMORY:-}"
   PROCESS_INTERPRETER="${PROCESS_INTERPRETER:-}"
   PROCESS_RESTART_DELAY="${PROCESS_RESTART_DELAY:-}"
+  # Disabled unless the root-owned app registry explicitly opts in. Never
+  # treat missing configuration as authority to remove release directories.
+  RELEASE_RETENTION="${RELEASE_RETENTION:-off}"
+  case "$RELEASE_RETENTION" in
+    off|active-and-rollback) ;;
+    *) lightworld_die 'RELEASE_RETENTION must be off or active-and-rollback'; return 1 ;;
+  esac
+  # Per-app startup grace; keep historical defaults for every other service.
+  HEALTH_STARTUP_RETRIES="${HEALTH_STARTUP_RETRIES:-8}"
+  HEALTH_STARTUP_MAX_SECONDS="${HEALTH_STARTUP_MAX_SECONDS:-12}"
+  if [[ ! "$HEALTH_STARTUP_RETRIES" =~ ^[0-9]+$ ]] ||
+     (( HEALTH_STARTUP_RETRIES < 1 || HEALTH_STARTUP_RETRIES > 60 )); then
+    lightworld_die 'HEALTH_STARTUP_RETRIES must be an integer from 1 to 60'
+    return 1
+  fi
+  if [[ ! "$HEALTH_STARTUP_MAX_SECONDS" =~ ^[0-9]+$ ]] ||
+     (( HEALTH_STARTUP_MAX_SECONDS < 1 || HEALTH_STARTUP_MAX_SECONDS > 120 )); then
+    lightworld_die 'HEALTH_STARTUP_MAX_SECONDS must be an integer from 1 to 120'
+    return 1
+  fi
 
   require_absolute_path "$RELEASE_ROOT" 'RELEASE_ROOT'
   require_absolute_path "$CURRENT_LINK" 'CURRENT_LINK'
@@ -243,6 +266,13 @@ assert_workspace_registry_contract() {
       fi
     fi
   done
+  if grep -q -E '^MIGRATION_MODE=' -- "$contract"; then
+    expected="$(_workspace_contract_value "$contract" MIGRATION_MODE)" || return 1
+    if [[ "$MIGRATION_MODE" != "$expected" ]]; then
+      lightworld_die "workspace registry contract mismatch for MIGRATION_MODE"
+      return 1
+    fi
+  fi
 }
 
 run_git_as_runner() {
@@ -401,6 +431,91 @@ write_metadata_sha() {
   printf '%s\n' "${sha,,}" > "$tmp"
   chmod 0644 "$tmp"
   mv -f -- "$tmp" "${dir}/${name}"
+}
+
+# An opt-in, post-health housekeeping operation. This is deliberately
+# read-only until the application explicitly sets RELEASE_RETENTION in its
+# root-owned registry. Only workspace-archive releases are currently eligible;
+# canonical Git worktrees need a separate Git-aware lifecycle policy.
+_release_is_process_referenced() {
+  local candidate="$1" proc entry resolved
+  for proc in /proc/[0-9]*; do
+    [[ -d "$proc" ]] || continue
+    for entry in cwd exe root; do
+      resolved="$(readlink -f -- "$proc/$entry" 2>/dev/null || true)"
+      case "$resolved" in
+        "$candidate"|"$candidate"/*) return 0 ;;
+      esac
+    done
+    if [[ -r "$proc/cmdline" ]] &&
+       LC_ALL=C grep -aFq -- "$candidate" "$proc/cmdline" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+_release_contains_mountpoint() {
+  local candidate="$1" mounts mount
+  # If mount inspection is unavailable, preserve the candidate rather than
+  # crossing a bind mount or risking shared persistent data.
+  command -v findmnt >/dev/null 2>&1 || return 0
+  mounts="$(findmnt -rn -o TARGET 2>/dev/null)" || return 0
+  while IFS= read -r mount; do
+    case "$mount" in
+      "$candidate"|"$candidate"/*) return 0 ;;
+    esac
+  done <<< "$mounts"
+  return 1
+}
+
+prune_stale_release_archives() {
+  [[ "${RELEASE_RETENTION:-off}" == 'active-and-rollback' ]] || return 0
+  if [[ "${SOURCE_MODE:-workspace-archive}" != 'workspace-archive' ]]; then
+    printf 'release-retention: canonical Git worktrees are not pruned automatically\n' >&2
+    return 0
+  fi
+
+  local expected_sha="$1" root_real current_real previous_sha candidate leaf
+  validate_sha "$expected_sha" || return 1
+  # Require an ordinary release root, a valid active link and a known-good
+  # rollback target. Never prune after a failed deploy or partial state change.
+  if [[ ! -d "$RELEASE_ROOT" || -L "$RELEASE_ROOT" || ! -L "$CURRENT_LINK" ]]; then
+    lightworld_die 'release-retention: unsafe release root or missing active link'
+    return 1
+  fi
+  root_real="$(realpath -e -- "$RELEASE_ROOT")" || return 1
+  current_real="$(realpath -e -- "$CURRENT_LINK")" || return 1
+  if [[ "$root_real" == '/' || "$current_real" != "$root_real/$expected_sha" ||
+        "$(read_metadata_sha last-successful-release 2>/dev/null || true)" != "$expected_sha" ]]; then
+    lightworld_die 'release-retention: active release does not match successful deployment metadata'
+    return 1
+  fi
+  previous_sha="$(read_metadata_sha previous-release 2>/dev/null || true)"
+  # On a first-ever deployment, retention is postponed until a rollback
+  # target has actually been recorded and exists as a real directory.
+  [[ -n "$previous_sha" ]] || return 0
+  if [[ "$previous_sha" == "$expected_sha" || ! -d "$root_real/$previous_sha" ||
+        -L "$root_real/$previous_sha" ]]; then
+    lightworld_die 'release-retention: rollback release is missing or unsafe'
+    return 1
+  fi
+
+  for candidate in "$root_real"/*; do
+    [[ -d "$candidate" && ! -L "$candidate" ]] || continue
+    leaf="${candidate##*/}"
+    validate_sha "$leaf" >/dev/null 2>&1 || continue
+    [[ "$leaf" != "$expected_sha" && "$leaf" != "$previous_sha" ]] || continue
+    # Refuse to follow a filesystem alias, to remove a mounted path, or to
+    # remove a release still in use by ANY process (including an older worker).
+    [[ "$(realpath -e -- "$candidate" 2>/dev/null || true)" == "$candidate" ]] || continue
+    if _release_contains_mountpoint "$candidate" || _release_is_process_referenced "$candidate"; then
+      printf 'release-retention: retained referenced or mounted release %s\n' "$leaf" >&2
+      continue
+    fi
+    rm -rf --one-file-system -- "$candidate" || return 1
+    printf 'release-pruned=%s\n' "$leaf"
+  done
 }
 
 assert_env_outside_workspace() {
@@ -619,10 +734,33 @@ run_release_build() {
       ;;
   esac
 
+}
+
+run_release_migrations() {
+  local release_dir="$1"
+  local release_sha="$2"
+  local script migration_dir
+
   case "$MIGRATION_MODE" in
-    manual) ;;
+    manual)
+      return 0
+      ;;
+    postgres-ledger)
+      [[ -n "${ENV_FILE:-}" ]] || { lightworld_die "ENV_FILE is required for postgres-ledger migrations"; return 1; }
+      script="${release_dir}/apps/api/dist/scripts/apply-migrations.js"
+      migration_dir="${release_dir}/packages/db/migrations"
+      if [[ ! -f "$script" || -L "$script" ]]; then
+        lightworld_die "compiled migration runner is missing or unsafe"
+        return 1
+      fi
+      if [[ ! -d "$migration_dir" || -L "$migration_dir" ]]; then
+        lightworld_die "migration directory is missing or unsafe"
+        return 1
+      fi
+      run_as_app_user "$release_dir" /usr/bin/env "TRADEOS_RELEASE_SHA=$release_sha" node "--env-file=$ENV_FILE" "$script" "$migration_dir"
+      ;;
     *)
-      lightworld_die "unsupported migration mode; automatic migration is disabled"
+      lightworld_die "unsupported migration mode: $MIGRATION_MODE"
       return 1
       ;;
   esac
@@ -764,7 +902,12 @@ health_check_url() {
     fi
     [[ "$url" == test://* ]] && return 0
   fi
-  curl --fail --silent --show-error --max-time 8 --retry 8 --retry-delay 1 --retry-connrefused --retry-max-time 12 --output /dev/null -- "$url"
+  # Bound individual requests while permitting slower heavy VPS startup. Never
+  # disable status-code checks or accept failure as healthy.
+  curl --fail --silent --show-error --max-time 8 \
+    --retry "${HEALTH_STARTUP_RETRIES:-8}" --retry-delay 1 \
+    --retry-connrefused --retry-max-time "${HEALTH_STARTUP_MAX_SECONDS:-12}" \
+    --output /dev/null -- "$url"
 }
 
 verify_configured_health() {

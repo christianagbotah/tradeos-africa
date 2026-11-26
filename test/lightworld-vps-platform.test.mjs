@@ -120,19 +120,43 @@ function deploy(fixture, sha, env = {}) {
   });
 }
 
+function addMigrationProbe(fixture, { exitCode = 0 } = {}) {
+  const script = path.join(fixture.workspace, 'apps', 'api', 'dist', 'scripts', 'apply-migrations.js');
+  const migrations = path.join(fixture.workspace, 'packages', 'db', 'migrations');
+  fs.mkdirSync(path.dirname(script), { recursive: true });
+  fs.mkdirSync(migrations, { recursive: true });
+  fs.writeFileSync(path.join(migrations, '0001_probe.sql'), 'BEGIN; SELECT 1; COMMIT;\n');
+  fs.writeFileSync(script, [
+    'import fs from "node:fs";',
+    'const payload = {',
+    '  releaseSha: process.env.TRADEOS_RELEASE_SHA ?? null,',
+    '  migrationDirectory: process.argv[2] ?? null,',
+    '  currentExists: fs.existsSync(process.env.LIGHTWORLD_TEST_CURRENT_LINK),',
+    '};',
+    'fs.writeFileSync(process.env.LIGHTWORLD_TEST_MIGRATION_MARKER, JSON.stringify(payload));',
+    `process.exit(${exitCode});`,
+    '',
+  ].join('\n'));
+  git(fixture.workspace, 'add', 'apps/api/dist/scripts/apply-migrations.js', 'packages/db/migrations/0001_probe.sql');
+  git(fixture.workspace, 'commit', '-m', `migration probe ${exitCode}`);
+  pushCanonical(fixture);
+  return git(fixture.workspace, 'rev-parse', 'HEAD');
+}
+
 function writeWorkspaceContract(fixture, content) {
   const dir = path.join(fixture.workspace, 'ops', 'lightworld-vps', 'apps');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'demo.staging.conf.example'), content);
 }
 
-function checkWorkspaceContract(fixture, processNames, localHealthUrls) {
+function checkWorkspaceContract(fixture, processNames, localHealthUrls, migrationMode = 'manual') {
   return run('bash', ['-c', [
     'source "$1"',
     'PROCESS_NAMES="$2"',
     'LOCAL_HEALTH_URLS="$3"',
-    'assert_workspace_registry_contract "$4" demo staging',
-  ].join('; '), 'bash', commonPath, processNames, localHealthUrls, fixture.workspace]);
+    'MIGRATION_MODE="$4"',
+    'assert_workspace_registry_contract "$5" demo staging',
+  ].join('; '), 'bash', commonPath, processNames, localHealthUrls, migrationMode, fixture.workspace]);
 }
 
 test('workspace registry contract accepts matching process and local-health values', () => {
@@ -179,6 +203,23 @@ test('workspace registry contract fails closed on duplicate or missing required 
       assert.notEqual(result.status, 0);
       assert.match(`${result.stderr}\n${result.stdout}`, /contract|PROCESS_NAMES|LOCAL_HEALTH_URLS/i);
     }
+  } finally { cleanup(fixture); }
+});
+
+test('workspace registry contract rejects migration mode drift when the repository pins it', () => {
+  const fixture = makeFixture();
+  try {
+    writeWorkspaceContract(fixture, [
+      "PROCESS_NAMES='demo-api demo-web'",
+      "LOCAL_HEALTH_URLS='test://local'",
+      "MIGRATION_MODE='postgres-ledger'",
+      '',
+    ].join('\n'));
+    const drift = checkWorkspaceContract(fixture, 'demo-api demo-web', 'test://local', 'manual');
+    assert.notEqual(drift.status, 0);
+    assert.match(`${drift.stderr}\n${drift.stdout}`, /MIGRATION_MODE/);
+    const aligned = checkWorkspaceContract(fixture, 'demo-api demo-web', 'test://local', 'postgres-ledger');
+    assert.equal(aligned.status, 0, aligned.stderr || aligned.stdout);
   } finally { cleanup(fixture); }
 });
 
@@ -302,6 +343,42 @@ function waitForChild(child) {
   });
 }
 
+test('postgres-ledger migration mode runs after build and before release activation', () => {
+  const fixture = makeFixture();
+  try {
+    const migrationMarker = path.join(fixture.root, 'migration.marker');
+    const sha = addMigrationProbe(fixture);
+    writeRegistry(fixture, { MIGRATION_MODE: 'postgres-ledger' });
+    const result = deploy(fixture, sha, {
+      LIGHTWORLD_TEST_MIGRATION_MARKER: migrationMarker,
+      LIGHTWORLD_TEST_CURRENT_LINK: fixture.currentLink,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(fs.readFileSync(migrationMarker, 'utf8'));
+    assert.equal(payload.releaseSha, sha);
+    assert.equal(payload.currentExists, false, 'migration must run before first release activation');
+    assert.match(payload.migrationDirectory, /packages\/db\/migrations$/);
+    assert.equal(path.resolve(fs.readlinkSync(fixture.currentLink)), path.join(fixture.releases, sha));
+  } finally { cleanup(fixture); }
+});
+
+test('postgres-ledger migration failure blocks activation and process restart', () => {
+  const fixture = makeFixture();
+  try {
+    const migrationMarker = path.join(fixture.root, 'migration.marker');
+    const sha = addMigrationProbe(fixture, { exitCode: 17 });
+    writeRegistry(fixture, { MIGRATION_MODE: 'postgres-ledger' });
+    const result = deploy(fixture, sha, {
+      LIGHTWORLD_TEST_MIGRATION_MARKER: migrationMarker,
+      LIGHTWORLD_TEST_CURRENT_LINK: fixture.currentLink,
+    });
+    assert.notEqual(result.status, 0);
+    assert.equal(fs.existsSync(migrationMarker), true, 'migration probe must have run');
+    assert.equal(fs.existsSync(fixture.currentLink), false, 'failed migration must not activate release');
+    assert.equal(fs.existsSync(fixture.restartLog), false, 'failed migration must not restart processes');
+  } finally { cleanup(fixture); }
+});
+
 test('health check retries initial connection refusal during bounded service startup', async () => {
   const probe = await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['-e', `
@@ -341,6 +418,18 @@ test('health check retries initial connection refusal during bounded service sta
   } finally {
     delayedServer.kill('SIGTERM');
   }
+});
+
+test('staging health grace config is bounded and keeps fail-closed status checks', () => {
+  const source = fs.readFileSync(commonPath, 'utf8');
+  assert.match(source, /HEALTH_STARTUP_RETRIES/);
+  assert.match(source, /HEALTH_STARTUP_MAX_SECONDS/);
+  assert.match(source, /--fail --silent --show-error/);
+  assert.match(source, /--retry-connrefused/);
+  assert.match(source, /--retry-max-time/);
+  const config = fs.readFileSync(path.join(opsRoot, 'apps', 'tradeos-africa.staging.conf.example'), 'utf8');
+  assert.match(config, /^HEALTH_STARTUP_RETRIES='45'$/m);
+  assert.match(config, /^HEALTH_STARTUP_MAX_SECONDS='60'$/m);
 });
 
 test('internal deployment executables have a fail-closed Bash contract', () => {
@@ -459,6 +548,31 @@ test('adapter runtime executes only an identifier-resolved deployment adapter', 
   } finally { cleanup(fixture); }
 });
 
+test('tracked source drift is rejected before postgres-ledger migrations can execute', () => {
+  const fixture = makeFixture();
+  try {
+    const migrationMarker = path.join(fixture.root, 'drift-migration.marker');
+    const sha = addMigrationProbe(fixture);
+    const adapter = path.join(fixture.adapterRoot, 'mutating-build-before-migration');
+    fs.writeFileSync(adapter, '#!/usr/bin/env bash\nset -euo pipefail\nprintf "mutated\n" > README.md\n', { mode: 0o700 });
+    writeRegistry(fixture, {
+      SOURCE_MODE: 'canonical-worktree',
+      SOURCE_REPO: fixture.sourceRepo,
+      RUNTIME_FAMILY: 'adapter',
+      BUILD_ADAPTER: 'mutating-build-before-migration',
+      MIGRATION_MODE: 'postgres-ledger',
+    });
+    const result = deploy(fixture, sha, {
+      LIGHTWORLD_TEST_MIGRATION_MARKER: migrationMarker,
+      LIGHTWORLD_TEST_CURRENT_LINK: fixture.currentLink,
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /tracked|source|drift|canonical/i);
+    assert.equal(fs.existsSync(migrationMarker), false, 'unverified tracked source must never reach migrations');
+    assert.equal(fs.existsSync(fixture.currentLink), false, 'drifted release must never activate');
+  } finally { cleanup(fixture); }
+});
+
 test('canonical-worktree deployment rejects tracked source drift introduced by the build adapter', () => {
   const fixture = makeFixture();
   try {
@@ -571,6 +685,172 @@ test('activation health failure restores the prior active release', () => {
     assert.notEqual(failed.status, 0);
     assert.match(`${failed.stderr}\n${failed.stdout}`, /health/i);
     assert.equal(fs.realpathSync(fixture.currentLink), activeBefore);
+  } finally { cleanup(fixture); }
+});
+
+test('release retention is opt-in and leaves ordinary historical releases untouched', () => {
+  const fixture = makeFixture();
+  try {
+    assert.equal(deploy(fixture, fixture.firstSha).status, 0);
+    const second = commitNext(fixture, 'retain-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second).status, 0);
+    const third = commitNext(fixture, 'retain-third');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, third).status, 0);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), true);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, third));
+  } finally { cleanup(fixture); }
+});
+
+test('runner environment cannot enable destructive retention without a registry opt-in', () => {
+  const fixture = makeFixture();
+  try {
+    const hostileEnvironment = { RELEASE_RETENTION: 'active-and-rollback' };
+    assert.equal(deploy(fixture, fixture.firstSha, hostileEnvironment).status, 0);
+    const second = commitNext(fixture, 'retention-env-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second, hostileEnvironment).status, 0);
+    const third = commitNext(fixture, 'retention-env-third');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, third, hostileEnvironment).status, 0);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+  } finally { cleanup(fixture); }
+});
+
+test('opted-in retention keeps only current and immediate rollback, preserving nonrelease files', () => {
+  const fixture = makeFixture();
+  try {
+    writeRegistry(fixture, { RELEASE_RETENTION: 'active-and-rollback' });
+    const external = path.join(fixture.root, 'important-external-data');
+    fs.mkdirSync(external);
+    fs.writeFileSync(path.join(external, 'keep.txt'), 'untouched\n');
+    fs.symlinkSync(external, path.join(fixture.releases, 'e'.repeat(40)));
+    fs.mkdirSync(path.join(fixture.releases, 'unmanaged-user-data'));
+    fs.writeFileSync(path.join(fixture.releases, 'unmanaged-user-data', 'keep.txt'), 'untouched\n');
+    const first = deploy(fixture, fixture.firstSha);
+    assert.equal(first.status, 0, first.stderr || first.stdout);
+    const secondSha = commitNext(fixture, 'retention-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, secondSha).status, 0);
+    const thirdSha = commitNext(fixture, 'retention-third');
+    pushCanonical(fixture);
+    const third = deploy(fixture, thirdSha);
+    assert.equal(third.status, 0, third.stderr || third.stdout);
+    assert.match(third.stdout, new RegExp(`release-pruned=${fixture.firstSha}`));
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), false);
+    assert.equal(fs.existsSync(path.join(fixture.releases, secondSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, thirdSha)), true);
+    assert.equal(fs.existsSync(path.join(external, 'keep.txt')), true);
+    assert.equal(fs.lstatSync(path.join(fixture.releases, 'e'.repeat(40))).isSymbolicLink(), true);
+    assert.equal(fs.readFileSync(path.join(fixture.releases, 'unmanaged-user-data', 'keep.txt'), 'utf8'), 'untouched\n');
+    const rolledBack = run(rollbackPath, ['demo', 'staging'], {env: fixture.env});
+    assert.equal(rolledBack.status, 0, rolledBack.stderr || rolledBack.stdout);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, secondSha));
+  } finally { cleanup(fixture); }
+});
+
+test('retention never prunes on failed health and skips a historical release still used by a process', async () => {
+  const fixture = makeFixture();
+  let worker;
+  try {
+    writeRegistry(fixture, { RELEASE_RETENTION: 'active-and-rollback' });
+    assert.equal(deploy(fixture, fixture.firstSha).status, 0);
+    const second = commitNext(fixture, 'retention-still-in-use');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second).status, 0);
+    const third = commitNext(fixture, 'retention-health-failure');
+    pushCanonical(fixture);
+    const healthFailed = deploy(fixture, third, { LIGHTWORLD_TEST_HEALTH_FAIL: '1' });
+    assert.notEqual(healthFailed.status, 0);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, second));
+
+    worker = spawn('sleep', ['30'], { cwd: path.join(fixture.releases, fixture.firstSha),
+      stdio: ['ignore', 'ignore', 'ignore'] });
+    assert.ok(worker.pid);
+    const succeeded = deploy(fixture, third);
+    assert.equal(succeeded.status, 0, succeeded.stderr || succeeded.stdout);
+    assert.match(succeeded.stderr, /retained referenced or mounted release/);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+    worker.kill('SIGTERM');
+    await waitForChild(worker);
+    worker = undefined;
+
+    const fourth = commitNext(fixture, 'retention-fourth');
+    pushCanonical(fixture);
+    const afterWorkerExit = deploy(fixture, fourth);
+    assert.equal(afterWorkerExit.status, 0, afterWorkerExit.stderr || afterWorkerExit.stdout);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), false);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), false);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fourth)), true);
+  } finally {
+    if (worker) worker.kill('SIGTERM');
+    cleanup(fixture);
+  }
+});
+
+test('successful redeploy after a rollback protects the actual prior active release', () => {
+  const fixture = makeFixture();
+  try {
+    writeRegistry(fixture, { RELEASE_RETENTION: 'active-and-rollback' });
+    assert.equal(deploy(fixture, fixture.firstSha).status, 0);
+    const second = commitNext(fixture, 'retention-rollback-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second).status, 0);
+    const roll = run(rollbackPath, ['demo', 'staging'], { env: fixture.env });
+    assert.equal(roll.status, 0, roll.stderr || roll.stdout);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, fixture.firstSha));
+    const third = commitNext(fixture, 'retention-rollback-third');
+    pushCanonical(fixture);
+    const deployed = deploy(fixture, third);
+    assert.equal(deployed.status, 0, deployed.stderr || deployed.stdout);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), false);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+    const secondRollback = run(rollbackPath, ['demo', 'staging'], { env: fixture.env });
+    assert.equal(secondRollback.status, 0, secondRollback.stderr || secondRollback.stdout);
+    assert.equal(fs.realpathSync(fixture.currentLink), path.join(fixture.releases, fixture.firstSha));
+  } finally { cleanup(fixture); }
+});
+
+test('opted-in retention never prunes Git-managed canonical worktrees', () => {
+  const fixture = makeFixture();
+  try {
+    writeRegistry(fixture, {
+      RELEASE_RETENTION: 'active-and-rollback',
+      SOURCE_MODE: 'canonical-worktree',
+      SOURCE_REPO: fixture.sourceRepo,
+    });
+    assert.equal(deploy(fixture, fixture.firstSha).status, 0);
+    const second = commitNext(fixture, 'retention-worktree-second');
+    pushCanonical(fixture);
+    assert.equal(deploy(fixture, second).status, 0);
+    const third = commitNext(fixture, 'retention-worktree-third');
+    pushCanonical(fixture);
+    const result = deploy(fixture, third);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stderr, /Git worktrees are not pruned automatically/);
+    assert.equal(fs.existsSync(path.join(fixture.releases, fixture.firstSha)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, second)), true);
+    assert.equal(fs.existsSync(path.join(fixture.releases, third)), true);
+  } finally { cleanup(fixture); }
+});
+
+test('invalid release retention is rejected before activation', () => {
+  const fixture = makeFixture();
+  try {
+    writeRegistry(fixture, { RELEASE_RETENTION: 'all' });
+    const result = deploy(fixture, fixture.firstSha);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /RELEASE_RETENTION/);
+    assert.equal(fs.existsSync(fixture.currentLink), false);
   } finally { cleanup(fixture); }
 });
 
@@ -739,7 +1019,7 @@ test('TradeOS staging registry template pins canonical operational metadata with
   assert.match(source, /^PROCESS_INTERPRETER=['"]\/bin\/bash['"]$/m);
   assert.match(source, /^PROCESS_RESTART_DELAY=['"]2000['"]$/m);
   assert.match(source, /^RUNTIME_FAMILY=['"]pnpm-node['"]$/m);
-  assert.match(source, /^MIGRATION_MODE=['"]manual['"]$/m);
+  assert.match(source, /^MIGRATION_MODE=['"]postgres-ledger['"]$/m);
   assert.match(source, /http:\/\/127\.0\.0\.1:4036\/health/);
   assert.match(source, /http:\/\/127\.0\.0\.1:3036\//);
   assert.match(source, /http:\/\/127\.0\.0\.1:3038\//);

@@ -13,6 +13,7 @@ import {
 import { getOfflineQueue, type WebSession } from "../../lib/offline-sync";
 import { getOrCreateWebDeviceKey, WEB_APP_VERSION } from "../../lib/web-device";
 import { Button } from "./ui/button";
+import { PasswordInput } from "./ui/password-input";
 import { IconAlert, IconCheck, IconRefresh, IconShield } from "./ui/icons";
 
 // --- Phase state machine --------------------------------------------------
@@ -221,6 +222,11 @@ export function PublicEntry() {
       onTabChange={setAuthTab}
       onAuthenticated={async (auth, me) => {
         const lastContext = offlineQueue.sessions.loadLastContext();
+        // A successful sign-in/registration is a new account identity. An older
+        // device session must not enter the workspace while this account has no
+        // business yet, or display stale tenant-scoped data while switching.
+        // Clearing credentials preserves business-scoped offline mutation queues.
+        offlineQueue.sessions.clear();
         const membership = selectMembershipForLogin(me, lastContext?.businessId);
         if (!membership) {
           // No usable active business membership yet → first-business onboarding.
@@ -252,10 +258,17 @@ export function PublicEntry() {
 
 // --- Session validation ---------------------------------------------------
 
-async function validateSession(_session: WebSession): Promise<boolean> {
+async function validateSession(session: WebSession): Promise<boolean> {
   try {
     const res = await getOfflineQueue().authenticatedFetch("/v1/me");
-    return res.ok;
+    if (!res.ok) return false;
+    const me = (await res.json()) as MeResponse;
+    // A valid account token alone is insufficient: a stored business can be
+    // removed or belong to another signed-in account on this device.
+    return Array.isArray(me.memberships) && me.memberships.some((membership) =>
+      membership.businessId === session.businessId &&
+      membership.businessStatus === "ACTIVE" && Boolean(membership.staffId)
+    );
   } catch {
     return false;
   }
@@ -349,10 +362,15 @@ function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   const canSubmit = tab === "signin"
     ? identifier.trim().length > 0 && password.length > 0
-    : displayName.trim().length > 0 && password.length >= 6 && (email.trim().length > 0 || phone.trim().length > 0);
+    : displayName.trim().length > 0 && password.length >= 8 && (email.trim().length > 0 || phone.trim().length > 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -407,6 +425,85 @@ function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
       setBusy(false);
     }
   };
+
+  const sendResetLink = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (resetBusy || !resetEmail.trim()) return;
+    setResetBusy(true);
+    setResetError(null);
+    setResetMessage(null);
+    try {
+      const response = await fetch("/v1/auth/password/forgot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resetEmail.trim() }),
+      });
+      const data = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        setResetError(data.message ?? "Password recovery is unavailable. Try again later.");
+      } else {
+        setResetMessage(data.message ??
+          "If this email belongs to an account, recovery instructions will be sent.");
+      }
+    } catch {
+      setResetError("Could not contact TradeOS. Check your connection and try again.");
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  if (forgotMode) {
+    return (
+      <div className="tos-public tos-animate-fade-in">
+        <BrandPanel />
+        <div className="tos-public__form-side">
+          <div className="tos-public__form tos-stagger">
+            <div className="tos-public__form-head">
+              <span className="tos-public__form-eyebrow">Account recovery</span>
+              <h1 className="tos-public__form-title">Forgot your password?</h1>
+              <p className="tos-public__form-sub">
+                Enter the email address associated with your TradeOS account.
+                We will send a one-time link that expires after 20 minutes.
+              </p>
+            </div>
+            {resetMessage ? (
+              <div className="tos-banner tos-banner--success" role="status">
+                <IconCheck className="tos-banner__icon" />
+                <div className="tos-banner__body"><span className="tos-banner__text">{resetMessage}</span></div>
+              </div>
+            ) : null}
+            {resetError ? (
+              <div className="tos-banner tos-banner--danger" role="alert">
+                <IconAlert className="tos-banner__icon" />
+                <div className="tos-banner__body"><span className="tos-banner__text">{resetError}</span></div>
+              </div>
+            ) : null}
+            <form className="tos-stack" onSubmit={sendResetLink}>
+              <FieldLabel label="Account email" htmlFor="pe-reset-email" required>
+                <input id="pe-reset-email" className="tos-input" type="email"
+                  value={resetEmail} onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="you@business.com" autoComplete="email" required
+                  maxLength={254} />
+              </FieldLabel>
+              <Button type="submit" variant="gold" size="lg" block
+                loading={resetBusy} disabled={resetBusy || !resetEmail.trim()}>
+                Send recovery link
+              </Button>
+            </form>
+            <p className="tos-public__reset-help">
+              Registered with a phone number only? Contact support to arrange
+              identity verification. Never share your password or reset link.
+            </p>
+            <button type="button" className="tos-public__reset-back" onClick={() => {
+              setForgotMode(false);
+              setResetError(null);
+              setResetMessage(null);
+            }}>Back to sign in</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="tos-public tos-animate-fade-in">
@@ -496,17 +593,26 @@ function AuthForm({ tab, onTabChange, onAuthenticated }: AuthFormProps) {
             ) : null}
 
             <FieldLabel label="Password" htmlFor="pe-pw" required>
-              <input
-                  id="pe-pw"
-                  type="password"
-                  className="tos-input"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={tab === "register" ? "At least 6 characters" : "Enter your password"}
-                  autoComplete={tab === "signin" ? "current-password" : "new-password"}
-                  required
-                />
+              <PasswordInput
+                id="pe-pw"
+                className="tos-input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={tab === "register" ? "At least 8 characters" : "Enter your password"}
+                autoComplete={tab === "signin" ? "current-password" : "new-password"}
+                required
+              />
             </FieldLabel>
+            {tab === "signin" ? (
+              <div className="tos-public__reset-link-row">
+                <button type="button" onClick={() => {
+                  setResetEmail(identifier.includes("@") ? identifier.trim() : "");
+                  setResetMessage(null);
+                  setResetError(null);
+                  setForgotMode(true);
+                }}>Forgot password?</button>
+              </div>
+            ) : null}
 
             <Button type="submit" variant="gold" size="lg" block loading={busy} disabled={!canSubmit}>
               {tab === "signin" ? "Open workspace" : "Create account"}

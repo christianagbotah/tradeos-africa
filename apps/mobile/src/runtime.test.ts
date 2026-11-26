@@ -209,6 +209,22 @@ describe("MobileRuntime durable sync", () => {
     expect((await runtime.queue.getSnapshot()).pending.map((mutation) => mutation.clientMutationId)).toEqual(["other-1"]);
   });
 
+  it("closes the active runtime when secure session removal fails and permits sign-out retry",async()=>{
+    const {runtime,persistence,secure}=createHarness();
+    await persistence.saveSession(session);
+    await runtime.bootstrap();
+    await runtime.queue.enqueue(saleMutation("pending-retry",business1,branch1));
+    const remove=secure.removeItem.bind(secure);
+    secure.removeItem=async()=>{throw new Error("secure storage unavailable");};
+    await expect(runtime.logout()).rejects.toThrow("secure storage unavailable");
+    expect(runtime.getCurrentReadyState()).toBeNull();
+    expect(await persistence.loadSession()).not.toBeNull();
+    secure.removeItem=remove;
+    await runtime.logout();
+    expect(await persistence.loadSession()).toBeNull();
+    expect((await runtime.queue.getSnapshot()).pending.map(m=>m.clientMutationId)).toEqual(["pending-retry"]);
+  });
+
   it("signs out without deleting pending offline queue evidence", async () => {
     const { runtime, persistence, api } = createHarness();
     await persistence.saveSession(session);
@@ -302,6 +318,24 @@ describe("MobileRuntime commerce", () => {
     });
   });
 
+  it("returns the exact completed sale ID only when the matching server acknowledgement identifies a completed sale", async () => {
+    const saleId="12345678-1234-4123-8123-123456789012";
+    for(const status of ["COMPLETED","AWAITING_PAYMENT",null] as const){
+      const api=new FakeApi();
+      const original=api.push.bind(api);
+      api.push=async request=>{
+        const response=await original(request);
+        return {...response,mutationResults:response.mutationResults.map(result=>({...result,...(status?{result:{saleId,status}}:{})}))};
+      };
+      const {runtime}=await readyHarness(api);
+      const cart=addCartItem([],projectSellableItems(api.catalog.items,api.inventory.items)[0]!);
+      const result=await runtime.createSale(cart,"CASH",true);
+      expect(result.outcome).toBe("SYNCED");
+      if(status==="COMPLETED")expect(result.completedSaleId).toBe(saleId);
+      else expect(Object.hasOwn(result,"completedSaleId")).toBe(false);
+    }
+  });
+
   it("moves a server-rejected sale to review instead of deleting evidence", async () => {
     const api = new FakeApi();
     api.rejectNextPush = { code: "INSUFFICIENT_STOCK", message: "Stock changed before sync" };
@@ -334,5 +368,150 @@ describe("MobileRuntime commerce", () => {
 
     await expect(runtime.createSale(cart, "OTHER", false)).rejects.toThrow(/permission|role/i);
     expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
+  });
+});
+
+describe("native POS attendant owned cash shift",()=>{
+  const status={
+    operatingDay:{id:"77777777-7777-4777-8777-777777777777",status:"OPEN" as const,
+      openedAt:"2026-10-10T08:00:00Z"},
+    shift:null,
+    openShiftCount:0,
+  };
+  function attendantApi(){
+    const api=new FakeApi();
+    api.me={...me,memberships:[{...membership("attendant",business1,"Ama Shop"),
+      role:"POS_ATTENDANT",staffId:"own-staff"}]};
+    return api;
+  }
+  it("persists opening cash in the native queue and requires server APPLIED acknowledgement",async()=>{
+    const api=attendantApi();
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);
+    await runtime.bootstrap();
+    const result=await runtime.recordOwnCashShift(status,1250,"Starting change",true);
+    expect(result).toMatchObject({closed:false});
+    expect(api.pushes).toHaveLength(1);
+    expect(api.pushes[0]!.mutations[0]).toMatchObject({
+      businessId:business1,branchId:branch1,
+      mutationType:"SHIFT_OPEN_CREATE",
+      payload:{dayId:status.operatingDay.id,note:"Starting change",
+        openingBalances:[{method:"CASH",countedMinor:1250}]},
+    });
+    expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
+  });
+  it("closes an own shift with a cash count and verified zero other methods",async()=>{
+    const api=attendantApi();
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);await runtime.bootstrap();
+    const result=await runtime.recordOwnCashShift({...status,shift:{
+      id:"88888888-8888-4888-8888-888888888888",status:"OPEN",
+      openedAt:"2026-10-10T09:00:00Z",balances:[{
+        method:"CASH" as const,openingCountedMinor:2500,
+        expectedClosingMinor:5000,movementMinor:2500,
+      }],
+    }},4900,"Cash short",true);
+    expect(result.closed).toBe(true);
+    expect(api.pushes[0]!.mutations[0]!.payload).toMatchObject({
+      shiftId:"88888888-8888-4888-8888-888888888888",
+      closingBalances:[
+        {method:"CASH",countedMinor:4900},
+        {method:"MOMO",countedMinor:0},
+        {method:"CARD",countedMinor:0},
+        {method:"BANK",countedMinor:0},
+        {method:"OTHER",countedMinor:0},
+      ],
+    });
+  });
+  it("never posts from another role, offline or without a valid count",async()=>{
+    const api=attendantApi();
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.recordOwnCashShift(status,100,"",false)).rejects.toThrow(/online/i);
+    await expect(runtime.recordOwnCashShift(status,-1,"",true)).rejects.toThrow(/cash amount/i);
+    await expect(runtime.recordOwnCashShift({...status,operatingDay:null},100,"",true))
+      .rejects.toThrow(/supervisor/i);
+    expect(api.pushes).toHaveLength(0);
+    const ownerApi=new FakeApi(),owner=createHarness(ownerApi);
+    await owner.persistence.saveSession(session);await owner.runtime.bootstrap();
+    await expect(owner.runtime.recordOwnCashShift(status,100,"",true))
+      .rejects.toThrow(/POS attendants/i);
+    expect(ownerApi.pushes).toHaveLength(0);
+  });
+  it("retains the same mutation ID when network is uncertain, never claims a close",async()=>{
+    const api=attendantApi();api.pushError=new Error("Disconnected mid-send");
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.recordOwnCashShift(status,100,"",true))
+      .rejects.toThrow(/NOT confirmed/);
+    const before=await runtime.queue.getSnapshot();
+    expect(before.pending).toHaveLength(1);
+    const originalId=before.pending[0]!.clientMutationId;
+    api.pushError=null;
+    await runtime.flush(true);
+    expect(api.pushes[1]!.mutations[0]!.clientMutationId).toBe(originalId);
+    expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
+  });
+  it("retains rejected shift evidence in the review queue instead of reporting success",async()=>{
+    const api=attendantApi();api.rejectNextPush={
+      code:"SHIFT_NOT_OPEN",message:"The shift has already closed",
+    };
+    const {runtime,persistence}=createHarness(api);
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.recordOwnCashShift(status,100,"",true))
+      .rejects.toThrow(/rejected/);
+    expect((await runtime.queue.getSnapshot()).failed).toHaveLength(1);
+    expect((await runtime.queue.getSnapshot()).pending).toHaveLength(0);
+  });
+});
+
+describe("native customer receipts",()=>{
+  const receipt={customerId:"customer-1",moneyAccountId:"account-1",method:"CASH" as const,amountMinor:1230};
+  it("submits canonical customer payment with selected branch and account",async()=>{
+    const {runtime,persistence,api}=createHarness();
+    await persistence.saveSession(session);await runtime.bootstrap();
+    expect(await runtime.recordCustomerReceipt(receipt,true)).toBe("SYNCED");
+    expect(api.pushes[0]?.mutations[0]).toMatchObject({businessId:business1,branchId:branch1,mutationType:"CUSTOMER_PAYMENT_CREATE",payload:receipt});
+  });
+  it("retains original mutation and blocks duplicate after connection loss",async()=>{
+    const {runtime,persistence,api}=createHarness();
+    await persistence.saveSession(session);await runtime.bootstrap();api.pushError=new Error("lost response");
+    expect(await runtime.recordCustomerReceipt(receipt,true)).toBe("PENDING");
+    const snapshot=await runtime.queue.getSnapshot();
+    await expect(runtime.recordCustomerReceipt(receipt,true)).rejects.toThrow("pending or rejected");
+    expect((await runtime.queue.getSnapshot()).pending).toEqual(snapshot.pending);
+  });
+  it("rejects another receipt after a server rejection and disallows offline capture",async()=>{
+    const {runtime,persistence,api}=createHarness();
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.recordCustomerReceipt(receipt,false)).rejects.toThrow();
+    api.rejectNextPush={code:"TEST",message:"Rejected"};
+    expect(await runtime.recordCustomerReceipt(receipt,true)).toBe("NEEDS_REVIEW");
+    await expect(runtime.recordCustomerReceipt(receipt,true)).rejects.toThrow("pending or rejected");
+  });
+});
+
+describe("workspace switching",()=>{
+  it("persists only authorized active business and branch and preserves other queued records",async()=>{
+    const {runtime,persistence}=createHarness();
+    await persistence.saveSession(session);
+    await runtime.bootstrap();
+    await runtime.queue.enqueue(saleMutation("other-business",business2,branch2));
+    const state=await runtime.switchWorkspace(business2,branch2);
+    expect(state).toMatchObject({business:{id:business2},branch:{id:branch2},queue:{pending:1}});
+    expect(await persistence.loadWorkspaceSelection()).toEqual({businessId:business2,branchId:branch2});
+    expect((await runtime.queue.getSnapshot()).pending).toMatchObject([{businessId:business2,branchId:branch2,clientMutationId:"other-business"}]);
+  });
+  it("rejects a foreign branch, lost membership and unresolved current pending sales",async()=>{
+    const {runtime,persistence,api}=createHarness();
+    await persistence.saveSession(session);await runtime.bootstrap();
+    await expect(runtime.switchWorkspace(business2,branch1)).rejects.toThrow();
+    api.me={...me,memberships:[me.memberships[0]!]};
+    await expect(runtime.switchWorkspace(business2,branch2)).rejects.toThrow();
+    api.me=me;
+    await runtime.queue.enqueue(saleMutation("current-business",business1,branch1));
+    await expect(runtime.switchWorkspace(business2,branch2)).rejects.toThrow("Sync pending");
+    expect(await persistence.loadWorkspaceSelection()).toEqual({businessId:business1,branchId:branch1});
+    expect((await runtime.queue.getSnapshot()).pending[0]?.clientMutationId).toBe("current-business");
   });
 });

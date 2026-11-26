@@ -1,0 +1,22 @@
+.panel { border-top:1px solid #e2e8f0; padding-top:15px; min-width:0; }
+.summary { cursor:pointer; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:9px; list-style:none; padding:9px 0; }
+.summary::-webkit-details-marker { display:none; }
+.title { font-weight:750; font-size:1rem; color:var(--tos-text,#172333); }
+.count { font-size:.81rem; font-weight:750; color:#475569; padding:6px 10px; border-radius:9px; background:#f1f5f9; }
+.body { display:grid; gap:13px; padding:10px 0 0; }
+.intro { font-size:.85rem; line-height:1.5; color:var(--tos-muted,#58677a); margin:0; }
+.notice { background:#f1f5f9; color:#475569; padding:11px 13px; border-radius:10px; line-height:1.5; font-size:.85rem; margin:0; }
+.list { list-style:none; display:grid; gap:9px; padding:0; margin:0; }
+.item { border:1px solid #e2e8f0; border-radius:11px; padding:13px; display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; }
+.itemBody { flex:1 1 240px; min-width:0; overflow-wrap:anywhere; }
+.itemHeading { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.itemHeading strong { color:var(--tos-text,#172333); font-size:.9rem; }
+.severity { font-size:.71rem; font-weight:750; color:#92400e; }
+.unread { background:#e0f2fe; color:#075985; font-size:.7rem; font-weight:750; padding:4px 7px; border-radius:6px; }
+.itemBody p { font-size:.85rem; line-height:1.45; color:var(--tos-muted,#58677a); margin:7px 0; }
+.itemBody small { font-size:.74rem; color:var(--tos-muted,#58677a); }
+.actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.actions button,.open,.more { border:1px solid #cbd5e1; background:transparent; border-radius:9px; padding:8px 11px; color:var(--tos-text,#172333); font:inherit; font-size:.81rem; font-weight:700; cursor:pointer; text-decoration:none; }
+.actions button:disabled { opacity:.55; cursor:not-allowed; }
+.more { justify-self:start; }
+@media(max-width:540px) { .actions { width:100%; } .actions button,.open { flex:1; text-align:center; } }

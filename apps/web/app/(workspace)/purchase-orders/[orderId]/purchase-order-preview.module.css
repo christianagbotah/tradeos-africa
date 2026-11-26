@@ -1,0 +1,87 @@
+.wrapper{max-width:980px;margin:24px auto;padding:12px}
+.actions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.actions a{color:inherit;text-decoration:underline}
+.actions button{cursor:pointer;background:#183654;color:#fff;border:0;padding:11px 18px;border-radius:9px;font-weight:750}
+.document{background:#fff;color:#142339;border:1px solid #e1e7ed;border-radius:15px;box-shadow:0 8px 25px #14233912;overflow:hidden;font:14px/1.55 system-ui,sans-serif}
+.hero{background:linear-gradient(115deg,#0e203c,#173b63);color:#fff;padding:36px 40px 30px}
+.eyebrow{text-transform:uppercase;font-size:11px;font-weight:750;letter-spacing:.12em;color:#e7c87d;margin:0 0 15px}
+.heroRow{display:flex;justify-content:space-between;gap:18px;align-items:flex-end;flex-wrap:wrap}
+.hero h1{color:#fff;font-size:clamp(22px,3vw,29px);letter-spacing:.08em;font-weight:850;line-height:1.2;margin:0}
+.number{font-size:15px;font-weight:750;color:#e2ebf8;margin:8px 0 0}
+.heroAmount{display:grid;gap:8px;text-align:right}
+.heroAmount span{color:#d2deec;font-size:11px;letter-spacing:.11em;font-weight:750}
+.heroAmount strong{color:#fff;font-size:clamp(26px,3.5vw,37px);font-weight:850;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums}
+.heroSub{color:#d0ddec;font-size:13px;margin:22px 0 0}
+.statusRow{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 40px 8px}
+.statusRow>span:last-child{color:#546171;font-size:12px}
+.status{display:inline-block;border:1px solid #9eb3ca;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:800;letter-spacing:.05em}
+.overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;padding:26px 40px 12px;overflow-wrap:anywhere}
+.overview h2{font-weight:800;color:#66758c;text-transform:uppercase;letter-spacing:.07em;font-size:11px;margin:0 0 8px}
+.overview strong{font-weight:750}
+.overview p{font-size:13px;margin:4px 0;white-space:pre-wrap}
+.itemsScroll{padding:15px 40px;max-width:100%;overflow-x:auto}
+.items{border-collapse:collapse;width:100%;min-width:620px}
+.items th{text-align:left;border-bottom:2px solid #b3c1d0;padding:10px 9px;background:#eaf0f7;font-size:12px;white-space:nowrap}
+.items td{padding:14px 9px;vertical-align:top;border-bottom:1px solid #e5eaf1;font-size:13px;overflow-wrap:anywhere}
+.items th:nth-child(n+3),.items td:nth-child(n+3){text-align:right;white-space:nowrap}
+.items small{display:block;color:#657286;margin-top:3px}
+.totals{margin:10px 40px 28px auto;max-width:370px;display:grid;gap:11px}
+.totals div{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:0 9px}
+.totals strong{font-variant-numeric:tabular-nums;white-space:nowrap}
+.grand{font-size:19px;border-top:2px solid #233f61;padding-top:15px!important}
+.grand strong{font-size:23px}
+.notes{margin:10px 40px 22px;border:1px solid #d5dfe9;padding:18px;border-radius:10px}
+.notes h2{font-size:13px;font-weight:800;margin:0 0 8px}
+.notes p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.footer{border-top:1px dashed #bbcad7;margin:10px 40px 25px;padding-top:15px;font-size:11px;color:#5d6c7e;text-align:center}
+.failure{max-width:640px;margin:65px auto;padding:20px;border:1px solid #bbcad7;border-radius:10px}
+@media(max-width:680px){.wrapper{margin:8px auto;padding:7px}.hero{padding:23px 18px}.heroRow{align-items:flex-start}.heroAmount{text-align:left}.statusRow{margin:15px 17px}.overview{grid-template-columns:1fr 1fr;padding:19px 17px;gap:12px}.itemsScroll{padding:12px 17px}.totals{margin:16px 17px 28px auto;padding-left:9px}.notes,.footer{margin-left:17px;margin-right:17px}}
+@media(max-width:420px){.overview{grid-template-columns:1fr}.hero h1{font-size:22px}.heroAmount strong{font-size:27px}.grand strong{font-size:20px}}
+@media print {
+  @page{size:A4 portrait;margin:13mm}
+  /* The app shell is removed from print layout by workspace-shell.css.
+     Do not hide all elements: that caused blank or clipped print previews. */
+  .actions{display:none!important}
+  .wrapper{padding:0;margin:0;max-width:none}
+  .document{position:static;width:100%;box-shadow:none;border:0;border-radius:0;overflow:visible;break-after:auto}
+  .hero{background:#fff!important;color:#142339!important;border-bottom:2px solid #233f61;padding:12px 0 18px}
+  .hero h1,.heroAmount strong{color:#142339!important}
+  .eyebrow,.number,.heroAmount span,.heroSub{color:#415a77!important}
+  .overview,.itemsScroll{padding-left:0;padding-right:0}
+  .statusRow{margin-left:0}
+  .itemsScroll{overflow:visible;max-width:none}
+  .items{min-width:0}
+  .items tr{page-break-inside:avoid}
+  .totals{margin-right:0}
+  .notes,.footer{margin-left:0;margin-right:0}
+}
+
+/* Actual goods received are distinct from the supplier's order commitment. */
+.fulfillment{margin:14px 40px 4px;padding:14px 18px;border:1px solid #b8d2e8;
+  border-radius:10px;background:#edf6fe;display:flex;align-items:center;
+  justify-content:space-between;gap:18px;flex-wrap:wrap}
+.fulfillment strong{color:#183a5d}
+.fulfillment p{font-size:12px;color:#3b526c;margin:5px 0 0}
+.fulfillment button{background:#173b63;color:#fff;border:0;border-radius:8px;
+  padding:10px 16px;font-weight:750;cursor:pointer}
+.fulfillment button:disabled,.actions button:disabled{opacity:.55;cursor:not-allowed}
+.receipts{margin:16px 40px 25px;padding:18px;border:1px solid #d5dfe9;border-radius:10px}
+.receipts h2{font-size:15px;margin:0 0 5px;font-weight:800}
+.receipts p{color:#617188;font-size:12px;margin:0 0 12px}
+.receipt{display:grid;grid-template-columns:120px minmax(0,1fr) auto;
+  gap:12px;align-items:center;border-top:1px solid #e1e6ee;padding:11px 0;
+  font-size:12px;overflow-wrap:anywhere}
+.receipt strong{font-variant-numeric:tabular-nums;white-space:nowrap}
+.receipts a{color:#235a93;text-decoration:underline;font-weight:700}
+@media(max-width:680px){
+  .fulfillment{margin:12px 17px;padding:12px}
+  .receipts{margin:12px 17px;padding:14px}
+  .receipt{grid-template-columns:1fr auto}
+  .receipt span:first-child{grid-column:1/-1}
+}
+@media print{
+  .fulfillment{margin-left:0;margin-right:0;background:#fff!important;
+    border-color:#bcc9d5}
+  .fulfillment button{display:none!important}
+  .receipts{margin-left:0;margin-right:0}
+}

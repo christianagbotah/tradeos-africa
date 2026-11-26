@@ -34,7 +34,11 @@ describe("exchange domain engine", () => {
       returnedLines: [{ saleLineId: lineId, quantity: 1, disposition: "RESTOCK" }],
       replacementLines: [{ itemId: f.replacementItemId, saleUnitCode: "piece", quantity: 1 }],
     };
-    const first = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", payload);
+    const stale = await sync(f,"stale-amount","EXCHANGE_CREATE",{...payload,expectedNetDifferenceMinor:699});
+    expect(stale).toMatchObject({status:"REJECTED",errorCode:"EXCHANGE_AMOUNT_CHANGED"});
+    expect(Number((await pool.query("SELECT COUNT(*) FROM exchange_cases WHERE business_id=$1",[f.businessId])).rows[0].count)).toBe(0);
+    expect(await available(f.businessId,f.branchId,f.originalItemId)).toBe(4);
+    const first = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", {...payload,expectedNetDifferenceMinor:700});
     expect(first.status).toBe("APPLIED");
     expect(first.result).toMatchObject({ netDifferenceMinor: 700, returnTotalMinor: 1000, replacementTotalMinor: 1700, status: "COMPLETED" });
     const result = first.result as { exchangeCaseId: string; returnCaseId: string; replacementSaleId: string };
@@ -42,9 +46,13 @@ describe("exchange domain engine", () => {
     expect(result.returnCaseId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(result.replacementSaleId).toMatch(/^[0-9a-f-]{36}$/i);
 
-    const replay = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", payload);
+    const replay = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", {...payload,expectedNetDifferenceMinor:700});
     expect(replay.status).toBe("APPLIED");
     expect(replay.result).toMatchObject({ exchangeCaseId: result.exchangeCaseId, returnCaseId: result.returnCaseId, replacementSaleId: result.replacementSaleId });
+    const changed = await sync(f, "walkin-exchange", "EXCHANGE_CREATE", {
+      ...payload, reason: "Different exchange reason under a reused ID",
+    });
+    expect(changed).toMatchObject({ status: "REJECTED", errorCode: "FINANCIAL_REPLAY_CONFLICT" });
 
     const replacement = (await pool.query<{ customer_id: string | null; total_minor: string }>(`SELECT customer_id,total_minor FROM sales WHERE id=$1`, [result.replacementSaleId])).rows[0]!;
     expect(replacement).toEqual({ customer_id: null, total_minor: "1700" });
@@ -54,6 +62,23 @@ describe("exchange domain engine", () => {
     expect(Number((await pool.query(`SELECT COUNT(*) FROM exchange_cases WHERE business_id=$1`, [f.businessId])).rows[0].count)).toBe(1);
     expect(Number((await pool.query(`SELECT COUNT(*) FROM return_cases WHERE business_id=$1`, [f.businessId])).rows[0].count)).toBe(1);
     expect(Number((await pool.query(`SELECT COUNT(*) FROM sales WHERE business_id=$1`, [f.businessId])).rows[0].count)).toBe(2);
+
+    // The returned stock has a value used as an exchange credit, not
+    // an external payout. Do not mislabel that credit as a paid refund.
+    const saleList = await app.inject({
+      method: "GET",
+      url: `/v1/sales?businessId=${f.businessId}&branchId=${f.branchId}`,
+      headers: bearer(f.accessToken),
+    });
+    expect(saleList.statusCode, saleList.body).toBe(200);
+    const originalSummary = saleList.json<{ sales: Array<{
+      id: string; refundTotalMinor: number; refundSettledMinor: number;
+      refundPendingMinor: number; refundFailedMinor: number;
+    }> }>().sales.find((row) => row.id === original.saleId);
+    expect(originalSummary).toMatchObject({
+      refundTotalMinor: 1000, refundSettledMinor: 0,
+      refundPendingMinor: 0, refundFailedMinor: 0,
+    });
 
     const audit = await pool.query<{ event_type: string; actor_staff_id: string | null; payload: Record<string, unknown> }>(
       `SELECT event_type,actor_staff_id,payload FROM audit_events WHERE business_id=$1 AND entity_type='EXCHANGE_CASE' AND entity_id=$2`,
@@ -96,6 +121,20 @@ describe("exchange domain engine", () => {
     expect(pending.result).toMatchObject({ netDifferenceMinor: -800, status: "PROCESSING" });
     const pendingResult = pending.result as { returnCaseId: string };
     expect((await pool.query<{ method: string; status: string; amount_minor: string }>(`SELECT method,status,amount_minor FROM refund_transactions WHERE return_case_id=$1`, [pendingResult.returnCaseId])).rows[0]).toEqual({ method: "MOMO", status: "PENDING", amount_minor: "800" });
+    const pendingRead = await app.inject({
+      method: "GET",
+      url: `/v1/sales?businessId=${momoFixture.businessId}&branchId=${momoFixture.branchId}`,
+      headers: bearer(momoFixture.accessToken),
+    });
+    expect(pendingRead.statusCode, pendingRead.body).toBe(200);
+    const pendingSummary = pendingRead.json<{ sales: Array<{
+      id: string; refundTotalMinor: number; refundSettledMinor: number;
+      refundPendingMinor: number; refundFailedMinor: number;
+    }> }>().sales.find((row) => row.id === momoOriginal.saleId);
+    expect(pendingSummary).toMatchObject({
+      refundTotalMinor: 2000, refundSettledMinor: 0,
+      refundPendingMinor: 800, refundFailedMinor: 0,
+    });
   });
 
   it("handles zero difference, prevents over-return and rejects unauthorized exchange ingestion", async () => {

@@ -13,14 +13,20 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "12.0.1",
     "@tradeos/client-core": "workspace:*",
+    "@tradeos/contracts": "workspace:*",
     "expo": "^57.0.0",
     "expo-crypto": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "expo-print": "~57.0.2",
     "expo-secure-store": "~57.0.4",
+    "expo-sharing": "~57.0.27",
     "react": "19.2.3",
-    "react-native": "0.86.0"
+    "react-native": "0.86.0",
+    "react-native-safe-area-context": "~5.7.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

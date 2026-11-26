@@ -4,6 +4,9 @@ import {
   buildSaleMutation,
   displayCartTotalMinor,
   filterSellableItems,
+  groupMobileQuickServeItems,
+  visibleQuickServeGroups,
+  QUICK_SERVE_PAGE_SIZE,
   projectSellableItems,
   removeCartLine,
   setCartQuantity,
@@ -79,6 +82,27 @@ describe("mobile POS sellable projection", () => {
     expect(items[0]).toMatchObject({ name: "Cement 50kg", unitLabel: "Bag", priceMinor: 12000, availableStock: 28, stockUnitCode: "bag" });
     expect(items[1]).toMatchObject({ unitLabel: "Tonne", availableStock: 28 });
     expect(items[2]).toMatchObject({ name: "Delivery service", trackStock: false, availableStock: null });
+  });
+
+  it("matches product and unit words in either order, including compact SKU searches", () => {
+    const items = projectSellableItems(catalog, inventory);
+    expect(filterSellableItems(items, "cement bag").map(x=>x.key)).toEqual(["item-1:bag"]);
+    expect(filterSellableItems(items, "tonne   cement").map(x=>x.key)).toEqual(["item-1:ton"]);
+    expect(filterSellableItems(items, "CEM50 bag").map(x=>x.key)).toEqual(["item-1:bag"]);
+    expect(filterSellableItems(items, "cement trip")).toEqual([]);
+    expect(filterSellableItems(items, "  ")).toEqual(items);
+  });
+  it("preserves distinct food portions and tolerates accent differences",()=>{
+    const base=projectSellableItems(catalog,inventory)[0]!;
+    const fish=[
+      {...base,itemId:"fish",key:"fish:small",sku:"FISH-01",name:"Fried fish",unitCode:"SMALL",unitLabel:"Small",priceMinor:1000},
+      {...base,itemId:"fish",key:"fish:large",sku:"FISH-01",name:"Fried fish",unitCode:"LARGE",unitLabel:"Large",priceMinor:2000}
+    ];
+    const cafe={...base,key:"coffee:cup",itemId:"coffee",name:"Café",unitCode:"cup",unitLabel:"Cup",sku:null};
+    expect(filterSellableItems([...fish,cafe],"fish large")).toEqual([fish[1]]);
+    expect(filterSellableItems([...fish,cafe],"FISH01 small")).toEqual([fish[0]]);
+    expect(filterSellableItems([...fish,cafe],"cafe cup")).toEqual([cafe]);
+    expect(fish.map(x=>x.priceMinor)).toEqual([1000,2000]);
   });
 
   it("searches by name, SKU and unit label case-insensitively", () => {
@@ -170,5 +194,70 @@ describe("mobile POS SALE_CREATE mutation", () => {
     const badCart = [{ ...addCartItem([], bag!)[0]!, quantity: -1 }];
     expect(() => buildSaleMutation({ ...base, paymentMethod: "CASH", cart: badCart })).toThrow(/greater than zero/i);
     expect(() => buildSaleMutation({ ...base, paymentMethod: "CUSTOMER_CREDIT" as never, cart: addCartItem([], bag!) })).toThrow(/payment method/i);
+  });
+});
+
+describe("native Quick Serve grouped portion amounts",()=>{
+  const make=(itemId:string,name:string,unit:string,amount:number,
+    kind:"PRODUCT"|"PREPARED_PRODUCT"="PREPARED_PRODUCT")=>({
+    key:itemId+":"+unit,itemId,name,sku:null,kind,unitCode:unit,
+    unitLabel:unit,priceMinor:amount,trackStock:false,
+    stockUnitCode:null,availableStock:null,
+  });
+  it("shows Waakye five/ten/fifteen as one grouped food",()=>{
+    const small=make("waakye","Waakye","SMALL",500);
+    const standard=make("waakye","Waakye","STANDARD",1000);
+    const large=make("waakye","Waakye","LARGE",1500);
+    const egg=make("egg","Egg","PIECE",800);
+    const original=[large,egg,small,standard];
+    const grouped=groupMobileQuickServeItems(original);
+    expect(grouped).toHaveLength(2);
+    expect(grouped.find(g=>g.itemId==="waakye")?.options.map(p=>p.priceMinor))
+      .toEqual([500,1000,1500]);
+    expect(grouped.find(g=>g.itemId==="egg")?.options.map(p=>p.priceMinor))
+      .toEqual([800]);
+    expect(original.map(p=>p.priceMinor)).toEqual([1500,800,500,1000]);
+  });
+  it("never merges two distinct items with identical names",()=>{
+    const groups=groupMobileQuickServeItems([
+      make("a","Fish","SMALL",1000),
+      make("b","Fish","LARGE",2000),
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(new Set(groups.map(g=>g.itemId)).size).toBe(2);
+  });
+  it("prioritizes prepared foods ahead of nonfood items",()=>{
+    const items=[
+      make("soap","Soap","PIECE",500,"PRODUCT"),
+      make("egg","Egg","PIECE",800),
+    ];
+    expect(groupMobileQuickServeItems(items).map(g=>g.name)).toEqual(["Egg","Soap"]);
+  });
+});
+describe("Quick Serve catalog expansion",()=>{
+  it("keeps every group and its portion choices reachable beyond the initial page",()=>{
+    const source=projectSellableItems(catalog,inventory)[0]!;
+    const items=Array.from({length:65},(_,i)=>({
+      ...source,itemId:"food-"+i,key:"food-"+i+":small",
+      name:"Food "+String(i).padStart(3,"0"),unitCode:"small",
+      kind:"PREPARED_PRODUCT" as const,priceMinor:1000
+    }));
+    const extra={...items[64]!,key:"food-64:large",unitCode:"large",priceMinor:2000};
+    const first=visibleQuickServeGroups([...items,extra]);
+    expect(first.groups).toHaveLength(QUICK_SERVE_PAGE_SIZE);
+    expect(first.totalGroups).toBe(65);
+    expect(first.hasMore).toBe(true);
+    const all=visibleQuickServeGroups([...items,extra],90);
+    expect(all.groups).toHaveLength(65);
+    expect(all.hasMore).toBe(false);
+    expect(all.groups[64]?.options.map(x=>x.priceMinor)).toEqual([1000,2000]);
+    expect(new Set(all.groups.map(g=>g.itemId)).size).toBe(65);
+  });
+  it("handles an empty or filtered catalog and invalid limits",()=>{
+    expect(visibleQuickServeGroups([],NaN)).toEqual({groups:[],totalGroups:0,hasMore:false});
+    const items=projectSellableItems(catalog,inventory);
+    const page=visibleQuickServeGroups(filterSellableItems(items,"cement"),-1);
+    expect(page.totalGroups).toBe(1);
+    expect(page.hasMore).toBe(false);
   });
 });

@@ -1,0 +1,27 @@
+.panel{margin-top:28px;border-top:1px solid var(--tos-border,#dce4ee);padding-top:23px}
+.heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:15px}
+.heading h2{font-size:20px;font-weight:800;margin:0 0 6px}
+.heading p{font-size:13px;line-height:1.55;color:var(--tos-text-muted,#64748b);max-width:760px;margin:0}
+.cases{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card{background:var(--tos-surface,#fff);border:1px solid var(--tos-border,#dce4ee);border-radius:13px;padding:17px;min-width:0;display:grid;gap:10px}
+.card>p{margin:0;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.cardHeader{display:flex;flex-wrap:wrap;align-items:start;justify-content:space-between;gap:8px}
+.cardHeader>div{display:grid;gap:4px}.cardHeader strong{font-size:15px}.cardHeader span,.meta{font-size:12px;color:var(--tos-text-muted,#64748b)}
+.status,.warning{font-size:11px;padding:5px 8px;border-radius:8px;font-weight:700;border:1px solid #9ca9b8;max-width:220px;text-align:center}
+.warning{background:#fff4e8;color:#7b3b12;border-color:#daad80}
+.evidence{background:var(--tos-surface-secondary,#f3f6fa);padding:8px;border-radius:8px}
+.note{border-left:3px solid #9eabc0;padding:7px 10px;white-space:pre-wrap}
+.disclaimer{font-size:12px!important;color:var(--tos-text-muted,#64748b)}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.primary,.secondary{border-radius:8px;padding:8px 11px;min-height:38px;border:1px solid #9cabbc;cursor:pointer;font:inherit;font-size:12px;font-weight:700}
+.primary{background:#173455;color:white;border-color:#173455}
+.secondary{background:transparent;color:inherit}
+.primary:disabled,.secondary:disabled{opacity:.5;cursor:not-allowed}
+.form{display:grid;gap:7px;border-top:1px solid var(--tos-border,#dce4ee);padding-top:12px}
+.form label{font-weight:700;font-size:12px}
+.form input,.form textarea,.form select{width:100%;box-sizing:border-box;border:1px solid #aab9c8;border-radius:8px;padding:9px 10px;font:inherit;font-size:13px;background:var(--tos-surface,#fff);color:inherit}
+.form textarea{resize:vertical;min-height:95px}
+.success,.error,.empty{border-radius:9px;padding:12px;font-size:13px;line-height:1.5}
+.success{color:#155a36;background:#eaf8ed}.error{color:#8a2633;background:#fff1ef}
+.empty{border:1px dashed #9caec1}
+@media(max-width:800px){.cases{grid-template-columns:1fr}}

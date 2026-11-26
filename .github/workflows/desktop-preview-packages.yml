@@ -1,0 +1,95 @@
+name: Build TradeOS desktop preview packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "HTTPS API gateway base URL for this internal preview (do not include secrets)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-preview-${{ github.ref }}-${{ github.event.inputs.api_base_url }}
+  cancel-in-progress: false
+
+jobs:
+  previews:
+    name: ${{ matrix.name }} (unsigned preview)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            runner: windows-latest
+            artifact: tradeos-windows-unsigned-preview
+          - name: macOS
+            runner: macos-latest
+            artifact: tradeos-macos-unsigned-preview
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate preview API address
+        shell: bash
+        env:
+          TRADEOS_PREVIEW_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: |
+          node --input-type=module -e '
+            const input = process.env.TRADEOS_PREVIEW_API_BASE_URL || "";
+            const url = new URL(input);
+            if (url.protocol !== "https:" || url.username || url.password || !url.hostname ||
+                url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+              throw new Error("A non-local HTTPS gateway URL without credentials is required");
+            }
+            console.log("Valid preview HTTPS gateway hostname:", url.hostname);
+          '
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared contracts and client core
+        run: |
+          pnpm --filter @tradeos/contracts build
+          pnpm --filter @tradeos/client-core build
+
+      - name: Typecheck and test desktop app
+        run: |
+          pnpm --filter @tradeos/desktop typecheck
+          pnpm --filter @tradeos/desktop test
+
+      - name: Build unsigned Tauri application
+        env:
+          VITE_TRADEOS_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: pnpm --filter @tradeos/desktop desktop:build
+
+      - name: Archive unsigned preview bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-${{ github.sha }}
+          path: apps/desktop/src-tauri/target/release/bundle/**
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Show preview distribution warning
+        shell: bash
+        run: |
+          echo "This package is a testing preview only."
+          echo "Windows Authenticode and Apple Developer ID/notarization are NOT provided."
+          echo "Do not publish to end customers until signing, platform UAT and offline/device tests pass."

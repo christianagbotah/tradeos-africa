@@ -94,10 +94,11 @@ export function SalesWorkspace() {
       const d = s.completedAt ? new Date(s.completedAt) : new Date(s.createdAt);
       return d.toDateString() === today.toDateString();
     });
-    const todayRevenue = todaySales.reduce((sum, s) => sum + (s.totalMinor - s.refundTotalMinor), 0);
-    const pending = allSales.filter((s) => s.status === "PENDING").length;
+    const completedToday=todaySales.filter(s=>s.status!=="OPEN");
+    const todayRevenue = completedToday.reduce((sum,s)=>sum+s.totalMinor-s.refundTotalMinor,0);
+    const pending = allSales.filter((s) => s.status === "OPEN" || s.status === "PENDING").length;
     const refunded = allSales.filter((s) => s.refundTotalMinor > 0 || s.status === "REFUNDED").length;
-    return { todayCount: todaySales.length, todayRevenue, pending, refunded };
+    return { todayCount: completedToday.length, todayRevenue, pending, refunded };
   }, [allSales]);
 
   if (loading) {
@@ -254,7 +255,7 @@ export function SalesWorkspace() {
                   </div>
                   <div className="tos-sale-card__row">
                     <SaleStatusBadge status={sale.status} />
-                    <span className="tos-sale-card__method">View receipt</span>
+                    <span className="tos-sale-card__method">{sale.status==="OPEN"?"View unpaid order":"View receipt"}</span>
                   </div>
                 </button>
               </li>
@@ -313,7 +314,7 @@ export function SalesWorkspace() {
         </>
       )}
 
-      <SaleDetailSheet saleId={selectedId} onClose={() => setSelectedId(null)} />
+      <SaleDetailSheet saleId={selectedId} onClose={() => setSelectedId(null)} onPaid={refresh} />
       {/* nonce is intentionally read to force re-render on refresh */}
       <span hidden aria-hidden="true">{nonce}</span>
     </div>
@@ -413,11 +414,11 @@ function SaleStatusBadge({ status }: { status: string }) {
     status === "COMPLETED" ? "tos-badge--positive" :
     status === "VOID" ? "tos-badge--danger" :
     status === "REFUNDED" ? "tos-badge--warning" :
-    status === "PENDING" ? "tos-badge--pending" :
+    (status === "PENDING" || status === "OPEN") ? "tos-badge--pending" :
     "tos-badge--neutral";
   return (
     <span className={`tos-badge ${variant}`}>
-      <span className="tos-badge__dot" />{status}
+      <span className="tos-badge__dot" />{status==="OPEN"?"AWAITING PAYMENT":status}
     </span>
   );
 }

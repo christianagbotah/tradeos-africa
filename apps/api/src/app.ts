@@ -1,12 +1,18 @@
+import { registerBusinessIntelligenceRoutes } from "./business-intelligence/routes.js";
+import { registerMerchantBillingRoutes } from "./merchant-billing/routes.js";
 import { registerCashForecastRoutes } from "./cash-forecast.js";
 import { registerReportRoutes } from "./reports.js";
 import { registerOperationsRoutes } from "./operations.js";
+import { registerShiftSalePolicyRoutes } from "./operations/shift-sale-policy-routes.js";
 import { registerTreasuryRoutes } from "./treasury.js";
 import { registerCashbookRoutes } from "./cashbook.js";
 import { registerSupplierInventoryRoutes } from "./suppliers-inventory.js";
 import Fastify from "fastify";
 import type { ClientMutation, SyncPushRequest } from "@tradeos/contracts";
 import { requireBusinessRole, type BusinessAccess, type BusinessRole } from "./auth/authorization.js";
+import { assertPosAttendantSalePayload, PosAttendantPolicyError } from "./auth/pos-attendant-policy.js";
+import { assertPosAttendantShiftPayload } from "./auth/pos-attendant-shift-policy.js";
+import { requireBranchScope } from "./auth/branch-scope.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { authenticateAccessToken, AuthError, type AuthContext } from "./auth/security.js";
 import { registerBusinessRoutes } from "./businesses.js";
@@ -18,16 +24,33 @@ import type { DatabasePool } from "./db.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
 import { registerMediaRoutes } from "./media/routes.js";
 import { registerPlatformAdminRoutes } from "./platform-admin/routes.js";
+import { registerPlatformAdminBillingRoutes } from "./platform-admin/billing-routes.js";
+import { registerPlatformAdminAttentionRoutes } from "./platform-admin/attention-routes.js";
+import { registerPlatformAdminAutomationRoutes } from "./platform-admin/automation-routes.js";
 import { registerSalesReadRoutes } from "./sales-read.js";
+import { registerRefundFollowupRoutes } from "./refund-followups.js";
+import { registerRefundReconciliationRoutes } from "./refund-reconciliation-preflight.js";
+import { registerRefundOriginalOrderRoutes } from "./refund-original-order-observations.js";
+import { registerRefundProviderEvidenceRoutes } from "./refund-provider-evidence.js";
+import { registerRefundEvidenceExportRoutes } from "./refund-evidence-export.js";
+import { registerCommercialDocumentRoutes } from "./commercial-documents.js";
+import { registerPurchaseOrderRoutes } from "./purchase-orders.js";
+import { registerSupplierDocumentDeliveryRoutes } from "./supplier-document-delivery.js";
+import { registerSupplierInvoiceMatchRoutes } from "./supplier-invoice-matches.js";
+import { registerHubtelPosRoutes } from "./commerce/hubtel-pos-routes.js";
+import { registerPaymentProviderRoutes } from "./payment-providers/routes.js";
+import { registerSmsProviderRoutes } from "./messaging/routes.js";
+import { registerPricingRoutes } from "./commerce/pricing-routes.js";
 import { registerStaffRoutes } from "./staff/routes.js";
 import { ingestSyncBatch, SyncRequestError } from "./sync.js";
 
-const SALE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "STAFF"];
+const SALE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "STAFF"];
 const RETURN_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER"];
 const CUSTOMER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
 const PURCHASE_RECEIVE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY", "ACCOUNTANT"];
 const SUPPLIER_PAYMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const EXPENSE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"];
+const SHIFT_ROLES: readonly BusinessRole[] = [...EXPENSE_ROLES, "POS_ATTENDANT"];
 const CASHBOOK_ADJUSTMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"];
 const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
 const INVENTORY_ADJUSTMENT_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
@@ -48,19 +71,38 @@ export function buildApp(pool: DatabasePool) {
 
   registerAuthRoutes(app, pool);
   registerPlatformAdminRoutes(app, pool);
+  registerPlatformAdminBillingRoutes(app, pool);
+  registerPlatformAdminAttentionRoutes(app, pool);
+  registerPlatformAdminAutomationRoutes(app, pool);
   registerOnboardingRoutes(app, pool);
   registerBusinessRoutes(app, pool);
   registerMediaRoutes(app, pool);
   registerCatalogRoutes(app, pool);
   registerCustomerRoutes(app, pool);
   registerSalesReadRoutes(app, pool);
+  registerRefundFollowupRoutes(app, pool);
+  registerRefundReconciliationRoutes(app, pool);
+  registerRefundOriginalOrderRoutes(app, pool);
+  registerRefundProviderEvidenceRoutes(app, pool);
+  registerRefundEvidenceExportRoutes(app, pool);
+  registerCommercialDocumentRoutes(app, pool);
+  registerPurchaseOrderRoutes(app, pool);
+  registerSupplierDocumentDeliveryRoutes(app, pool);
+  registerSupplierInvoiceMatchRoutes(app, pool);
+  registerHubtelPosRoutes(app, pool);
+  registerPaymentProviderRoutes(app, pool);
+  registerSmsProviderRoutes(app, pool);
+  registerPricingRoutes(app, pool);
   registerStaffRoutes(app, pool);
   registerSupplierInventoryRoutes(app, pool);
   registerCashbookRoutes(app, pool);
   registerOperationsRoutes(app,pool);
+  registerShiftSalePolicyRoutes(app,pool);
   registerTreasuryRoutes(app,pool);
   registerReportRoutes(app,pool);
   registerCashForecastRoutes(app,pool);
+  registerBusinessIntelligenceRoutes(app, pool);
+  registerMerchantBillingRoutes(app, pool);
 
   app.post<{ Body: SyncPushRequest }>("/v1/sync", async (request, reply) => {
     try {
@@ -68,6 +110,9 @@ export function buildApp(pool: DatabasePool) {
       const authorized = await authorizeAndEnrichSyncBatch(pool, auth, request.body);
       return await ingestSyncBatch(pool, authorized);
     } catch (error) {
+      if (error instanceof PosAttendantPolicyError) {
+        return reply.code(error.statusCode).send({ error: error.code, message: error.message });
+      }
       if (error instanceof AuthError) {
         return reply.code(error.statusCode).send({ error: error.code, message: error.message });
       }
@@ -99,9 +144,6 @@ async function authorizeAndEnrichSyncBatch(
   const mutations: ClientMutation[] = [];
 
   for (const mutation of body.mutations) {
-    // The authenticated session is authoritative for device identity. A stale
-    // browser queue may carry an older clientId, so never trust or reject on
-    // that client-supplied value; normalize it before authorization/ingest.
     const normalizedMutation: ClientMutation = mutation.clientId === auth.deviceKey
       ? mutation
       : { ...mutation, clientId: auth.deviceKey };
@@ -112,6 +154,19 @@ async function authorizeAndEnrichSyncBatch(
     if (!access) {
       access = await requireBusinessRole(pool, auth, mutation.businessId, roles);
       accessCache.set(authorizationKey, access);
+    }
+    // This test must run on the authenticated database role, not a role string
+    // supplied by an offline client or included inside the payload.
+    if (access.role === "POS_ATTENDANT") {
+      await requireBranchScope(pool,access,normalizedMutation.branchId);
+      if (normalizedMutation.mutationType === "SALE_CREATE") {
+        assertPosAttendantSalePayload(normalizedMutation.payload);
+      } else if (normalizedMutation.mutationType === "SHIFT_OPEN_CREATE" ||
+        normalizedMutation.mutationType === "SHIFT_CLOSE_CREATE") {
+        assertPosAttendantShiftPayload(normalizedMutation.mutationType,normalizedMutation.payload);
+      } else {
+        throw new AuthError("POS-only staff cannot perform this action", 403, "ROLE_FORBIDDEN");
+      }
     }
     if (!access.staffId) {
       throw new AuthError(
@@ -150,8 +205,10 @@ function authoritativeActorPayload(mutation: ClientMutation, access: BusinessAcc
     return { ...rest, actorStaffId: access.staffId };
   }
   if (mutation.mutationType === "SALE_CREATE") {
-    const { cashierStaffId: _ignored, ...rest } = payload;
-    return { ...rest, cashierStaffId: access.staffId };
+    const { cashierStaffId: _ignored, cashierMembershipId: _ignoredMember,
+      ...rest } = payload;
+    return { ...rest, cashierStaffId: access.staffId,
+      cashierMembershipId: access.membershipId };
   }
 
   if (mutation.mutationType === "EXCHANGE_CREATE") {
@@ -199,7 +256,7 @@ function rolesForMutation(mutation: ClientMutation): readonly BusinessRole[] {
     case "OPERATING_DAY_OPEN_CREATE":
     case "OPERATING_DAY_CLOSE_CREATE": return CASHBOOK_ADJUSTMENT_ROLES;
     case "SHIFT_OPEN_CREATE":
-    case "SHIFT_CLOSE_CREATE":
+    case "SHIFT_CLOSE_CREATE": return SHIFT_ROLES;
     case "MONEY_RECONCILIATION_CREATE":
     case "EXPENSE_CREATE": return EXPENSE_ROLES;
     case "MONEY_TRANSFER_CREATE":

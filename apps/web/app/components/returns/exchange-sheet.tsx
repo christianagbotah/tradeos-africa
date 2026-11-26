@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { useWorkspace } from "../workspace/use-workspace";
 import { primarySellableUnit } from "../../../lib/catalog-read-model";
@@ -8,6 +8,8 @@ import { MoneyValue } from "../business/money-value";
 import { Button } from "../ui/button";
 import { IconBanknote, IconClose, IconCreditCard, IconRefresh, IconShield, IconSmartphone, IconWallet } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { enqueueAndConfirmMutation, PendingMutationConfirmationError } from "../../../lib/confirmed-financial-mutation";
+import { notifyAction } from "../ui/action-feedback";
 
 interface SaleDetailLine {
   id: string;
@@ -127,6 +129,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
   const [customReason, setCustomReason] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const pendingPostingRef = useRef<{ targetId: string; mutationId: string } | null>(null);
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "CASHIER"].includes(role);
 
@@ -197,15 +200,36 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
           replacementLines: [{ itemId: newItem.id, saleUnitCode: newUnit.code, quantity: newQty }],
         },
       });
-      await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await enqueueAndConfirmMutation(queue, mutation, {
+        businessId: session.businessId,
+        branchId: session.branchId,
+        mutationTypes: ["RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE"],
+        targetField: "originalSaleId",
+        targetId: data.sale.id,
+      }, typeof navigator !== "undefined" ? navigator.onLine : true,
+      pendingPostingRef.current?.targetId === mutation.payload.originalSaleId ?
+        pendingPostingRef.current.mutationId : null);
+      pendingPostingRef.current = null;
       onComplete();
     } catch (err) {
+      if (err instanceof PendingMutationConfirmationError) {
+        pendingPostingRef.current = {
+          targetId: data.sale.id,
+          mutationId: err.mutationId,
+        };
+        // The first queued attempt already issued a global pending toast.
+        // Only alert again if this is a repeated attempt against that queue.
+        if (err.existing) notifyAction({
+          tone: "warning", title: "Awaiting server confirmation", message: err.message,
+        });
+      }
       setSubmitError(err instanceof Error ? err.message : "Could not submit exchange.");
     } finally {
       setBusy(false);
     }
   };
+
+  const awaitingConfirmation = pendingPostingRef.current?.targetId === data?.sale.id;
 
   const netCls = customerPays
     ? "tos-exchange-net__val tos-exchange-net__val--customer-pays"
@@ -215,7 +239,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
 
   return (
     <>
-      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet-scrim" onClick={() => { if (!busy) onClose(); }} aria-hidden="true" />
       <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label="Exchange">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
@@ -223,7 +247,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
             <h2 className="tos-sheet__title">Process exchange</h2>
             <p className="tos-sheet__sub">Receipt #{saleId.slice(0, 8)} · swap returned goods for a different item</p>
           </div>
-          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="tos-sheet__close" onClick={onClose} disabled={busy} aria-label="Close">
             <IconClose style={{ width: 18, height: 18 }} />
           </button>
         </div>
@@ -260,7 +284,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                       className="tos-select"
                       value={returnLineId ?? ""}
                       onChange={(e) => setReturnLineId(e.target.value)}
-                      disabled={busy}
+                      disabled={busy || awaitingConfirmation}
                     >
                       {data.sale.lines.map((l) => (
                         <option key={l.id} value={l.id}>{l.itemName} ({l.quantityReturnable} returnable)</option>
@@ -277,7 +301,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                       className="tos-input"
                       value={returnQty}
                       onChange={(e) => setReturnQty(Math.max(1, Number(e.target.value)))}
-                      disabled={busy}
+                      disabled={busy || awaitingConfirmation}
                     />
                     <span className="tos-field__hint">
                       {returnLine ? `${returnLine.quantityReturnable} returnable of ${returnLine.quantity} sold` : ""}
@@ -304,7 +328,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                       className="tos-select"
                       value={newItemId ?? ""}
                       onChange={(e) => setNewItemId(e.target.value || null)}
-                      disabled={busy}
+                      disabled={busy || awaitingConfirmation}
                     >
                       <option value="">Select…</option>
                       {activeCatalog.map((c) => (
@@ -324,7 +348,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                       className="tos-input"
                       value={newQty}
                       onChange={(e) => setNewQty(Math.max(1, Number(e.target.value)))}
-                      disabled={busy}
+                      disabled={busy || awaitingConfirmation}
                     />
                   </div>
                   <div className="tos-exchange-side__amount">
@@ -353,7 +377,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                         role="radio"
                         aria-checked={restockChoice === opt.value}
                         onClick={() => setRestockChoice(opt.value)}
-                        disabled={busy}
+                        disabled={busy || awaitingConfirmation}
                       >
                         <span className="tos-restock-option__label">{opt.label}</span>
                         <span className="tos-restock-option__hint">{opt.hint}</span>
@@ -371,7 +395,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                   className="tos-select"
                   value={settlementMethod}
                   onChange={(e) => setSettlementMethod(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || awaitingConfirmation}
                 >
                   {SETTLEMENT_METHODS.map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
@@ -410,7 +434,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                   className="tos-select"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || awaitingConfirmation}
                 >
                   {EXCHANGE_REASONS.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -424,7 +448,7 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                     placeholder="Describe the reason…"
                     value={customReason}
                     onChange={(e) => setCustomReason(e.target.value)}
-                    disabled={busy}
+                    disabled={busy || awaitingConfirmation}
                   />
                 ) : null}
               </div>
@@ -446,14 +470,17 @@ export function ExchangeSheet({ saleId, onClose, onComplete }: ExchangeSheetProp
                 </span>
               </div>
 
-              {submitError ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{submitError}</span></div> : null}
+              {submitError ? <div className={awaitingConfirmation ? "tos-banner tos-banner--warning" : "tos-banner tos-banner--danger"} role="status">
+                <span className="tos-banner__title">{submitError}</span>
+                {awaitingConfirmation ? <span>The original queued exchange will be checked; changed form values do not modify it.</span> : null}
+              </div> : null}
             </>
           ) : null}
         </div>
         <div className="tos-sheet__foot">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button variant="primary" icon={<IconRefresh className="tos-btn__icon" />} onClick={handleSubmit} loading={busy} disabled={!canWrite || !returnLine || !newItem}>
-            {canWrite ? "Post exchange" : "No permission"}
+          <Button variant="primary" icon={<IconRefresh className="tos-btn__icon" />} onClick={handleSubmit} loading={busy} disabled={!canWrite || (!awaitingConfirmation && (!returnLine || !newItem))}>
+            {canWrite ? (awaitingConfirmation ? "Check posting status" : "Post exchange") : "No permission"}
           </Button>
         </div>
       </div>

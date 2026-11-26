@@ -48,6 +48,10 @@ describe("inventory adjustment engine", () => {
     const replay = await push(setup, "reclass-1", payload);
     expect(replay.status).toBe("APPLIED");
     expect((replay.result as { adjustmentId: string }).adjustmentId).toBe(adjustmentId);
+    const changed = await push(setup, "reclass-1", { ...payload, quantity: 5 });
+    expect(changed).toMatchObject({
+      status: "REJECTED", errorCode: "FINANCIAL_REPLAY_CONFLICT",
+    });
 
     const movements = await pool.query<{
       quantity_delta: string;

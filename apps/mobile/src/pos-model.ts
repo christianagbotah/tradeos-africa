@@ -51,11 +51,28 @@ export function projectSellableItems(catalog: readonly MobileCatalogItem[], inve
     })));
 }
 
+// Match words across the item and its selling unit, not just within one field.
+// Keep the original item/unit identity and price intact; searching never
+// modifies the cart or automatically chooses a substitute.
+function normalizeSearch(value: string): string {
+  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+function compactSku(value: string): string {
+  return value.replace(/[\s._/-]+/g, "");
+}
 export function filterSellableItems(items: readonly MobileSellableItem[], query: string): MobileSellableItem[] {
-  const normalized = query.trim().toLocaleLowerCase();
+  const normalized = normalizeSearch(query);
   if (!normalized) return [...items];
-  return items.filter((item) => [item.name, item.sku ?? "", item.unitLabel, item.unitCode]
-    .some((value) => value.toLocaleLowerCase().includes(normalized)));
+  const terms = normalized.split(/\s+/);
+  return items.filter((item) => {
+    const fields = [item.name, item.sku ?? "", item.unitLabel, item.unitCode].map(normalizeSearch);
+    const sku = compactSku(fields[1] ?? "");
+    return terms.every(term => {
+      const code = compactSku(term);
+      return fields.some(value => value.includes(term)) ||
+        (code.length >= 2 && sku.includes(code));
+    });
+  });
 }
 
 export function addCartItem(cart: readonly MobileCartLine[], item: MobileSellableItem): MobileCartLine[] {
@@ -121,4 +138,45 @@ function assertQuantity(quantity: number): void {
 function assertSellable(item: MobileSellableItem): void {
   if (!item.itemId.trim() || !item.unitCode.trim()) throw new Error("Item and sale unit are required.");
   if (!Number.isSafeInteger(item.priceMinor) || item.priceMinor < 0) throw new Error("Display price must be a non-negative integer in minor currency units.");
+}
+
+/**
+ * Native Quick Serve mirrors the web food grouping without mixing two catalog
+ * items that happen to share a name. Each option is an independently priced
+ * sale unit; server-side SALE_CREATE always decides final authoritative price.
+ */
+export type MobileQuickServeGroup = {
+  itemId: string;
+  name: string;
+  options: MobileSellableItem[];
+};
+export function groupMobileQuickServeItems(
+  items: readonly MobileSellableItem[],
+): MobileQuickServeGroup[] {
+  const sorted = [...items].sort((a, b) => {
+    const prepared = Number(b.kind === "PREPARED_PRODUCT") -
+      Number(a.kind === "PREPARED_PRODUCT");
+    return prepared || a.name.localeCompare(b.name) || a.key.localeCompare(b.key);
+  });
+  const groups = new Map<string, MobileQuickServeGroup>();
+  for (const item of sorted) {
+    const existing = groups.get(item.itemId);
+    if (existing) existing.options.push(item);
+    else groups.set(item.itemId, { itemId: item.itemId, name: item.name, options: [item] });
+  }
+  for (const group of groups.values()) {
+    group.options.sort((a, b) => a.priceMinor - b.priceMinor ||
+      a.unitLabel.localeCompare(b.unitLabel) || a.key.localeCompare(b.key));
+  }
+  return [...groups.values()];
+}
+
+/** Progressive disclosure without a silent catalog limit. Keep all price
+ * options for a product together; expanding never splits a product group. */
+export const QUICK_SERVE_PAGE_SIZE = 30;
+export function visibleQuickServeGroups(items: readonly MobileSellableItem[], requestedLimit=QUICK_SERVE_PAGE_SIZE) {
+  const limit=Number.isSafeInteger(requestedLimit)&&requestedLimit>=QUICK_SERVE_PAGE_SIZE
+    ? requestedLimit : QUICK_SERVE_PAGE_SIZE;
+  const groups=groupMobileQuickServeItems(items);
+  return {groups:groups.slice(0,limit),totalGroups:groups.length,hasMore:groups.length>limit};
 }

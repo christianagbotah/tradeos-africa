@@ -77,6 +77,17 @@ export type FlushOptions = {
 };
 
 export class OfflineMutationQueue {
+  // Bounded process-local evidence, recorded only after the APPLIED result
+  // and durable queue write. Absence from pending is not proof of posting.
+  private readonly acknowledged=new Map<string,{businessId:string;branchId:string|undefined;completedSaleId?:string}>();
+  getCompletedSaleId(id:string,businessId:string,branchId:string|undefined):string|undefined{
+    const evidence=this.acknowledged.get(id);
+    return evidence?.businessId===businessId&&evidence.branchId===branchId?evidence.completedSaleId:undefined;
+  }
+  hasAppliedAcknowledgement(id:string,businessId:string,branchId:string|undefined):boolean{
+    const evidence=this.acknowledged.get(id);
+    return !!evidence&&evidence.businessId===businessId&&evidence.branchId===branchId;
+  }
   private inFlight: Promise<FlushSummary> | null = null;
   private storageMutationChain: Promise<void> = Promise.resolve();
 
@@ -88,7 +99,7 @@ export class OfflineMutationQueue {
   enqueue(mutation: QueuedMutation): Promise<boolean> {
     return this.withStorageMutation(async () => {
       const snapshot = await this.readSnapshot();
-      if (snapshot.pending.some((entry) => entry.clientMutationId === mutation.clientMutationId)) return false;
+      if (this.acknowledged.has(mutation.clientMutationId)||snapshot.pending.some((entry) => entry.clientMutationId === mutation.clientMutationId)||snapshot.failed.some(entry=>entry.mutation.clientMutationId===mutation.clientMutationId)) return false;
       snapshot.pending.push(cloneJson(mutation));
       await this.writeSnapshot(snapshot);
       return true;
@@ -153,7 +164,13 @@ export class OfflineMutationQueue {
     const response = await transport.push({ mutations: batch });
     return this.withStorageMutation(async () => {
       const latestSnapshot = await this.readSnapshot();
-      const resultsById = new Map(response.mutationResults.map((result) => [result.clientMutationId, result]));
+      const resultsById=new Map<string,MutationResult>();
+      const ambiguous=new Set<string>();
+      for(const result of response.mutationResults){
+        if(resultsById.has(result.clientMutationId))ambiguous.add(result.clientMutationId);
+        else resultsById.set(result.clientMutationId,result);
+      }
+      const appliedEvidence:QueuedMutation[]=[];
       const batchIds = new Set(batch.map((mutation) => mutation.clientMutationId));
       let applied = 0;
       let received = 0;
@@ -169,11 +186,11 @@ export class OfflineMutationQueue {
         }
 
         const result = resultsById.get(mutation.clientMutationId);
-        if (!result || result.status === "RECEIVED") {
+        if (!result || ambiguous.has(mutation.clientMutationId)||!["RECEIVED","APPLIED","REJECTED"].includes(result.status)||result.status === "RECEIVED") {
           nextPending.push(mutation);
           received += 1;
         } else if (result.status === "APPLIED") {
-          applied += 1;
+          applied += 1;appliedEvidence.push(mutation);
         } else {
           rejected += 1;
           if (!nextFailed.some((entry) => entry.mutation.clientMutationId === mutation.clientMutationId)) {
@@ -184,6 +201,14 @@ export class OfflineMutationQueue {
 
       const nextSnapshot = { pending: nextPending, failed: nextFailed };
       await this.writeSnapshot(nextSnapshot);
+      for(const m of appliedEvidence){
+        const result=resultsById.get(m.clientMutationId)?.result;
+        const sale=result&&typeof result==="object"&&!Array.isArray(result)?result as Record<string,unknown>:null;
+        const completedSaleId=m.mutationType==="SALE_CREATE"&&sale?.status==="COMPLETED"&&typeof sale.saleId==="string"&&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sale.saleId)?sale.saleId:undefined;
+        this.acknowledged.set(m.clientMutationId,{businessId:m.businessId,branchId:m.branchId,...(completedSaleId?{completedSaleId}:{})});
+      }
+      while(this.acknowledged.size>1000){const oldest=this.acknowledged.keys().next().value;if(oldest===undefined)break;this.acknowledged.delete(oldest);}
       return {
         ...queueStateFromSnapshot(nextSnapshot, activeBusinessId),
         applied,

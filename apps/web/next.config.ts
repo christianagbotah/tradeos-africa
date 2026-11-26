@@ -1,7 +1,35 @@
 import type { NextConfig } from "next";
+import { basename, resolve } from "node:path";
+
+// The deployed release directory is named after its immutable Git commit.
+// Bake that identity into BOTH the browser bundle and the server endpoint:
+// deriving it from the server on first poll would mistake an old tab for new.
+const releaseFolder = basename(resolve(process.cwd(), "../.."));
+const candidateReleaseId = process.env.TRADEOS_RELEASE_SHA || process.env.GITHUB_SHA || releaseFolder;
+const clientReleaseId = /^[a-f0-9]{40}$/i.test(candidateReleaseId) ? candidateReleaseId : "";
+
+// CI-only packaging mode. Default production deployment continues using the
+// existing Next start workflow until the new artifact is independently verified.
+const artifactPilot = process.env.TRADEOS_CI_ARTIFACT === "1";
 
 const config: NextConfig = {
+  ...(artifactPilot ? {
+    output: "standalone" as const,
+    outputFileTracingRoot: resolve(process.cwd(), "../.."),
+  } : {}),
   reactStrictMode: true,
+  env: { NEXT_PUBLIC_TRADEOS_CLIENT_RELEASE: clientReleaseId },
+  async headers() {
+    // Sensitive redirect arguments must not be cached or sent as referrers.
+    return ["/reset-password", "/gateway-test-return"].map(source => ({
+      source,
+      headers: [
+        { key: "Referrer-Policy", value: "no-referrer" },
+        { key: "Cache-Control", value: "no-store, max-age=0" },
+        { key: "X-Robots-Tag", value: "noindex, nofollow" },
+      ],
+    }));
+  },
   transpilePackages: ["@tradeos/contracts", "@tradeos/client-core"],
   async rewrites() {
     // Dev/proxy mode ONLY: rewrites are installed when API_BASE_URL is

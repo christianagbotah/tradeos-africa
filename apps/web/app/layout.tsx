@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { ActionFeedbackViewport } from "./components/ui/action-feedback";
 import "./globals.css";
 import "./tradeos-tokens.css";
 import "./ui-primitives.css";
 import "./workspace-shell.css";
+import "./password-controls.css";
 
 export const metadata: Metadata = {
   title: "TradeOS",
@@ -22,7 +24,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>{children}<ActionFeedbackViewport /></body>
     </html>
   );
 }

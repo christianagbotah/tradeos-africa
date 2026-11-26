@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useWorkspace } from "../app/components/workspace/use-workspace";
-import { getOfflineQueue } from "./offline-sync";
+import { getOfflineQueue, MUTATION_INVALIDATION_EVENT } from "./offline-sync";
 import { readApiErrorMessage } from "./auth-fetch";
 
 export interface ApiFetchState<T> {
@@ -13,7 +13,7 @@ export interface ApiFetchState<T> {
 
 export interface ApiFetchResult<T> extends ApiFetchState<T> {
   refetch: () => void;
-  setData: (data: T | null) => void;
+  setData: Dispatch<SetStateAction<T | null>>;
 }
 
 /**
@@ -22,24 +22,52 @@ export interface ApiFetchResult<T> extends ApiFetchState<T> {
  *
  * Honest states only: returns loading/error/data. No fake fallbacks.
  */
-export function useApiFetch<T>(path: string | null, options?: { method?: string; body?: unknown }): ApiFetchResult<T> {
+export function useApiFetch<T>(
+  path: string | null,
+  options?: { method?: string; body?: unknown; reconcile?: (incoming: T) => T },
+): ApiFetchResult<T> {
   const { session } = useWorkspace();
+  // A mutation can complete while an older GET is in flight. Each successful
+  // read passes through the current reconciliation rule before it reaches UI.
+  const reconcileRef = useRef(options?.reconcile);
+  reconcileRef.current = options?.reconcile;
+  const contextKey = session
+    ? session.businessId + ":" + session.branchId + ":" + (path ?? "")
+    : null;
+  const [sourceKey, setSourceKey] = useState<string | null>(contextKey);
   const [state, setState] = useState<ApiFetchState<T>>({ data: null, loading: true, error: null });
   const [nonce, setNonce] = useState(0);
 
-  const refetch = useCallback(() => setNonce((n) => n + 1), []);
+  const generation = useRef(0);
+  const refetch = useCallback(() => { generation.current++; setNonce((n) => n + 1); }, []);
+  useEffect(() => {
+    if(!session?.businessId || (options?.method??"GET").toUpperCase()!=="GET")return;
+    const listener=(event:Event)=>{
+      if((event as CustomEvent<{businessId:string}>).detail?.businessId===session.businessId)refetch();
+    };
+    window.addEventListener(MUTATION_INVALIDATION_EVENT,listener);
+    return ()=>window.removeEventListener(MUTATION_INVALIDATION_EVENT,listener);
+  },[session?.businessId,options?.method,refetch]);
 
   useEffect(() => {
+    setSourceKey(contextKey);
     if (!path || !session) {
       setState({ data: null, loading: false, error: null });
       return;
     }
     let cancelled = false;
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+    const requestGeneration = ++generation.current;
+    const stale = () => cancelled || generation.current !== requestGeneration;
+    setState((prev) => ({
+      data: sourceKey === contextKey ? prev.data : null,
+      loading: true,
+      error: null,
+    }));
     void (async () => {
       try {
         const init: RequestInit = {
           method: options?.method ?? "GET",
+          cache: "no-store",
           headers: {
             ...(options?.body ? { "Content-Type": "application/json" } : {}),
           },
@@ -48,29 +76,45 @@ export function useApiFetch<T>(path: string | null, options?: { method?: string;
           init.body = JSON.stringify(options.body);
         }
         const res = await getOfflineQueue().authenticatedFetch(path, init);
-        if (cancelled) return;
+        if (stale()) return;
         if (!res.ok) {
           const message = await readApiErrorMessage(res);
-          setState({ data: null, loading: false, error: message });
+          if(stale())return;
+          setState(prev=>({ ...prev, loading:false,error:message }));
           return;
         }
         const json = (await res.json()) as T;
-        if (cancelled) return;
-        setState({ data: json, loading: false, error: null });
+        if (stale()) return;
+        setState({ data: reconcileRef.current?.(json) ?? json, loading: false, error: null });
       } catch (err) {
-        if (cancelled) return;
-        setState({ data: null, loading: false, error: err instanceof Error ? err.message : "Network error" });
+        if (stale()) return;
+        setState(prev=>({ ...prev, loading:false,error:err instanceof Error ? err.message : "Network error" }));
       }
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, session, nonce, options?.method, JSON.stringify(options?.body)]);
+  }, [path, contextKey, session, nonce, options?.method, JSON.stringify(options?.body)]);
 
-  const setData = useCallback((data: T | null) => {
-    setState((prev) => ({ ...prev, data, loading: false, error: null }));
+  const setData = useCallback<Dispatch<SetStateAction<T | null>>>((update) => {
+    setState((prev) => ({
+      ...prev,
+      data: typeof update === "function"
+        ? (update as (value: T | null) => T | null)(prev.data)
+        : update,
+      loading: false,
+      error: null,
+    }));
   }, []);
 
-  return { ...state, refetch, setData };
+  // Hide a previous tenant/branch's data synchronously on a context switch,
+  // before the effect starts the new read.
+  return {
+    ...(sourceKey === contextKey
+      ? state
+      : { data: null, loading: Boolean(path && session), error: null }),
+    refetch,
+    setData,
+  };
 }

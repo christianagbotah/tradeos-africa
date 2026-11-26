@@ -17,6 +17,8 @@ interface TenantRow {
   status: string;
   country_code: string;
   currency_code: string;
+  timezone: string;
+  created_at: Date;
   plan_code: string | null;
   plan_name: string | null;
   subscription_status: string | null;
@@ -68,6 +70,8 @@ export async function getAdminTenant(pool: DatabasePool, businessId: string): Pr
   const currentSubscription = subscription.rows[0];
   return {
     ...mapTenant(row),
+    timezone: row.timezone,
+    createdAt: row.created_at.toISOString(),
     branches: branches.rows.map((branch) => ({
       id: branch.id,
       name: branch.name,
@@ -234,7 +238,7 @@ export async function listAdminFeatureFlags(pool: DatabasePool): Promise<AdminFe
 }
 
 function tenantListSql(suffix: string): string {
-  return `SELECT b.id,b.name,b.business_type,b.status,b.country_code,b.currency_code,b.updated_at,
+  return `SELECT b.id,b.name,b.business_type,b.status,b.country_code,b.currency_code,b.timezone,b.created_at,b.updated_at,
                  sub.plan_code,sub.plan_name,sub.subscription_status,
                  (SELECT count(*) FROM branches br WHERE br.business_id=b.id)::text AS branch_count,
                  (SELECT count(*) FROM registered_devices rd WHERE rd.business_id=b.id)::text AS device_count,
@@ -268,7 +272,7 @@ function mapTenant(row: TenantRow): AdminTenantSummary {
   };
 }
 
-function deviceHealth(lastSeenAt: Date | null): "ONLINE" | "STALE" | "UNKNOWN" {
+export function deviceHealth(lastSeenAt: Date | null): "ONLINE" | "STALE" | "UNKNOWN" {
   if (!lastSeenAt) return "UNKNOWN";
   return Date.now() - lastSeenAt.getTime() <= 15 * 60 * 1000 ? "ONLINE" : "STALE";
 }

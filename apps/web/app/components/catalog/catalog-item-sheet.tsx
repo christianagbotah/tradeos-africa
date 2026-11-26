@@ -5,6 +5,9 @@ import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { MoneyValue } from "../business/money-value";
 import { MoneyInput } from "../ui/money-input";
+import { PHYSICAL_UNIT_PRESETS, addPhysicalUnitPreset } from "../../../lib/physical-unit-presets";
+import type { PhysicalPresetId } from "../../../lib/physical-unit-presets";
+import presetStyles from "./physical-unit-presets.module.css";
 import { Button } from "../ui/button";
 import {
   IconBox,
@@ -31,6 +34,7 @@ import {
   type WorkspaceRole,
 } from "../../../lib/mutation-builders";
 import type { CatalogItem, CatalogUnit } from "../../../lib/catalog-read-model";
+import { addQuickPriceUnits } from "../../../lib/quick-price-presets";
 
 interface CatalogItemSheetProps {
   item: CatalogItem | null;
@@ -123,13 +127,20 @@ function unitRowFrom(unit: CatalogUnit): UnitRow {
 }
 
 export function CatalogItemSheet({ item, open = false, onClose, onSaved }: CatalogItemSheetProps) {
-  const { session, role, refreshCatalog } = useWorkspace();
+  const { session, role, refreshCatalog, applyConfirmedCatalogUpdate } = useWorkspace();
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
   const [kind, setKind] = useState<CatalogItem["kind"]>("PRODUCT");
   const [trackStock, setTrackStock] = useState(true);
   const [units, setUnits] = useState<UnitRow[]>([]);
   const [conversions, setConversions] = useState<ConversionRow[]>([]);
+  const [quickPrices, setQuickPrices] = useState("");
+  const [quickPriceNotice, setQuickPriceNotice] = useState<string | null>(null);
+  const [quickPriceError, setQuickPriceError] = useState<string | null>(null);
+  const [presetId, setPresetId] = useState<PhysicalPresetId>("NAILS_BOX_POUND");
+  const [presetFactor, setPresetFactor] = useState("");
+  const [presetNotice, setPresetNotice] = useState<string | null>(null);
+  const [presetError, setPresetError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
@@ -159,6 +170,13 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
       setUnits([{ code: "each", label: "Each (piece)", canPurchase: true, canSell: true, canStock: true, priceMinor: null }]);
       setConversions([]);
     }
+    setQuickPrices("");
+    setQuickPriceNotice(null);
+    setQuickPriceError(null);
+    setPresetId("NAILS_BOX_POUND");
+    setPresetFactor("");
+    setPresetNotice(null);
+    setPresetError(null);
     setBusy(false);
     setError(null);
     setLifecycleBusy(false);
@@ -227,6 +245,25 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
   const setUnit = (idx: number, patch: Partial<UnitRow>) => {
     setUnits((prev) => prev.map((u, i) => (i === idx ? { ...u, ...patch } : u)));
   };
+  const addPriceButtons = () => {
+    if (!canWrite || busy || kind === "PRODUCT") return;
+    try {
+      const result = addQuickPriceUnits(units, quickPrices, {
+        kind,
+        currencyCode,
+        newItem: !item,
+        hasConversions: conversions.length > 0,
+      });
+      setUnits(result.units);
+      setQuickPriceError(null);
+      setQuickPriceNotice(String(result.added) + " price buttons added" +
+        (result.alreadyPresent ? " · " + result.alreadyPresent + " already configured" : "") +
+        ". Save the item to make these buttons available at POS.");
+    } catch (error) {
+      setQuickPriceNotice(null);
+      setQuickPriceError(error instanceof Error ? error.message : "Could not add prices.");
+    }
+  };
   const addUnit = () => {
     setUnits((prev) => [...prev, { code: "", label: "", canPurchase: false, canSell: true, canStock: false, priceMinor: null }]);
   };
@@ -238,6 +275,23 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
   };
   const addConversion = () => {
     setConversions((prev) => [...prev, { fromUnitCode: "", toUnitCode: "", factor: "1" }]);
+  };
+  const addConversionPreset = () => {
+    if (!canWrite || busy || kind !== "PRODUCT") return;
+    try {
+      const result=addPhysicalUnitPreset(units,conversions,presetId,presetFactor,{
+        kind,newItem:!item,
+      });
+      setUnits(result.units);
+      setConversions(result.conversions);
+      setPresetError(null);
+      setPresetNotice(result.addedConversion
+        ? "Unit pair added. Enter sale prices below and save the item."
+        : "This exact conversion is already configured.");
+    } catch(error) {
+      setPresetNotice(null);
+      setPresetError(error instanceof Error ? error.message : "Could not add conversion.");
+    }
   };
   const removeConversion = (idx: number) => {
     setConversions((prev) => prev.filter((_, i) => i !== idx));
@@ -297,7 +351,32 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
         payload,
       });
       await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      const summary = await queue.flushOrThrow({
+        activeBusinessId: session.businessId,
+        online: typeof navigator !== "undefined" ? navigator.onLine : true,
+      });
+      const snapshot = await queue.getSnapshot(session.businessId);
+      const confirmed = summary.applied > 0
+        && !snapshot.pending.some((entry) => entry.clientMutationId === mutation.clientMutationId)
+        && !snapshot.failed.some((entry) => entry.mutation.clientMutationId === mutation.clientMutationId);
+      if (confirmed && item) {
+        applyConfirmedCatalogUpdate(session.businessId, item, {
+          name: base.name,
+          sku: base.sku,
+          kind: base.kind,
+          trackStock: base.trackStock,
+          stockUnitCode: base.stockUnitCode,
+          units: base.units.map((unit) => ({
+            code: unit.code,
+            label: unit.label,
+            canPurchase: unit.canPurchase === true,
+            canSell: unit.canSell === true,
+            canStock: unit.canStock === true,
+            defaultSalePriceMinor: unit.defaultSalePriceMinor ?? null,
+          })),
+          conversions: base.conversions,
+        });
+      }
       await refreshCatalog();
       onSaved();
     } catch (err) {
@@ -324,7 +403,19 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
         payload,
       });
       await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      const summary = await queue.flushOrThrow({
+        activeBusinessId: session.businessId,
+        online: typeof navigator !== "undefined" ? navigator.onLine : true,
+      });
+      const snapshot = await queue.getSnapshot(session.businessId);
+      const confirmed = summary.applied > 0
+        && !snapshot.pending.some((entry) => entry.clientMutationId === mutation.clientMutationId)
+        && !snapshot.failed.some((entry) => entry.mutation.clientMutationId === mutation.clientMutationId);
+      if (confirmed) {
+        applyConfirmedCatalogUpdate(session.businessId, item, {
+          active: mutationType === "CATALOG_ITEM_REACTIVATE",
+        });
+      }
       await refreshCatalog();
       onSaved();
     } catch (err) {
@@ -432,6 +523,54 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
             </select>
           </div>
 
+          {/* Owner-facing convenience: use the canonical catalog sale-unit
+              mutation; do not create alternative sale pricing or stock rules. */}
+          {kind !== "PRODUCT" ? (
+            <div className="tos-section tos-catalog-price-setup">
+              <div className="tos-section__head">
+                <h3 className="tos-section__title">Quick Serve price buttons</h3>
+                <span className="tos-section__sub">
+                  {kind === "SERVICE"
+                    ? "Create several service prices, such as 30, 40 and 60. Rename each option below if needed."
+                    : "Enter the amounts people ask for, such as 10, 12, 15, 20, 30. Each becomes a POS price button."}
+                </span>
+              </div>
+              <div className="tos-section__body tos-stack">
+                <div className="tos-catalog-price-setup__row">
+                  <div className="tos-field">
+                    <label className="tos-field__label" htmlFor="cat-quick-prices">
+                      Selling prices ({currencyCode === "GHS" ? "₵" : currencyCode})
+                    </label>
+                    <input
+                      id="cat-quick-prices"
+                      className="tos-input"
+                      type="text"
+                      inputMode="decimal"
+                      value={quickPrices}
+                      onChange={e=>{ setQuickPrices(e.target.value); setQuickPriceError(null); setQuickPriceNotice(null); }}
+                      placeholder="10, 12, 15, 20, 30"
+                      maxLength={160}
+                      disabled={!canWrite || busy}
+                    />
+                  </div>
+                  <Button type="button" variant="outline" size="sm"
+                    icon={<IconPlus className="tos-btn__icon" />}
+                    onClick={addPriceButtons}
+                    disabled={!canWrite || busy || !quickPrices.trim()}>
+                    Add price buttons
+                  </Button>
+                </div>
+                <p className="tos-section__sub">
+                  These prices are for individual prepared portions or services, not
+                  stock measurements. For nails, bottles, bags or yards, use
+                  physical units and conversion factors instead.
+                </p>
+                {quickPriceError ? <p role="alert" className="tos-catalog-price-setup__error">{quickPriceError}</p> : null}
+                {quickPriceNotice ? <p role="status" className="tos-catalog-price-setup__notice">{quickPriceNotice}</p> : null}
+              </div>
+            </div>
+          ) : null}
+
           {/* Units — the canonical multi-unit contract */}
           <div className="tos-section">
             <div className="tos-section__head">
@@ -536,6 +675,52 @@ export function CatalogItemSheet({ item, open = false, onClose, onSaved }: Catal
               <span className="tos-section__sub">How many of the "to" unit equal one "from" unit — e.g. 1 crate = 24 bottles.</span>
             </div>
             <div className="tos-section__body tos-stack">
+              {kind === "PRODUCT" ? (
+                <div className={presetStyles.panel}>
+                  <div className={presetStyles.header}>
+                    <strong>Set up bulk and loose selling units</strong>
+                    <p className="tos-section__sub">
+                      Choose a real unit pair and enter the measured factor for this exact item.
+                      A box of concrete nails and a box of roofing nails may have different weights.
+                    </p>
+                  </div>
+                  <div className={presetStyles.fields}>
+                    <div className="tos-field">
+                      <label className="tos-field__label" htmlFor="cat-preset-pair">Unit pair</label>
+                      <select id="cat-preset-pair" className="tos-select" value={presetId}
+                        onChange={e=>{setPresetId(e.target.value as PhysicalPresetId);setPresetNotice(null);setPresetError(null);}}
+                        disabled={!canWrite || busy}>
+                        {PHYSICAL_UNIT_PRESETS.map(preset=>(
+                          <option key={preset.id} value={preset.id}>{preset.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="tos-field">
+                      <label className="tos-field__label" htmlFor="cat-preset-factor">
+                        How many smaller units per larger unit?
+                      </label>
+                      <input id="cat-preset-factor" type="text" inputMode="decimal"
+                        className="tos-input" value={presetFactor}
+                        onChange={e=>{setPresetFactor(e.target.value);setPresetError(null);setPresetNotice(null);}}
+                        placeholder="Enter actual measured quantity"
+                        maxLength={24} disabled={!canWrite || busy}/>
+                    </div>
+                    <Button type="button" variant="outline" size="sm"
+                      icon={<IconPlus className="tos-btn__icon"/>}
+                      onClick={addConversionPreset}
+                      disabled={!canWrite || busy || !presetFactor.trim()}>
+                      Add unit pair
+                    </Button>
+                  </div>
+                  <p className="tos-section__sub">
+                    Stock counts use the selected stock unit. Do not assume a universal
+                    number of pounds, yards, bottles or pieces per package.
+                    Set your own sale prices for each sellable unit before saving.
+                  </p>
+                  {presetError ? <p role="alert" className={presetStyles.error}>{presetError}</p> : null}
+                  {presetNotice ? <p role="status" className={presetStyles.notice}>{presetNotice}</p> : null}
+                </div>
+              ) : null}
               {conversions.length === 0 ? (
                 <p className="tos-section__sub tos-catalog-empty-hint">No conversions yet. Add one if this item sells or stocks in more than one unit.</p>
               ) : null}

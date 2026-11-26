@@ -7,6 +7,14 @@ import type { MobileAppSnapshot } from "../app-model";
  */
 
 export function formatMoney(minor: number, currencyCode: string): string {
+  // Ghanaian merchant-facing views use the requested cedi symbol, not GHS/GH₵.
+  if (currencyCode.toUpperCase() === "GHS") {
+    const magnitude = new Intl.NumberFormat("en-GH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Math.abs(minor) / 100);
+    return `${minor < 0 ? "-" : ""}₵${magnitude}`;
+  }
   try {
     return new Intl.NumberFormat("en-GH", {
       style: "currency",

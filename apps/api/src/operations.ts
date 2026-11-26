@@ -4,7 +4,8 @@ import { authenticateAccessToken, AuthError } from "./auth/security.js";
 import { withTransaction, type DatabasePool, type DatabaseClient } from "./db.js";
 import { CashbookError } from "./commerce/cashbook.js";
 import { signedMinor } from "./commerce/valuation.js";
-const roles: readonly BusinessRole[] = ["OWNER","ADMIN","MANAGER","CASHIER","ACCOUNTANT","VIEWER"];
+import { requireBranchScope } from "./auth/branch-scope.js";
+const roles: readonly BusinessRole[] = ["OWNER","ADMIN","MANAGER","CASHIER","ACCOUNTANT","VIEWER","POS_ATTENDANT"];
 function uuid(value: unknown, name: string): string {
   if (typeof value!=="string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw new CashbookError(`${name} must be a UUID`);
   return value;
@@ -20,6 +21,10 @@ export function registerOperationsRoutes(app: FastifyInstance,pool: DatabasePool
       const auth=await authenticateAccessToken(pool,request.headers.authorization);
       const businessId=uuid(request.query.businessId,"businessId"),branchId=uuid(request.query.branchId,"branchId");
       const access=await requireBusinessRole(pool,auth,businessId,roles);
+      await requireBranchScope(pool,access,branchId);
+      if(access.role==="POS_ATTENDANT" && resource==="days") throw new AuthError(
+        "POS attendants can view only their own cash shifts.",403,"ROLE_FORBIDDEN",
+      );
       if (!(await pool.query(`SELECT id FROM branches WHERE business_id=$1 AND id=$2 AND is_active=true`,[businessId,branchId])).rowCount) throw new CashbookError("Branch not found","BRANCH_NOT_FOUND",404);
       const limit=Number(request.query.limit ?? 30);
       if (!/^\d+$/.test(request.query.limit ?? "30") || !Number.isInteger(limit) || limit<1 || limit>100) throw new CashbookError("Limit must be 1–100");
@@ -31,12 +36,26 @@ export function registerOperationsRoutes(app: FastifyInstance,pool: DatabasePool
           const day=(await client.query(`SELECT * FROM operating_days WHERE business_id=$1 AND branch_id=$2 AND status='OPEN'`,[businessId,branchId])).rows[0];
           const shift=(await client.query(`SELECT * FROM staff_shifts WHERE business_id=$1 AND branch_id=$2 AND staff_id=$3 AND status='OPEN'`,[businessId,branchId,access.staffId])).rows[0];
           const count=day ? Number((await client.query(`SELECT COUNT(*) FROM staff_shifts WHERE operating_day_id=$1 AND status='OPEN'`,[day.id])).rows[0].count) : 0;
+          if(access.role==="POS_ATTENDANT"){
+            const ownShift=shift ? await detail(client,shift,true) : null;
+            return {operatingDay:day ? {id:day.id,status:day.status,openedAt:day.opened_at.toISOString()} : null,
+              shift:ownShift ? {
+                id:ownShift.id,status:ownShift.status,openedAt:ownShift.openedAt,
+                balances:ownShift.balances.filter(b=>b.method==="CASH"),
+              }:null,openShiftCount:shift?1:0};
+          }
           return {operatingDay:day ? await detail(client,day,false) : null,shift:shift ? await detail(client,shift,true) : null,openShiftCount:count};
         }
         const shift=resource==="shifts";
-        const rows=await client.query(`SELECT * FROM ${shift ? "staff_shifts" : "operating_days"} WHERE business_id=$1 AND branch_id=$2 ${shift ? "AND ($4::uuid IS NULL OR operating_day_id=$4) AND ($5::uuid IS NULL OR staff_id=$5)" : ""} ORDER BY opened_at DESC,id DESC LIMIT $3`,shift ? [businessId,branchId,limit,dayId,access.role==="CASHIER" ? access.staffId : null] : [businessId,branchId,limit]);
+        const rows=await client.query(`SELECT * FROM ${shift ? "staff_shifts" : "operating_days"} WHERE business_id=$1 AND branch_id=$2 ${shift ? "AND ($4::uuid IS NULL OR operating_day_id=$4) AND ($5::uuid IS NULL OR staff_id=$5)" : ""} ORDER BY opened_at DESC,id DESC LIMIT $3`,shift ? [businessId,branchId,limit,dayId,["CASHIER","POS_ATTENDANT"].includes(access.role) ? access.staffId : null] : [businessId,branchId,limit]);
         const items=[];
-        for (const row of rows.rows) items.push(await detail(client,row,shift));
+        for (const row of rows.rows) {
+          const entry=await detail(client,row,shift);
+          if(access.role==="POS_ATTENDANT"){
+            items.push({id:entry.id,status:entry.status,openedAt:entry.openedAt,
+              closedAt:entry.closedAt,balances:entry.balances.filter(b=>b.method==="CASH")});
+          }else items.push(entry);
+        }
         return shift ? {shifts:items} : {days:items};
       });
     } catch(error) {

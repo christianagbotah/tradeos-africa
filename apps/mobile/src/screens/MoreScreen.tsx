@@ -1,26 +1,44 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { AndroidUpdatePanel } from "../components/AndroidUpdatePanel";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
 import { Card, HeroCard } from "../components/Card";
 import { Icon, IconTile } from "../components/icons";
 import { StatCard } from "../components/StatCard";
-import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { colors, radius, spacing, typography } from "../theme";
 import type { MobileAppSnapshot } from "../app-model";
 
 export type MoreScreenProps = {
   snapshot: MobileAppSnapshot;
   appVersion: string;
+  canDownloadUpdate:()=>Promise<boolean>;
   onSync: () => void;
   onRefreshCatalog: () => void;
+  onGoToNotifications: () => void;
+  onGoToQuestions: () => void;
+  onGoToWorkspaceSwitch:()=>void;
+  onGoToProviders:()=>void;
+  onGoToBusinessAdmin:()=>void;
+  onGoToReports:()=>void;
+  onGoToOperations:()=>void;
+  onGoToFinance:()=>void;
+  onGoToPurchaseOrders:()=>void;
+  onGoToSuppliers:()=>void;
+  onGoToDocuments:()=>void;
+  onGoToCatalog:()=>void;
+  onGoToInventory:()=>void;
   onLogout: () => void;
 };
 
 export function MoreScreen({
   snapshot,
   appVersion,
+  canDownloadUpdate,
   onSync,
   onRefreshCatalog,
+  onGoToNotifications,
+  onGoToQuestions,
+  onGoToCatalog,onGoToInventory,onGoToDocuments,onGoToSuppliers,onGoToPurchaseOrders,onGoToFinance,onGoToOperations,onGoToReports,onGoToBusinessAdmin,onGoToProviders,onGoToWorkspaceSwitch,
   onLogout,
 }: MoreScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
@@ -31,12 +49,6 @@ export function MoreScreen({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <WorkspaceHeader
-        online={snapshot.online}
-        syncing={snapshot.syncing}
-        failedCount={queue.failed}
-        pendingCount={queue.pending}
-      />
 
       <HeroCard padding="comfortable" style={styles.hero}>
         <Text style={styles.heroKicker}>Workspace context</Text>
@@ -62,7 +74,23 @@ export function MoreScreen({
           </View>
         </View>
       </HeroCard>
+      <Button variant="secondary" fullWidth accessibilityLabel="Switch business or branch" onPress={onGoToWorkspaceSwitch}>Switch business or branch</Button>
 
+      <AndroidUpdatePanel manual online={snapshot.online===true} cart={snapshot.cart.length} pending={queue.pending} failed={queue.failed} blocked={queue.blocked} canDownload={canDownloadUpdate} busy={snapshot.syncing||snapshot.checkoutBusy}/>
+      <Card padding="default" style={styles.section}>
+        <Text style={styles.kicker}>Master data and inventory</Text>
+        <Text style={styles.sectionTitle}>Products and stock</Text>
+        {["OWNER","ADMIN"].includes(ready.membership.role)?<Button variant="secondary" fullWidth accessibilityLabel="Open payment and SMS settings" onPress={onGoToProviders}>Payment &amp; SMS integrations</Button>:null}
+        <Button variant="secondary" fullWidth accessibilityLabel="Open business administration" onPress={onGoToBusinessAdmin}>Business administration</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open financial reports" onPress={onGoToReports}>Reports &amp; analytics</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open operating days and shifts" onPress={onGoToOperations}>Operating days &amp; shifts</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open cashbook and expenses" onPress={onGoToFinance}>Cashbook &amp; expenses</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open purchase orders" onPress={onGoToPurchaseOrders}>Purchase orders</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open suppliers and purchases" onPress={onGoToSuppliers}>Suppliers &amp; purchases</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open quotations and proformas" onPress={onGoToDocuments}>Quotes &amp; proformas</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open catalog" onPress={onGoToCatalog}>Catalog</Button>
+        <Button variant="secondary" fullWidth accessibilityLabel="Open inventory" onPress={onGoToInventory}>Inventory</Button>
+      </Card>
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Sync engine</Text>
         <Text style={styles.sectionTitle}>Offline engine</Text>
@@ -129,6 +157,25 @@ export function MoreScreen({
         />
       </Card>
 
+      {["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"].includes(ready.membership.role) ? (
+        <Card padding="default" style={styles.section}>
+          <Text style={styles.kicker}>Business intelligence</Text>
+          <Text style={styles.sectionTitle}>Notifications and approvals</Text>
+          <Text style={styles.sectionCopy}>
+            Check recorded business alerts and pending reviews for this branch. Read confirmations
+            synchronize with your TradeOS web dashboard.
+          </Text>
+          <Button variant="secondary" fullWidth accessibilityLabel="Open Ask TradeOS business questions"
+            onPress={onGoToQuestions}>
+            Ask TradeOS
+          </Button>
+          <Button variant="secondary" fullWidth accessibilityLabel="Open business notifications"
+            onPress={onGoToNotifications}>
+            Open notifications
+          </Button>
+        </Card>
+      ) : null}
+
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Account</Text>
         <Text style={styles.sectionTitle}>Sign out of this device</Text>
@@ -168,6 +215,7 @@ function FoundationRow({ title, copy }: { title: string; copy: string }) {
 
 const styles = StyleSheet.create({
   content: {
+    paddingTop: spacing.s4,
     flexGrow: 1,
     backgroundColor: colors.canvas,
     paddingHorizontal: spacing.s4,

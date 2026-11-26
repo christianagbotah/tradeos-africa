@@ -1,14 +1,17 @@
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Icon, type IconName } from "./icons";
 import { colors, spacing, touch, typography } from "../theme";
 
-export type BottomNavTab = "dashboard" | "sell" | "sales" | "more";
+export type BottomNavTab = "dashboard" | "sell" | "sales" | "customers" | "more";
 
 export type BottomNavProps = {
   active: BottomNavTab;
   onChange: (tab: BottomNavTab) => void;
   pendingCount?: number;
   failedCount?: number;
+  attendantOnly?: boolean;
+  onSignOut?:()=>void;
 };
 
 type TabDef = {
@@ -26,15 +29,17 @@ const TABS: readonly TabDef[] = [
     accessibilityLabel: "Sell tab", accessibilityHint: "Open the point-of-sale workspace" },
   { key: "sales", label: "Sales", icon: "sales",
     accessibilityLabel: "Sales tab", accessibilityHint: "View recent sales and the offline sync queue" },
+  { key: "customers", label: "Customers", icon: "customers",
+    accessibilityLabel: "Customers tab", accessibilityHint: "Browse customer accounts and balances" },
   { key: "more", label: "More", icon: "more",
     accessibilityLabel: "More tab", accessibilityHint: "Open sync settings, branch context, and sign out" },
 ] as const;
 
-export function BottomNav({ active, onChange, pendingCount = 0, failedCount = 0 }: BottomNavProps) {
+export function BottomNav({ active, onChange, pendingCount = 0, failedCount = 0, attendantOnly=false, onSignOut }: BottomNavProps) {
   return (
-    <SafeAreaView style={styles.wrapper}>
+    <SafeAreaView edges={["bottom"]} style={styles.wrapper}>
       <View style={styles.bar} accessibilityRole="tablist">
-        {TABS.map((tab) => {
+        {(attendantOnly?TABS.filter(tab=>tab.key==="sell"):TABS).map((tab) => {
           const isActive = active === tab.key;
           const showBadge = (tab.key === "sales") && (pendingCount > 0 || failedCount > 0);
           const badgeTone = failedCount > 0 ? colors.danger : colors.gold;
@@ -49,14 +54,15 @@ export function BottomNav({ active, onChange, pendingCount = 0, failedCount = 0 
               onPress={() => onChange(tab.key)}
               style={({ pressed }) => [
                 styles.tab,
+                isActive && styles.tabActive,
                 pressed && styles.tabPressed,
               ]}
             >
-              <View style={styles.iconWrap}>
+              <View style={[styles.iconWrap, isActive && styles.selectedIcon]}>
                 <Icon
                   name={tab.icon}
                   size={22}
-                  color={isActive ? colors.gold : colors.textMuted}
+                  color={isActive ? colors.goldStrong : colors.textMuted}
                 />
                 {showBadge ? (
                   <View style={[styles.badge, { backgroundColor: badgeTone }]}>
@@ -65,15 +71,18 @@ export function BottomNav({ active, onChange, pendingCount = 0, failedCount = 0 
                 ) : null}
               </View>
               <Text
-                style={[styles.label, { color: isActive ? colors.gold : colors.textMuted }]}
+                style={[styles.label, { color: isActive ? colors.goldStrong : colors.textMuted }]}
                 numberOfLines={1}
               >
                 {tab.label}
               </Text>
-              {isActive ? <View style={styles.accentBar} /> : null}
             </Pressable>
           );
         })}
+        {attendantOnly?<Pressable accessibilityRole="button" accessibilityLabel="Sign out of POS" onPress={onSignOut} style={styles.tab}>
+          <Icon name="logout" size={22} color={colors.textMuted}/>
+          <Text style={styles.label}>Sign out</Text>
+        </Pressable>:null}
       </View>
     </SafeAreaView>
   );
@@ -81,14 +90,16 @@ export function BottomNav({ active, onChange, pendingCount = 0, failedCount = 0 
 
 const styles = StyleSheet.create({
   wrapper: {
-    backgroundColor: colors.midnight,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   bar: {
     flexDirection: "row",
     alignItems: "stretch",
-    minHeight: touch.minTarget + 14,
+    minHeight: 64,
     paddingHorizontal: spacing.s2,
-    paddingTop: spacing.s1,
+    paddingTop: 0,
   },
   tab: {
     flex: 1,
@@ -98,29 +109,28 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.s2,
     minHeight: touch.minTarget,
     position: "relative",
+    borderTopWidth:2,
+    borderTopColor:colors.transparent,
   },
+  tabActive:{borderTopColor:colors.gold},
   tabPressed: {
     opacity: 0.7,
   },
   iconWrap: {
     position: "relative",
-    width: 28,
-    height: 28,
+    width: 48,
+    height: 34,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
+  selectedIcon: { backgroundColor: colors.goldSoft },
+
   label: {
-    fontSize: typography.meta,
-    fontWeight: typography.weightBold,
+    color:colors.textMuted,
+    fontSize: 11,
+    fontWeight: typography.weightMedium,
     marginTop: 2,
-  },
-  accentBar: {
-    position: "absolute",
-    top: 0,
-    width: 24,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: colors.gold,
   },
   badge: {
     position: "absolute",

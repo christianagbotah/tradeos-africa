@@ -1264,6 +1264,66 @@
   white-space: nowrap;
 }
 
+/* Receipt/transaction summaries: each definition item owns its own label and
+   value. The legacy two-column grid used to put whole pairs side-by-side,
+   truncate IDs and names, and squeeze phone screens. Leave checkout's
+   inline .tos-kv label/value fields unchanged. */
+dl.tos-kv {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--tos-space-5);
+  margin: 0;
+  min-width: 0;
+}
+
+dl.tos-kv > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--tos-space-2);
+  min-width: 0;
+  padding: var(--tos-space-3) 0;
+  border-bottom: 1px solid var(--tos-border);
+}
+
+dl.tos-kv .tos-kv__key {
+  align-self: auto;
+}
+
+dl.tos-kv .tos-kv__val {
+  min-width: 0;
+  margin: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  dl.tos-kv {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  dl.tos-kv > div:last-child {
+    border-bottom: 0;
+  }
+
+  .tos-sheet--purchase-detail .tos-section__body--padded {
+    padding: var(--tos-space-4);
+  }
+
+  .tos-sheet--purchase-detail .tos-purchase-stats .tos-stat {
+    padding: var(--tos-space-4);
+    gap: var(--tos-space-2);
+  }
+
+  .tos-sheet--purchase-detail .tos-purchase-stats .tos-stat__value {
+    font-size: clamp(20px, 5vw, 24px);
+    overflow-wrap: anywhere;
+  }
+}
+
 /* --- Spinner ------------------------------------------------------------- */
 .tos-spinner {
   width: 24px;
@@ -1334,6 +1394,94 @@
   color: var(--tos-text-muted);
   font-size: var(--tos-text-meta);
   line-height: 1.5;
+}
+
+/* Heading + copy callouts keep two readable columns on wide screens and
+   stack into full-width rows on phones. The default icon callouts are unchanged. */
+.tos-callout--label-and-content {
+  align-items: flex-start;
+  gap: var(--tos-space-3);
+}
+
+.tos-callout__label {
+  flex: 0 0 30%;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.tos-callout__content {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 640px) {
+  .tos-callout--label-and-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--tos-space-2);
+  }
+
+  .tos-callout--label-and-content > .tos-callout__label,
+  .tos-callout--label-and-content > .tos-callout__content {
+    flex: none;
+    width: 100%;
+  }
+}
+
+/* Payment provider information cards use a real facts + supporting-copy
+   structure instead of the flexed fragments that made mobile text unreadable. */
+.tos-payment-details {
+  display: grid;
+  gap: var(--tos-space-3);
+  min-width: 0;
+  font-size: var(--tos-text-supporting);
+  line-height: 1.5;
+}
+
+.tos-payment-details__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tos-space-3);
+}
+
+.tos-payment-details__fact {
+  display: grid;
+  align-content: start;
+  gap: var(--tos-space-1);
+  min-width: 0;
+}
+
+.tos-payment-details__label {
+  font-size: var(--tos-text-meta);
+  font-weight: 600;
+  color: var(--tos-text-muted);
+}
+
+.tos-payment-details__value {
+  font-size: var(--tos-text-supporting);
+  font-weight: 750;
+  color: var(--tos-text-strong);
+  overflow-wrap: anywhere;
+}
+
+.tos-payment-details__value--ready {
+  color: var(--tos-positive);
+}
+
+.tos-payment-details__note {
+  margin: 0;
+  padding-top: var(--tos-space-3);
+  border-top: 1px solid var(--tos-border);
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 640px) {
+  .tos-payment-details__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .tos-callout--positive {
@@ -2036,3 +2184,145 @@
   background: var(--tos-gold);
   animation: tos-pulse-gold 2s infinite;
 }
+
+/* Dashboard-first commerce flow: shortcuts must be in reach before long AI panels. */
+.tos-dashboard-actions .tos-quick-action-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.tos-dashboard-actions .tos-quick-action { min-width: 0; }
+.tos-dashboard-recent-sales { min-width: 0; }
+.tos-dashboard-recent-sales__notice {
+  padding: 16px; color: var(--tos-text-muted); margin: 0;
+}
+@media (max-width: 900px) {
+  .tos-dashboard-actions .tos-quick-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .tos-dashboard-header .tos-page__actions { display: none; }
+  .tos-dashboard-actions .tos-section__body--padded { padding: 10px; }
+  .tos-dashboard-actions .tos-quick-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+  }
+  .tos-dashboard-actions .tos-quick-action {
+    min-height: 54px; padding: 9px; gap: 8px;
+  }
+  .tos-dashboard-actions .tos-quick-action__icon { width: 32px; height: 32px; }
+  .tos-dashboard-actions .tos-quick-action__icon-svg { width: 18px; height: 18px; }
+  .tos-dashboard-actions .tos-quick-action__label {
+    font-size: 13px; line-height: 1.2; white-space: normal; overflow-wrap: break-word;
+  }
+  .tos-dashboard-actions .tos-quick-action__desc,
+  .tos-dashboard-actions .tos-quick-action__chevron { display: none; }
+}
+
+/* Global, viewport-fixed action dialog and its real, dimmed backdrop.
+   Fixed outside scrollable cards so updates are visible on mobile. */
+.tos-action-feedback {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482000;
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px
+    max(16px, env(safe-area-inset-bottom, 0px));
+}
+.tos-action-feedback__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 20, 38, 0.58);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.tos-action-feedback__dialog {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+  width: min(430px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 16px;
+}
+.tos-action-feedback__toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid var(--tos-border, #cbd5e1);
+  border-left: 4px solid #174f79;
+  border-radius: 14px;
+  background: var(--tos-surface, #fff);
+  color: var(--tos-text-strong, #172334);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, .22);
+  pointer-events: auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tos-action-feedback__toast--success { border-left-color: #148253; }
+.tos-action-feedback__toast--error { border-left-color: #c63e46; }
+.tos-action-feedback__toast--warning { border-left-color: #ad7c22; }
+.tos-action-feedback__symbol {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #fff;
+  background: #174f79;
+  font-weight: 850;
+  font-size: 16px;
+}
+.tos-action-feedback__toast--success .tos-action-feedback__symbol { background: #148253; }
+.tos-action-feedback__toast--error .tos-action-feedback__symbol { background: #c63e46; }
+.tos-action-feedback__toast--warning .tos-action-feedback__symbol { background: #ad7c22; }
+.tos-action-feedback__text { flex: 1 1 auto; min-width: 0; }
+.tos-action-feedback__text strong { display: block; font-size: 15px; line-height: 1.3; }
+.tos-action-feedback__text p {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+.tos-action-feedback__close {
+  flex: 0 0 28px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--tos-text-muted, #64748b);
+  font-size: 26px;
+  cursor: pointer;
+  line-height: 1;
+}
+.tos-action-feedback__close:hover,
+.tos-action-feedback__close:focus-visible {
+  background: var(--tos-surface-soft, #f1f5f9);
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  .tos-action-feedback { padding: 12px; }
+  .tos-action-feedback__dialog { width: min(430px, 100%); }
+  .tos-action-feedback__toast { padding: 14px; gap: 10px; }
+}
+
+/* Brand-styled native HTML dialog: top-layer modal, safe keyboard focus, no
+   browser alert/confirm chrome. Cancel is the default focused action. */
+.tos-custom-dialog { border:1px solid var(--tos-border,#dce3ed);border-radius:20px;
+  padding:26px;width:min(440px,calc(100% - 32px));max-height:calc(100dvh - 32px);
+  background:var(--tos-surface,#fff);color:var(--tos-text-strong,#172334);
+  box-shadow:0 24px 80px #0b142455;overflow:auto; }
+.tos-custom-dialog::backdrop { background:rgba(9,20,38,.62);backdrop-filter:blur(4px); }
+.tos-custom-dialog-icon { display:grid;place-items:center;width:44px;height:44px;
+  background:#f7efd9;color:#855d12;border-radius:14px;font-size:23px;font-weight:800; }
+.tos-custom-dialog h2 { margin:14px 0 8px;font-size:21px;line-height:1.3; }
+.tos-custom-dialog p { margin:0 0 20px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55; }
+.tos-custom-dialog-form input { width:100%;padding:12px;border:1px solid #c8d1dc;border-radius:10px;margin-bottom:16px;font:inherit; }
+.tos-custom-dialog-actions { display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap; }
+.tos-custom-dialog-actions button { flex:1;min-height:44px;padding:10px 16px;border:1px solid #c8d1dc;
+  border-radius:11px;background:var(--tos-surface,#fff);color:inherit;font:inherit;font-weight:700;cursor:pointer; }
+.tos-custom-dialog-actions .is-primary { background:#0b1424;color:#fff;border-color:#0b1424; }
+.tos-custom-dialog-actions .is-danger { background:#a62c38;color:#fff;border-color:#a62c38; }
+.tos-custom-dialog-actions button:focus-visible { outline:3px solid #c99935;outline-offset:3px; }

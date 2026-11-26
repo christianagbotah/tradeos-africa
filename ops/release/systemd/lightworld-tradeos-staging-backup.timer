@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily TradeOS verified local database backup (not offsite disaster recovery)
+
+[Timer]
+OnCalendar=*-*-* 05:20:00 UTC
+RandomizedDelaySec=10m
+AccuracySec=2m
+Persistent=false
+Unit=lightworld-tradeos-staging-backup.service
+
+[Install]
+WantedBy=timers.target

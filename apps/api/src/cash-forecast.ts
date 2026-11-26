@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { CashForecastResponse } from "@tradeos/contracts";
 import { buildCashForecast, CashForecastOverflowError, type CashForecastObligationDay } from "@tradeos/domain";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
@@ -36,31 +37,7 @@ export function registerCashForecastRoutes(app: FastifyInstance, pool: DatabaseP
       const branchId = request.query.branchId ? uuid(request.query.branchId, "branchId") : null;
       const horizonDays = days(request.query.days);
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
-      const generatedAt = new Date();
-
-      return await withTransaction(pool, async client => {
-        await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
-        const scope = await loadScope(client, businessId, branchId, generatedAt, horizonDays);
-        const customer = await loadObligations(client, "customer_credit_obligations", businessId, branchId, scope);
-        const supplier = await loadObligations(client, "supplier_credit_obligations", businessId, branchId, scope);
-        const history = await loadOperatingHistory(client, businessId, branchId, scope);
-        const obligations = mergeObligations(customer, supplier);
-
-        return buildCashForecast({
-          generatedAt: generatedAt.toISOString(),
-          businessId,
-          branchId,
-          timezone: scope.timezone,
-          currencyCode: scope.currencyCode,
-          forecastStartDate: scope.startDate,
-          horizonDays,
-          openingCashMinor: scope.openingCashMinor,
-          history,
-          obligations,
-          openCustomerObligationCount: customer.totalCount,
-          openSupplierObligationCount: supplier.totalCount,
-        });
-      });
+      return await loadCashForecast(pool, businessId, branchId, horizonDays);
     } catch (error) {
       if (error instanceof CashForecastReportError || error instanceof AuthError) {
         return reply.code(error.statusCode).send({ error: error.code, message: error.message });
@@ -70,6 +47,46 @@ export function registerCashForecastRoutes(app: FastifyInstance, pool: DatabaseP
       }
       throw error;
     }
+  });
+}
+
+/**
+ * Canonical forecast read model shared by the reports route and Ask TradeOS.
+ * Callers authenticate and authorize their own business/branch scope first.
+ * This function only reads data and uses a repeatable-read snapshot.
+ */
+export async function loadCashForecast(
+  pool: DatabasePool,
+  businessId: string,
+  branchId: string | null,
+  horizonDays: number,
+): Promise<CashForecastResponse> {
+  if (!Number.isInteger(horizonDays) || horizonDays < 1 || horizonDays > 30) {
+    throw new CashForecastReportError("Forecast horizon must be between 1 and 30 days.");
+  }
+  const generatedAt = new Date();
+  return withTransaction(pool, async client => {
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const scope = await loadScope(client, businessId, branchId, generatedAt, horizonDays);
+    const customer = await loadObligations(client, "customer_credit_obligations", businessId, branchId, scope);
+    const supplier = await loadObligations(client, "supplier_credit_obligations", businessId, branchId, scope);
+    const history = await loadOperatingHistory(client, businessId, branchId, scope);
+    const obligations = mergeObligations(customer, supplier);
+
+    return buildCashForecast({
+      generatedAt: generatedAt.toISOString(),
+      businessId,
+      branchId,
+      timezone: scope.timezone,
+      currencyCode: scope.currencyCode,
+      forecastStartDate: scope.startDate,
+      horizonDays,
+      openingCashMinor: scope.openingCashMinor,
+      history,
+      obligations,
+      openCustomerObligationCount: customer.totalCount,
+      openSupplierObligationCount: supplier.totalCount,
+    });
   });
 }
 

@@ -1,0 +1,295 @@
+import type { FastifyInstance } from "fastify";
+import type { DatabasePool } from "../db.js";
+import { authenticateAccessToken,AuthError } from "../auth/security.js";
+import { requireBusinessRole,type BusinessRole } from "../auth/authorization.js";
+import { HubtelPosError } from "./hubtel-pos-config.js";
+import {
+  getHubtelPosReadiness,getSaleHubtelCheckout,startSaleHubtelCheckout,
+  verifySaleHubtelCheckout,
+} from "./hubtel-pos-service.js";
+import { HubtelCheckoutError } from "../platform-admin/hubtel-checkout-client.js";
+import { HubtelStatusError } from "../platform-admin/hubtel-status-client.js";
+import { getBusinessHubtelPosMonitor } from "./hubtel-pos-monitor.js";
+import {recordUntrustedHubtelNotification} from "./hubtel-pos-notification-inbox.js";
+import {reviewSettledHubtelSale} from "./hubtel-pos-settlement-review.js";
+import {getHubtelCancellationPreflight} from "./hubtel-pos-cancellation-preflight.js";
+import {requestHubtelCancellationInvestigation} from "./hubtel-cancellation-investigation.js";
+import {listHubtelCancellationInvestigations} from "./hubtel-cancellation-investigation-queue.js";
+import {appendHubtelCancellationInvestigationEvent,listHubtelCancellationInvestigationEvents} from "./hubtel-cancellation-investigation-events.js";
+import {
+  listHubtelExceptionReviewCases,submitHubtelExceptionReview,
+  decideHubtelExceptionReview,
+} from "./hubtel-exception-review-cases.js";
+
+const ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","CASHIER","SALES","STAFF"];
+const MONITOR_ROLES:readonly BusinessRole[]=["OWNER","ADMIN","MANAGER","ACCOUNTANT"];
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function authorize(pool:DatabasePool,authHeader:string|undefined,businessId:unknown,
+  roles:readonly BusinessRole[]=ROLES){
+  const auth=await authenticateAccessToken(pool,authHeader);
+  if(typeof businessId!=="string"||!UUID.test(businessId)){
+    throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+  }
+  await requireBusinessRole(pool,auth,businessId,roles);
+  return businessId;
+}
+function errorResponse(
+  request:{log:{error:(error:unknown)=>void}},
+  reply:{code:(number:number)=>{send:(value:unknown)=>unknown}},
+  error:unknown,
+){
+  if(error instanceof AuthError || error instanceof HubtelPosError ||
+     error instanceof HubtelStatusError || error instanceof HubtelCheckoutError){
+    return reply.code(error.statusCode).send({error:error.code,message:error.message});
+  }
+  request.log.error(error);
+  return reply.code(500).send({
+    error:"HUBTEL_POS_FAILED",message:"Hubtel POS operation could not be completed safely.",
+  });
+}
+export function registerHubtelPosRoutes(app:FastifyInstance,pool:DatabasePool):void {
+  // Hubtel Online Checkout v1 callback bodies are not signed. Even a
+  // success-looking callback is UNTRUSTED and never marks a sale paid.
+  // Optional inbox storage is independently gated and retains a digest,
+  // not customer PII or raw callback JSON. Reconciliation is server-side.
+  app.post("/v1/payments/hubtel/notifications",{bodyLimit:4096},async(req,reply)=>{
+    reply.header("Cache-Control","no-store");
+    try{
+      await recordUntrustedHubtelNotification(pool,req.body);
+      return reply.code(202).send({accepted:true,verification:"SERVER_SIDE_REQUIRED"});
+    }catch(error){
+      // When opt-in inbox storage is unavailable, return a retryable
+      // failure rather than falsely acknowledging persistent capture.
+      req.log.error(error);
+      return reply.code(503).send({
+        error:"HUBTEL_INBOX_UNAVAILABLE",
+        message:"Notification capture is temporarily unavailable.",
+      });
+    }
+  });
+  app.get<{Querystring:{businessId?:string}}>(
+    "/v1/payments/hubtel/readiness",async(request,reply)=>{
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,request.query.businessId,
+          [...ROLES,"ACCOUNTANT"]);
+        return await getHubtelPosReadiness(pool,businessId);
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.get<{Querystring:{businessId?:string;branchId?:string;limit?:string}}>(
+    "/v1/payments/hubtel/reconciliation",async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=request.query.businessId;
+        const branchId=request.query.branchId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        if(branchId && !UUID.test(branchId))
+          throw new AuthError("Valid branchId is required",400,"BRANCH_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return await getBusinessHubtelPosMonitor(pool,{
+          businessId,...(branchId?{branchId}:{}),limit:Number(request.query.limit??50),
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    });
+  app.get<{Querystring:{businessId?:string;branchId?:string;limit?:string}}>(
+    "/v1/payments/hubtel/exception-cases",async(request,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const businessId=request.query.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return await listHubtelExceptionReviewCases(pool,{
+          businessId,
+          ...(request.query.branchId?{branchId:request.query.branchId}:{}),
+          limit:Number(request.query.limit??50),
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.post<{Params:{exceptionId:string};Body:{
+    businessId?:string;expectedRevision?:number;
+    recommendedAction?:string;evidenceReference?:string;note?:string;
+  }}>(
+    "/v1/payments/hubtel/exception-cases/:exceptionId/submit",async(request,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const businessId=request.body?.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return {review:await submitHubtelExceptionReview(pool,{
+          businessId,exceptionId:request.params.exceptionId,actorUserId:auth.userId,
+          expectedRevision:request.body?.expectedRevision,
+          recommendedAction:request.body?.recommendedAction,
+          evidenceReference:request.body?.evidenceReference,
+          note:request.body?.note,
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.post<{Params:{exceptionId:string};Body:{
+    businessId?:string;expectedRevision?:number;decision?:string;note?:string;
+  }}>(
+    "/v1/payments/hubtel/exception-cases/:exceptionId/decide",async(request,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try{
+        const businessId=request.body?.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,["OWNER","ADMIN"]);
+        return {review:await decideHubtelExceptionReview(pool,{
+          businessId,exceptionId:request.params.exceptionId,actorUserId:auth.userId,
+          expectedRevision:request.body?.expectedRevision,
+          decision:request.body?.decision,note:request.body?.note,
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Read-only impact preview; no inventory/cashbook mutations and no implied
+  // provider cancellation finality. Kept available for existing checkouts
+  // even when new Hubtel collection is disabled.
+  app.get<{Params:{saleId:string};Querystring:{businessId?:string}}>(
+    "/v1/sales/:saleId/hubtel/cancellation-preflight",async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,
+          request.query.businessId,MONITOR_ROLES);
+        return {assessment:await getHubtelCancellationPreflight(pool,{
+          businessId,saleId:request.params.saleId,
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Independently paginated whole-branch investigation worklist. Current
+  // PAID outcomes are retained for audit; none of these rows permits voiding.
+  app.get<{Querystring:{businessId?:string;branchId?:string;outcome?:string;
+    limit?:string;offset?:string}}>(
+    "/v1/payments/hubtel/cancellation-investigations",async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,
+          request.query.businessId,MONITOR_ROLES);
+        const {branchId,outcome,limit,offset}=request.query;
+        return await listHubtelCancellationInvestigations(pool,{
+          businessId,...(branchId?{branchId}:{}),
+          ...(outcome?{outcome}:{}),
+          ...(limit!==undefined?{limit:Number(limit)}:{}),
+          ...(offset!==undefined?{offset:Number(offset)}:{}),
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Human-provided support references are strictly investigative notes.
+  // They are not provider-authenticated payment/cancellation finality.
+  app.get<{Params:{investigationId:string};Querystring:{
+    businessId?:string;limit?:string;offset?:string;
+  }}>(
+    "/v1/payments/hubtel/cancellation-investigations/:investigationId/events",
+    async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,
+          request.query.businessId,MONITOR_ROLES);
+        return await listHubtelCancellationInvestigationEvents(pool,{
+          businessId,investigationId:request.params.investigationId,
+          ...(request.query.limit!==undefined?{limit:Number(request.query.limit)}:{}),
+          ...(request.query.offset!==undefined?{offset:Number(request.query.offset)}:{}),
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.post<{Params:{investigationId:string};Body:{
+    businessId?:string;clientRequestId?:string;eventKind?:string;
+    providerReport?:string;evidenceReference?:string;note?:string;
+  }}>(
+    "/v1/payments/hubtel/cancellation-investigations/:investigationId/events",
+    async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=request.body?.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return await appendHubtelCancellationInvestigationEvent(pool,{
+          businessId,investigationId:request.params.investigationId,
+          actorUserId:auth.userId,clientRequestId:request.body?.clientRequestId??"",
+          eventKind:request.body?.eventKind,
+          ...(request.body?.providerReport!==undefined?{
+            providerReport:request.body.providerReport}:{}),
+          ...(request.body?.evidenceReference!==undefined?{
+            evidenceReference:request.body.evidenceReference}:{}),
+          note:request.body?.note,
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Escalates the merchant's pending-checkout question. This route does not
+  // contact Hubtel, cancel checkout, restore stock, settle/refund money, or
+  // grant finality. External payment resolution remains mandatory.
+  app.post<{Params:{saleId:string};Body:{businessId?:string;note?:string}}>(
+    "/v1/sales/:saleId/hubtel/cancellation-investigation",async(request,reply)=>{
+      reply.header("Cache-Control","private, no-store, max-age=0");
+      try{
+        const businessId=request.body?.businessId;
+        if(typeof businessId!=="string"||!UUID.test(businessId))
+          throw new AuthError("Valid businessId is required",400,"BUSINESS_ID_REQUIRED");
+        const auth=await authenticateAccessToken(pool,request.headers.authorization);
+        await requireBusinessRole(pool,auth,businessId,MONITOR_ROLES);
+        return await requestHubtelCancellationInvestigation(pool,{
+          businessId,saleId:request.params.saleId,
+          actorUserId:auth.userId,note:request.body?.note,
+        });
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.get<{Params:{saleId:string};Querystring:{businessId?:string}}>(
+    "/v1/sales/:saleId/hubtel/checkout",async(request,reply)=>{
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,request.query.businessId);
+        return {checkout:await getSaleHubtelCheckout(pool,businessId,request.params.saleId)};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.post<{Params:{saleId:string};Body:{businessId?:string;clientRequestId?:string}}>(
+    "/v1/sales/:saleId/hubtel/checkout",async(request,reply)=>{
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,request.body?.businessId);
+        return {checkout:await startSaleHubtelCheckout(pool,{
+          businessId,saleId:request.params.saleId,
+          clientRequestId:request.body?.clientRequestId??"",
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  // Manual, rate-bounded independent status recheck of an already-paid sale.
+  // Refund/status discrepancies are append-only alerts; NEVER automatic reversal.
+  app.post<{Params:{saleId:string};Body:{businessId?:string}}>(
+    "/v1/sales/:saleId/hubtel/settlement-review",async(request,reply)=>{
+      reply.header("Cache-Control","no-store");
+      try {
+        const businessId=await authorize(pool,request.headers.authorization,
+          request.body?.businessId,["OWNER","ADMIN","MANAGER"]);
+        return {result:await reviewSettledHubtelSale(pool,{
+          businessId,saleId:request.params.saleId,
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+  app.post<{Params:{saleId:string};Body:{businessId?:string}}>(
+    "/v1/sales/:saleId/hubtel/verify",async(request,reply)=>{
+      try{
+        const businessId=await authorize(pool,request.headers.authorization,request.body?.businessId);
+        return {result:await verifySaleHubtelCheckout(pool,{
+          businessId,saleId:request.params.saleId,
+        })};
+      }catch(error){return errorResponse(request,reply,error);}
+    },
+  );
+}

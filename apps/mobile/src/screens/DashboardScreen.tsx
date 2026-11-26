@@ -1,13 +1,11 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { HeroCard } from "../components/Card";
 import { StatCard } from "../components/StatCard";
-import { Button } from "../components/Button";
 import { Banner } from "../components/Banner";
 import { Icon, IconTile } from "../components/icons";
-import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { colors, radius, spacing, typography } from "../theme";
 import type { MobileAppSnapshot, MobileSaleNotice } from "../app-model";
-import { commerceFreshness, formatRelativeTime } from "../lib/format";
+import { formatRelativeTime } from "../lib/format";
 
 export type DashboardScreenProps = {
   snapshot: MobileAppSnapshot;
@@ -37,13 +35,11 @@ export function DashboardScreen({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <WorkspaceHeader
-        online={snapshot.online}
-        syncing={snapshot.syncing}
-        failedCount={queue.failed}
-        pendingCount={queue.pending}
-      />
 
+      <View style={styles.intro}>
+        <Text style={styles.pageTitle}>Your workspace</Text>
+        <Text style={styles.introText}>Sell, manage and keep your business moving.</Text>
+      </View>
       <HeroCard padding="comfortable" style={styles.hero}>
         <Text style={styles.eyebrow}>Current business</Text>
         <Text style={styles.businessName} numberOfLines={2}>{ready.business.name}</Text>
@@ -54,54 +50,55 @@ export function DashboardScreen({
         <View style={styles.heroFooter}>
           <View style={styles.currencyPill}>
             <Icon name="currency" size={12} color={colors.gold} />
-            <Text style={styles.currencyText}>{ready.business.currencyCode}</Text>
+            <Text style={styles.currencyText}>{ready.business.currencyCode === "GHS" ? "₵" : ready.business.currencyCode}</Text>
           </View>
           <Text style={styles.countryText}>{ready.business.countryCode}</Text>
         </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Start a sale" onPress={onGoToSell} style={({pressed}) => [styles.heroAction, pressed && styles.pressed]}>
+          <Icon name="sell" size={22} color={colors.midnight} />
+          <Text style={styles.heroActionText}>New sale</Text>
+          <Icon name="arrowRight" size={18} color={colors.midnight} />
+        </Pressable>
       </HeroCard>
 
       {snapshot.saleNotice ? (
         <SaleNoticeBanner notice={snapshot.saleNotice} />
       ) : null}
 
-      <Text style={styles.sectionLabel}>Today</Text>
+      <Text style={styles.sectionLabel}>Workspace status</Text>
       <View style={styles.statGrid}>
         <StatCard
+          style={styles.statTile}
           label="Pending sync"
           value={String(queue.pending)}
           tone={queue.pending > 0 ? "warning" : "neutral"}
           hint={queue.pending > 0 ? "Will send automatically" : "All caught up"}
         />
         <StatCard
+          style={styles.statTile}
           label="Needs review"
           value={String(queue.failed)}
           tone={queue.failed > 0 ? "danger" : "neutral"}
           hint={queue.failed > 0 ? "Server rejected" : "No rejections"}
         />
         <StatCard
+          style={styles.statTile}
           label="Catalog source"
           value={commerce ? (commerce.source === "LIVE" ? "Live" : "Cache") : "—"}
           tone={commerce?.source === "LIVE" ? "positive" : commerce?.source === "CACHE" ? "warning" : "neutral"}
           hint={lastSync}
         />
         <StatCard
+          style={styles.statTile}
           label="Sellable items"
           value={String(commerce?.items.length ?? 0)}
           tone="info"
-          hint={commerceFreshness(snapshot)}
+          hint={commerce ? "Available in POS" : "Catalog not loaded"}
         />
       </View>
 
       <Text style={styles.sectionLabel}>Quick actions</Text>
       <View style={styles.actions}>
-        <QuickAction
-          icon="sell"
-          tint={colors.gold}
-          background={colors.goldSoft}
-          label="Start a sale"
-          hint="Open the POS workspace"
-          onPress={onGoToSell}
-        />
         <QuickAction
           icon="sync"
           tint={colors.info}
@@ -174,24 +171,15 @@ function QuickAction({
   loading?: boolean;
 }) {
   return (
-    <Button
-      variant="ghost"
-      fullWidth
-      disabled={disabled}
-      loading={loading}
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={styles.quickActionBtn}
-    >
-      <View style={styles.quickActionRow}>
-        <IconTile name={icon} size={44} tint={tint} background={background} accessibilityLabel={`${label} action`} />
-        <View style={styles.quickActionCopy}>
-          <Text style={styles.quickActionLabel} numberOfLines={1}>{label}</Text>
-          <Text style={styles.quickActionHint} numberOfLines={2}>{hint}</Text>
-        </View>
-        <Icon name="arrowRight" size={18} color={colors.textSoft} />
-      </View>
-    </Button>
+    <Pressable accessibilityRole="button" accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
+      disabled={disabled || loading} onPress={onPress}
+      style={({ pressed }) => [styles.quickActionBtn, (pressed || disabled) && styles.pressed]}>
+      <IconTile name={icon} size={42} tint={tint} background={background} />
+      {loading ? <ActivityIndicator color={tint} /> : null}
+      <Text style={styles.quickActionLabel}>{label}</Text>
+      <Text style={styles.quickActionHint}>{hint}</Text>
+    </Pressable>
   );
 }
 
@@ -204,15 +192,22 @@ function SaleNoticeBanner({ notice }: { notice: MobileSaleNotice }) {
 
 const styles = StyleSheet.create({
   content: {
+    paddingTop: spacing.s4,
     flexGrow: 1,
     backgroundColor: colors.canvas,
     paddingHorizontal: spacing.s4,
     paddingBottom: spacing.s6 + 4,
     gap: spacing.s4,
   },
-  hero: {
-    marginTop: spacing.s2,
-  },
+  intro: { gap: 4 },
+  pageTitle: { color: colors.textStrong, fontSize: 28, fontWeight: "800", letterSpacing: -0.8 },
+  introText: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
+  hero: { borderColor: colors.midnight, borderRadius: 24 },
+  heroAction: { flexDirection: "row", alignItems: "center", gap: 10, padding: 14,
+    minHeight: 52, borderRadius: 14, backgroundColor: colors.gold, marginTop: 18 },
+  heroActionText: { flex: 1, color: colors.midnight, fontSize: 16, fontWeight: "800" },
+  pressed: { opacity: 0.65 },
+  statTile: { flexGrow: 1, flexBasis: "46%", minWidth: 120 },
   eyebrow: {
     color: colors.gold,
     fontSize: typography.meta,
@@ -265,11 +260,9 @@ const styles = StyleSheet.create({
     fontWeight: typography.weightBold,
   },
   sectionLabel: {
-    color: colors.textMuted,
-    fontSize: typography.meta,
-    fontWeight: typography.weightBlack,
-    letterSpacing: typography.kickerTracking,
-    textTransform: "uppercase",
+    color: colors.textStrong,
+    fontSize: 19,
+    fontWeight: typography.weightHeavy,
     marginTop: spacing.s2,
   },
   statGrid: {
@@ -277,30 +270,10 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.s2 + 2,
   },
-  actions: {
-    gap: spacing.s2,
-  },
-  quickActionBtn: {
-    alignItems: "stretch",
-    justifyContent: "flex-start",
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    minHeight: 0,
-    borderWidth: 0,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderColor: colors.border,
-  },
-  quickActionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.s3,
-    padding: spacing.s3,
-  },
-  quickActionCopy: {
-    flex: 1,
-    gap: 2,
-  },
+  actions: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  quickActionBtn: { flexGrow: 1, flexBasis: "46%", minWidth: 120, minHeight: 120,
+    alignItems: "flex-start", padding: 14, gap: 7, borderWidth: 1,
+    backgroundColor: colors.surface, borderRadius: radius.md, borderColor: colors.border },
   quickActionLabel: {
     color: colors.textStrong,
     fontSize: typography.supporting,

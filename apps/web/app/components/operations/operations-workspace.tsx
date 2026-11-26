@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { useApiFetch } from "../../../lib/use-api-fetch";
@@ -11,7 +12,6 @@ import { Button } from "../ui/button";
 import {
   IconBanknote,
   IconCashbook,
-  IconChevronRight,
   IconClock,
   IconCreditCard,
   IconOperations,
@@ -21,6 +21,11 @@ import {
   IconWallet,
 } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import {
+  buildOperationsMutation, OPERATIONS_METHODS, operationsPermission, operationsVariance,
+  type OperationsAction, type OperationsCounts, type OperationsMethod,
+} from "../../../lib/operations-flow";
+import { dayCloseReportCsv } from "../../../lib/operations-report";
 
 interface MethodBalance {
   method: string;
@@ -33,6 +38,7 @@ interface MethodBalance {
 
 interface OperatingDay {
   id: string;
+  businessDate: string;
   status: "OPEN" | "CLOSED";
   openedAt: string;
   closedAt: string | null;
@@ -43,6 +49,9 @@ interface Shift {
   id: string;
   status: "OPEN" | "CLOSED";
   openedAt: string;
+  closedAt: string | null;
+  staffId: string;
+  balances: ReadonlyArray<MethodBalance>;
 }
 
 interface CurrentOperations {
@@ -51,11 +60,8 @@ interface CurrentOperations {
   openShiftCount: number;
 }
 
-interface OperationsResponse {
-  current: CurrentOperations;
-}
-
-type OpsAction = "open-day" | "close-day" | "open-shift" | "close-shift";
+interface OperationsHistory { days: ReadonlyArray<OperatingDay> }
+interface ShiftHistory { shifts: ReadonlyArray<Shift> }
 
 function methodIconSvg(method: string): ReactNode {
   switch (method) {
@@ -89,26 +95,87 @@ function varianceText(varianceMinor: number | null): string {
   return varianceMinor < 0 ? "Shortage" : "Surplus";
 }
 
+function MethodCounts({
+  values,onChange,currencyCode,mode,identity,
+}:{
+  values:OperationsCounts;
+  onChange:(updated:OperationsCounts)=>void;
+  currencyCode:string;
+  mode:"opening"|"closing";
+  identity:"day"|"shift";
+}) {
+  return (
+    <div className="tos-stack" aria-label={identity+" "+mode+" counts"}>
+      <p className="tos-section__sub">
+        {mode==="closing"
+          ? "Enter confirmed balances for all five methods. Enter zero only if verified."
+          : "Count the physical cash float. Other opening balances are optional and default to zero."}
+      </p>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,220px),1fr))",gap:12}}>
+        {OPERATIONS_METHODS.map((method:OperationsMethod)=>(
+          <MoneyInput
+            key={method}
+            id={"ops-"+identity+"-"+mode+"-"+method.toLowerCase()}
+            currencyCode={currencyCode}
+            valueMinor={values[method]??null}
+            onChange={value=>onChange({...values,[method]:value})}
+            label={methodLabel(method)+(mode==="closing"?" confirmed closing":" opening float")}
+            hint={mode==="closing"?"Required before closing":method==="CASH"?"Required":"Optional; zero if unentered"}
+            required={mode==="closing"||method==="CASH"}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function OperationsWorkspace() {
   const { session, role, bump } = useWorkspace();
   const [nonce, setNonce] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cashCounted, setCashCounted] = useState<number | null>(null);
+  const [dayCounts, setDayCounts] = useState<OperationsCounts>({});
+  const [shiftCounts, setShiftCounts] = useState<OperationsCounts>({});
+  const [dayNote, setDayNote] = useState("");
+  const [shiftNote, setShiftNote] = useState("");
   const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmShiftClose, setConfirmShiftClose] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const path = session
     ? `/v1/operations/current?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}`
     : null;
-  const { data, loading, error: loadError, refetch } = useApiFetch<OperationsResponse>(path);
+  // /current returns the data directly; it is NOT wrapped in {current:...}.
+  const { data, loading, error: loadError, refetch } = useApiFetch<CurrentOperations>(path);
+  const historyPath = session
+    ? "/v1/operations/days?businessId="+encodeURIComponent(session.businessId)+
+      "&branchId="+encodeURIComponent(session.branchId)+"&limit=7"
+    : null;
+  const { data: history, refetch: refetchHistory } =
+    useApiFetch<OperationsHistory>(historyPath);
+  const shiftHistoryPath = session
+    ? "/v1/operations/shifts?businessId="+encodeURIComponent(session.businessId)+
+      "&branchId="+encodeURIComponent(session.branchId)+"&limit=15"
+    : null;
+  const { data: shiftHistory, refetch: refetchShiftHistory } =
+    useApiFetch<ShiftHistory>(shiftHistoryPath);
+
+  // Never keep counts from a previous tenant or physical branch.
+  useEffect(()=>{
+    setDayCounts({});setShiftCounts({});
+    setDayNote("");setShiftNote("");
+    setConfirmClose(false);setConfirmShiftClose(false);
+    setError(null);setSuccess(null);
+  },[session?.businessId,session?.branchId]);
 
   useEffect(() => {
     if (nonce > 0) refetch();
   }, [nonce, refetch]);
 
-  const canWrite = ["OWNER", "ADMIN", "MANAGER", "CASHIER", "ACCOUNTANT"].includes(role);
+  const canManageDay = operationsPermission(role,"open-day");
+  const canManageShift = operationsPermission(role,"open-shift");
   const currencyCode = session?.currencyCode ?? "GHS";
-  const current = data?.current;
+  const current = data;
   const operatingDay = current?.operatingDay ?? null;
   const shift = current?.shift ?? null;
 
@@ -117,42 +184,62 @@ export function OperationsWorkspace() {
     return operatingDay.balances.some((b) => b.varianceMinor !== null && b.varianceMinor !== 0);
   }, [operatingDay]);
 
-  const totalExpected = useMemo(() => {
-    if (!operatingDay) return 0;
-    return operatingDay.balances.reduce((sum, b) => sum + b.expectedClosingMinor, 0);
-  }, [operatingDay]);
-
-  const totalVariance = useMemo(() => {
-    if (!operatingDay) return 0;
-    return operatingDay.balances.reduce((sum, b) => sum + (b.varianceMinor ?? 0), 0);
-  }, [operatingDay]);
-
-  const handleAction = async (action: OpsAction) => {
-    if (!session || busy || !canWrite) return;
-    setBusy(true); setError(null);
-    try {
-      const queue = getOfflineQueue();
-      let mutationType: string;
-      let payload: Record<string, unknown> = {};
-      if (action === "open-day") {
-        mutationType = "OPERATING_DAY_OPEN_CREATE";
-        payload = { openingBalances: cashCounted !== null ? [{ method: "CASH", countedMinor: cashCounted }] : [] };
-      } else if (action === "close-day") {
-        mutationType = "OPERATING_DAY_CLOSE_CREATE";
-        payload = { closingBalances: cashCounted !== null ? [{ method: "CASH", countedMinor: cashCounted }] : [] };
-      } else if (action === "open-shift") {
-        mutationType = "SHIFT_OPEN_CREATE";
-      } else {
-        mutationType = "SHIFT_CLOSE_CREATE";
-      }
-      const mutation = queue.build({ businessId: session.businessId, branchId: session.branchId, mutationType, payload });
-      await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
-      bump(); setCashCounted(null); setConfirmClose(false); setNonce((n) => n + 1);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not complete operation.");
-    } finally { setBusy(false); }
+  const completedDays=history?.days.filter(day=>day.status==="CLOSED")??[];
+  const exportDays=()=>{
+    if(completedDays.length===0)return;
+    try{
+      const csv=dayCloseReportCsv(completedDays,currencyCode);
+      const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+      const element=document.createElement("a");
+      element.href=url;
+      element.download="tradeos-day-close-"+completedDays[0]!.businessDate+".csv";
+      document.body.append(element);element.click();element.remove();
+      window.setTimeout(()=>URL.revokeObjectURL(url),30_000);
+      setSuccess("Confirmed day-close report exported.");
+    }catch(error){
+      setError(error instanceof Error?error.message:"Report export failed.");
+    }
   };
+
+  const handleAction = async (action: OperationsAction) => {
+    if (!session || busy || !current || !operationsPermission(role,action)) return;
+    setError(null);setSuccess(null);
+    if(typeof navigator!=="undefined" && !navigator.onLine){
+      setError("Connect to the internet to verify and finalize this financial interval. No close has been posted.");
+      return;
+    }
+    const isDay=action.endsWith("day");
+    const values=isDay?dayCounts:shiftCounts;
+    const note=isDay?dayNote:shiftNote;
+    let built:ReturnType<typeof buildOperationsMutation>;
+    try{
+      built=buildOperationsMutation(action,current,values,session.timezone,new Date(),note);
+    }catch(err){
+      setError(err instanceof Error?err.message:"Confirm the balances before continuing.");
+      return;
+    }
+    setBusy(true);
+    try{
+      const queue=getOfflineQueue();
+      const mutation=queue.build({
+        businessId:session.businessId,branchId:session.branchId,
+        mutationType:built.mutationType,payload:built.payload,
+      });
+      await queue.enqueue(mutation);
+      await queue.flushOrThrow({activeBusinessId:session.businessId,online:true});
+      bump();
+      if(isDay){setDayCounts({});setDayNote("");}
+      else{setShiftCounts({});setShiftNote("");}
+      setConfirmClose(false);setConfirmShiftClose(false);
+      setNonce(n=>n+1);refetchHistory();refetchShiftHistory();
+      setSuccess(action==="close-day"?"Operating day close confirmed. Review the reconciliation report below.":
+        action==="close-shift"?"Shift close confirmed. Review the counted variance in shift history.":
+        action==="open-day"?"Operating day opened successfully.":"Staff shift opened successfully.");
+    }catch(err){
+      setError(err instanceof Error?err.message:"The interval was not confirmed by the server.");
+    }finally{setBusy(false);}
+  };
+
 
   return (
     <div className="tos-page">
@@ -163,6 +250,7 @@ export function OperationsWorkspace() {
           <p className="tos-page__subtitle">Open and close operating days and shifts. Reconcile cash drawers against expected balances.</p>
         </div>
         <div className="tos-page__actions">
+          {["OWNER","ADMIN","MANAGER","ACCOUNTANT"].includes(role) ? <Link href="/payments/hubtel" className="tos-btn tos-btn--outline">Hubtel payments</Link> : null}
           <Button variant="outline" icon={<IconRefresh className="tos-btn__icon" />} onClick={() => setNonce((n) => n + 1)}>Refresh</Button>
         </div>
       </header>
@@ -296,69 +384,73 @@ export function OperationsWorkspace() {
                   <p className="tos-state__text">No operating day is open. Open one to begin tracking.</p>
                 )}
 
-                {/* Counted cash input — used as opening or closing balance for the cash drawer */}
-                {canWrite && operatingDay ? (
-                  <MoneyInput
-                    currencyCode={currencyCode}
-                    valueMinor={cashCounted}
-                    onChange={setCashCounted}
-                    label={operatingDay.status === "OPEN" ? "Counted cash (for closing)" : "Counted cash (for opening)"}
-                    hint={operatingDay.status === "OPEN" ? "Enter the physical cash count from the drawer. This will be the closing balance submitted when you close the day." : "Enter the physical cash count from the drawer. This will be the opening balance for the new operating day."}
-                  />
+                {canManageDay ? (
+                  <>
+                    <MethodCounts values={dayCounts} onChange={setDayCounts}
+                      currencyCode={currencyCode}
+                      mode={operatingDay ? "closing" : "opening"} identity="day" />
+                    <label className="tos-field__label" htmlFor="ops-day-note">Day cash count note</label>
+                    <textarea id="ops-day-note" className="tos-input" maxLength={1000} rows={2}
+                      value={dayNote} onChange={event=>setDayNote(event.target.value)}
+                      placeholder="Optional: explain shortages, cash top-ups or handover evidence" />
+                  </>
                 ) : null}
+                {error ? <div role="alert" className="tos-banner tos-banner--danger">
+                  <span className="tos-banner__title">{error}</span></div> : null}
+                {success ? <div role="status" className="tos-callout tos-callout--info">
+                  {success}</div> : null}
 
-                {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
-
-                {/* Close-day confirmation flow — shows what will be finalized */}
-                {canWrite && operatingDay && operatingDay.status === "OPEN" && confirmClose ? (
+                {canManageDay && operatingDay && confirmClose ? (
                   <div className="tos-ops-confirm tos-animate-fade-in-up">
-                    <h3 className="tos-ops-confirm__title">Confirm close day</h3>
+                    <h3 className="tos-ops-confirm__title">Confirm operating day closing</h3>
                     <p className="tos-ops-confirm__sub">
-                      Closing the day finalizes the cash reconciliation. The server will record the closing balance, compute the final variance per method, and post any required cashbook adjustments as immutable evidence.
+                      The server will preserve your five method counts, compare them with ledger
+                      movements and retain any variance for review. It will not silently
+                      alter cashbook balances to hide a difference.
                     </p>
-                    <div className="tos-ops-confirm__rows">
-                      <div className="tos-ops-confirm__row">
-                        <span className="tos-ops-confirm__row-label">Methods to reconcile</span>
-                        <span className="tos-ops-confirm__row-val">{operatingDay.balances.length}</span>
-                      </div>
-                      <div className="tos-ops-confirm__row">
-                        <span className="tos-ops-confirm__row-label">Total expected</span>
-                        <MoneyValue minor={totalExpected} currencyCode={currencyCode} className="tos-ops-confirm__row-val" />
-                      </div>
-                      <div className="tos-ops-confirm__row">
-                        <span className="tos-ops-confirm__row-label">Cash counted</span>
-                        {cashCounted !== null ? (
-                          <MoneyValue minor={cashCounted} currencyCode={currencyCode} className="tos-ops-confirm__row-val" />
-                        ) : (
-                          <span className="tos-ops-confirm__row-val tos-ops-confirm__row-val--warning">No count entered</span>
-                        )}
-                      </div>
-                      {hasVariance ? (
-                        <div className="tos-ops-confirm__row">
-                          <span className="tos-ops-confirm__row-label">Open variance</span>
-                          <MoneyValue minor={totalVariance} currencyCode={currencyCode} className="tos-ops-confirm__row-val tos-ops-confirm__row-val--danger" signed />
+                    {operatingDay.balances.map(balance=>{
+                      const counted=dayCounts[balance.method as OperationsMethod];
+                      const variance=counted==null?null:counted-balance.expectedClosingMinor;
+                      return (
+                        <div key={balance.method} className="tos-ops-confirm__row">
+                          <span className="tos-ops-confirm__row-label">{methodLabel(balance.method)} expected</span>
+                          <MoneyValue minor={balance.expectedClosingMinor} currencyCode={currencyCode} />
+                          <span className="tos-ops-confirm__row-label">Counted</span>
+                          {counted==null?<strong>Missing</strong>:
+                            <MoneyValue minor={counted} currencyCode={currencyCode}/>}
+                          {variance!=null?<MoneyValue minor={variance} currencyCode={currencyCode} signed
+                            tone={variance===0?"muted":variance>0?"positive":"negative"} />:null}
                         </div>
-                      ) : null}
-                    </div>
+                      );
+                    })}
+                    {current.openShiftCount>0?
+                      <p role="alert" className="tos-callout tos-callout--warning">
+                        Close all {current.openShiftCount} open staff shifts first.
+                      </p>:null}
                     <div className="tos-row tos-row--between">
-                      <Button variant="ghost" onClick={() => setConfirmClose(false)} disabled={busy}>Cancel</Button>
-                      <Button variant="danger" onClick={() => handleAction("close-day")} loading={busy}>Close day &amp; finalize</Button>
+                      <Button variant="ghost" onClick={()=>setConfirmClose(false)}
+                        disabled={busy}>Cancel</Button>
+                      <Button variant="danger" loading={busy}
+                        disabled={current.openShiftCount>0}
+                        onClick={()=>void handleAction("close-day")}>Close day &amp; record variance</Button>
                     </div>
                   </div>
-                ) : null}
+                ):null}
               </div>
               <div className="tos-section__foot">
-                {canWrite && operatingDay ? (
-                  operatingDay.status === "OPEN" ? (
-                    confirmClose ? (
-                      <span className="tos-section__sub">Review the summary above before finalizing.</span>
-                    ) : (
-                      <Button variant="danger" onClick={() => setConfirmClose(true)} disabled={busy}>Close operating day</Button>
-                    )
-                  ) : (
-                    <Button variant="gold" onClick={() => handleAction("open-day")} loading={busy}>Open operating day</Button>
+                {canManageDay ? (
+                  !operatingDay ? (
+                    <Button variant="primary" loading={busy}
+                      onClick={()=>void handleAction("open-day")}>Open operating day</Button>
+                  ):confirmClose?(
+                    <span className="tos-section__sub">Confirm all counted balances above.</span>
+                  ):(
+                    <Button variant="danger" disabled={busy || current.openShiftCount>0}
+                      onClick={()=>setConfirmClose(true)}>Review &amp; close operating day</Button>
                   )
-                ) : null}
+                ):<p className="tos-section__sub">
+                  A supervisor opens and closes operating days. Cashiers can manage their own shifts below.
+                </p>}
               </div>
             </section>
 
@@ -386,22 +478,143 @@ export function OperationsWorkspace() {
                   </div>
                 ) : null}
               </div>
-              {canWrite ? (
-                <Button
-                  variant={shift ? "danger" : "primary"}
-                  block
-                  loading={busy}
-                  disabled={!operatingDay || operatingDay.status !== "OPEN"}
-                  onClick={() => handleAction(shift ? "close-shift" : "open-shift")}
-                >
-                  {shift ? "Close shift" : "Open shift"}
-                </Button>
-              ) : null}
-              {!operatingDay || operatingDay.status !== "OPEN" ? (
-                <p className="tos-callout tos-callout--warning">Open an operating day before opening a shift.</p>
-              ) : null}
+              {canManageShift && operatingDay ? (
+                <div className="tos-ops-shift-card__body">
+                  {shift && shift.balances.length>0 ? (
+                    <div style={{display:"grid",gap:6,marginBottom:12}}>
+                      <h3 className="tos-section__title">My shift expected balances</h3>
+                      {shift.balances.map(balance=>(
+                        <div key={balance.method} className="tos-row tos-row--between">
+                          <span>{methodLabel(balance.method)}</span>
+                          <MoneyValue minor={balance.expectedClosingMinor} currencyCode={currencyCode} />
+                        </div>
+                      ))}
+                    </div>
+                  ):null}
+                  <MethodCounts values={shiftCounts} onChange={setShiftCounts}
+                    currencyCode={currencyCode}
+                    mode={shift?"closing":"opening"} identity="shift"/>
+                  <label className="tos-field__label" htmlFor="ops-shift-note">Shift handover note</label>
+                  <textarea id="ops-shift-note" className="tos-input" maxLength={1000} rows={2}
+                    value={shiftNote} onChange={event=>setShiftNote(event.target.value)}
+                    placeholder="Optional cash count or handover explanation"/>
+                  {shift && confirmShiftClose ? (
+                    <div className="tos-ops-confirm" style={{marginTop:12}}>
+                      <h3>Confirm closing my own shift</h3>
+                      <p>Cash difference: {operationsVariance(shiftCounts,
+                        shift.balances.find(b=>b.method==="CASH")?.expectedClosingMinor??0)===null
+                        ? "Awaiting cash count" : "See the counted variance in the shift report."}</p>
+                      <Button variant="ghost" onClick={()=>setConfirmShiftClose(false)}
+                        disabled={busy}>Cancel</Button>
+                      <Button variant="danger" loading={busy}
+                        onClick={()=>void handleAction("close-shift")}>Record shift close</Button>
+                    </div>
+                  ):(
+                    <Button variant={shift?"danger":"primary"} block loading={busy}
+                      onClick={()=>shift?setConfirmShiftClose(true):void handleAction("open-shift")}>
+                      {shift?"Review & close my shift":"Open my shift"}
+                    </Button>
+                  )}
+                </div>
+              ):null}
+              {!operatingDay ? (
+                <p className="tos-callout tos-callout--warning">
+                  A supervisor must open the operating day before staff can open their shifts.
+                </p>
+              ):null}
             </section>
           </div>
+
+          <section className="tos-section tos-animate-fade-in-up" aria-label="Staff shift history">
+            <div className="tos-section__head">
+              <div>
+                <h2 className="tos-section__title">Recent staff shifts</h2>
+                <p className="tos-section__sub">Cashiers see their own shifts;
+                  supervisors can review staff handovers by recorded employee and branch.</p>
+              </div>
+            </div>
+            <div className="tos-section__body--padded tos-stack">
+              {(shiftHistory?.shifts??[]).filter(item=>item.status==="CLOSED").length===0?
+                <p className="tos-state__text">No completed staff shifts have been recorded yet.</p>:
+                (shiftHistory?.shifts??[]).filter(item=>item.status==="CLOSED").map(item=>(
+                  <article key={item.id} className="tos-section" style={{padding:12}}>
+                    <h3 className="tos-section__title">
+                      {new Date(item.openedAt).toLocaleString()} ·
+                      {" "+item.staffId.slice(0,8)}
+                    </h3>
+                    <p className="tos-section__sub">
+                      Closed {item.closedAt?new Date(item.closedAt).toLocaleString():"—"}
+                    </p>
+                    <div style={{display:"grid",gap:6}}>
+                      {item.balances.map(balance=>(
+                        <div key={balance.method} className="tos-row tos-row--between" style={{gap:12}}>
+                          <strong>{methodLabel(balance.method)}</strong>
+                          <span>Expected <MoneyValue minor={balance.expectedClosingMinor}
+                            currencyCode={currencyCode}/></span>
+                          <span>Counted {balance.closingCountedMinor===null?"—":
+                            <MoneyValue minor={balance.closingCountedMinor} currencyCode={currencyCode}/>}</span>
+                          <span>Variance {balance.varianceMinor===null?"—":
+                            <MoneyValue minor={balance.varianceMinor} currencyCode={currencyCode} signed
+                              tone={balance.varianceMinor===0?"muted":
+                                balance.varianceMinor>0?"positive":"negative"}/>}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+            </div>
+          </section>
+
+          <section className="tos-section tos-animate-fade-in-up" aria-label="Completed operating days">
+            <div className="tos-section__head">
+              <div>
+                <h2 className="tos-section__title">Recent completed days</h2>
+                <p className="tos-section__sub">Actual recorded opening, movements,
+                  counted balances and shortages or surpluses for this branch.</p>
+              </div>
+              <Button variant="outline" size="sm" disabled={completedDays.length===0}
+                onClick={exportDays}>Export CSV</Button>
+            </div>
+            <div className="tos-section__body--padded tos-stack">
+              {completedDays.length===0 ? (
+                <p className="tos-state__text">No completed day-close reports yet.</p>
+              ):completedDays.map(day=>(
+                <article key={day.id} className="tos-section" style={{padding:14}}>
+                  <h3 className="tos-section__title">{day.businessDate}</h3>
+                  <p className="tos-section__sub">
+                    {day.balances.some(b=>b.varianceMinor!==null&&b.varianceMinor!==0)
+                      ? "Variance recorded: inspect each tender below."
+                      : "All counted methods balanced."}
+                  </p>
+                  <div style={{overflowX:"auto"}}>
+                    <table className="tos-team__table" style={{minWidth:620,width:"100%"}}>
+                      <thead><tr>
+                        <th scope="col">Method</th><th scope="col">Opening</th>
+                        <th scope="col">Movement</th><th scope="col">Expected</th>
+                        <th scope="col">Counted</th><th scope="col">Variance</th>
+                      </tr></thead>
+                      <tbody>
+                        {day.balances.map(balance=>(
+                          <tr key={balance.method}>
+                            <th scope="row">{methodLabel(balance.method)}</th>
+                            <td><MoneyValue minor={balance.openingCountedMinor} currencyCode={currencyCode}/></td>
+                            <td><MoneyValue minor={balance.movementMinor} currencyCode={currencyCode} signed/></td>
+                            <td><MoneyValue minor={balance.expectedClosingMinor} currencyCode={currencyCode}/></td>
+                            <td>{balance.closingCountedMinor===null?"—":
+                              <MoneyValue minor={balance.closingCountedMinor} currencyCode={currencyCode}/>}</td>
+                            <td>{balance.varianceMinor===null?"—":
+                              <MoneyValue minor={balance.varianceMinor} currencyCode={currencyCode} signed
+                                tone={balance.varianceMinor===0?"muted":
+                                  balance.varianceMinor>0?"positive":"negative"}/>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
 
           <div className="tos-callout tos-callout--info">
             <span className="tos-callout__icon-wrap" aria-hidden="true">

@@ -9,6 +9,11 @@ import {
 } from "./customer-credit.js";
 import { withTransaction } from "../db.js";
 import { createCustomerCreditObligation } from "./credit-obligations.js";
+import { requireHubtelPosConnection } from "./hubtel-pos-config.js";
+import {requireHubtelPreference} from "../payment-providers/service.js";
+import {resolveCustomerPrice} from "./price-rules.js";
+import {consumeApprovedDiscount} from "./discount-approvals.js";
+import {assertBranchShiftAtSaleTime} from "../operations/shift-sale-policy.js";
 
 export type PaymentMethod = "CASH" | "MOMO" | "CARD" | "BANK" | "CUSTOMER_CREDIT" | "OTHER";
 
@@ -16,9 +21,13 @@ export interface SaleMutationPayload {
   currencyCode?: string;
   customerId?: string;
   cashierStaffId?: string;
-  lines: Array<{ itemId: string; quantity: number; saleUnitCode?: string; saleUnit?: string }>;
+  cashierMembershipId?: string;
+  lines: Array<{ itemId: string; quantity: number; saleUnitCode?: string;
+    saleUnit?: string; priceApprovalId?: string;
+    expectedUnitPriceMinor?: number }>;
   payments?: Array<{ method: PaymentMethod; amountMinor: number; moneyAccountId?: string; providerReference?: string }>;
   paymentMethod?: PaymentMethod;
+  paymentProvider?: "HUBTEL";
 }
 
 export interface SaleMutationContext {
@@ -30,7 +39,7 @@ export interface SaleMutationContext {
 
 export interface SaleMutationResult {
   saleId: string;
-  status: "COMPLETED";
+  status: "COMPLETED" | "AWAITING_PAYMENT";
   totalMinor: number;
   idempotentReplay: boolean;
 }
@@ -77,8 +86,26 @@ export async function applySaleMutationInTransaction(
     );
     const replay = prior.rows[0];
     if (replay) {
-      if (replay.status !== "COMPLETED") throw new SaleMutationError("Existing sale mutation is not complete", "SALE_REPLAY_INCOMPLETE");
-      return { saleId: replay.id, status: "COMPLETED", totalMinor: Number(replay.total_minor), idempotentReplay: true };
+      if (!["COMPLETED","OPEN"].includes(replay.status)) {
+        throw new SaleMutationError("Existing sale mutation is not complete","SALE_REPLAY_INCOMPLETE");
+      }
+      return {saleId:replay.id,status:replay.status==="OPEN"?"AWAITING_PAYMENT":"COMPLETED",
+        totalMinor:Number(replay.total_minor),idempotentReplay:true};
+    }
+    const hubtel=payload.paymentProvider==="HUBTEL";
+    if(payload.paymentProvider!==undefined&&!hubtel) {
+      throw new SaleMutationError("Unsupported payment provider","SALE_PAYMENT_PROVIDER_INVALID");
+    }
+    if(hubtel) {
+      if(!["MOMO","CARD"].includes(payload.paymentMethod??"")||
+         payload.payments?.length||options.settlePayments===false) {
+        throw new SaleMutationError("Hubtel requires a single full-amount electronic payment",
+          "SALE_HUBTEL_PAYMENT_INVALID");
+      }
+      // Switching preferred gateway must not silently fall back to Hubtel
+      // for NEW sales. Existing pending Hubtel attempts still reconcile.
+      await requireHubtelPreference(client,context.businessId);
+      await requireHubtelPosConnection(client,context.businessId);
     }
 
     const branch = await client.query<{ currency_code: string }>(
@@ -89,6 +116,13 @@ export async function applySaleMutationInTransaction(
     );
     const businessCurrency = branch.rows[0]?.currency_code;
     if (!businessCurrency) throw new SaleMutationError("Branch was not found for this business", "BRANCH_NOT_FOUND");
+
+    // Strict shift policy is opt-in per branch and evaluated as-of the
+    // original offline sale timestamp, before any economic writes.
+    await assertBranchShiftAtSaleTime(client,{
+      businessId:context.businessId,branchId:context.branchId,
+      cashierStaffId:payload.cashierStaffId,occurredAt:context.occurredAt,
+    });
 
     const currencyCode = (payload.currencyCode ?? businessCurrency).toUpperCase();
     if (!/^[A-Z]{3}$/.test(currencyCode)) throw new SaleMutationError("Currency must be a three-letter code");
@@ -139,9 +173,29 @@ export async function applySaleMutationInTransaction(
       if (!saleUnitCode) throw new SaleMutationError("Each sale line needs a sale unit");
 
       const item = await loadItem(client, context.businessId, requested.itemId, saleUnitCode);
-      const unitNetMinor = Number(item.default_sale_price_minor);
-      if (!Number.isSafeInteger(unitNetMinor) || unitNetMinor < 0) {
+      const catalogMinor = Number(item.default_sale_price_minor);
+      if (!Number.isSafeInteger(catalogMinor) || catalogMinor < 0) {
         throw new SaleMutationError(`${item.name} has no valid price for ${saleUnitCode}`, "PRICE_NOT_CONFIGURED");
+      }
+      const effective=await resolveCustomerPrice(client,{
+        businessId:context.businessId,customerId:payload.customerId??null,
+        itemId:item.id,unitCode:saleUnitCode,catalogMinor});
+      let unitNetMinor=effective.unitPriceMinor;
+      if(requested.priceApprovalId){
+        unitNetMinor=await consumeApprovedDiscount(client,{
+          businessId:context.businessId,branchId:context.branchId,
+          customerId:payload.customerId??null,
+          cashierMembershipId:payload.cashierMembershipId,
+          itemId:item.id,unitCode:saleUnitCode,quantity:requested.quantity,
+          basePriceMinor:effective.unitPriceMinor,
+          approvalId:requested.priceApprovalId,saleId});
+      }
+      if(requested.expectedUnitPriceMinor!==undefined &&
+        (!Number.isSafeInteger(requested.expectedUnitPriceMinor)||
+          requested.expectedUnitPriceMinor!==unitNetMinor)){
+        throw new SaleMutationError(
+          "The selling price changed. Review the cart and confirm again.",
+          "SALE_PRICE_CHANGED_REVIEW_REQUIRED");
       }
 
       // Tax remains separate; physical products snapshot the branch moving-average cost.
@@ -172,7 +226,7 @@ export async function applySaleMutationInTransaction(
 
       if (item.kind === "PRODUCT" && item.track_stock) {
         if (!item.stock_unit_code || stockQuantity === null) throw new SaleMutationError(`${item.name} has invalid stock configuration`);
-        await consumeStock(client, {
+        const stockMovementId = await consumeStock(client, {
           businessId: context.businessId,
           branchId: context.branchId,
           itemId: item.id,
@@ -184,6 +238,11 @@ export async function applySaleMutationInTransaction(
           actorStaffId: payload.cashierStaffId ?? null,
           idempotencyKey: `${context.clientMutationId}:sale:${index}`,
           occurredAt: context.occurredAt,
+        });
+        await recordStockConsumptionCost(client, context, {
+          saleLineId, movementId: stockMovementId,
+          itemId: item.id, stockUnitCode: item.stock_unit_code,
+          quantity: stockQuantity, consumedCostMinor: lineCostMinor,
         });
       }
 
@@ -203,6 +262,7 @@ export async function applySaleMutationInTransaction(
     }
 
     const totalMinor = safeMinor(subtotalMinor + taxMinor);
+    if (hubtel && totalMinor <= 0) throw new SaleMutationError("Hubtel checkout requires a positive amount","SALE_HUBTEL_AMOUNT_INVALID");
     const payments = options.settlePayments === false ? [] : normalizePayments(payload, totalMinor);
     if (options.settlePayments !== false && payments.reduce((sum, payment) => sum + payment.amountMinor, 0) !== totalMinor) {
       throw new SaleMutationError("Payment total does not equal the server-calculated sale total", "PAYMENT_TOTAL_MISMATCH");
@@ -223,22 +283,24 @@ export async function applySaleMutationInTransaction(
         `INSERT INTO payments (
            business_id, branch_id, sale_id, amount_minor, currency_code, method,
            provider_reference, status, client_mutation_id, received_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,'SUCCEEDED',$8,$9) RETURNING id`,
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$10,$8,$9) RETURNING id`,
         [
           context.businessId, context.branchId, saleId, payment.amountMinor, currencyCode,
           payment.method, payment.providerReference ?? null,
           `${context.clientMutationId}:payment:${index}`, context.occurredAt,
+          hubtel ? "PENDING" : "SUCCEEDED",
         ],
       );
       if(payment.method==='CUSTOMER_CREDIT' && payment.moneyAccountId !== undefined) throw new SaleMutationError('Credit payments cannot have money accounts');
-      if(payment.amountMinor>0 && isCashMethod(payment.method)) await recordCashbookEntry(client,{...context,moneyAccountId:payment.moneyAccountId,currencyCode,method:payment.method,amountDeltaMinor:payment.amountMinor,entryType:"SALE_RECEIPT",sourceType:"PAYMENT",sourceId:insertedPayment.rows[0]!.id,actorStaffId:payload.cashierStaffId,idempotencyKey:`sale-payment:${insertedPayment.rows[0]!.id}`});
+      if(!hubtel && payment.amountMinor>0 && isCashMethod(payment.method)) await recordCashbookEntry(client,{...context,moneyAccountId:payment.moneyAccountId,currencyCode,method:payment.method,amountDeltaMinor:payment.amountMinor,entryType:"SALE_RECEIPT",sourceType:"PAYMENT",sourceId:insertedPayment.rows[0]!.id,actorStaffId:payload.cashierStaffId,idempotencyKey:`sale-payment:${insertedPayment.rows[0]!.id}`});
     }
 
     // Receipts remain gross even when their payments are later reversed by a refund.
     await client.query(
-      `UPDATE sales SET subtotal_net_minor=$2, tax_minor=$3, total_minor=$4,
-       status='COMPLETED', completed_at=$5 WHERE id=$1`,
-      [saleId, subtotalMinor, taxMinor, totalMinor, context.occurredAt],
+      `UPDATE sales SET subtotal_net_minor=$2,tax_minor=$3,total_minor=$4,
+       status=$5,completed_at=$6 WHERE id=$1`,
+      [saleId,subtotalMinor,taxMinor,totalMinor,hubtel?"OPEN":"COMPLETED",
+        hubtel?null:context.occurredAt],
     );
     if (creditMinor > 0 && payload.customerId) {
       await recordCustomerAccountEntry(client, {
@@ -256,9 +318,8 @@ export async function applySaleMutationInTransaction(
       });
       await createCustomerCreditObligation(client,{businessId:context.businessId,branchId:context.branchId,customerId:payload.customerId,saleId,currencyCode,amountMinor:creditMinor,termsDays:creditTermsDays,occurredAt:context.occurredAt});
     }
-    await writeEvent(client, context, payload.cashierStaffId ?? null, saleId, totalMinor);
-
-    return { saleId, status: "COMPLETED", totalMinor, idempotentReplay: false };
+    await writeEvent(client, context, payload.cashierStaffId ?? null, saleId, totalMinor,hubtel);
+    return {saleId,status:hubtel?"AWAITING_PAYMENT":"COMPLETED",totalMinor,idempotentReplay:false};
 }
 
 function validateSale(context: SaleMutationContext, payload: SaleMutationPayload): void {
@@ -351,7 +412,7 @@ interface StockUse {
   actorStaffId: string | null; idempotencyKey: string; occurredAt: string;
 }
 
-async function consumeStock(client: DatabaseClient, input: StockUse): Promise<void> {
+async function consumeStock(client: DatabaseClient, input: StockUse): Promise<string> {
   const balance = await client.query<{ quantity: string | number }>(
     `SELECT COALESCE(SUM(quantity_delta),0) AS quantity FROM inventory_movements
      WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND stock_unit_code=$4 AND location_type='AVAILABLE'`,
@@ -361,13 +422,40 @@ async function consumeStock(client: DatabaseClient, input: StockUse): Promise<vo
   if (available + Number.EPSILON < input.quantity) {
     throw new SaleMutationError(`${input.itemName} has ${available} ${input.unit}; ${input.quantity} is required`, "INSUFFICIENT_STOCK");
   }
-  await client.query(
+  const result = await client.query<{ id: string }>(
     `INSERT INTO inventory_movements (
        business_id,branch_id,item_id,stock_unit_code,quantity_delta,location_type,reason,
        reference_type,reference_id,actor_staff_id,idempotency_key,occurred_at
-     ) VALUES ($1,$2,$3,$4,$5,'AVAILABLE',$6,'SALE_LINE',$7,$8,$9,$10)`,
+     ) VALUES ($1,$2,$3,$4,$5,'AVAILABLE',$6,'SALE_LINE',$7,$8,$9,$10) RETURNING id`,
     [input.businessId,input.branchId,input.itemId,input.unit,-input.quantity,input.reason,input.referenceId,input.actorStaffId,input.idempotencyKey,input.occurredAt],
   );
+  if (!result.rows[0]) throw new SaleMutationError(
+    "Stock movement could not be journaled", "SALE_STOCK_JOURNAL_FAILED");
+  return result.rows[0].id;
+}
+
+/** Store immutable historical cost alongside the precise original consumption.
+ * Refund or cancellation workflows must post separate compensating journals. */
+async function recordStockConsumptionCost(
+  client: DatabaseClient,
+  context: SaleMutationContext,
+  entry: {
+    saleLineId: string; movementId: string; itemId: string;
+    stockUnitCode: string; quantity: number; consumedCostMinor: number;
+  },
+): Promise<void> {
+  safeMinor(entry.consumedCostMinor);
+  const cost = await client.query<{ id: string }>(
+    `INSERT INTO sale_stock_cost_allocations (
+       business_id,branch_id,sale_line_id,inventory_movement_id,
+       item_id,stock_unit_code,consumed_quantity,consumed_cost_minor
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [context.businessId, context.branchId, entry.saleLineId,
+      entry.movementId, entry.itemId, entry.stockUnitCode,
+      entry.quantity, entry.consumedCostMinor],
+  );
+  if (!cost.rows[0]) throw new SaleMutationError(
+    "Original stock cost could not be journaled", "SALE_STOCK_COST_JOURNAL_FAILED");
 }
 
 async function consumeDefinition(
@@ -431,7 +519,7 @@ async function consumeDefinition(
       client, context, component.componentProductId, component.totalPlannedQuantity,
     );
     componentCostMinor = safeMinor(componentCostMinor + componentCost);
-    await consumeStock(client, {
+    const componentMovementId = await consumeStock(client, {
       businessId: context.businessId, branchId: context.branchId, itemId: component.componentProductId,
       itemName: row.component_name, unit: component.stockUnitId, quantity: component.totalPlannedQuantity,
       reason: item.kind === "SERVICE" ? "SERVICE_CONSUMPTION" : "RECIPE_CONSUMPTION",
@@ -439,19 +527,25 @@ async function consumeDefinition(
       idempotencyKey: `${context.clientMutationId}:consume:${lineIndex}:${index}`,
       occurredAt: context.occurredAt,
     });
+    await recordStockConsumptionCost(client, context, {
+      saleLineId, movementId: componentMovementId,
+      itemId: component.componentProductId, stockUnitCode: component.stockUnitId,
+      quantity: component.totalPlannedQuantity, consumedCostMinor: componentCost,
+    });
   }
   return componentCostMinor;
 }
 
-async function writeEvent(client: DatabaseClient, context: SaleMutationContext, actorStaffId: string | null, saleId: string, totalMinor: number): Promise<void> {
+async function writeEvent(client: DatabaseClient, context: SaleMutationContext, actorStaffId: string | null, saleId: string, totalMinor: number,pending=false): Promise<void> {
+  const eventType=pending?"SALE_AWAITING_PAYMENT":"SALE_COMPLETED";
   await client.query(
     `INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at)
-     VALUES ($1,$2,$3,'SALE_COMPLETED','SALE',$4,$5,$6::jsonb,$7)`,
-    [context.businessId,context.branchId,actorStaffId,saleId,context.clientMutationId,JSON.stringify({ totalMinor }),context.occurredAt],
+     VALUES ($1,$2,$3,$8,'SALE',$4,$5,$6::jsonb,$7)`,
+    [context.businessId,context.branchId,actorStaffId,saleId,context.clientMutationId,JSON.stringify({ totalMinor }),context.occurredAt,eventType],
   );
   await client.query(
     `INSERT INTO outbox_events (business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at)
-     VALUES ($1,$2,'SALE',$3,'SALE_COMPLETED',$4::jsonb,$5)`,
-    [context.businessId,context.branchId,saleId,JSON.stringify({ saleId,totalMinor }),context.occurredAt],
+     VALUES ($1,$2,'SALE',$3,$6,$4::jsonb,$5)`,
+    [context.businessId,context.branchId,saleId,JSON.stringify({ saleId,totalMinor }),context.occurredAt,eventType],
   );
 }

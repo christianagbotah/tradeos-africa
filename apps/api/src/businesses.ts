@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
+import { visibleBranchesForAccess } from "./auth/branch-scope.js";
 import {
   createBranch,
   createOwnedBusiness,
@@ -16,7 +17,7 @@ import {
 import type { DatabasePool } from "./db.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
-  "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
+  "OWNER", "ADMIN", "MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
 
 export function registerBusinessRoutes(app: FastifyInstance, pool: DatabasePool): void {
@@ -48,10 +49,13 @@ export function registerBusinessRoutes(app: FastifyInstance, pool: DatabasePool)
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const access = await requireBusinessRole(pool, auth, request.params.businessId, READ_ROLES);
       const context = await loadBusinessContext(pool, access.businessId);
+      // After PATCH/POST/DELETE the next context GET must not reuse a cached
+      // branch name or business profile, including in mobile browser webviews.
+      reply.header("Cache-Control", "private, no-store, max-age=0");
       return {
         business: context.business,
         membership: { role: access.role, staffId: access.staffId },
-        branches: context.branches,
+        branches: await visibleBranchesForAccess(pool,access,context.branches),
       };
     } catch (error) {
       return sendBusinessError(request, reply, error, "BUSINESS_CONTEXT_FAILED", "Business context could not be loaded.");

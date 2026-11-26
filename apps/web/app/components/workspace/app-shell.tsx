@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useWorkspace } from "./use-workspace";
@@ -8,7 +8,8 @@ import {
   findNavItem,
   groupedNavItems,
   primaryNavItems,
-  secondaryNavItems,
+  mobileMoreNavigationGroups,
+  type MobileMoreLink,
   type WorkspaceNavItem,
 } from "./workspace-navigation";
 import {
@@ -18,6 +19,8 @@ import {
   IconClose,
   IconLogout,
   IconMenu,
+  IconPanelCollapse,
+  IconPanelExpand,
   IconMore,
   IconPlus,
   IconSearch,
@@ -48,10 +51,30 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
+  const moreCloseRef = useRef<HTMLButtonElement>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [shellFeedback, setShellFeedback] = useState<ShellFeedback>(null);
+
+  // Keep the desktop preference per device without coupling it to business access.
+  useEffect(() => {
+    try {
+      setSidebarCollapsed(window.localStorage.getItem("tradeos.sidebar.collapsed") === "true");
+    } catch {
+      // Private browsing or restricted storage: default to expanded navigation.
+    }
+  }, []);
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      try { window.localStorage.setItem("tradeos.sidebar.collapsed", String(next)); } catch { /* optional preference */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -63,17 +86,52 @@ export function AppShell({ children }: AppShellProps) {
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    document.body.style.overflow = drawerOpen ? "hidden" : "";
+    document.body.style.overflow = drawerOpen || moreOpen ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
     };
-  }, [drawerOpen]);
+  }, [drawerOpen, moreOpen]);
+
+  useEffect(() => {
+    if (moreOpen) moreCloseRef.current?.focus();
+  }, [moreOpen]);
+
+  const dismissMore = () => {
+    setMoreOpen(false);
+    moreTriggerRef.current?.focus();
+  };
+
+  const handleMoreKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      dismissMore();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ));
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const activeSegment = deriveActiveSegment(pathname);
+  const attendantOnly = role === "POS_ATTENDANT";
   const activeItem = findNavItem(activeSegment);
   const groups = groupedNavItems(role);
   const primary = primaryNavItems(role);
-  const secondary = secondaryNavItems(role);
+  const moreGroups = mobileMoreNavigationGroups(role);
+  const bottomSegments = new Set(primary.map((item) => item.segment));
+  const moreActive = moreOpen || !bottomSegments.has(activeSegment);
 
   const availableMemberships = useMemo(
     () => memberships.filter((membership) => membership.businessStatus === "ACTIVE" && Boolean(membership.staffId)),
@@ -132,21 +190,34 @@ export function AppShell({ children }: AppShellProps) {
     .toUpperCase() || "T";
 
   return (
-    <div className="tos-shell">
-      <aside className="tos-sidebar" data-open={drawerOpen} aria-label="Workspace navigation">
+    <div className="tos-shell" data-sidebar-collapsed={sidebarCollapsed}>
+      <aside className="tos-sidebar" data-open={drawerOpen} data-collapsed={sidebarCollapsed} aria-label="Workspace navigation">
         <div className="tos-sidebar__brand">
           <div className="tos-sidebar__mark" aria-hidden="true">T</div>
           <div className="tos-sidebar__brand-text">
             <span className="tos-sidebar__brand-name">TradeOS</span>
             <span className="tos-sidebar__brand-sub">Merchant web</span>
           </div>
+          <button
+            type="button"
+            className="tos-sidebar__collapse"
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
+            aria-expanded={!sidebarCollapsed}
+            aria-controls="tradeos-sidebar-navigation"
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed
+              ? <IconPanelExpand className="tos-sidebar__collapse-icon" />
+              : <IconPanelCollapse className="tos-sidebar__collapse-icon" />}
+          </button>
         </div>
         <div className="tos-sidebar__ctx">
           <span className="tos-sidebar__ctx-label">Business</span>
           <span className="tos-sidebar__ctx-name" title={session.businessName}>{session.businessName}</span>
           <span className="tos-sidebar__ctx-sub">{currentBranch?.name ?? "Branch"} · {session.currencyCode}</span>
         </div>
-        <nav className="tos-sidebar__nav">
+        <nav className="tos-sidebar__nav" id="tradeos-sidebar-navigation">
           {groups.map((group) => (
             <div key={group.group} className="tos-sidebar__group">
               <span className="tos-sidebar__group-label">{group.group}</span>
@@ -158,16 +229,16 @@ export function AppShell({ children }: AppShellProps) {
         </nav>
         <div className="tos-sidebar__foot">
           {queue.pending > 0 || !queue.online ? (
-            <div className="tos-sidebar__queue">
+            <div className="tos-sidebar__queue" title={queue.online ? `${queue.pending} pending offline changes` : "Offline — changes will sync once online"}>
               <span className="tos-sidebar__queue-title">{queue.online ? `${queue.pending} pending` : "Offline"}</span>
               <span className="tos-sidebar__queue-text">
                 {queue.online ? "Queued offline changes will sync automatically." : "Sales will queue locally and sync when you reconnect."}
               </span>
             </div>
           ) : null}
-          <button type="button" className="tos-sidebar__signout" onClick={handleSignOut}>
+          <button type="button" className="tos-sidebar__signout" onClick={handleSignOut} title="Sign out" aria-label="Sign out">
             <IconLogout className="tos-sidebar__link-icon" />
-            Sign out
+            <span className="tos-sidebar__signout-label">Sign out</span>
           </button>
         </div>
       </aside>
@@ -330,9 +401,11 @@ export function AppShell({ children }: AppShellProps) {
                     <span>{account?.email ?? account?.phoneE164 ?? "TradeOS account"}</span>
                   </div>
                 </div>
+                {!attendantOnly ? <>
                 <Link href="/settings?section=profile" className="tos-account-link" role="menuitem" onClick={() => setAccountOpen(false)}><IconUser />My profile</Link>
                 <Link href="/settings?section=security" className="tos-account-link" role="menuitem" onClick={() => setAccountOpen(false)}><IconShield />Security</Link>
                 <Link href="/settings?section=business" className="tos-account-link" role="menuitem" onClick={() => setAccountOpen(false)}><IconBuilding />Settings</Link>
+                </> : null}
                 <button type="button" className="tos-account-link tos-account-link--danger" role="menuitem" onClick={handleSignOut}>
                   <IconLogout />Sign out
                 </button>
@@ -341,42 +414,75 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </header>
 
-        <main className="tos-content">{children}</main>
+        <main className="tos-content">{attendantOnly && activeSegment !== "sell" ? (
+          <section className="tos-boundary" role="status">
+            <div className="tos-boundary__panel">
+              <h1 className="tos-boundary__title">Sales-only access</h1>
+              <p className="tos-boundary__text">This attendant account can operate the POS.
+                Ask the owner or manager for permission to use another business module.</p>
+              <Link href="/sell" className="tos-btn tos-btn--primary">Return to POS</Link>
+            </div>
+          </section>
+        ) : children}</main>
 
-        <nav className="tos-bottomnav" aria-label="Primary">
+        <nav className="tos-bottomnav" aria-label="Primary" data-pos-attendant={attendantOnly}>
           <div className="tos-bottomnav__inner">
             {primary.map((item) => <BottomNavLink key={item.id} item={item} active={item.segment === activeSegment} />)}
+            {attendantOnly ? (
+              <button type="button" className="tos-bottomnav__link" onClick={handleSignOut}
+                aria-label="Sign out of POS">
+                <IconLogout className="tos-bottomnav__link-icon" />
+                <span>Sign out</span>
+              </button>
+            ) : (
+            <button
+              ref={moreTriggerRef}
+              type="button"
+              className="tos-bottomnav__link tos-bottomnav__more-link"
+              data-active={moreActive}
+              aria-label="More navigation"
+              aria-haspopup="dialog"
+              aria-controls="tradeos-more-sheet"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((value) => !value)}
+            >
+              <IconMore className="tos-bottomnav__link-icon" />
+              <span>More</span>
+            </button>
+            )}
           </div>
         </nav>
 
-        {secondary.length > 0 ? (
-          <div className="tos-bottomnav__more">
-            <Button
-              variant="primary"
-              size="icon"
-              aria-label="More navigation"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((value) => !value)}
-              icon={<IconMore style={{ width: 20, height: 20 }} />}
-            />
-          </div>
-        ) : null}
-
-        {moreOpen ? (
+        {moreOpen && !attendantOnly ? (
           <>
-            <div className="tos-sheet-scrim" onClick={() => setMoreOpen(false)} aria-hidden="true" />
-            <div className="tos-sheet" role="dialog" aria-label="More navigation">
+            <div className="tos-sheet-scrim" onClick={dismissMore} aria-hidden="true" />
+            <div id="tradeos-more-sheet" className="tos-sheet tos-sheet--more" role="dialog"
+              aria-modal="true" aria-labelledby="tradeos-more-title" onKeyDown={handleMoreKeyDown}>
               <div className="tos-sheet__head">
                 <div className="tos-sheet__head-main">
                   <span className="tos-sheet__eyebrow">Navigation</span>
-                  <h2 className="tos-sheet__title">More</h2>
+                  <h2 id="tradeos-more-title" className="tos-sheet__title">More</h2>
+                  <p className="tos-sheet__sub">Explore your business tools and account settings.</p>
                 </div>
-                <button type="button" className="tos-sheet__close" onClick={() => setMoreOpen(false)} aria-label="Close more navigation">
+                <button ref={moreCloseRef} type="button" className="tos-sheet__close" onClick={dismissMore} aria-label="Close more navigation">
                   <IconClose style={{ width: 18, height: 18 }} />
                 </button>
               </div>
-              <div className="tos-sheet__body">
-                <div className="tos-more-sheet">{secondary.map((item) => <MoreTile key={item.id} item={item} />)}</div>
+              <div className="tos-sheet__body tos-sheet__body--more">
+                {moreGroups.map((group) => (
+                  <section key={group.id} className="tos-more-group" aria-label={group.title}>
+                    <h3 className="tos-more-group__title">{group.title}</h3>
+                    <div className="tos-more-sheet">
+                      {group.items.map((item) => (
+                        <MoreTile key={item.id} item={item} onNavigate={() => setMoreOpen(false)} />
+                      ))}
+                    </div>
+                  </section>
+                ))}
+                <div className="tos-more-sheet__version" role="note">
+                  <span>TradeOS release {process.env.NEXT_PUBLIC_TRADEOS_CLIENT_RELEASE?.slice(0, 7) || "development"}</span>
+                  <button type="button" onClick={() => window.location.reload()}>Reload app</button>
+                </div>
               </div>
             </div>
           </>
@@ -394,9 +500,9 @@ function deriveActiveSegment(pathname: string): string {
 function SidebarLink({ item, active }: { item: WorkspaceNavItem; active: boolean }) {
   const Icon = item.icon;
   return (
-    <Link href={`/${item.segment}`} className="tos-sidebar__link" data-active={active} aria-current={active ? "page" : undefined}>
+    <Link href={`/${item.segment}`} className="tos-sidebar__link" data-active={active} aria-current={active ? "page" : undefined} title={item.label} aria-label={item.label}>
       <Icon className="tos-sidebar__link-icon" />
-      <span>{item.label}</span>
+      <span className="tos-sidebar__link-label">{item.label}</span>
     </Link>
   );
 }
@@ -411,10 +517,10 @@ function BottomNavLink({ item, active }: { item: WorkspaceNavItem; active: boole
   );
 }
 
-function MoreTile({ item }: { item: WorkspaceNavItem }) {
+function MoreTile({ item, onNavigate }: { item: MobileMoreLink; onNavigate: () => void }) {
   const Icon = item.icon;
   return (
-    <Link href={`/${item.segment}`} className="tos-more-tile">
+    <Link href={item.href} className="tos-more-tile" onClick={onNavigate}>
       <Icon className="tos-more-tile__icon" />
       <span className="tos-more-tile__label">{item.label}</span>
     </Link>

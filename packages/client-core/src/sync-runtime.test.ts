@@ -381,3 +381,41 @@ describe("OfflineMutationQueue concurrent local writes", () => {
     expect((await queue.getSnapshot()).pending.map((entry) => entry.clientMutationId)).toEqual(["queued-during-flush"]);
   });
 });
+
+describe("explicit transaction acknowledgement",()=>{
+  const make=(storage:QueueSnapshotStorage)=>new OfflineMutationQueue(storage,{now:()=>"2026-11-25T00:00:00Z",createMutationId:()=>"replacement"});
+  const applied={clientMutationId:"mutation-1",status:"APPLIED" as const,serverReceivedAt:"2026-11-25T00:00:00Z"};
+  it("records scoped evidence only after durable APPLIED and rejects duplicate IDs",async()=>{
+    const queue=make(new TestSnapshotStorage());
+    await queue.enqueue(mutation());
+    expect(queue.hasAppliedAcknowledgement("mutation-1",businessId,branchId)).toBe(false);
+    await queue.flush({activeBusinessId:businessId,online:true,transport:new RecordingTransport({mutationResults:[applied],events:[]})});
+    expect(queue.hasAppliedAcknowledgement("mutation-1",businessId,branchId)).toBe(true);
+    expect(queue.hasAppliedAcknowledgement("mutation-1",businessId,"other")).toBe(false);
+    expect(await queue.enqueue(mutation())).toBe(false);
+  });
+  it("exposes a completed receipt identity only for a scoped durable sale acknowledgement",async()=>{
+    const id="12345678-1234-4123-8123-123456789012";
+    for(const [type,status,expected] of [["SALE_CREATE","COMPLETED",id],["SALE_CREATE","AWAITING_PAYMENT",undefined],["EXPENSE_CREATE","COMPLETED",undefined]] as const){
+      const queue=make(new TestSnapshotStorage());
+      await queue.enqueue({...mutation(),mutationType:type});
+      await queue.flush({activeBusinessId:businessId,online:true,transport:new RecordingTransport({mutationResults:[{...applied,result:{saleId:id,status}}],events:[]})});
+      expect(queue.getCompletedSaleId("mutation-1",businessId,branchId)).toBe(expected);
+      expect(queue.getCompletedSaleId("mutation-1",businessId,"wrong")).toBeUndefined();
+    }
+  });
+  it("retains ambiguous duplicate acknowledgements for same-ID retry",async()=>{
+    const queue=make(new TestSnapshotStorage());
+    await queue.enqueue(mutation());
+    await queue.flush({activeBusinessId:businessId,online:true,transport:new RecordingTransport({mutationResults:[applied,{...applied,status:"REJECTED"}],events:[]})});
+    expect(queue.hasAppliedAcknowledgement("mutation-1",businessId,branchId)).toBe(false);
+    expect((await queue.getSnapshot()).pending).toHaveLength(1);
+  });
+  it("does not infer success from a failed local persistence write",async()=>{
+    const storage=new TestSnapshotStorage();const queue=make(storage);
+    await queue.enqueue(mutation());
+    storage.save=async()=>{throw new Error("storage unavailable");};
+    await expect(queue.flush({activeBusinessId:businessId,online:true,transport:new RecordingTransport({mutationResults:[applied],events:[]})})).rejects.toThrow();
+    expect(queue.hasAppliedAcknowledgement("mutation-1",businessId,branchId)).toBe(false);
+  });
+});

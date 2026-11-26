@@ -1,4 +1,5 @@
 "use client";
+import { useActionFeedbackState } from "../ui/action-feedback";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
@@ -14,6 +15,10 @@ import { BusinessFields, type BusinessFormState, type BusinessType } from "./bus
 import { BranchFields, type BranchDraft } from "./branch-fields";
 import { ImagePicker } from "./image-picker";
 import { TeamAccess } from "./team-access";
+import { ShiftSalePolicyPanel } from "./shift-sale-policy-panel";
+import { MerchantBillingPanel } from "./merchant-billing-panel";
+import { PaymentProviderPanel } from "./payment-provider-panel";
+import { SmsProviderPanel } from "./sms-provider-panel";
 import {
   IconAlert,
   IconBuilding,
@@ -33,12 +38,15 @@ import type {
 } from "../workspace/workspace-provider";
 import type { WorkspaceRole } from "../workspace/workspace-navigation";
 
-export type SettingsSectionId = "profile" | "security" | "business" | "branches" | "team" | "devices";
+export type SettingsSectionId = "profile" | "security" | "business" | "payments" | "messaging" | "billing" | "branches" | "team" | "devices";
 
 export const SETTINGS_SECTIONS: readonly { id: SettingsSectionId; label: string; description: string }[] = [
   { id: "profile", label: "My Profile", description: "Personal identity and contact details" },
   { id: "security", label: "Security", description: "Password and sign-in protection" },
   { id: "business", label: "Business", description: "Business identity, location and new businesses" },
+  { id: "payments", label: "Payment providers", description: "Choose electronic collection gateway" },
+  { id: "messaging", label: "SMS & messaging", description: "Configure SMS provider API credentials" },
+  { id: "billing", label: "Subscription & billing", description: "Plan, invoices and recorded payments" },
   { id: "branches", label: "Branches", description: "Locations, branch status and new branches" },
   { id: "team", label: "Team & access", description: "Role and staff access boundary" },
   { id: "devices", label: "Devices & sessions", description: "Signed-in devices and session control" },
@@ -108,7 +116,7 @@ export function SettingsWorkspace() {
 
   const consumeRequestedAction = () => {
     if (typeof window === "undefined" || !requestedAction) return;
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     params.delete("action");
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
@@ -117,7 +125,7 @@ export function SettingsWorkspace() {
   const chooseSection = (next: SettingsSectionId) => {
     setSection(next);
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     params.set("section", next);
     params.delete("action");
     const query = params.toString();
@@ -188,6 +196,15 @@ export function SettingsWorkspace() {
               onActionConsumed={consumeRequestedAction}
             />
           ) : null}
+          {section === "payments" ? (
+            <PaymentProviderPanel />
+          ) : null}
+          {section === "messaging" ? (
+            <SmsProviderPanel />
+          ) : null}
+          {section === "billing" ? (
+            <MerchantBillingPanel />
+          ) : null}
           {section === "branches" ? (
             <BranchesSection
               online={queue.online}
@@ -223,6 +240,7 @@ function ProfileSection({ online, onRefresh }: { online: boolean; onRefresh: () 
   const [busy, setBusy] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   useEffect(() => {
     setDisplayName(account?.displayName ?? session?.displayName ?? "");
@@ -342,6 +360,7 @@ function SecuritySection({ online }: { online: boolean }) {
   const [revokeOthers, setRevokeOthers] = useState(true);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -426,7 +445,7 @@ function BusinessSection({
   requestedAction: string | null;
   onActionConsumed: () => void;
 }) {
-  const { businessContext, session } = useWorkspace();
+  const { businessContext, session, applyConfirmedBusiness } = useWorkspace();
   const business = businessContext?.business;
   const [form, setForm] = useState<BusinessFormState>(() => businessToForm(business));
   const [newBusiness, setNewBusiness] = useState<NewBusinessFormState>(() => defaultNewBusiness());
@@ -437,6 +456,7 @@ function BusinessSection({
   const creating = businessMode === "create";
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   useEffect(() => {
     setForm(businessToForm(business));
@@ -492,6 +512,7 @@ function BusinessSection({
     if (!business || !session || !online || !canManage || busy) return;
     setBusy(true);
     setFeedback(null);
+    let confirmed = false;
     try {
       const response = await getOfflineQueue().authenticatedFetch(`/v1/businesses/${encodeURIComponent(session.businessId)}`, {
         method: "PATCH",
@@ -515,11 +536,17 @@ function BusinessSection({
         }),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business could not be updated"));
+      const result = await response.json() as { business?: WorkspaceBusinessProfile };
+      if (result.business?.id !== session.businessId || !result.business?.name) {
+        throw new Error("The server did not return the updated business.");
+      }
+      applyConfirmedBusiness(result.business);
+      confirmed = true;
       await onRefresh();
       setBusinessMode("view");
       setFeedback({ tone: "success", text: "Business details have been updated." });
     } catch (error) {
-      setFeedback({ tone: "error", text: errorMessage(error) });
+      setFeedback(confirmed ? { tone: "info", text: "Business details were saved on the server and are shown here, but refreshing the rest of the workspace failed. Please retry the refresh." } : { tone: "error", text: errorMessage(error) });
     } finally {
       setBusy(false);
     }
@@ -661,7 +688,7 @@ function BranchesSection({
   requestedAction: string | null;
   onActionConsumed: () => void;
 }) {
-  const { businessContext, session } = useWorkspace();
+  const { businessContext, session, applyConfirmedBranch } = useWorkspace();
   const branches = businessContext?.branches ?? [];
   const [branchMode, setBranchMode] = useState<BranchEditorMode>({ kind: "view" });
   const creating = branchMode.kind === "create";
@@ -670,6 +697,7 @@ function BranchesSection({
   const [editDraft, setEditDraft] = useState<BranchDraft>(() => defaultBranchDraft(businessContext?.business.timezone ?? "Africa/Accra"));
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   useEffect(() => {
     if (businessContext?.business.timezone) {
@@ -695,6 +723,7 @@ function BranchesSection({
     if (!session || !online || !canManage || busyId) return;
     setBusyId("create");
     setFeedback(null);
+    let confirmed = false;
     try {
       const response = await getOfflineQueue().authenticatedFetch(`/v1/businesses/${encodeURIComponent(session.businessId)}/branches`, {
         method: "POST",
@@ -702,12 +731,16 @@ function BranchesSection({
         body: JSON.stringify(branchPayload(draft, true)),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Branch could not be created"));
+      const result = await response.json() as { branch?: WorkspaceBranch };
+      if (!result.branch?.id || !result.branch.name) throw new Error("The server did not return the new branch.");
+      applyConfirmedBranch(session.businessId, result.branch);
+      confirmed = true;
       setDraft(defaultBranchDraft(businessContext?.business.timezone ?? session.timezone));
       setBranchMode({ kind: "view" });
       await onRefresh();
       setFeedback({ tone: "success", text: "Branch created. It is now available in the workspace switcher." });
     } catch (error) {
-      setFeedback({ tone: "error", text: errorMessage(error) });
+      setFeedback(confirmed ? { tone: "info", text: "Branch changes were confirmed by the server and are visible, but the full workspace reload failed. Please retry the refresh." } : { tone: "error", text: errorMessage(error) });
     } finally {
       setBusyId(null);
     }
@@ -718,6 +751,7 @@ function BranchesSection({
     if (!session || !editingId || !online || !canManage || busyId) return;
     setBusyId(editingId);
     setFeedback(null);
+    let confirmed = false;
     try {
       const response = await getOfflineQueue().authenticatedFetch(`/v1/businesses/${encodeURIComponent(session.businessId)}/branches/${encodeURIComponent(editingId)}`, {
         method: "PATCH",
@@ -725,11 +759,17 @@ function BranchesSection({
         body: JSON.stringify(branchPayload(editDraft, false)),
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, "Branch could not be updated"));
+      const result = await response.json() as { branch?: WorkspaceBranch };
+      if (result.branch?.id !== editingId || !result.branch?.name) {
+        throw new Error("The server did not return the updated branch.");
+      }
+      applyConfirmedBranch(session.businessId, result.branch);
+      confirmed = true;
       await onRefresh();
       setBranchMode({ kind: "view" });
       setFeedback({ tone: "success", text: "Branch details updated." });
     } catch (error) {
-      setFeedback({ tone: "error", text: errorMessage(error) });
+      setFeedback(confirmed ? { tone: "info", text: "Branch changes were confirmed by the server and are visible, but the full workspace reload failed. Please retry the refresh." } : { tone: "error", text: errorMessage(error) });
     } finally {
       setBusyId(null);
     }
@@ -739,15 +779,22 @@ function BranchesSection({
     if (!session || !online || !canManage || busyId) return;
     setBusyId(branch.id);
     setFeedback(null);
+    let confirmed = false;
     try {
       const basePath = `/v1/businesses/${encodeURIComponent(session.businessId)}/branches/${encodeURIComponent(branch.id)}`;
       const actionPath = active ? `${basePath}/reactivate` : `${basePath}/deactivate`;
       const response = await getOfflineQueue().authenticatedFetch(actionPath, { method: "POST" });
       if (!response.ok) throw new Error(await readApiErrorMessage(response, `Branch could not be ${active ? "reactivated" : "deactivated"}`));
+      const result = await response.json() as { branch?: WorkspaceBranch };
+      if (result.branch?.id !== branch.id || result.branch.active !== active) {
+        throw new Error("The server did not confirm the new branch status.");
+      }
+      applyConfirmedBranch(session.businessId, result.branch);
+      confirmed = true;
       await onRefresh();
-      setFeedback({ tone: "success", text: `${branch.name} was ${active ? "reactivated" : "deactivated"}.` });
+      setFeedback({ tone: "success", text: `${result.branch.name} was ${active ? "reactivated" : "deactivated"}.` });
     } catch (error) {
-      setFeedback({ tone: "error", text: errorMessage(error) });
+      setFeedback(confirmed ? { tone: "info", text: "Branch changes were confirmed by the server and are visible, but the full workspace reload failed. Please retry the refresh." } : { tone: "error", text: errorMessage(error) });
     } finally {
       setBusyId(null);
     }
@@ -799,6 +846,8 @@ function BranchesSection({
         ))}
       </div>
 
+      <ShiftSalePolicyPanel online={online} canManage={canManage}/>
+
       {!canManage ? <InfoCallout title="Read-only access" text="You can switch between active branches you are allowed to use. Only OWNER and ADMIN can create or edit branch records." /> : null}
 
       {creating && canManage ? (
@@ -817,6 +866,7 @@ function DevicesSection({ online }: { online: boolean }) {
   const [busy, setBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  useActionFeedbackState(feedback ? { tone: feedback.tone, message: feedback.text } : null);
 
   const load = async () => {
     if (!online) return;

@@ -26,6 +26,26 @@ const SESSION_KEY = "tradeos.web.session.v1";
 const LAST_CONTEXT_KEY = "tradeos.web.lastContext.v1";
 const EMPTY_SNAPSHOT: QueueSnapshot = { pending: [], failed: [] };
 
+/** User-initiated queue flushes share the same fixed, accessible notification
+ * surface as online CRUD forms. Never label a pending offline mutation as paid
+ * or server-approved.
+ */
+function publishInteractiveMutationFeedback(tone: "success" | "error" | "warning", message: string) {
+  if (typeof window === "undefined" ||
+      typeof window.dispatchEvent !== "function" ||
+      typeof CustomEvent !== "function") return;
+  window.dispatchEvent(new CustomEvent("tradeos:action-feedback", {
+    detail: { tone, message },
+  }));
+}
+
+
+export const MUTATION_INVALIDATION_EVENT = "tradeos:mutation-confirmed";
+function publishMutationInvalidation(businessId:string,path?:string) {
+  if(typeof window==="undefined"||typeof window.dispatchEvent!=="function"||typeof CustomEvent!=="function")return;
+  window.dispatchEvent(new CustomEvent(MUTATION_INVALIDATION_EVENT,{detail:{businessId,path}}));
+}
+
 export class OfflinePersistenceError extends Error {
   readonly cause: unknown;
 
@@ -267,8 +287,16 @@ export class WebOfflineQueue {
   }
 
   /** Fetch an authenticated API resource, refreshing an expired access token once. */
-  authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    return fetchWithSessionRefresh(this.sessionStore, input, init);
+  async authenticatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const session = this.sessionStore.load();
+    const response = await fetchWithSessionRefresh(this.sessionStore, input, init);
+    const method = (init?.method ?? (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")).toUpperCase();
+    const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+    if (response.ok && ["POST","PUT","PATCH","DELETE"].includes(method) &&
+        session?.businessId && !path.startsWith("/v1/auth/")) {
+      publishMutationInvalidation(session.businessId,path);
+    }
+    return response;
   }
 
   /** Enqueue into the mutation's own business bucket. */
@@ -284,6 +312,11 @@ export class WebOfflineQueue {
     const resolved = businessId ?? this.sessionStore.load()?.businessId ?? null;
     if (!resolved) return Promise.resolve({ pending: [], failed: [] });
     return this.queueFor(resolved).queue.getSnapshot();
+  }
+
+  /** Exact process-local evidence; never infer posting from queue absence. */
+  hasAppliedAcknowledgement(id:string,businessId:string,branchId:string|undefined):boolean {
+    return this.queueFor(businessId).queue.hasAppliedAcknowledgement(id,businessId,branchId);
   }
 
   /** Returns counts for the active business only. */
@@ -318,7 +351,11 @@ export class WebOfflineQueue {
       online: options.online,
       transport: this.transport,
     };
-    return this.queueFor(options.activeBusinessId).queue.flush(flushOptions);
+    const businessId=options.activeBusinessId;
+    return this.queueFor(businessId).queue.flush(flushOptions).then(summary=>{
+      if(summary.applied>0)publishMutationInvalidation(businessId);
+      return summary;
+    });
   }
 
   /**
@@ -330,12 +367,32 @@ export class WebOfflineQueue {
     const runtime = this.queueFor(options.activeBusinessId);
     const before = await runtime.queue.getSnapshot();
     const candidateIds = new Set(before.pending.map((mutation) => mutation.clientMutationId));
-    const summary = await this.flush(options);
+    let summary: FlushSummary;
+    try {
+      summary = await this.flush(options);
+    } catch (error) {
+      publishInteractiveMutationFeedback("error", error instanceof Error ? error.message : "Changes could not be synced.");
+      throw error;
+    }
     if (summary.rejected > 0) {
       const after = await runtime.queue.getSnapshot();
       const failed = after.failed.find((entry) => candidateIds.has(entry.mutation.clientMutationId));
       const message = failed?.result.errorMessage ?? failed?.result.errorCode ?? "The server rejected this change.";
+      publishInteractiveMutationFeedback("error", message);
       throw new Error(message);
+    }
+    if (summary.applied > 0 && summary.pending === 0) {
+      publishInteractiveMutationFeedback("success",
+        "Changes saved successfully.");
+    } else if (summary.applied > 0 && summary.pending > 0) {
+      publishInteractiveMutationFeedback("warning",
+        `${summary.applied} change(s) saved; ${summary.pending} still awaiting server processing or sync.`);
+    } else if (summary.received > 0) {
+      publishInteractiveMutationFeedback("warning",
+        "The server has not confirmed this change as applied. It remains pending; check status before retrying.");
+    } else if (summary.pending > 0) {
+      publishInteractiveMutationFeedback("warning",
+        "Change saved on this device. Sync is pending; it is not yet confirmed by the server.");
     }
     return summary;
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { useApiFetch } from "../../../lib/use-api-fetch";
 import { useWorkspace } from "../workspace/use-workspace";
@@ -22,6 +23,7 @@ interface PurchaseDetailLine {
   id: string;
   itemId: string;
   itemName: string;
+  purchaseOrderLineId?: string|null;
   purchaseUnitCode: string;
   purchaseQuantity: number;
   stockUnitCode: string;
@@ -50,6 +52,8 @@ interface PurchaseDetail {
     supplierId: string;
     supplierName: string;
     supplierReference: string | null;
+    purchaseOrderId: string | null;
+    purchaseOrderNumber: string | null;
     status: string;
     currencyCode: string;
     totalMinor: number;
@@ -137,7 +141,7 @@ export function PurchaseDetailSheet({ purchaseId, onClose, onMutated }: Purchase
   return (
     <>
       <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
-      <div className="tos-sheet tos-sheet--wide" role="dialog" aria-label="Purchase detail">
+      <div className="tos-sheet tos-sheet--wide tos-sheet--purchase-detail" role="dialog" aria-label="Purchase detail">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Purchase</span>
@@ -245,6 +249,11 @@ function PurchaseDetailBody({
             <span className="tos-badge__dot" />{purchase.status}
           </span>
         </div>
+        {purchase.purchaseOrderId ? <Link
+          className="tos-purchase-hero__eyebrow"
+          href={`/purchase-orders/${purchase.purchaseOrderId}`}
+          style={{textDecoration:"underline",position:"relative",zIndex:1}}
+        >Related purchase order: {purchase.purchaseOrderNumber??"View supplier order"}</Link>:null}
         <div className="tos-purchase-hero__total-row">
           <span className="tos-purchase-hero__total-label">Receipt total</span>
           <span className="tos-purchase-hero__total">

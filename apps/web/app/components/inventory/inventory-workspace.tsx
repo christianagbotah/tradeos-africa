@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { formatMoney } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
 import { InventoryAdjustmentSheet } from "./inventory-adjustment-sheet";
+import { InventoryIntelligencePanel } from "./inventory-intelligence-panel";
 import { StatePanel } from "../ui/state-panel";
 import { Button } from "../ui/button";
 import {
@@ -177,6 +178,8 @@ export function InventoryWorkspace() {
           hintTone={stats.outCount > 0 ? "warning" : "positive"}
         />
       </div>
+
+      <InventoryIntelligencePanel />
 
       {/* Toolbar — search + stock-level chips */}
       <div className="tos-toolbar tos-toolbar--stacked">

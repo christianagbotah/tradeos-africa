@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "../workspace/use-workspace";
 import { Button } from "../ui/button";
 import { IconClose, IconShield } from "../ui/icons";
 import { getOfflineQueue } from "../../../lib/offline-sync";
+import { enqueueAndConfirmMutation, PendingMutationConfirmationError } from "../../../lib/confirmed-financial-mutation";
+import { notifyAction } from "../ui/action-feedback";
 import {
   buildInventoryAdjustmentPayload,
   INVENTORY_ADJUSTMENT_CREATE_TYPE,
@@ -57,11 +59,13 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pendingPostingRef = useRef<{ targetId: string; mutationId: string } | null>(null);
 
   const canWrite = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"].includes(role);
 
   useEffect(() => {
     if (row) {
+      if (pendingPostingRef.current?.targetId !== row.item.id) pendingPostingRef.current = null;
       setReason("COUNT_CORRECTION");
       setCountedQuantity(row.available);
       setMoveQuantity(null);
@@ -129,6 +133,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
   if (!row || !session) return null;
 
   const available = row.available;
+  const awaitingConfirmation = pendingPostingRef.current?.targetId === row.item.id;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,11 +148,30 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
         mutationType: INVENTORY_ADJUSTMENT_CREATE_TYPE,
         payload: buildInventoryAdjustmentPayload(payload),
       });
-      await queue.enqueue(mutation);
-      await queue.flushOrThrow({ activeBusinessId: session.businessId, online: typeof navigator !== "undefined" ? navigator.onLine : true });
+      await enqueueAndConfirmMutation(queue, mutation, {
+        businessId: session.businessId,
+        branchId: session.branchId,
+        mutationTypes: [INVENTORY_ADJUSTMENT_CREATE_TYPE],
+        targetField: "itemId",
+        targetId: row.item.id,
+      }, typeof navigator !== "undefined" ? navigator.onLine : true,
+      pendingPostingRef.current?.targetId === mutation.payload.itemId ?
+        pendingPostingRef.current?.mutationId ?? null : null);
+      pendingPostingRef.current = null;
       await refreshInventory();
       onSaved();
     } catch (err) {
+      if (err instanceof PendingMutationConfirmationError) {
+        pendingPostingRef.current = {
+          targetId: row.item.id,
+          mutationId: err.mutationId,
+        };
+        // The first queued attempt already issued a global pending toast.
+        // Only alert again if this is a repeated attempt against that queue.
+        if (err.existing) notifyAction({
+          tone: "warning", title: "Awaiting server confirmation", message: err.message,
+        });
+      }
       setError(err instanceof Error ? err.message : "Could not post adjustment.");
     } finally {
       setBusy(false);
@@ -156,7 +180,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
 
   return (
     <>
-      <div className="tos-sheet-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="tos-sheet-scrim" onClick={() => { if (!busy) onClose(); }} aria-hidden="true" />
       <div className="tos-sheet" role="dialog" aria-label="Inventory adjustment">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
@@ -164,7 +188,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
             <h2 className="tos-sheet__title">Adjust stock</h2>
             <p className="tos-sheet__sub">{row.item.name}</p>
           </div>
-          <button type="button" className="tos-sheet__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="tos-sheet__close" onClick={onClose} disabled={busy} aria-label="Close">
             <IconClose style={{ width: 18, height: 18 }} />
           </button>
         </div>
@@ -226,7 +250,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
                   role="radio"
                   aria-checked={reason === r.value}
                   onClick={() => setReason(r.value)}
-                  disabled={!canWrite || busy}
+                  disabled={!canWrite || busy || awaitingConfirmation}
                 >
                   <span className="tos-reason-chip__label">{r.label}</span>
                   <span className="tos-reason-chip__hint">{r.hint}</span>
@@ -270,7 +294,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
                   min={0}
                   step="any"
                   required
-                  disabled={!canWrite || busy}
+                  disabled={!canWrite || busy || awaitingConfirmation}
                 />
                 <span className="tos-field__hint">Enter the physical count in {unitCode}. The movement is derived from the difference vs. the last-known available balance.</span>
               </div>
@@ -287,7 +311,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
                 min={0}
                 step="any"
                 required
-                disabled={!canWrite || busy}
+                disabled={!canWrite || busy || awaitingConfirmation}
               />
               <span className="tos-field__hint">
                 {reason === "OTHER"
@@ -305,7 +329,7 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
               className="tos-textarea"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              disabled={!canWrite || busy}
+              disabled={!canWrite || busy || awaitingConfirmation}
               placeholder="Add context for this adjustment — e.g. 'Cycle count, week 12' or 'Spillage in storage'."
               rows={3}
             />
@@ -322,13 +346,16 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
             </span>
           </div>
 
-          {error ? <div className="tos-banner tos-banner--danger"><span className="tos-banner__title">{error}</span></div> : null}
+          {error ? <div className={awaitingConfirmation ? "tos-banner tos-banner--warning" : "tos-banner tos-banner--danger"} role="status">
+            <span className="tos-banner__title">{error}</span>
+            {awaitingConfirmation ? <span>The original queued stock adjustment will be checked; changes to this form do not alter it.</span> : null}
+          </div> : null}
         </form>
 
         <div className="tos-sheet__foot">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button variant="primary" onClick={handleSubmit} loading={busy} disabled={!payload || !canWrite || busy}>
-            {canWrite ? "Record adjustment" : "No permission"}
+            {canWrite ? (awaitingConfirmation ? "Check posting status" : "Record adjustment") : "No permission"}
           </Button>
         </div>
       </div>

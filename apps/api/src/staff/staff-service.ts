@@ -31,7 +31,7 @@ import { withTransaction } from "../db.js";
 const STAFF_READ_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER"];
 const STAFF_MUTATION_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN"];
 const ADMIN_ASSIGNABLE_ROLES: readonly BusinessRole[] = [
-  "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
+  "MANAGER", "CASHIER", "POS_ATTENDANT", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
 
 type StaffRow = {
@@ -152,6 +152,11 @@ export async function updateStaff(
          SET role=$3,updated_at=now()
          WHERE business_id=$1 AND staff_id=$2`,
         [businessId, staffId, nextRole],
+      );
+      // Role changes revoke old branch grants, including away-and-back.
+      await client.query(
+        "DELETE FROM pos_attendant_branch_assignments WHERE business_id=$1 AND staff_id=$2",
+        [businessId,staffId],
       );
     }
 

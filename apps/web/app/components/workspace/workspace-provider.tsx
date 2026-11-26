@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { getOfflineQueue, type WebSession } from "../../../lib/offline-sync";
+import { getOfflineQueue, MUTATION_INVALIDATION_EVENT, type WebSession } from "../../../lib/offline-sync";
 import {
   mapCatalogItem,
   mapInventoryItem,
@@ -11,6 +11,20 @@ import {
   type InventoryItem,
 } from "../../../lib/catalog-read-model";
 import { readApiErrorMessage } from "../../../lib/auth-fetch";
+import {
+  reconcileConfirmedCustomers,
+  registerConfirmedCustomerUpdate,
+  type ConfirmedCustomerRevision,
+  type CustomerConfirmedFields,
+} from "../customers/customer-reconciliation";
+import {
+  reconcileConfirmedCatalog,
+  registerConfirmedCatalogUpdate,
+  registerConfirmedCatalogDeletion,
+  type ConfirmedCatalogDeletion,
+  type ConfirmedCatalogRevision,
+  type ConfirmedCatalogFields,
+} from "../catalog/catalog-reconciliation";
 import type { WorkspaceRole } from "./workspace-navigation";
 
 export type { CatalogItem, InventoryItem } from "../../../lib/catalog-read-model";
@@ -32,7 +46,14 @@ export interface SaleSummary {
   status: string;
   currencyCode: string;
   totalMinor: number;
+  /** Total accepted return/correction value; may include exchange credit. */
   refundTotalMinor: number;
+  /** Refund payments with confirmed settlement, not mere return acceptance. */
+  refundSettledMinor: number;
+  /** Provider-side payments not yet confirmed settled. */
+  refundPendingMinor: number;
+  /** Failed refund payment attempts needing review. */
+  refundFailedMinor: number;
   completedAt: string | null;
   createdAt: string;
   customer: { name: string | null; phone: string | null } | null;
@@ -130,11 +151,16 @@ export interface WorkspaceContextValue {
   signIn: (session: WebSession) => void;
   signOut: () => void;
   refreshWorkspaceContext: () => Promise<void>;
+  applyConfirmedBranch: (businessId: string, branch: WorkspaceBranch) => void;
+  applyConfirmedBusiness: (business: WorkspaceBusinessProfile) => void;
   switchBusiness: (businessId: string) => Promise<void>;
   switchBranch: (branchId: string) => Promise<void>;
   refreshCatalog: () => Promise<void>;
+  applyConfirmedCatalogUpdate: (businessId: string, item: CatalogItem, fields: ConfirmedCatalogFields) => void;
+  applyConfirmedCatalogDeletion: (businessId: string, itemId: string) => void;
   refreshInventory: () => Promise<void>;
   refreshCustomers: () => Promise<void>;
+  applyConfirmedCustomerUpdate: (businessId: string, customer: Customer, fields: CustomerConfirmedFields) => void;
   flushQueue: () => Promise<void>;
   bump: () => void;
 }
@@ -181,6 +207,101 @@ export function buildBusinessSwitchSession(
   };
 }
 
+/** Merge a server-confirmed CRUD response immediately into the same read model
+ * that supplies the branch list and topbar. Never cross tenant boundaries. */
+export function mergeConfirmedBranch(
+  current: WorkspaceBusinessContext | null,
+  businessId: string,
+  branch: WorkspaceBranch,
+): WorkspaceBusinessContext | null {
+  if (!current || current.business.id !== businessId) return current;
+  const exists = current.branches.some((item) => item.id === branch.id);
+  return { ...current, branches: exists
+    ? current.branches.map((item) => item.id === branch.id ? branch : item)
+    : [...current.branches, branch] };
+}
+
+export function mergeConfirmedBusiness(
+  current: WorkspaceBusinessContext | null,
+  business: WorkspaceBusinessProfile,
+): WorkspaceBusinessContext | null {
+  return current?.business.id === business.id ? { ...current, business } : current;
+}
+
+/** Keep a confirmed mutation from being overwritten by an older GET.
+ * The update response comes from the primary transaction. A subsequent
+ * context GET can arrive out of order or be temporarily stale in a webview.
+ * Compare server revisions, not just request completion order.
+ */
+export interface ConfirmedBranchRevision {
+  branch: WorkspaceBranch;
+  confirmedAt: number;
+}
+const BRANCH_CONFIRMATION_GUARD_MS = 120_000;
+
+export function reconcileConfirmedBranchContext(
+  context: WorkspaceBusinessContext,
+  confirmed: Map<string, ConfirmedBranchRevision>,
+  now = Date.now(),
+): WorkspaceBusinessContext {
+  const seen = new Set<string>();
+  let changed = false;
+  const branches = context.branches.map((incoming) => {
+    const key = context.business.id + ":" + incoming.id;
+    seen.add(key);
+    const latest = confirmed.get(key);
+    if (!latest) return incoming;
+    const confirmedTime = Date.parse(latest.branch.updatedAt);
+    const incomingTime = Date.parse(incoming.updatedAt);
+    const expired = now - latest.confirmedAt >= BRANCH_CONFIRMATION_GUARD_MS;
+    const serverCaughtUp = incomingTime >= confirmedTime
+      && incoming.name === latest.branch.name
+      && incoming.active === latest.branch.active;
+    const newerMutation = Number.isFinite(incomingTime)
+      && Number.isFinite(confirmedTime) && incomingTime > confirmedTime;
+    if (expired || serverCaughtUp || newerMutation) {
+      confirmed.delete(key);
+      return incoming;
+    }
+    changed = true;
+    return latest.branch;
+  });
+  // A newly created branch can also be omitted by a stale context response.
+  for (const [key, latest] of confirmed) {
+    if (!key.startsWith(context.business.id + ":") || seen.has(key)) continue;
+    if (now - latest.confirmedAt >= BRANCH_CONFIRMATION_GUARD_MS) {
+      confirmed.delete(key);
+      continue;
+    }
+    branches.push(latest.branch);
+    changed = true;
+  }
+  return changed ? { ...context, branches } : context;
+}
+
+/** Business profiles currently have no updatedAt in the public API.
+ * A short-lived confirmed response wins over an older reload; discard the
+ * guard once the server agrees or after expiry to allow external changes.
+ */
+export interface ConfirmedBusinessRevision {
+  business: WorkspaceBusinessProfile;
+  confirmedAt: number;
+}
+export function reconcileConfirmedBusinessContext(
+  context: WorkspaceBusinessContext,
+  confirmed: Map<string, ConfirmedBusinessRevision>,
+  now = Date.now(),
+): WorkspaceBusinessContext {
+  const latest = confirmed.get(context.business.id);
+  if (!latest) return context;
+  if (now - latest.confirmedAt >= BRANCH_CONFIRMATION_GUARD_MS
+    || context.business.name === latest.business.name) {
+    confirmed.delete(context.business.id);
+    return context;
+  }
+  return { ...context, business: latest.business };
+}
+
 /** Switches branch only inside the already-authoritative current business. */
 export function buildBranchSwitchSession(
   current: WebSession,
@@ -204,6 +325,18 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const [memberships, setMemberships] = useState<readonly WorkspaceMembership[]>([]);
   const [businessContext, setBusinessContext] = useState<WorkspaceBusinessContext | null>(null);
   const [contextBusy, setContextBusy] = useState(false);
+  // Only the newest context request may update workspace labels and branch lists.
+  // This prevents a slow pre-mutation request replacing the refreshed response.
+  const contextRequestSeq = useRef(0);
+  const hasLoadedWorkspace = useRef(false);
+  const confirmedBranches = useRef(new Map<string, ConfirmedBranchRevision>());
+  const confirmedBusinesses = useRef(new Map<string, ConfirmedBusinessRevision>());
+  const confirmedCustomers = useRef(new Map<string, ConfirmedCustomerRevision>());
+  const customersRequestSeq = useRef(0);
+  const catalogRequestSeq = useRef(0);
+  const inventoryRequestSeq = useRef(0);
+  const confirmedCatalog = useRef(new Map<string, ConfirmedCatalogRevision>());
+  const confirmedCatalogDeletions = useRef(new Map<string, ConfirmedCatalogDeletion>());
   const [catalog, setCatalog] = useState<readonly CatalogItem[]>([]);
   const [inventory, setInventory] = useState<readonly InventoryItem[]>([]);
   const [customers, setCustomers] = useState<readonly Customer[]>([]);
@@ -235,7 +368,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, []);
 
   const loadIdentity = useCallback(async (): Promise<WorkspaceIdentityResponse> => {
-    const response = await offlineQueue.authenticatedFetch("/v1/me");
+    const response = await offlineQueue.authenticatedFetch("/v1/me", { cache: "no-store" });
     if (!response.ok) throw new Error(await readApiErrorMessage(response, "Account context could not be loaded"));
     const value = await response.json() as WorkspaceIdentityResponse;
     if (!value.user || !Array.isArray(value.memberships)) throw new Error("Server returned incomplete account context.");
@@ -243,18 +376,25 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, [offlineQueue]);
 
   const loadBusiness = useCallback(async (businessId: string): Promise<WorkspaceBusinessContext> => {
-    const response = await offlineQueue.authenticatedFetch(`/v1/businesses/${encodeURIComponent(businessId)}/context`);
+    const response = await offlineQueue.authenticatedFetch(
+      `/v1/businesses/${encodeURIComponent(businessId)}/context`,
+      { cache: "no-store" },
+    );
     if (!response.ok) throw new Error(await readApiErrorMessage(response, "Business context could not be loaded"));
     const value = await response.json() as WorkspaceBusinessContext;
     if (!value.business || !value.membership || !Array.isArray(value.branches)) {
       throw new Error("Server returned incomplete business context.");
     }
-    return value;
+    return reconcileConfirmedBusinessContext(
+      reconcileConfirmedBranchContext(value, confirmedBranches.current),
+      confirmedBusinesses.current,
+    );
   }, [offlineQueue]);
 
   const refreshWorkspaceContext = useCallback(async () => {
     const current = offlineQueue.sessions.load() ?? session;
-    if (!current) return;
+    if (!current) throw new Error("You are signed out.");
+    const requestId = ++contextRequestSeq.current;
     setContextBusy(true);
     try {
       const identity = await loadIdentity();
@@ -271,23 +411,36 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         context,
         current.branchId,
       );
+      // A slow earlier request must never overwrite newer committed CRUD data.
+      if (requestId !== contextRequestSeq.current) return;
       setAccount(identity.user);
       setMemberships(identity.memberships);
       setBusinessContext(context);
+      hasLoadedWorkspace.current = true;
       setFatal(null);
       if (!sessionsEquivalent(current, normalized)) {
         offlineQueue.sessions.save(normalized);
         setSession(normalized);
       }
     } catch (error) {
-      setFatal(error instanceof Error ? error.message : "Workspace context could not be loaded.");
+      if (requestId !== contextRequestSeq.current) return;
+      if (!hasLoadedWorkspace.current) {
+        // Only an initial access failure is fatal. A transient reload failure
+        // after a confirmed CRUD write must not blank the entire workspace.
+        setFatal(error instanceof Error ? error.message : "Workspace context could not be loaded.");
+      }
+      // Never report a successful settings refresh when the authoritative
+      // server reload actually failed. CRUD handlers must see the failure.
+      throw error;
     } finally {
-      setContextBusy(false);
+      if (requestId === contextRequestSeq.current) setContextBusy(false);
     }
   }, [loadBusiness, loadIdentity, offlineQueue, session]);
 
   useEffect(() => {
-    if (session) void refreshWorkspaceContext();
+    if (session) void refreshWorkspaceContext().catch(() => {
+      // The provider already recorded the error for WorkspaceBoundary.
+    });
     else {
       setAccount(null);
       setMemberships([]);
@@ -296,6 +449,32 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   // refreshWorkspaceContext intentionally changes when session changes; the
   // normalizer avoids re-saving an equivalent session and therefore loops.
   }, [session, refreshWorkspaceContext]);
+
+  // Server writes return the confirmed entity. Apply it to the shared
+  // workspace immediately; the subsequent no-store context read reconciles
+  // permissions, branch lists and other server-derived fields.
+  const applyConfirmedBranch = useCallback((businessId: string, branch: WorkspaceBranch) => {
+    // Register synchronously before the POST/PATCH handler requests a reload.
+    // State-setting alone is insufficient: the reload could immediately
+    // replace the confirmed record with a stale branch name.
+    confirmedBranches.current.set(businessId + ":" + branch.id, {
+      branch, confirmedAt: Date.now(),
+    });
+    setBusinessContext((current) => mergeConfirmedBranch(current, businessId, branch));
+  }, []);
+
+  const applyConfirmedBusiness = useCallback((business: WorkspaceBusinessProfile) => {
+    confirmedBusinesses.current.set(business.id, {
+      business, confirmedAt: Date.now(),
+    });
+    setBusinessContext((current) => mergeConfirmedBusiness(current, business));
+    const currentSession = offlineQueue.sessions.load();
+    if (currentSession?.businessId === business.id && currentSession.businessName !== business.name) {
+      const nextSession = { ...currentSession, businessName: business.name };
+      offlineQueue.sessions.save(nextSession);
+      setSession(nextSession);
+    }
+  }, [offlineQueue]);
 
   const switchBusiness = useCallback(async (businessId: string) => {
     const current = offlineQueue.sessions.load() ?? session;
@@ -318,6 +497,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       );
       // Clear business-scoped read models before changing identity so no frame
       // can present another tenant's catalog/customer/stock data under the new header.
+      ++customersRequestSeq.current;
+      ++catalogRequestSeq.current;
+      ++inventoryRequestSeq.current;
       setCatalog([]);
       setInventory([]);
       setCustomers([]);
@@ -336,6 +518,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     const current = offlineQueue.sessions.load() ?? session;
     if (!current || !businessContext) throw new Error("Business context is not ready.");
     const next = buildBranchSwitchSession(current, businessContext, branchId);
+    ++inventoryRequestSeq.current;
     setInventory([]);
     offlineQueue.sessions.save(next);
     setSession(next);
@@ -381,47 +564,123 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
 
   const refreshCatalog = useCallback(async () => {
     if (!session) return;
+    const requestId = ++catalogRequestSeq.current;
+    const businessId = session.businessId;
+    const isCurrent = () => requestId === catalogRequestSeq.current
+      && offlineQueue.sessions.load()?.businessId === businessId;
     try {
-      const res = await offlineQueue.authenticatedFetch(`/v1/catalog/items?businessId=${encodeURIComponent(session.businessId)}`);
+      const res = await offlineQueue.authenticatedFetch(
+        `/v1/catalog/items?businessId=${encodeURIComponent(businessId)}`,
+        { cache: "no-store" },
+      );
+      if (!isCurrent()) return;
       if (!res.ok) {
         setFatal(`Could not load catalog (${res.status}).`);
         return;
       }
       const json = await res.json() as { items?: unknown[] };
-      setCatalog((json.items ?? []).map((item) => mapCatalogItem(item)));
+      if (!isCurrent()) return;
+      setCatalog(reconcileConfirmedCatalog(
+        (json.items ?? []).map((item) => mapCatalogItem(item)),
+        businessId, confirmedCatalog.current, Date.now(), confirmedCatalogDeletions.current,
+      ));
     } catch (error) {
-      setFatal(error instanceof Error ? error.message : "Could not load catalog.");
+      if (isCurrent()) setFatal(error instanceof Error ? error.message : "Could not load catalog.");
     }
   }, [offlineQueue, session]);
 
+  const applyConfirmedCatalogUpdate = useCallback((
+    businessId: string, item: CatalogItem, fields: ConfirmedCatalogFields,
+  ) => {
+    if (offlineQueue.sessions.load()?.businessId !== businessId) return;
+    registerConfirmedCatalogUpdate(confirmedCatalog.current, businessId, item, fields);
+    ++catalogRequestSeq.current;
+    setCatalog((previous) => previous.map((entry) =>
+      entry.id === item.id ? { ...entry, ...fields } : entry));
+  }, [offlineQueue]);
+
+  const applyConfirmedCatalogDeletion = useCallback((businessId: string, itemId: string) => {
+    if (offlineQueue.sessions.load()?.businessId !== businessId) return;
+    registerConfirmedCatalogDeletion(confirmedCatalogDeletions.current, businessId, itemId);
+    confirmedCatalog.current.delete(businessId + ":" + itemId);
+    ++catalogRequestSeq.current;
+    setCatalog((previous) => previous.filter((item) => item.id !== itemId));
+  }, [offlineQueue]);
+
   const refreshInventory = useCallback(async () => {
     if (!session) return;
+    const requestId = ++inventoryRequestSeq.current;
+    const businessId = session.businessId;
+    const branchId = session.branchId;
+    const isCurrent = () => {
+      const active = offlineQueue.sessions.load();
+      return requestId === inventoryRequestSeq.current
+        && active?.businessId === businessId && active?.branchId === branchId;
+    };
     try {
       const res = await offlineQueue.authenticatedFetch(
-        `/v1/inventory?businessId=${encodeURIComponent(session.businessId)}&branchId=${encodeURIComponent(session.branchId)}`,
+        `/v1/inventory?businessId=${encodeURIComponent(businessId)}&branchId=${encodeURIComponent(branchId)}`,
+        { cache: "no-store" },
       );
+      if (!isCurrent()) return;
       if (!res.ok) {
         setInventory([]);
         return;
       }
       const json = await res.json() as { items?: unknown[] };
-      setInventory((json.items ?? []).map((item) => mapInventoryItem(item)));
+      if (isCurrent()) setInventory((json.items ?? []).map((item) => mapInventoryItem(item)));
     } catch {
-      setInventory([]);
+      if (isCurrent()) setInventory([]);
     }
   }, [offlineQueue, session]);
 
   const refreshCustomers = useCallback(async () => {
     if (!session) return;
+    const requestId = ++customersRequestSeq.current;
+    const businessId = session.businessId;
     try {
-      const res = await offlineQueue.authenticatedFetch(`/v1/customers?businessId=${encodeURIComponent(session.businessId)}`);
+      const res = await offlineQueue.authenticatedFetch(
+        `/v1/customers?businessId=${encodeURIComponent(businessId)}`,
+        { cache: "no-store" },
+      );
       if (!res.ok) return;
       const json = await res.json() as { customers: Customer[] };
-      setCustomers(json.customers ?? []);
+      // A slow response from a prior business, or from a pre-update request,
+      // must not replace a confirmed customer rename.
+      if (requestId !== customersRequestSeq.current
+        || offlineQueue.sessions.load()?.businessId !== businessId) return;
+      setCustomers(reconcileConfirmedCustomers(
+        json.customers ?? [], businessId, confirmedCustomers.current,
+      ));
     } catch {
       // Customers are non-blocking.
     }
   }, [offlineQueue, session]);
+
+  const applyConfirmedCustomerUpdate = useCallback((
+    businessId: string, customer: Customer, fields: CustomerConfirmedFields,
+  ) => {
+    if (offlineQueue.sessions.load()?.businessId !== businessId) return;
+    registerConfirmedCustomerUpdate(confirmedCustomers.current, businessId, customer, fields);
+    ++customersRequestSeq.current;
+    setCustomers((previous) => previous.map((item) =>
+      item.id === customer.id ? { ...item, ...fields } : item));
+  }, [offlineQueue]);
+
+  useEffect(() => {
+    if(!session||!online)return;
+    const listener=(event:Event)=>{
+      const detail=(event as CustomEvent<{businessId:string;path?:string}>).detail;
+      if(detail?.businessId!==session.businessId)return;
+      const path=detail.path??"";
+      if(!path||/\/v1\/catalog\//.test(path))void refreshCatalog();
+      if(!path||/\/v1\/(catalog|inventory|sales|returns|purchases|purchase-orders|supplier-invoices)/.test(path))void refreshInventory();
+      if(!path||/\/v1\/(customers|sales|returns|payments)/.test(path))void refreshCustomers();
+      if(/\/v1\/(businesses|account|staff|branches)\//.test(path))void refreshWorkspaceContext().catch(()=>{});
+    };
+    window.addEventListener(MUTATION_INVALIDATION_EVENT,listener);
+    return ()=>window.removeEventListener(MUTATION_INVALIDATION_EVENT,listener);
+  },[session,online,refreshCatalog,refreshInventory,refreshCustomers,refreshWorkspaceContext]);
 
   useEffect(() => {
     if (!session) {
@@ -436,12 +695,23 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   }, [session, refreshCatalog, refreshInventory, refreshCustomers]);
 
   const signIn = useCallback((next: WebSession) => {
+    ++catalogRequestSeq.current;
+    ++inventoryRequestSeq.current;
+    ++customersRequestSeq.current;
     offlineQueue.sessions.save(next);
     setSession(next);
     setFatal(null);
   }, [offlineQueue]);
 
   const signOut = useCallback(() => {
+    ++customersRequestSeq.current;
+    ++catalogRequestSeq.current;
+    ++inventoryRequestSeq.current;
+    confirmedCatalog.current.clear();
+    confirmedCatalogDeletions.current.clear();
+    confirmedBranches.current.clear();
+    confirmedBusinesses.current.clear();
+    confirmedCustomers.current.clear();
     offlineQueue.sessions.clear();
     // Do NOT erase business queues here. Unsynced work belongs to the business
     // and must survive logout/business switching on this device.
@@ -480,11 +750,16 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     signIn,
     signOut,
     refreshWorkspaceContext,
+    applyConfirmedBranch,
+    applyConfirmedBusiness,
     switchBusiness,
     switchBranch,
     refreshCatalog,
+    applyConfirmedCatalogUpdate,
+    applyConfirmedCatalogDeletion,
     refreshInventory,
     refreshCustomers,
+    applyConfirmedCustomerUpdate,
     flushQueue,
     bump,
   };

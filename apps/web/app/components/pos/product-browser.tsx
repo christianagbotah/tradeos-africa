@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { filterSellableItems, type CatalogKind, type SellableItem } from "../../../lib/catalog-read-model";
+import { type CatalogKind, type SellableItem } from "../../../lib/catalog-read-model";
+import {searchPosCatalog} from "../../../lib/pos-catalog-search";
 import { StatePanel } from "../ui/state-panel";
 import { MoneyValue } from "../business/money-value";
 import {
@@ -24,6 +25,7 @@ interface ProductBrowserProps {
   items: readonly SellableItem[];
   currencyCode: string;
   onPick: (item: SellableItem) => void;
+  onSpeak?: () => void;
   /** Map of sellable key → quantity already in cart, to surface "in cart" pills. */
   cartQuantities?: Readonly<Record<string, number>>;
   /** Exposes the search input element so the shell can focus it (F2). */
@@ -32,13 +34,14 @@ interface ProductBrowserProps {
 
 type FilterKind = "ALL" | CatalogKind;
 
-export function ProductBrowser({ items, currencyCode, onPick, cartQuantities, searchRef }: ProductBrowserProps) {
+export function ProductBrowser({ items, currencyCode, onPick, onSpeak, cartQuantities, searchRef }: ProductBrowserProps) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<FilterKind>("ALL");
   const internalRef = useRef<HTMLInputElement | null>(null);
   const inputRef = searchRef ?? internalRef;
 
-  const searched = useMemo(() => filterSellableItems(items, query), [items, query]);
+  const searchResult=useMemo(()=>searchPosCatalog(items,query),[items,query]);
+  const searched=searchResult.items;
 
   const availableKinds = useMemo<readonly CatalogKind[]>(() => {
     const seen = new Set<CatalogKind>();
@@ -88,8 +91,13 @@ export function ProductBrowser({ items, currencyCode, onPick, cartQuantities, se
 
   return (
     <div className="tos-pos__browser">
-      <div className="tos-pos-search">
-        <IconSearch className="tos-pos-search__icon" />
+      <div className="tos-pos-search-row">
+        {onSpeak ? <button type="button" className="tos-pos-voice-button"
+          onClick={onSpeak} aria-label="Speak a sale using the microphone">
+          <span aria-hidden="true">🎙</span> Speak a sale
+        </button> : null}
+        <div className="tos-pos-search">
+          <IconSearch className="tos-pos-search__icon" />
         <input
           ref={inputRef}
           type="search"
@@ -97,7 +105,7 @@ export function ProductBrowser({ items, currencyCode, onPick, cartQuantities, se
           placeholder="Search products by name or SKU…"
           aria-label="Search products"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => { setQuery(e.target.value); setKind("ALL"); }}
         />
         {query ? (
           <button
@@ -114,7 +122,12 @@ export function ProductBrowser({ items, currencyCode, onPick, cartQuantities, se
             to search
           </span>
         )}
+        </div>
       </div>
+
+      {searchResult.approximate&&hasMatches?<p className="tos-pos-similar-note" role="status">
+        Similar catalog matches for "{query}" — verify the product, SKU and unit before adding.
+      </p>:null}
 
       {showChips ? (
         <div className="tos-pos-chips" role="group" aria-label="Filter by type">

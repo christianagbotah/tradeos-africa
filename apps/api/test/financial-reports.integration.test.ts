@@ -41,6 +41,12 @@ describe("financial summary reports", () => {
     expect(cashSale.status).toBe("APPLIED");
     const cashSaleLine = (await pool.query(`SELECT id FROM sale_lines WHERE sale_id=$1`,[cashSale.result.saleId])).rows[0].id;
     expect((await sync("return-one","RETURN_CREATE",{ originalSaleId:cashSale.result.saleId, reason:"One returned", refundMethod:"ORIGINAL_METHOD", lines:[{ saleLineId:cashSaleLine, quantity:1, disposition:"RESTOCK" }] })).status).toBe("APPLIED");
+    const cashList = await app.inject({ method:"GET", url:`/v1/sales?businessId=${businessId}&branchId=${branchId}`, headers });
+    expect(cashList.statusCode, cashList.body).toBe(200);
+    const cashRecord = cashList.json().sales.find((row:{id:string})=>row.id===cashSale.result.saleId);
+    expect(cashRecord).toMatchObject({
+      refundTotalMinor:500,refundSettledMinor:500,refundPendingMinor:0,refundFailedMinor:0,
+    });
     expect((await sync("sale-credit","SALE_CREATE",{ customerId, paymentMethod:"CUSTOMER_CREDIT", lines:[{ itemId, saleUnitCode:"piece", quantity:1 }] })).status).toBe("APPLIED");
     expect((await sync("purchase-credit","PURCHASE_RECEIVE_CREATE",{ supplierId, settlementMethod:"SUPPLIER_CREDIT", lines:[{ itemId, purchaseUnitCode:"piece", quantity:2, unitCostMinor:200 }] })).status).toBe("APPLIED");
     const categoryId = (await pool.query(`SELECT id FROM expense_categories WHERE business_id=$1 ORDER BY name LIMIT 1`,[businessId])).rows[0].id;
@@ -190,6 +196,65 @@ describe("financial summary reports", () => {
     const report=response.json();
     expect(report.flow).toMatchObject({grossRevenueMinor:500,returnsRevenueMinor:500,netRevenueMinor:0,grossCogsMinor:200,cogsReversalMinor:200,netCogsMinor:0,grossProfitMinor:0,refundTotalMinor:500,returnCount:1,cashInflowMinor:500,cashOutflowMinor:200,netCashMovementMinor:300});
     expect(report.position).toMatchObject({cashBalanceMinor:300,inventoryValueMinor:200,inventoryAvailableValueMinor:200});
+
+    const queueUrl=`/v1/refunds/settlement-queue?businessId=${businessId}&branchId=${branchId}`;
+    const pendingQueue=await app.inject({method:"GET",url:queueUrl,headers});
+    expect(pendingQueue.statusCode,pendingQueue.body).toBe(200);
+    expect(pendingQueue.headers["cache-control"]).toContain("no-store");
+    expect(pendingQueue.json()).toMatchObject({
+      summaryByCurrency:[{currencyCode:"GHS",pendingCount:1,pendingMinor:500,failedCount:0,failedMinor:0}],
+      offset:0,hasMore:false,
+      items:[{saleId:sale.result.saleId,status:"PENDING",method:"MOMO",amountMinor:500}],
+    });
+    const pendingItem=pendingQueue.json().items[0];
+    expect(Date.parse(pendingItem.createdAt)).not.toBeNaN();
+    expect(pendingItem.returnCaseId).toBe(returned.result.returnCaseId);
+    const pendingOnly=await app.inject({method:"GET",url:queueUrl+"&status=PENDING",headers});
+    expect(pendingOnly.json().items).toHaveLength(1);
+    const failedOnly=await app.inject({method:"GET",url:queueUrl+"&status=FAILED",headers});
+    expect(failedOnly.json().items).toHaveLength(0);
+    expect((await app.inject({method:"GET",url:queueUrl+"&status=SUCCEEDED",headers})).statusCode).toBe(400);
+    expect((await app.inject({method:"GET",url:queueUrl+"&offset=-1",headers})).statusCode).toBe(400);
+    expect((await app.inject({method:"GET",url:queueUrl+"&offset=NaN",headers})).statusCode).toBe(400);
+    expect((await app.inject({method:"GET",url:queueUrl.replace(branchId,"00000000-0000-4000-8000-000000000000"),headers})).statusCode).toBe(404);
+    expect((await app.inject({method:"GET",url:queueUrl})).statusCode).toBe(401);
+
+    await pool.query("UPDATE business_memberships SET role='CASHIER' WHERE business_id=$1",[businessId]);
+    expect((await app.inject({method:"GET",url:queueUrl,headers})).statusCode).toBe(403);
+    await pool.query("UPDATE business_memberships SET role='OWNER' WHERE business_id=$1",[businessId]);
+
+    // A second, independently valid MoMo return proves pagination is based
+    // on unresolved refund rows, rather than the latest 50 sales.
+    const secondSale=await sync("pending-sale-2","SALE_CREATE",{
+      paymentMethod:"MOMO",lines:[{itemId,saleUnitCode:"piece",quantity:1}],
+    });
+    expect(secondSale.status).toBe("APPLIED");
+    const secondLine=(await pool.query("SELECT id FROM sale_lines WHERE sale_id=$1",[secondSale.result.saleId])).rows[0].id;
+    expect((await sync("pending-return-2","RETURN_CREATE",{
+      originalSaleId:secondSale.result.saleId,reason:"Second accepted return",
+      refundMethod:"ORIGINAL_METHOD",lines:[{saleLineId:secondLine,quantity:1,disposition:"RESTOCK"}],
+    })).status).toBe("APPLIED");
+    const pageOne=await app.inject({method:"GET",url:queueUrl+"&limit=1&offset=0",headers});
+    const pageTwo=await app.inject({method:"GET",url:queueUrl+"&limit=1&offset=1",headers});
+    expect(pageOne.json()).toMatchObject({
+      summaryByCurrency:[{currencyCode:"GHS",pendingCount:2,pendingMinor:1000,failedCount:0,failedMinor:0}],hasMore:true,offset:0,
+    });
+    expect(pageTwo.json()).toMatchObject({
+      summaryByCurrency:[{currencyCode:"GHS",pendingCount:2,pendingMinor:1000,failedCount:0,failedMinor:0}],hasMore:false,offset:1,
+    });
+    expect(pageOne.json().items).toHaveLength(1);
+    expect(pageTwo.json().items).toHaveLength(1);
+    expect(pageOne.json().items[0].id).not.toBe(pageTwo.json().items[0].id);
+    const oldest=pageOne.json().items[0];
+    const update=await pool.query("UPDATE refund_transactions SET status='FAILED' WHERE id=$1 RETURNING id",[oldest.id]);
+    expect(update.rowCount).toBe(1);
+    const failedQueue=await app.inject({method:"GET",url:queueUrl+"&status=FAILED",headers});
+    expect(failedQueue.json()).toMatchObject({
+      summaryByCurrency:[{currencyCode:"GHS",pendingCount:1,pendingMinor:500,failedCount:1,failedMinor:500}],
+      items:[{id:oldest.id,status:"FAILED"}],
+    });
+    // The worklist itself must never settle a payout, reverse stock or
+    // create a financial event; it is a strictly read-only endpoint.
   });
 
 });

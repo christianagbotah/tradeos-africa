@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
+import { passwordRecoveryMailSettings, sendPasswordRecoveryEmail } from "./password-recovery-mail.js";
+import { requestMerchantPasswordReset, confirmMerchantPasswordReset } from "./password-recovery-service.js";
 import {
   changeOwnPassword,
   listOwnSessions,
@@ -45,6 +47,42 @@ interface RefreshBody { refreshToken: string; }
 interface ChangePasswordBody { currentPassword?: string; newPassword?: string; revokeOtherSessions?: boolean; }
 
 export function registerAuthRoutes(app: FastifyInstance, pool: DatabasePool): void {
+  app.post<{ Body: { email?: unknown } }>("/v1/auth/password/forgot", async (request, reply) => {
+    // Delivery configuration is checked for ALL identities before lookup:
+    // an unconfigured server must not pretend that mail can be delivered.
+    const settings = passwordRecoveryMailSettings();
+    if (!settings) return reply.code(503).send({
+      error: "PASSWORD_RECOVERY_UNAVAILABLE",
+      message: "Password recovery email is temporarily unavailable. Please contact support.",
+    });
+    try {
+      const result = await requestMerchantPasswordReset(pool, request.body?.email, {
+        publicOrigin: settings.publicOrigin,
+        deliver: (mail) => sendPasswordRecoveryEmail(mail, settings),
+        reportDeliveryFailure: () => request.log.error("Password recovery mail submission failed"),
+      });
+      reply.header("Cache-Control","no-store");
+      return reply.code(202).send(result);
+    } catch (error) {
+      return sendAuthError(request, reply, error);
+    }
+  });
+
+  app.post<{ Body: { token?: unknown; newPassword?: unknown } }>(
+    "/v1/auth/password/reset", async (request, reply) => {
+      try {
+        await confirmMerchantPasswordReset(
+          pool, request.body?.token, request.body?.newPassword,
+        );
+        reply.header("Cache-Control","no-store");
+        return { message:"Password reset. Sign in with your new password." };
+      } catch (error) {
+        return sendAuthError(request, reply, error);
+      }
+    },
+  );
+
+
   app.post<{ Body: RegisterBody }>("/v1/auth/register", async (request, reply) => {
     try {
       const body = request.body;

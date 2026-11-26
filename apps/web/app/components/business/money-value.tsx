@@ -4,7 +4,7 @@ import { formatMoney, getCurrencyMeta, minorToMajor } from "@tradeos/contracts";
 
 export interface MoneyValueProps {
   /** Integer minor units (e.g. pesewas, kobo). */
-  minor: number;
+  minor: number | null | undefined;
   /** ISO 4217 currency code. */
   currencyCode: string;
   /** Visual size. */
@@ -33,19 +33,21 @@ export function MoneyValue({
   className,
 }: MoneyValueProps) {
   const meta = getCurrencyMeta(currencyCode);
-  const formatted = formatMoney(minor, currencyCode);
+  // Missing / invalid financial data must never appear as a number or a verified zero.
+  const hasValidAmount = typeof minor === "number" && Number.isSafeInteger(minor);
+  const formatted = hasValidAmount ? formatMoney(minor, currencyCode) : "—";
   const toneClass =
     tone === "muted"
       ? " tos-money-value--muted"
-      : tone === "positive" || (tone === "default" && minor > 0)
+      : tone === "positive" || (tone === "default" && hasValidAmount && minor > 0)
         ? ""
-        : tone === "negative" || (tone === "default" && minor < 0)
+        : tone === "negative" || (tone === "default" && hasValidAmount && minor < 0)
           ? " tos-money-value--negative"
           : "";
   const sizeClass = size === "lg" ? " tos-money-value--lg" : size === "xl" ? " tos-money-value--xl" : "";
   const cls = `tos-money-value${toneClass}${sizeClass}${className ? ` ${className}` : ""}`;
 
-  const sign = signed && minor > 0 ? "+" : "";
+  const sign = signed && hasValidAmount && minor > 0 ? "+" : "";
   return (
     <span className={cls} title={meta ? `${meta.name} (${currencyCode})` : currencyCode}>
       {showCode ? <span className="tos-money-value__currency">{currencyCode}</span> : null}

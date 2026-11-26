@@ -43,12 +43,15 @@ export function MoneyInput({
   const [text, setText] = useState<string>(() =>
     valueMinor === null ? "" : (formatMoneyInput(valueMinor, currencyCode) ?? ""),
   );
+  const [isFocused, setIsFocused] = useState(false);
 
-  // Reformat when the value or currency changes externally.
+  // Preserve what the user is typing. Controlled parent updates happen on every
+  // keystroke, so formatting while focused can overwrite the in-progress text.
   useEffect(() => {
+    if (isFocused) return;
     const formatted = valueMinor === null ? "" : (formatMoneyInput(valueMinor, currencyCode) ?? "");
     setText((prev) => (prev === formatted ? prev : formatted));
-  }, [valueMinor, currencyCode]);
+  }, [valueMinor, currencyCode, isFocused]);
 
   const handle = (raw: string) => {
     setText(raw);
@@ -84,6 +87,8 @@ export function MoneyInput({
           className="tos-money__input"
           value={text}
           onChange={(e) => handle(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
           placeholder={placeholder ?? "0"}
           disabled={disabled}
           aria-invalid={error ? true : undefined}

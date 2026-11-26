@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FlushSummary, QueueState } from "@tradeos/client-core/sync-runtime";
-import { MobileAppModel, safeMobileErrorMessage } from "./app-model";
+import { MobileAppModel, safeMobileErrorMessage, canSubmitMobileSale } from "./app-model";
 import type { MobileBootstrapState, MobileCommerceSnapshot, MobileSaleCaptureResult } from "./runtime";
 import type { MobileCartLine, MobileImmediatePaymentMethod, MobileSellableItem } from "./pos-model";
 
@@ -21,6 +21,7 @@ class FakeRuntime {
   commerceCalls: boolean[] = [];
   saleCalls: Array<{ cart: readonly MobileCartLine[]; paymentMethod: MobileImmediatePaymentMethod; online: boolean }> = [];
   logoutCalls = 0;
+  logoutError: Error | null = null;
   queueState: QueueState = emptyQueue;
   commerceSnapshot: MobileCommerceSnapshot = {
     source: "LIVE", fetchedAt: "2026-10-10T23:50:00.000Z", warning: null,
@@ -30,6 +31,7 @@ class FakeRuntime {
   flushSummary: FlushSummary = { ...emptyQueue, applied: 0, received: 0, rejected: 0, attempted: 0 };
   error: Error | null = null;
 
+  async switchWorkspace() { if(this.error)throw this.error; if(this.loginState.status!=="READY")throw new Error("Not ready");return this.loginState; }
   async bootstrap() { if (this.error) throw this.error; return this.bootstrapState; }
   async login() { if (this.error) throw this.error; return this.loginState; }
   async flush(online: boolean) { this.flushCalls.push(online); return this.flushSummary; }
@@ -39,7 +41,7 @@ class FakeRuntime {
     if (this.error) throw this.error;
     return this.saleResult;
   }
-  async logout() { this.logoutCalls += 1; }
+  async logout() { this.logoutCalls += 1; if(this.logoutError)throw this.logoutError; }
   async getQueueState() { return this.queueState; }
 }
 
@@ -93,6 +95,26 @@ describe("MobileAppModel state transitions", () => {
 
     await model.connectivityChanged(true);
     expect(runtime.flushCalls).toEqual([true]);
+  });
+
+  it("requires retry when local sign-out fails and does not reopen the previous account", async()=>{
+    const runtime=new FakeRuntime();
+    runtime.bootstrapState=ready;
+    runtime.logoutError=new Error("private storage error");
+    const model=new MobileAppModel(runtime);
+    await model.start();
+    await model.loadCommerce();
+    model.addCart(runtime.commerceSnapshot.items[0]!);
+    const failed=await model.logout();
+    expect(failed).toMatchObject({phase:"ERROR",bootstrap:null,commerce:null,cart:[]});
+    expect(failed.error).toContain("Retry");
+    expect(failed.error).not.toContain("private storage error");
+    expect((await model.login("other","secret")).phase).toBe("ERROR");
+    expect((await model.start()).phase).toBe("ERROR");
+    runtime.logoutError=null;
+    runtime.queueState={pending:1,blocked:1,failed:0};
+    expect(await model.start()).toMatchObject({phase:"SIGNED_OUT",bootstrap:{status:"SIGNED_OUT",queue:runtime.queueState}});
+    expect(runtime.logoutCalls).toBe(3);
   });
 
   it("signs out into a queue-aware local state", async () => {
@@ -214,4 +236,85 @@ describe("MobileAppModel commerce and cart", () => {
     model.setView("SELL");
     expect(model.snapshot.view).toBe("SELL");
   });
+});
+
+describe("workspace switch model",()=>{
+ it("resets commerce and tender and rejects switching with an unsold cart",async()=>{
+  const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+  const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+  model.addCart(runtime.commerceSnapshot.items[0]!);
+  await expect(model.switchWorkspace("other","branch")).rejects.toThrow();
+  model.removeCart(model.snapshot.cart[0]!.key);
+  if(ready.status!=="READY")throw new Error("invalid fixture");
+  runtime.loginState={...ready,business:{...ready.business,id:"other"},membership:{...ready.membership,businessId:"other"},branch:{...ready.branch,id:"branch"}};
+  model.selectPaymentMethod("MOMO");
+  const next=await model.switchWorkspace("other","branch");
+  expect(next).toMatchObject({phase:"READY",cart:[],paymentMethod:"CASH",bootstrap:{business:{id:"other"},branch:{id:"branch"}}});
+ });
+});
+
+describe("in-flight mobile scope guards",()=>{
+  it("does not switch, restart or sign out during a delayed sync",async()=>{
+    const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+    const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+    let finish!: (value:FlushSummary)=>void;
+    runtime.flush=async()=>new Promise<FlushSummary>(resolve=>{finish=resolve});
+    const operation=model.sync();
+    expect(model.snapshot.syncing).toBe(true);
+    await expect(model.switchWorkspace("other","branch")).rejects.toThrow();
+    expect((await model.start()).phase).toBe("READY");
+    expect((await model.logout()).phase).toBe("READY");
+    expect(runtime.logoutCalls).toBe(0);
+    finish(runtime.flushSummary);await operation;
+    expect(model.snapshot.syncing).toBe(false);
+    expect((await model.logout()).phase).toBe("SIGNED_OUT");
+  });
+  it("keeps a prepared cart during synchronization and resumes checkout exactly once",async()=>{
+    const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+    const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+    model.addCart(runtime.commerceSnapshot.items[0]!);
+    expect(canSubmitMobileSale(model.snapshot)).toBe(true);
+    let finish!:(value:FlushSummary)=>void;
+    runtime.flush=async()=>new Promise<FlushSummary>(resolve=>{finish=resolve});
+    const pending=model.sync();
+    expect(canSubmitMobileSale(model.snapshot)).toBe(false);
+    const blocked=await model.checkout();
+    expect(blocked.cart).toHaveLength(1);
+    expect(blocked.saleNotice).toBeNull();
+    expect(runtime.saleCalls).toHaveLength(0);
+    finish(runtime.flushSummary);await pending;
+    expect(canSubmitMobileSale(model.snapshot)).toBe(true);
+    await model.checkout();
+    expect(runtime.saleCalls).toHaveLength(1);
+    expect(canSubmitMobileSale(model.snapshot)).toBe(false);
+  });
+  it("freezes cart and tender during checkout and prevents a duplicate submission",async()=>{
+    const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+    const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+    const item=runtime.commerceSnapshot.items[0]!;
+    model.addCart(item);
+    let finish!:(value:MobileSaleCaptureResult)=>void;
+    let calls=0;
+    runtime.createSale=async()=>{calls++;return new Promise(resolve=>{finish=resolve});};
+    const operation=model.checkout();
+    model.addCart(item);model.setCartQuantity(item.key,4);model.selectPaymentMethod("MOMO");model.removeCart(item.key);
+    expect(model.snapshot.cart[0]?.quantity).toBe(1);
+    expect(model.snapshot.paymentMethod).toBe("CASH");
+    await model.checkout();expect(calls).toBe(1);
+    finish(runtime.saleResult);await operation;
+    expect(model.snapshot.cart).toEqual([]);
+  });
+});
+
+
+it("shows immediate receipt only for a confirmed completed sale",async()=>{
+ const runtime=new FakeRuntime();runtime.bootstrapState=ready;
+ const model=new MobileAppModel(runtime);await model.start();await model.connectivityChanged(true);
+ const item=runtime.commerceSnapshot.items[0]!;
+ model.addCart(item);
+ runtime.saleResult={...runtime.saleResult,completedSaleId:"12345678-1234-4123-8123-123456789012"};
+ expect((await model.checkout()).saleNotice).toMatchObject({tone:"success",completedSaleId:runtime.saleResult.completedSaleId});
+ model.addCart(item);expect(model.snapshot.saleNotice).toBeNull();
+ runtime.saleResult={...runtime.saleResult,outcome:"PENDING"};
+ expect((await model.checkout()).saleNotice?.completedSaleId).toBeUndefined();
 });

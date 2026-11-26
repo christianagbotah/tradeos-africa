@@ -64,6 +64,9 @@ export async function applyExchangeMutation(
     );
 
     const netDifferenceMinor = replacement.totalMinor - returned.refundTotalMinor;
+    if(payload.expectedNetDifferenceMinor!==undefined&&(!Number.isSafeInteger(payload.expectedNetDifferenceMinor)||payload.expectedNetDifferenceMinor!==netDifferenceMinor)){
+      throw new ExchangeMutationError("The exchange difference changed. Review the transaction before confirming again.","EXCHANGE_AMOUNT_CHANGED");
+    }
     let status: "PROCESSING" | "COMPLETED" = "COMPLETED";
     if (netDifferenceMinor > 0) {
       await collectDifference(client, context, payload, original, replacement.saleId, netDifferenceMinor, actorStaffId);

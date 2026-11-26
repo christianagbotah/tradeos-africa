@@ -1,23 +1,51 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { confirmAction } from "../ui/action-dialog";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatMoney } from "@tradeos/contracts";
 import { useWorkspace } from "../workspace/use-workspace";
 import { projectSellableItems, indexInventory, type SellableItem } from "../../../lib/catalog-read-model";
 import { ProductBrowser } from "./product-browser";
+import { QuickServe } from "./quick-serve";
 import { CartPanel, type CartLine } from "./cart-panel";
 import { CheckoutSheet } from "./checkout-sheet";
 import { Button } from "../ui/button";
 import { IconSell } from "../ui/icons";
+import { VoiceSaleAssistant } from "./voice-sale-assistant";
+import { PosAttendantCashShift } from "./pos-attendant-cash-shift";
+import type { VoicePayment,VoiceCheckoutSuggestion } from "../../../lib/voice-transaction-draft";
 
 export function PosWorkspace() {
-  const { catalog, inventory, customers, session, queue, bump } = useWorkspace();
+  const { catalog, inventory, customers, session, role, queue, bump } = useWorkspace();
   const [lines, setLines] = useState<CartLine[]>([]);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [quickMode, setQuickMode] = useState(false);
+  const [voiceCustomerId,setVoiceCustomerId]=useState<string|null>(null);
+  const [voicePayment,setVoicePayment]=useState<VoicePayment>("UNSPECIFIED");
+  const [voicePaymentSuggestion,setVoicePaymentSuggestion]=useState<VoiceCheckoutSuggestion|null>(null);
 
+  const cashOnly = role === "POS_ATTENDANT";
   const currencyCode = session?.currencyCode ?? "GHS";
   const online = queue.online;
+  const modeKey = session ?
+    "tradeos.pos.quick-mode.v1:"+encodeURIComponent(session.businessId)+":"+
+    encodeURIComponent(session.branchId) : null;
+  useEffect(() => {
+    if (!modeKey) return;
+    try { setQuickMode(window.localStorage.getItem(modeKey)==="quick"); }
+    catch { setQuickMode(false); }
+  }, [modeKey]);
+  const selectMode = (quick: boolean) => {
+    if (lines.length>0 || checkoutOpen) return;
+    setQuickMode(quick);
+    if (modeKey) {
+      try { window.localStorage.setItem(modeKey,quick?"quick":"standard"); }
+      catch { /* Device privacy setting: mode will remain in memory. */ }
+    }
+  };
 
   // Canonical sellable projection — one tile per (item, sellable unit with a
   // price). Same semantics as the mobile client (apps/mobile/src/pos-model.ts).
@@ -27,6 +55,7 @@ export function PosWorkspace() {
   );
 
   const handlePick = useCallback((item: SellableItem) => {
+    setVoicePaymentSuggestion(null);
     setLines((prev) => {
       const existing = prev.find((l) => l.sellable.key === item.key);
       if (existing) {
@@ -37,10 +66,12 @@ export function PosWorkspace() {
   }, []);
 
   const handleInc = useCallback((key: string) => {
+    setVoicePaymentSuggestion(null);
     setLines((prev) => prev.map((l) => (l.sellable.key === key ? { ...l, quantity: l.quantity + 1 } : l)));
   }, []);
 
   const handleDec = useCallback((key: string) => {
+    setVoicePaymentSuggestion(null);
     setLines((prev) =>
       prev
         .map((l) => (l.sellable.key === key ? { ...l, quantity: l.quantity - 1 } : l))
@@ -49,10 +80,12 @@ export function PosWorkspace() {
   }, []);
 
   const handleRemove = useCallback((key: string) => {
+    setVoicePaymentSuggestion(null);
     setLines((prev) => prev.filter((l) => l.sellable.key !== key));
   }, []);
 
   const handleClear = useCallback(() => {
+    setVoicePaymentSuggestion(null);
     setLines([]);
   }, []);
 
@@ -62,6 +95,9 @@ export function PosWorkspace() {
   }, []);
 
   const handleComplete = useCallback(() => {
+    setVoiceCustomerId(null);
+    setVoicePayment("UNSPECIFIED");
+    setVoicePaymentSuggestion(null);
     setLines([]);
     setCheckoutOpen(false);
     setCartOpen(false);
@@ -90,19 +126,54 @@ export function PosWorkspace() {
           <span className="tos-page__eyebrow">TradeOS · Point of sale</span>
           <h1 className="tos-page__title">Sell</h1>
           <p className="tos-page__subtitle">
-            Tap products to build a cart. TradeOS applies the selected unit price and stock rules
-            automatically at checkout.
+            {quickMode ? "One screen, large food buttons, no customer form for walk-in cash sales."
+              : "Tap products to build a cart. Prices and stock are verified at checkout."}
           </p>
-          <div className="tos-pos__hint-row" aria-hidden="true">
-            <span>Quick search</span>
-            <span className="tos-pos__hint-kbd">F2</span>
-            <span>· add to cart by tapping a tile</span>
-          </div>
         </div>
       </header>
 
-      <div className="tos-pos">
+      {cashOnly ? <PosAttendantCashShift /> : null}
+
+      <div role="group" aria-label="Selling mode"
+        style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <button type="button" aria-pressed={!quickMode}
+          onClick={()=>selectMode(false)}
+          disabled={lines.length>0||checkoutOpen}
+          style={{cursor:lines.length||checkoutOpen?"not-allowed":"pointer",padding:"10px 14px",fontWeight:800,
+            borderRadius:10,border:"1px solid var(--tos-border,#cfd8e3)",
+            background:!quickMode?"var(--tos-accent,#e0ac44)":"transparent",color:"inherit"}}>
+          Standard POS
+        </button>
+        <button type="button" aria-pressed={quickMode}
+          onClick={()=>selectMode(true)}
+          disabled={lines.length>0||checkoutOpen}
+          style={{cursor:lines.length||checkoutOpen?"not-allowed":"pointer",padding:"10px 14px",fontWeight:800,
+            borderRadius:10,border:"1px solid var(--tos-border,#cfd8e3)",
+            background:quickMode?"var(--tos-accent,#e0ac44)":"transparent",color:"inherit"}}>
+          ⚡ Quick Serve · food & queues
+        </button>
+        {lines.length>0?<span style={{fontSize:12,alignSelf:"center",opacity:.75}}>
+          Finish or clear this order to switch modes
+        </span>:null}
+      </div>
+
+      {quickMode ? (
+        <QuickServe
+          businessId={session.businessId}
+          branchId={session.branchId}
+          sellable={sellable}
+          currencyCode={currencyCode}
+          lines={lines}
+          online={online}
+          onPick={handlePick}
+          onInc={handleInc}
+          onDec={handleDec}
+          onClear={handleClear}
+          onCheckout={openCheckout}
+        />
+      ) : <div className="tos-pos">
         <ProductBrowser
+          onSpeak={()=>setVoiceOpen(true)}
           items={sellable}
           currencyCode={currencyCode}
           onPick={handlePick}
@@ -121,10 +192,10 @@ export function PosWorkspace() {
             online={online}
           />
         </div>
-      </div>
+      </div>}
 
       {/* Mobile sticky charge bar — always visible total + charge. Hidden on desktop via CSS. */}
-      <div className="tos-charge-bar" aria-label="Cart summary">
+      {!quickMode ? <div className="tos-charge-bar" aria-label="Cart summary">
         <button
           type="button"
           className="tos-charge-bar__cart-btn"
@@ -150,7 +221,7 @@ export function PosWorkspace() {
         >
           Charge
         </Button>
-      </div>
+      </div> : null}
 
       {/* Mobile cart sheet scrim. */}
       <div
@@ -160,7 +231,39 @@ export function PosWorkspace() {
         aria-hidden="true"
       />
 
+      {voiceOpen?<VoiceSaleAssistant
+        sellable={sellable} customers={customers} currencyCode={currencyCode}
+        onClose={()=>setVoiceOpen(false)}
+        onApply={async(reviewed,customerId,payment,suggestion)=>{
+          if(lines.length>0&&!await confirmAction(
+            "You have items in your cart. Add the voice-selected items to this cart?")){
+            return false;
+          }
+          setLines(prev=>{
+            const next=[...prev];
+            for(const line of reviewed){
+              const index=next.findIndex(x=>x.sellable.key===line.sellable.key);
+              if(index>=0){
+                next[index]={...next[index]!,quantity:next[index]!.quantity+line.quantity};
+              } else next.push(line);
+            }
+            return next;
+          });
+          setVoiceCustomerId(customerId);
+          setVoicePayment(payment);
+          // Do not reuse a spoken amount for a cart that already contained
+          // other products: the amount was dictated for a different total.
+          setVoicePaymentSuggestion(lines.length===0?suggestion:null);
+          setCartOpen(true);
+          return true;
+        }}
+      />:null}
       <CheckoutSheet
+        cashOnly={cashOnly}
+        quickServe={quickMode}
+        initialCustomerId={voiceCustomerId}
+        initialPaymentMethod={voicePayment}
+        initialVoicePaymentSuggestion={voicePaymentSuggestion}
         open={checkoutOpen}
         lines={lines}
         currencyCode={currencyCode}

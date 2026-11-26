@@ -45,7 +45,9 @@ const STAT_TILE_CLASS: Record<StatIconTone, string> = {
 };
 
 export function CustomerWorkspace() {
-  const { customers, role, refreshCustomers, session } = useWorkspace();
+  const {
+    customers, role, refreshCustomers, applyConfirmedCustomerUpdate, session,
+  } = useWorkspace();
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("ALL");
   const [balanceFilter, setBalanceFilter] = useState<BalanceFilter>("ALL");
@@ -274,7 +276,13 @@ export function CustomerWorkspace() {
         </>
       )}
 
-      <CustomerSheet customer={selected} onClose={() => setSelected(null)} onMutated={() => { void refreshCustomers(); setSelected(null); }} />
+      <CustomerSheet customer={selected} onClose={() => setSelected(null)} onMutated={(event) => {
+        if (session && event.kind === "updated") {
+          applyConfirmedCustomerUpdate(session.businessId, event.customer, event.fields);
+        }
+        setSelected(null);
+        void refreshCustomers();
+      }} />
       <CustomerFormSheet open={formOpen} onClose={() => setFormOpen(false)} onCreated={() => { setFormOpen(false); void refreshCustomers(); }} />
     </div>
   );

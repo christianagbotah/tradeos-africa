@@ -7,6 +7,8 @@ import {
   IconDevices,
   IconFlag,
   IconRelease,
+  IconShield,
+  IconUsers,
 } from "./icons";
 
 export interface AdminNavItem {
@@ -26,19 +28,40 @@ export const adminNavGroups: AdminNavGroup[] = [
     label: "Operations",
     items: [
       { href: "/console", label: "Overview", icon: IconDashboard },
+      { href: "/console/automation", label: "AI Operations", icon: IconActivity },
       { href: "/console/devices", label: "Devices & sync", icon: IconDevices },
       { href: "/console/audit", label: "Audit log", icon: IconAudit },
     ],
   },
   {
     label: "Tenants",
-    items: [{ href: "/console/tenants", label: "Tenants", icon: IconBuilding }],
+    items: [
+      { href: "/console/tenants", label: "Tenants", icon: IconBuilding },
+      { href: "/console/hubtel-merchant-accounts",
+        label: "Hubtel account reviews", icon: IconShield },
+    ],
+  },
+  {
+    label: "Billing",
+    items: [
+      { href: "/console/plans", label: "Plans", icon: IconBuilding },
+      { href: "/console/subscriptions", label: "Subscriptions", icon: IconActivity },
+      { href: "/console/billing/invoices", label: "Invoices", icon: IconAudit },
+      { href: "/console/billing/payments", label: "Payments", icon: IconDevices },
+    ],
   },
   {
     label: "Platform",
     items: [
       { href: "/console/releases", label: "Client releases", icon: IconRelease },
       { href: "/console/flags", label: "Feature flags", icon: IconFlag },
+    ],
+  },
+  {
+    label: "Security",
+    items: [
+      { href: "/console/admins", label: "Administrators", icon: IconUsers },
+      { href: "/console/profile", label: "My account", icon: IconShield },
     ],
   },
 ];
@@ -62,6 +85,7 @@ export function resolvePageMeta(pathname: string): AdminPageMeta {
 
 export const adminAreaIcons = {
   overview: IconDashboard,
+  automation: IconActivity,
   tenants: IconBuilding,
   devices: IconDevices,
   audit: IconAudit,

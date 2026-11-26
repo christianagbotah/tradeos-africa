@@ -2,6 +2,10 @@ name: Deploy TradeOS Staging
 
 on:
   workflow_dispatch:
+  "push":
+    branches: [main]
+    paths:
+      - '.github/deploy-staging-request'
 
 permissions:
   contents: read
@@ -22,8 +26,30 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Block legacy VPS compilation when shared host is full
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Fail closed: exact-commit CI artifact path replaces this build after cutover.
+          /usr/local/sbin/lightworld-vps-capacity-check build
+
       - name: Deploy exact main commit
         shell: bash
         run: |
           set -euo pipefail
           sudo -n /usr/local/sbin/lightworld-deploy-tradeos-staging "$GITHUB_SHA" "$GITHUB_WORKSPACE"
+
+      - name: Verify staging refund API access controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=http://127.0.0.1:4036
+          for endpoint in /v1/refunds/branch-summary /v1/refunds/settlement-queue; do
+            # These private read endpoints must not expose financial data to anonymous requests.
+            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$base$endpoint")"
+            if [ "$status" != "401" ]; then
+              echo "Unsafe or unavailable refund endpoint: $endpoint returned HTTP $status (expected 401)" >&2
+              exit 1
+            fi
+            echo "Authenticated boundary verified for $endpoint"
+          done

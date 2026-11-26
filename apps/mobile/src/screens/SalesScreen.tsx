@@ -2,44 +2,43 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
 import { Card, HeroCard } from "../components/Card";
-import { EmptyState } from "../components/EmptyState";
+import type {SaleReversal} from "../sale-reversal";
+import type {ReceiptOutcome} from "../customer-payment";
+import type {MobileActionFeedback} from "../action-feedback";
+import { PostedSalesHistory } from "./PostedSalesHistory";
+import type { MobileApiClient } from "../api-client";
 import { Icon, IconTile } from "../components/icons";
 import { StatCard } from "../components/StatCard";
-import { WorkspaceHeader } from "../components/WorkspaceHeader";
 import { colors, radius, spacing, typography } from "../theme";
 import type { MobileAppSnapshot } from "../app-model";
 
 export type SalesScreenProps = {
   snapshot: MobileAppSnapshot;
+  api: MobileApiClient;
   onSync: () => void;
   onGoToSell: () => void;
+  onReversal:(input:SaleReversal)=>Promise<ReceiptOutcome>;
+  onFeedback:(feedback:MobileActionFeedback)=>void;
 };
 
-export function SalesScreen({ snapshot, onSync, onGoToSell }: SalesScreenProps) {
+export function SalesScreen({ snapshot, api, onSync, onGoToSell,onReversal,onFeedback }: SalesScreenProps) {
   if (snapshot.bootstrap?.status !== "READY") return null;
   const ready = snapshot.bootstrap;
   const queue = ready.queue;
-  const totalActive = queue.pending + queue.failed;
+
 
   return (
     <ScrollView
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <WorkspaceHeader
-        online={snapshot.online}
-        syncing={snapshot.syncing}
-        failedCount={queue.failed}
-        pendingCount={queue.pending}
-      />
 
       <HeroCard padding="comfortable" style={styles.hero}>
         <Text style={styles.heroKicker}>Sales · mobile view</Text>
         <Text style={styles.heroTitle}>Sales history &amp; sync queue</Text>
         <Text style={styles.heroLead}>
           TradeOS records every sale as authoritative evidence on the server.
-          This mobile view shows the offline queue — sales captured on this
-          device that are waiting to sync or need review.
+          Review posted sales and transactions waiting to sync, in one workspace.
         </Text>
       </HeroCard>
 
@@ -71,8 +70,8 @@ export function SalesScreen({ snapshot, onSync, onGoToSell }: SalesScreenProps) 
             <Text style={styles.sectionTitle}>Pending sync queue</Text>
             <Text style={styles.sectionCopy}>
               {queue.pending === 0
-                ? "No sales are waiting. New sales are saved here when this device is offline."
-                : `${queue.pending} sale${queue.pending === 1 ? "" : "s"} captured on this device will sync automatically when the connection returns.`}
+                ? "No transactions are waiting. Offline-capable submissions are saved here."
+                : `${queue.pending} transaction${queue.pending === 1 ? "" : "s"} captured on this device will sync automatically when the connection returns.`}
             </Text>
           </View>
         </View>
@@ -106,8 +105,8 @@ export function SalesScreen({ snapshot, onSync, onGoToSell }: SalesScreenProps) 
             <Text style={styles.sectionTitle}>Needs review</Text>
             <Text style={styles.sectionCopy}>
               {queue.failed === 0
-                ? "No sales were rejected by the server."
-                : `${queue.failed} sale${queue.failed === 1 ? "" : "s"} could not be applied. The evidence is preserved on this device for correction or retry.`}
+                ? "No transactions were rejected by the server."
+                : `${queue.failed} transaction${queue.failed === 1 ? "" : "s"} could not be applied. The evidence is preserved on this device for correction or retry.`}
             </Text>
           </View>
         </View>
@@ -120,25 +119,12 @@ export function SalesScreen({ snapshot, onSync, onGoToSell }: SalesScreenProps) 
         ) : null}
       </Card>
 
-      <Card padding="default">
-        <View style={styles.sectionHeader}>
-          <IconTile name="sales" size={40} background={colors.surfaceSoft} tint={colors.midnight} accessibilityLabel="Posted sales history" />
-          <View style={styles.flex}>
-            <Text style={styles.sectionTitle}>Posted sales history</Text>
-            <Text style={styles.sectionCopy}>
-              Synchronized sales become immutable business evidence on the TradeOS server. The full history, receipt-level detail, returns, and refunds live in the web workspace.
-            </Text>
-          </View>
-        </View>
-        <EmptyState
-          kind="empty"
-          icon="chart"
-          title="No posted sales on this device"
-          description="Each synced sale is recorded as authoritative evidence. Use the web workspace to view, search, and filter every sale."
-          actionLabel={totalActive > 0 ? "Sync now to clear queue" : "Start a new sale"}
-          onAction={totalActive > 0 ? onSync : onGoToSell}
-        />
-      </Card>
+      <PostedSalesHistory
+        key={ready.user.id+":"+ready.membership.businessId+":"+ready.branch.id+":"+ready.membership.role}
+        api={api} businessId={ready.membership.businessId} branchId={ready.branch.id}
+        role={ready.membership.role} timezone={ready.branch.timezone}
+        online={snapshot.online===true} syncing={snapshot.syncing} pendingCount={queue.pending} onReversal={onReversal} onFeedback={onFeedback}/>
+      <Button variant="gold" fullWidth accessibilityLabel="Start a new sale" onPress={onGoToSell}>Start a new sale</Button>
 
       <Text style={styles.footerNote}>
         TradeOS Africa · Mobile sales view · {ready.business.currencyCode}
@@ -149,6 +135,7 @@ export function SalesScreen({ snapshot, onSync, onGoToSell }: SalesScreenProps) 
 
 const styles = StyleSheet.create({
   content: {
+    paddingTop: spacing.s4,
     flexGrow: 1,
     backgroundColor: colors.canvas,
     paddingHorizontal: spacing.s4,

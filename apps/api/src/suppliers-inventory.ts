@@ -3,12 +3,14 @@ import { quantityFromUnits, quantityUnits } from "./commerce/valuation.js";
 import type { FastifyInstance } from "fastify";
 import { requireBusinessRole, type BusinessRole } from "./auth/authorization.js";
 import { authenticateAccessToken, AuthError } from "./auth/security.js";
+import { requireBranchScope } from "./auth/branch-scope.js";
 import type { DatabasePool } from "./db.js";
 import { createSupplier, deleteUnusedSupplier, loadSupplier, SUPPLIER_DELETE_ROLES, SUPPLIER_WRITE_ROLES, SupplierServiceError, updateSupplier } from "./supplier-service.js";
 
 const READ_ROLES: readonly BusinessRole[] = [
   "OWNER", "ADMIN", "MANAGER", "CASHIER", "SALES", "INVENTORY", "ACCOUNTANT", "STAFF", "VIEWER",
 ];
+const POS_STOCK_READ_ROLES: readonly BusinessRole[] = [...READ_ROLES, "POS_ATTENDANT"];
 type SupplierCreateBody = SupplierCreateInput & { businessId: string };
 type SupplierUpdateBody = SupplierUpdateInput & { businessId: string };
 
@@ -117,9 +119,39 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = required(request.query.businessId,"businessId");
       const branchId = required(request.query.branchId,"branchId");
-      await requireBusinessRole(pool,auth,businessId,READ_ROLES);
+      const access = await requireBusinessRole(pool,auth,businessId,POS_STOCK_READ_ROLES);
+      await requireBranchScope(pool,access,branchId);
       await assertBranch(pool,businessId,branchId);
       const query = request.query.query?.trim() ?? "";
+      // POS-only stock search returns item identity and sellable availability.
+      // Do not query or return costs, COGS or quarantine/damaged valuations.
+      if (access.role === "POS_ATTENDANT") {
+        const stock = await pool.query<{
+          id:string;sku:string|null;name:string;stock_unit_code:string;
+          available:string|number;
+        }>(
+          `
+          SELECT ci.id,ci.sku,ci.name,ci.stock_unit_code,
+                 COALESCE(SUM(im.quantity_delta) FILTER
+                   (WHERE im.location_type='AVAILABLE'),0) AS available
+          FROM catalog_items ci
+          LEFT JOIN inventory_movements im ON im.business_id=ci.business_id
+            AND im.item_id=ci.id AND im.branch_id=$2
+          WHERE ci.business_id=$1 AND ci.is_active=true
+            AND ci.kind='PRODUCT' AND ci.track_stock=true
+            AND ($3='' OR ci.name ILIKE $4 OR COALESCE(ci.sku,'') ILIKE $4)
+          GROUP BY ci.id,ci.sku,ci.name,ci.stock_unit_code
+          ORDER BY ci.name,ci.id
+        `,
+          [businessId,branchId,query,"%"+query+"%"],
+        );
+        return {
+          items: stock.rows.map(row=>({
+            id:row.id,sku:row.sku,name:row.name,
+            stockUnitCode:row.stock_unit_code,available:Number(row.available),
+          })),
+        };
+      }
       const result = await pool.query<{
         id: string; sku: string | null; name: string; stock_unit_code: string;
         available: string | number; quarantine: string | number; damaged: string | number; waste: string | number;
@@ -229,15 +261,27 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       const auth = await authenticateAccessToken(pool, request.headers.authorization);
       const businessId = required(request.query.businessId, "businessId");
       await requireBusinessRole(pool, auth, businessId, READ_ROLES);
-      const purchase = (await pool.query(`SELECT p.*,s.name AS supplier_name,receiver.display_name AS receiver_name FROM purchases p JOIN suppliers s ON s.id=p.supplier_id LEFT JOIN staff receiver ON receiver.id=p.received_by_staff_id AND receiver.business_id=p.business_id WHERE p.id=$1 AND p.business_id=$2`, [request.params.purchaseId,businessId])).rows[0];
+      const purchase = (await pool.query(`SELECT p.*,s.name AS supplier_name,
+        receiver.display_name AS receiver_name,po.order_number AS purchase_order_number
+        FROM purchases p JOIN suppliers s ON s.id=p.supplier_id
+        LEFT JOIN staff receiver ON receiver.id=p.received_by_staff_id
+          AND receiver.business_id=p.business_id
+        LEFT JOIN supplier_purchase_orders po ON po.id=p.purchase_order_id
+          AND po.business_id=p.business_id
+        WHERE p.id=$1 AND p.business_id=$2`, [request.params.purchaseId,businessId])).rows[0];
       if (!purchase) throw new SupplierError("Purchase was not found",404,"PURCHASE_NOT_FOUND");
       const lines = await pool.query(`SELECT pl.*,COALESCE(r.quantity,0) AS returned_quantity,
         COALESCE(r.recovery,0) AS returned_recovery_minor FROM purchase_lines pl
         LEFT JOIN (SELECT purchase_line_id,SUM(purchase_quantity) AS quantity,SUM(supplier_recovery_minor) AS recovery FROM purchase_return_lines GROUP BY purchase_line_id) r ON r.purchase_line_id=pl.id
         WHERE pl.purchase_id=$1 AND pl.business_id=$2 ORDER BY pl.created_at,pl.id`,[purchase.id,businessId]);
       const returns = await pool.query(`SELECT id,recovery_method,supplier_recovery_minor,inventory_value_removed_minor,purchase_price_variance_minor,occurred_at FROM purchase_return_cases WHERE original_purchase_id=$1 AND business_id=$2 ORDER BY occurred_at DESC,id DESC LIMIT 25`,[purchase.id,businessId]);
-      return { purchase: { id:purchase.id,businessId,branchId:purchase.branch_id,supplierId:purchase.supplier_id,supplierName:purchase.supplier_name,supplierReference:purchase.supplier_reference,status:purchase.status,currencyCode:purchase.currency_code,totalMinor:Number(purchase.total_minor),settlementMethod:purchase.settlement_method,receivedAt:purchase.received_at ? new Date(purchase.received_at).toISOString() : null,receiverName:purchase.receiver_name },
-        lines:lines.rows.map(row=>({id:row.id,itemId:row.item_id,itemName:row.item_name_snapshot,purchaseUnitCode:row.purchase_unit_code,purchaseQuantity:Number(row.purchase_quantity),stockUnitCode:row.stock_unit_code,stockQuantity:Number(row.stock_quantity),unitCostMinor:Number(row.unit_cost_minor),lineCostMinor:Number(row.line_cost_minor),returnedQuantity:Number(row.returned_quantity),remainingQuantity:quantityFromUnits(quantityUnits(Number(row.purchase_quantity))-quantityUnits(Number(row.returned_quantity))),returnedRecoveryMinor:Number(row.returned_recovery_minor)})),
+      return { purchase: { id:purchase.id,businessId,branchId:purchase.branch_id,supplierId:purchase.supplier_id,supplierName:purchase.supplier_name, supplierReference:purchase.supplier_reference,
+        purchaseOrderId:purchase.purchase_order_id,
+        purchaseOrderNumber:purchase.purchase_order_number,
+        status:purchase.status,currencyCode:purchase.currency_code,totalMinor:Number(purchase.total_minor),settlementMethod:purchase.settlement_method,receivedAt:purchase.received_at ? new Date(purchase.received_at).toISOString() : null,receiverName:purchase.receiver_name },
+        lines:lines.rows.map(row=>({id:row.id,itemId:row.item_id,itemName:row.item_name_snapshot,
+        purchaseOrderLineId:row.purchase_order_line_id,
+        purchaseUnitCode:row.purchase_unit_code,purchaseQuantity:Number(row.purchase_quantity),stockUnitCode:row.stock_unit_code,stockQuantity:Number(row.stock_quantity),unitCostMinor:Number(row.unit_cost_minor),lineCostMinor:Number(row.line_cost_minor),returnedQuantity:Number(row.returned_quantity),remainingQuantity:quantityFromUnits(quantityUnits(Number(row.purchase_quantity))-quantityUnits(Number(row.returned_quantity))),returnedRecoveryMinor:Number(row.returned_recovery_minor)})),
         returns:returns.rows.map(row=>({id:row.id,recoveryMethod:row.recovery_method,supplierRecoveryMinor:Number(row.supplier_recovery_minor),inventoryValueRemovedMinor:Number(row.inventory_value_removed_minor),purchasePriceVarianceMinor:Number(row.purchase_price_variance_minor),occurredAt:row.occurred_at.toISOString()})) };
     } catch (error) { return sendError(request,reply,error); }
   });
@@ -251,17 +295,24 @@ export function registerSupplierInventoryRoutes(app: FastifyInstance, pool: Data
       await assertBranch(pool,businessId,branchId);
       const result = await pool.query<{
         id: string; supplier_id: string; supplier_name: string; supplier_reference: string | null;
-        total_minor: string | number; settlement_method: string; currency_code: string; received_at: Date; receiver_name: string | null; line_count: string | number;
+        total_minor: string | number; settlement_method: string; currency_code: string; received_at: Date;
+        receiver_name: string | null; line_count: string | number;
+        purchase_order_id: string | null; purchase_order_number: string | null;
       }>(
-        `SELECT p.id,p.supplier_id,s.name AS supplier_name,p.supplier_reference,p.total_minor,p.settlement_method,p.currency_code,p.received_at,
-                st.display_name AS receiver_name,(SELECT COUNT(*) FROM purchase_lines pl WHERE pl.purchase_id=p.id) AS line_count
-         FROM purchases p JOIN suppliers s ON s.id=p.supplier_id LEFT JOIN staff st ON st.id=p.received_by_staff_id
+        `SELECT p.id,p.supplier_id,s.name AS supplier_name,p.supplier_reference,p.total_minor,
+                p.settlement_method,p.currency_code,p.received_at,p.purchase_order_id,
+                po.order_number AS purchase_order_number,st.display_name AS receiver_name,(SELECT COUNT(*) FROM purchase_lines pl WHERE pl.purchase_id=p.id) AS line_count
+         FROM purchases p JOIN suppliers s ON s.id=p.supplier_id
+         LEFT JOIN staff st ON st.id=p.received_by_staff_id
+         LEFT JOIN supplier_purchase_orders po ON po.id=p.purchase_order_id AND po.business_id=p.business_id
          WHERE p.business_id=$1 AND p.branch_id=$2 AND p.status='RECEIVED'
          ORDER BY p.received_at DESC,p.id DESC LIMIT $3`,
         [businessId,branchId,clampLimit(request.query.limit,25)],
       );
       return { purchases: result.rows.map((row) => ({
-        id: row.id,supplierId: row.supplier_id,supplierName: row.supplier_name,supplierReference: row.supplier_reference,
+        id: row.id,supplierId: row.supplier_id,supplierName: row.supplier_name,
+        supplierReference: row.supplier_reference,
+        purchaseOrderId:row.purchase_order_id,purchaseOrderNumber:row.purchase_order_number,
         totalMinor: Number(row.total_minor),settlementMethod: row.settlement_method,currencyCode: row.currency_code,receivedAt: row.received_at.toISOString(),
         receiverName: row.receiver_name,lineCount: Number(row.line_count),
       })) };
