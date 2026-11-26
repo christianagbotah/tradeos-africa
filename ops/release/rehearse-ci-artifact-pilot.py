@@ -89,7 +89,15 @@ def _make_directory(root_fd: int, key: str) -> None:
     parts = key.split('/')
     parent_fd = _open_directory(root_fd, parts[:-1])
     try:
-        os.mkdir(parts[-1], mode=0o755, dir_fd=parent_fd)
+        # The outer quarantine remains private. Make each verified inner
+        # directory traversable by the app principal after root grants access
+        # to the quarantine; inherited umask must not silently make it 0700.
+        os.mkdir(parts[-1], mode=0o700, dir_fd=parent_fd)
+        child_fd = os.open(parts[-1], O_DIR_NOFOLLOW, dir_fd=parent_fd)
+        try:
+            os.fchmod(child_fd, 0o755)
+        finally:
+            os.close(child_fd)
     finally:
         os.close(parent_fd)
 
