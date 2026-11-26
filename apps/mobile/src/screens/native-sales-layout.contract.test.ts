@@ -1,6 +1,7 @@
 import {readFileSync} from "node:fs";
+import {resolve} from "node:path";
 import {describe,expect,it} from "vitest";
-const read=(name:string)=>readFileSync(new URL("./"+name,import.meta.url),"utf8");
+const read=(name:string)=>readFileSync(resolve(__dirname,name),"utf8");
 const sales=read("SalesScreen.tsx"), history=read("PostedSalesHistory.tsx"), pdf=read("PdfDeliveryPanel.tsx");
 
 describe("native sales and receipt presentation contracts",()=>{
