@@ -10,7 +10,10 @@ describe("native food vendor quick-sale UX",()=>{
   it("offers Standard POS and Quick Serve without replacing the existing POS",()=>{
     expect(source).toContain("Standard POS");
     expect(source).toContain("Quick Serve");
-    expect(source).toContain("groupMobileQuickServeItems(visibleItems)");
+    expect(source).toContain("visibleQuickServeGroups(visibleItems,quickLimit)");
+    expect(source).toContain("quickCatalog?.groups.map");
+    expect(source).toContain("Show more Quick Serve products");
+    expect(source).not.toContain(".slice(0,30)");
     expect(source).toContain("<CatalogCard");
     expect(source).toContain("setQuickServe(false)");
   });
@@ -36,6 +39,9 @@ describe("native food vendor quick-sale UX",()=>{
     expect(source).toContain("!quickServe?<Card");
     expect(source).toContain('PAYMENT_METHODS.filter(method=>!attendantOnly || method.value==="CASH").map');
     expect(source).toContain('const canSell = SALE_ROLES.has(ready.membership.role);');
-    expect(source).toContain("disabled={!canSell||snapshot.checkoutBusy||snapshot.cart.length===0");
+    expect(source).toContain("disabled={!canSell||!canSubmitMobileSale(snapshot)||");
+    expect(source).toContain("disabled={!canSell || !canSubmitMobileSale(snapshot)}");
+    expect(source).toContain("Synchronizing…");
+    expect(appModel).toContain("state.cart.length>0&&!state.checkoutBusy&&!state.syncing");
   });
 });
