@@ -161,16 +161,25 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     if (!insertedNew) {
       const existing = await client.query<{
         status: StoredStatus; result_payload: unknown | null; received_at: Date;
-        id:string;request_payload:ClientMutation;branch_id:string|null;mutation_type:string;same_request:boolean;
+        id:string;request_payload:ClientMutation;branch_id:string|null;mutation_type:string;same_request:boolean;recovery_claimed:boolean;
       }>(
         `SELECT id,status,result_payload,received_at,request_payload,branch_id,mutation_type,
-                request_payload=$4::jsonb AS same_request
+                request_payload=$4::jsonb AS same_request,
+                EXISTS (SELECT 1 FROM audit_events a WHERE a.business_id=sync_mutations.business_id
+                  AND a.entity_type='SYNC_MUTATION' AND a.entity_id=sync_mutations.id
+                  AND a.event_type='LEGACY_PURCHASE_RECOVERY_CLAIMED') AS recovery_claimed
            FROM sync_mutations
          WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 FOR UPDATE`,
         [mutation.businessId, mutation.clientId, mutation.clientMutationId, JSON.stringify(mutation)],
       );
       const prior = existing.rows[0];
       if (!prior) throw new Error("Idempotent mutation record disappeared during transaction");
+      if (prior.recovery_claimed && (!prior.same_request || prior.branch_id !== (mutation.branchId ?? null) ||
+          mutation.mutationType !== prior.mutation_type)) {
+        await client.query("COMMIT");
+        return rejection(mutation.clientMutationId,serverReceivedAt,"PURCHASE_REPLAY_CONFLICT",
+          new Error("The recovered purchase receipt ID belongs to its original request."));
+      }
       const existingPO=poLinkedReplaySignature(prior.request_payload?.payload);
       const incomingPO=poLinkedReplaySignature(mutation.payload);
       const changedLinkedPO=(existingPO!==null||incomingPO!==null) &&
@@ -242,11 +251,12 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
             status = "REJECTED";
             recoveryResult = { errorCode: error.code, errorMessage: error.message };
           }
-          await client.query(
+          const acknowledged = await client.query(
             `UPDATE sync_mutations SET status=$2,result_payload=$3::jsonb,applied_at=now()
              WHERE id=$1 AND status='RECEIVED'`,
             [prior.id,status,JSON.stringify(recoveryResult)],
           );
+          if (acknowledged.rowCount !== 1) throw new Error("Legacy receipt acknowledgement lost");
           await client.query("COMMIT");
           return {
             clientMutationId:mutation.clientMutationId,status,serverReceivedAt:prior.received_at.toISOString(),
