@@ -140,6 +140,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   const serverReceivedAt = new Date().toISOString();
   const client = await pool.connect();
   let insertedNew = false;
+  let recoveringLegacyPurchase = false;
 
   try {
     await client.query("BEGIN");
@@ -161,12 +162,13 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     if (!insertedNew) {
       const existing = await client.query<{
         status: StoredStatus; result_payload: unknown | null; received_at: Date;
-        request_payload:ClientMutation;branch_id:string|null;mutation_type:string;
+        id:string;request_payload:ClientMutation;branch_id:string|null;mutation_type:string;same_request:boolean;
       }>(
-        `SELECT status,result_payload,received_at,request_payload,branch_id,mutation_type
+        `SELECT id,status,result_payload,received_at,request_payload,branch_id,mutation_type,
+                request_payload=$4::jsonb AS same_request
            FROM sync_mutations
-         WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 FOR SHARE`,
-        [mutation.businessId, mutation.clientId, mutation.clientMutationId],
+         WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 FOR UPDATE`,
+        [mutation.businessId, mutation.clientId, mutation.clientMutationId, JSON.stringify(mutation)],
       );
       const prior = existing.rows[0];
       if (!prior) throw new Error("Idempotent mutation record disappeared during transaction");
@@ -180,6 +182,39 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       const changedFinancial = (previousFinancial !== null || incomingFinancial !== null) &&
         (previousFinancial !== incomingFinancial || prior.mutation_type !== mutation.mutationType ||
           prior.branch_id !== (mutation.branchId ?? null));
+      // Only the precise historical missing-settlement failure is eligible.
+      // Compare the entire server-enriched JSONB request (including the original
+      // timestamp and authenticated actor). Never apply a stored actor or a
+      // modified receipt. The row lock serializes concurrent recovery claims.
+      if (!changedLinkedPO && !changedFinancial && prior.status === "REJECTED" &&
+          isLegacyPurchaseSettlementRejection(prior.mutation_type, prior.request_payload, prior.result_payload)) {
+        if (!prior.same_request || prior.branch_id !== (mutation.branchId ?? null) ||
+            mutation.mutationType !== "PURCHASE_RECEIVE_CREATE") {
+          await client.query("COMMIT");
+          return rejection(mutation.clientMutationId, serverReceivedAt, "PURCHASE_REPLAY_CONFLICT",
+            new Error("The historical purchase receipt must be retried with its original authorized request."));
+        }
+        const claimed = await client.query(
+          `UPDATE sync_mutations SET status='RECEIVED',result_payload=NULL,applied_at=NULL
+           WHERE id=$1 AND status='REJECTED' AND NOT EXISTS (
+             SELECT 1 FROM audit_events WHERE business_id=$2 AND entity_type='SYNC_MUTATION'
+               AND entity_id=$1 AND event_type='LEGACY_PURCHASE_RECOVERY_CLAIMED'
+           ) RETURNING id`,
+          [prior.id, mutation.businessId],
+        );
+        if (claimed.rowCount === 1) {
+          const actor = (mutation.payload as PurchaseReceiveMutationPayload).receivedByStaffId;
+          await client.query(
+            `INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload)
+             VALUES ($1,$2,$3,'LEGACY_PURCHASE_RECOVERY_CLAIMED','SYNC_MUTATION',$4,$5,$6::jsonb)`,
+            [mutation.businessId, mutation.branchId, actor, prior.id, mutation.clientMutationId,
+             JSON.stringify({ previousError: prior.result_payload, recoverySettlement: "SUPPLIER_CREDIT" })],
+          );
+          insertedNew = true;
+          recoveringLegacyPurchase = true;
+        }
+      }
+      if (!recoveringLegacyPurchase) {
       await client.query("COMMIT");
       if(changedLinkedPO)return rejection(mutation.clientMutationId,serverReceivedAt,
         "PURCHASE_REPLAY_CONFLICT",
@@ -196,6 +231,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
           ? { errorCode: prior.result_payload.errorCode, errorMessage: prior.result_payload.errorMessage }
           : {}),
       };
+      }
     }
 
     await client.query("COMMIT");
@@ -211,7 +247,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   }
 
   try {
-    const result = await applyMutation(pool, mutation);
+    const result = await applyMutation(pool, mutation, recoveringLegacyPurchase);
     await pool.query(
       `UPDATE sync_mutations SET status='APPLIED',result_payload=$4::jsonb,applied_at=now()
        WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3`,
@@ -253,12 +289,12 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   }
 }
 
-async function applyMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
+async function applyMutation(pool: DatabasePool, mutation: ClientMutation, recoveringLegacyPurchase = false): Promise<unknown> {
   if (CATALOG_MUTATIONS.has(mutation.mutationType)) return applyCatalogMutation(pool, mutation);
   if (CUSTOMER_MUTATIONS.has(mutation.mutationType) || SUPPLIER_MUTATIONS.has(mutation.mutationType)) {
     return applyMasterDataMutation(pool, mutation);
   }
-  return applyEconomicMutation(pool, mutation);
+  return applyEconomicMutation(pool, mutation, recoveringLegacyPurchase);
 }
 
 async function applyMasterDataMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
@@ -363,7 +399,7 @@ async function applyCatalogMutation(pool: DatabasePool, mutation: ClientMutation
   return { item };
 }
 
-async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
+async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutation, recoveringLegacyPurchase = false): Promise<unknown> {
   if (!mutation.branchId) throw new SyncRequestError("branchId is required for economic mutations");
   const context = {
     businessId: mutation.businessId,
@@ -388,7 +424,7 @@ async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutatio
     case "PURCHASE_RETURN_CREATE":
       return applyPurchaseReturnMutation(pool, context, mutation.payload as PurchaseReturnPayload);
     case "PURCHASE_RECEIVE_CREATE":
-      return applyPurchaseReceiveMutation(pool, context, mutation.payload as PurchaseReceiveMutationPayload);
+      return applyPurchaseReceiveMutation(pool, { ...context, requireNewReceipt: recoveringLegacyPurchase }, mutation.payload as PurchaseReceiveMutationPayload);
     case "SUPPLIER_PAYMENT_CREATE":
       return applySupplierPaymentMutation(pool, context, mutation.payload as SupplierPaymentPayload);
     case "SALE_CREATE":
@@ -417,6 +453,19 @@ function requiredCatalogRole(value: unknown): BusinessRole {
     throw new CatalogError("actorRole is invalid", 403, "ROLE_FORBIDDEN");
   }
   return value as BusinessRole;
+}
+
+function isLegacyPurchaseSettlementRejection(type: string, request: unknown, result: unknown): boolean {
+  if (type !== "PURCHASE_RECEIVE_CREATE" || !isErrorPayload(result) ||
+      result.errorCode !== "PURCHASE_INVALID" || result.errorMessage !== "Invalid settlement method" ||
+      !request || typeof request !== "object" || Array.isArray(request)) return false;
+  const body = (request as { payload?: unknown }).payload;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const payload = body as Record<string, unknown>;
+  const method = payload.settlementMethod;
+  return typeof payload.receivedByStaffId === "string" && payload.receivedByStaffId.length > 0 &&
+    payload.purchaseOrderId === undefined && payload.moneyAccountId === undefined &&
+    (method === undefined || method === null || (typeof method === "string" && method.trim() === ""));
 }
 
 function isErrorPayload(value: unknown): value is { errorCode: string; errorMessage: string } {
