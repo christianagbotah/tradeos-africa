@@ -28,6 +28,7 @@ export const colors = {
   borderStrong: "#c8d1dc",
 
   // Brand — midnight + gold (TradeOS African trade palette)
+  brandForest: "#103f35",
   midnight: "#0b1424",
   midnightSoft: "#152238",
   midnightRaised: "#1d2c46",
