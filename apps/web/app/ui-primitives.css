@@ -2326,3 +2326,95 @@ dl.tos-kv .tos-kv__val {
 .tos-custom-dialog-actions .is-primary { background:#0b1424;color:#fff;border-color:#0b1424; }
 .tos-custom-dialog-actions .is-danger { background:#a62c38;color:#fff;border-color:#a62c38; }
 .tos-custom-dialog-actions button:focus-visible { outline:3px solid #c99935;outline-offset:3px; }
+
+/* Shared workspace responsive layout: retain local table scrolling, keep
+   record identity legible, and let controls wrap rather than clip. */
+.tos-page,
+.tos-section,
+.tos-table-wrap,
+.tos-table-scroll,
+.tos-toolbar,
+.tos-page__actions {
+  min-width: 0;
+  max-width: 100%;
+}
+.tos-section__head {
+  flex-wrap: wrap;
+}
+.tos-section__head > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.tos-section__title,
+.tos-section__sub,
+.tos-page__title,
+.tos-page__subtitle {
+  overflow-wrap: anywhere;
+}
+.tos-toolbar__search {
+  min-width: min(200px, 100%);
+}
+.tos-toolbar__search-input {
+  min-width: 0;
+  box-sizing: border-box;
+}
+.tos-list__row-title,
+.tos-list__row-sub {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.tos-list__row-meta {
+  min-width: 0;
+  max-width: 46%;
+  text-align: end;
+}
+.tos-list__row-amount {
+  overflow-wrap: anywhere;
+}
+.tos-table__cell-main {
+  white-space: normal;
+}
+.tos-table__cell-title,
+.tos-table__cell-sub {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .tos-page {
+    gap: var(--tos-space-3);
+  }
+  .tos-page__head {
+    gap: var(--tos-space-3);
+  }
+  .tos-page__actions {
+    flex-shrink: 1;
+  }
+  .tos-section__head,
+  .tos-section__body--padded,
+  .tos-section__foot {
+    padding: var(--tos-space-3);
+  }
+  .tos-toolbar {
+    gap: var(--tos-space-2);
+  }
+  .tos-toolbar__search {
+    flex-basis: 100%;
+  }
+  .tos-toolbar__search-input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .tos-toolbar .tos-btn--icon,
+  .tos-page__actions .tos-btn--icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .tos-list__row {
+    padding: var(--tos-space-3);
+    gap: var(--tos-space-2);
+  }
+  .tos-table thead th,
+  .tos-table tbody td {
+    padding: var(--tos-space-2) var(--tos-space-3);
+  }
+}
