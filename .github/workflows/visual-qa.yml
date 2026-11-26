@@ -277,6 +277,83 @@ jobs:
 
           const browser = await chromium.launch();
 
+          // First-customer launch acceptance: no API-seeded account or
+          // business. Complete public registration and business setup through
+          // the same UI an actual new merchant uses. Test data is isolated.
+          for(const width of [390,1280]){
+            const email="browser-onboard-"+width+"@tradeos.test";
+            const password="TradeOS-QA-1234";
+            const businessName="Browser Launch QA "+width;
+            const branchName="Launch Main "+width;
+            const ctx=await browser.newContext({viewport:{width,height:900}});
+            const p=await ctx.newPage();
+            const readScope=page=>page.evaluate(()=>{
+              const raw=localStorage.getItem("tradeos.web.session.v1");
+              if(!raw)return null;
+              const {businessId,branchId,staffId,role,currencyCode,timezone,businessName}=JSON.parse(raw);
+              return {businessId,branchId,staffId,role,currencyCode,timezone,businessName};
+            });
+            let original;
+            try{
+              await p.goto(WEB,{waitUntil:"domcontentloaded"});
+              await p.getByRole("tab",{name:"Register",exact:true}).click();
+              await p.locator("#pe-name").fill("Launch QA Owner "+width);
+              await p.locator("#pe-id").fill(email);
+              await p.locator("#pe-pw").fill(password);
+              const registration=p.waitForResponse(r=>r.url().endsWith("/v1/auth/register")&&r.request().method()==="POST");
+              await p.getByRole("button",{name:"Create account",exact:true}).click();
+              if((await registration).status()!==201)throw new Error("Public registration failed");
+              await p.getByRole("heading",{name:"Tell us about your business",exact:true}).waitFor({timeout:20000});
+              const create=p.getByRole("button",{name:"Create business & open workspace",exact:true});
+              if(await create.isEnabled())throw new Error("Business creation enabled without a name");
+              await p.locator("#ob-name").fill(businessName);
+              await p.locator("#ob-branch").fill(branchName);
+              await p.locator("#ob-type").selectOption("RETAIL_HARDWARE");
+              if(await p.locator("#ob-country").inputValue()!=="GH"||
+                 await p.locator("#ob-currency").inputValue()!=="GHS"||
+                 await p.locator("#ob-tz").inputValue()!=="Africa/Accra")
+                throw new Error("Ghana onboarding defaults incorrect");
+              if(await p.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+2))
+                throw new Error("Onboarding form has horizontal overflow");
+              await p.screenshot({path:`${EVIDENCE}/public-onboarding-${width}.png`,fullPage:true});
+              screenshotCount++;
+              const onboard=p.waitForResponse(r=>r.url().endsWith("/v1/onboarding/business")&&r.request().method()==="POST");
+              await create.click();
+              const response=await onboard;
+              if(response.status()!==201)throw new Error("Business onboarding failed");
+              const created=await response.json();
+              if(created.business?.name!==businessName||created.branch?.name!==branchName||created.owner?.role!=="OWNER")
+                throw new Error("Business, branch or owner response does not match");
+              await p.waitForURL("**/dashboard",{timeout:20000});
+              await p.getByRole("heading",{name:"Dashboard",exact:true}).waitFor();
+              original=await readScope(p);
+              if(!original||original.businessId!==created.business.id||original.branchId!==created.branch.id||
+                 original.staffId!==created.owner.staffId||original.role!=="OWNER"||
+                 original.currencyCode!=="GHS"||original.timezone!=="Africa/Accra")
+                throw new Error("Persisted workspace scope does not match onboarding");
+              await assertCleanBody(p,"first-customer-dashboard-"+width);
+              await p.reload({waitUntil:"domcontentloaded"});
+              await p.getByRole("heading",{name:"Dashboard",exact:true}).waitFor({timeout:20000});
+              if(JSON.stringify(await readScope(p))!==JSON.stringify(original))
+                throw new Error("Workspace scope changed after reload");
+              await p.screenshot({path:`${EVIDENCE}/first-customer-dashboard-${width}.png`,fullPage:true});
+              screenshotCount++;
+            }finally{await ctx.close();}
+            const fresh=await browser.newContext({viewport:{width,height:900}});
+            try{
+              const page=await fresh.newPage();
+              await page.goto(WEB,{waitUntil:"domcontentloaded"});
+              await page.locator("#pe-id").fill(email);
+              await page.locator("#pe-pw").fill(password);
+              await page.getByRole("button",{name:"Open workspace",exact:true}).click();
+              await page.waitForURL("**/dashboard",{timeout:20000});
+              await page.getByRole("heading",{name:"Dashboard",exact:true}).waitFor();
+              if(JSON.stringify(await readScope(page))!==JSON.stringify(original))
+                throw new Error("Returning merchant did not resume the same business and branch");
+              console.log("First-customer registration, onboarding, reload and fresh sign-in verified at "+width);
+            }finally{await fresh.close();}
+          }
+
           // === STEP 1: Authenticate through the real login flow ===
           const loginContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           const loginPage = await loginContext.newPage();
