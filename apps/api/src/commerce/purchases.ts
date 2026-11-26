@@ -56,6 +56,7 @@ export async function applyPurchaseReceiveMutation(
   pool: DatabasePool,
   context: PurchaseReceiveContext,
   payload: PurchaseReceiveMutationPayload,
+  transaction?: DatabaseClient,
 ): Promise<PurchaseReceiveResult> {
   const runtimeSettlementMethod = (payload as { settlementMethod?: unknown }).settlementMethod;
   const legacyBlankSettlementMethod = typeof runtimeSettlementMethod === "string" && runtimeSettlementMethod.trim() === "";
@@ -63,11 +64,11 @@ export async function applyPurchaseReceiveMutation(
     return applyPurchaseReceiveMutation(pool, context, {
       ...payload,
       settlementMethod: "SUPPLIER_CREDIT",
-    });
+    }, transaction);
   }
   validate(context, payload);
 
-  return withTransaction(pool, async (client) => {
+  const apply = async (client: DatabaseClient): Promise<PurchaseReceiveResult> => {
     await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${context.businessId}:${context.clientMutationId}`]);
     const prior = await client.query<{ id: string; total_minor: string | number; status: string;
       branch_id: string; purchase_order_id: string | null; supplier_id:string;
@@ -254,7 +255,8 @@ export async function applyPurchaseReceiveMutation(
     if (totalMinor > 0 && isCashMethod(payload.settlementMethod)) await recordCashbookEntry(client,{...context,moneyAccountId:payload.moneyAccountId,currencyCode,method:payload.settlementMethod,amountDeltaMinor:-totalMinor,entryType:"PURCHASE_PAYMENT",sourceType:"PURCHASE",sourceId:purchaseId,actorStaffId:payload.receivedByStaffId,idempotencyKey:`purchase:${purchaseId}`});
     await writeEvents(client, context, payload, purchaseId, totalMinor);
     return { purchaseId, status: "RECEIVED", totalMinor, lineCount: normalizedLines.length, idempotentReplay: false };
-  });
+  };
+  return transaction ? apply(transaction) : withTransaction(pool, apply);
 }
 
 async function normalizePurchaseLines(
