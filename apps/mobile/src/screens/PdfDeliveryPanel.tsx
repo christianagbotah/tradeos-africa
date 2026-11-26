@@ -1,14 +1,14 @@
 import {useEffect,useRef,useState} from "react";
-import {Text,View,StyleSheet} from "react-native";
+import {ActivityIndicator,Pressable,Text,View,StyleSheet} from "react-native";
 import {Directory,File,Paths} from "expo-file-system";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as Crypto from "expo-crypto";
 import type {MobileApiClient} from "../api-client";
 import {pdfFileName,pdfPapers,type PdfPaper} from "../pdf-delivery";
-import {Button} from "../components/Button";
+import {Icon} from "../components/icons";
 import {Banner} from "../components/Banner";
-import {colors,spacing,typography} from "../theme";
+import {colors,radius,spacing,touch,typography} from "../theme";
 type Props={api:Pick<MobileApiClient,"downloadDocumentPdf">;kind:"receipt"|"document";businessId:string;branchId:string;id:string;online:boolean;disabled?:boolean};
 export function PdfDeliveryPanel({api,kind,businessId,branchId,id,online,disabled=false}:Props){
  const [paper,setPaper]=useState<PdfPaper>(kind==="receipt"?"80mm":"A5"),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
@@ -34,8 +34,28 @@ export function PdfDeliveryPanel({api,kind,businessId,branchId,id,online,disable
   }catch{if(alive.current)setError("Could not prepare or open the verified PDF. Check your connection and device print/share support.");}
   finally{if(folder&&!handedOff){try{folder.delete();}catch{/* OS cache may already be cleared. */}}lock.current=false;if(alive.current)setBusy(false);}
  }
- return <View style={styles.section}><Text style={styles.heading}>Print or share PDF</Text><View style={styles.row}>{pdfPapers.map(p=><Button key={p} size="compact" variant={paper===p?"gold":"secondary"} disabled={busy||disabled} accessibilityLabel={p+" paper"} onPress={()=>setPaper(p)}>{p}</Button>)}</View>
- <View style={styles.row}><Button style={styles.flex} variant="secondary" loading={busy} disabled={!online||disabled} accessibilityLabel="Print PDF" onPress={()=>void deliver("print")}>Print PDF</Button><Button style={styles.flex} variant="gold" loading={busy} disabled={!online||disabled} accessibilityLabel="Share PDF file" onPress={()=>void deliver("share")}>Share PDF</Button></View>
- {error?<Banner tone="warning" message={error}/>:null}<Text style={styles.muted}>Choose the matching printer paper size. Sharing sends the actual PDF file, not receipt text.</Text></View>;
+ const unavailable=busy||!online||disabled;
+ return <View style={styles.section}>
+  <Text accessibilityRole="header" style={styles.heading}>Receipt / document PDF</Text>
+  <View style={styles.row} accessibilityLabel="Paper size">{pdfPapers.map(p=><Pressable key={p} accessibilityRole="button" accessibilityLabel={p+" paper"} accessibilityState={{selected:paper===p,disabled:busy||disabled}} disabled={busy||disabled} onPress={()=>setPaper(p)} style={[styles.paper,paper===p&&styles.paperActive]}><Text style={styles.paperLabel}>{p}</Text></Pressable>)}</View>
+  <View style={styles.row}>
+   <Pressable accessibilityRole="button" accessibilityLabel="Print PDF" accessibilityState={{disabled:unavailable,busy}} disabled={unavailable} onPress={()=>void deliver("print")} style={[styles.action,unavailable&&styles.disabled]}><Icon name="sales" size={20}/><Text style={styles.actionLabel}>Print</Text></Pressable>
+   <Pressable accessibilityRole="button" accessibilityLabel="Share PDF file" accessibilityState={{disabled:unavailable,busy}} disabled={unavailable} onPress={()=>void deliver("share")} style={[styles.action,styles.share,unavailable&&styles.disabled]}><Icon name="arrowRight" size={20}/><Text style={styles.actionLabel}>Share PDF</Text></Pressable>
+  </View>
+  {busy?<View style={styles.progress} accessibilityRole="progressbar"><ActivityIndicator color={colors.midnight}/><Text style={styles.muted}>Preparing PDF…</Text></View>:null}
+  {error?<Banner tone="warning" message={error}/>:null}
+  <Text style={styles.muted}>{!online?"Connect to print or share the PDF.":"Select your paper size. Sharing sends the actual PDF file."}</Text>
+ </View>;
 }
-const styles=StyleSheet.create({section:{gap:spacing.s2},row:{flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},flex:{flex:1},heading:{fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.textStrong},muted:{fontSize:typography.meta,color:colors.textMuted}});
+const styles=StyleSheet.create({
+ section:{gap:spacing.s2},row:{flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},
+ heading:{fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.textStrong},
+ muted:{fontSize:typography.meta,color:colors.textMuted,lineHeight:typography.metaLine},
+ paper:{minHeight:touch.iconTarget,paddingHorizontal:spacing.s3,paddingVertical:spacing.s2,justifyContent:"center",borderRadius:radius.sm,borderWidth:1,borderColor:colors.border,backgroundColor:colors.surface},
+ paperActive:{backgroundColor:colors.goldSoft,borderColor:colors.gold},
+ paperLabel:{fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.textStrong},
+ action:{flexGrow:1,flexBasis:105,minHeight:touch.minTarget,padding:spacing.s2,flexDirection:"row",flexWrap:"wrap",alignItems:"center",justifyContent:"center",gap:spacing.s2,borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,backgroundColor:colors.surface},
+ share:{backgroundColor:colors.goldSoft,borderColor:colors.gold},disabled:{opacity:0.5},
+ actionLabel:{fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.midnight},
+ progress:{flexDirection:"row",alignItems:"center",gap:spacing.s2},
+});
