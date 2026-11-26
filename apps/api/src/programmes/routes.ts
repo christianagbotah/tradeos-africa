@@ -115,9 +115,23 @@ export function registerProgrammeRoutes(app:FastifyInstance,pool:DatabasePool){
       return r.rows[0]!.id;
     });
   },201));
+  app.get("/v1/programmes/:orgId/participants/self",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,["PARTICIPANT"]);
+    const r=await c.query("SELECT id,display_name AS \"displayName\",consent_version AS \"consentVersion\",consented_at AS \"consentedAt\",withdrawn_at AS \"withdrawnAt\" FROM programme_participants WHERE organisation_id=$1 AND user_id=$2",[org,u]);
+    return {participant:r.rows[0]??null};
+  }));
+  app.post("/v1/programmes/:orgId/participants/self/withdraw",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,["PARTICIPANT"]);
+    const b=body(req,["clientRequestId"]),requestId=identifier(b.clientRequestId);
+    return write(c,org,u,requestId,"PARTICIPANT_WITHDREW",{},async()=>{
+      const r=await c.query<{id:string}>("UPDATE programme_participants SET withdrawn_at=now() WHERE organisation_id=$1 AND user_id=$2 AND withdrawn_at IS NULL RETURNING id",[org,u]);
+      if(!r.rows[0])throw conflict("No active participant consent");
+      return r.rows[0].id;
+    });
+  }));
   app.get("/v1/programmes/:orgId/participants",(req,reply)=>handle(req,reply,async(c,u)=>{
     const org=orgOf(req);await access(c,org,u,managers);
-    const r=await c.query("SELECT id,display_name AS \"displayName\",consented_at AS \"consentedAt\" FROM programme_participants WHERE organisation_id=$1 AND withdrawn_at IS NULL ORDER BY consented_at DESC,id LIMIT 100", [org]);
+    const r=await c.query("SELECT id,display_name AS \"displayName\",consented_at AS \"consentedAt\" FROM programme_participants p WHERE organisation_id=$1 AND withdrawn_at IS NULL AND EXISTS (SELECT 1 FROM programme_memberships m WHERE m.organisation_id=p.organisation_id AND m.user_id=p.user_id AND m.status='ACTIVE' AND m.role='PARTICIPANT') ORDER BY consented_at DESC,id LIMIT 100", [org]);
     return {participants:r.rows};
   }));
   app.post("/v1/programmes/:orgId/enrolments",(req,reply)=>handle(req,reply,async(c,u)=>{
