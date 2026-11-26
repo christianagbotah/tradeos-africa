@@ -866,6 +866,18 @@ jobs:
               if(cartLayout.gap>24||cartLayout.gap<0||cartLayout.footBottom>cartLayout.viewport+2||
                  cartLayout.qtyWidth<44||cartLayout.qtyHeight<44)
                 throw new Error("Cart header gap, charge visibility or touch target: "+JSON.stringify(cartLayout));
+              if(width>768){
+                // Shrink the viewport without navigation or losing the cart.
+                await p.setViewportSize({width,height:720});
+                await p.waitForTimeout(150);
+                const compact=await cart.evaluate(el=>{
+                  const footer=el.querySelector(".tos-pos__cart-foot").getBoundingClientRect();
+                  return {bottom:footer.bottom,viewport:window.innerHeight,bodyHeight:el.querySelector(".tos-pos__cart-body").clientHeight};
+                });
+                if(compact.bottom>compact.viewport+2||compact.bodyHeight<40)
+                  throw new Error("Desktop short-screen charge not visible: "+JSON.stringify(compact));
+                await p.setViewportSize({width,height:900});
+              }
               if(width<=768){
                 await p.screenshot({path:`${EVIDENCE}/pos-cart-open-${width}.png`});
                 screenshotCount++;
