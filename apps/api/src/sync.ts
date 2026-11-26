@@ -140,7 +140,6 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   const serverReceivedAt = new Date().toISOString();
   const client = await pool.connect();
   let insertedNew = false;
-  let recoveringLegacyPurchase = false;
 
   try {
     await client.query("BEGIN");
@@ -210,28 +209,68 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
             [mutation.businessId, mutation.branchId, actor, prior.id, mutation.clientMutationId,
              JSON.stringify({ previousError: prior.result_payload, recoverySettlement: "SUPPLIER_CREDIT" })],
           );
-          insertedNew = true;
-          recoveringLegacyPurchase = true;
+          // Keep the claim, audit, inventory, payable and sync acknowledgement
+          // in this same transaction. On crash, all roll back together.
+          // Revalidate the actor's current membership under lock before posting.
+          const authorized = await client.query(
+            `SELECT m.id FROM business_memberships m JOIN staff s
+               ON s.id=m.staff_id AND s.business_id=m.business_id
+             JOIN businesses b ON b.id=m.business_id
+             WHERE m.business_id=$1 AND m.staff_id=$2 AND m.status='ACTIVE'
+               AND s.is_active=true AND b.status='ACTIVE'
+               AND m.role IN ('OWNER','ADMIN','MANAGER','INVENTORY','ACCOUNTANT')
+             FOR SHARE OF m,s,b`,
+            [mutation.businessId,actor],
+          );
+          if (!authorized.rowCount) throw new AuthError("Purchase recovery access is unavailable",403,"BUSINESS_ACCESS_DENIED");
+          await client.query("SAVEPOINT legacy_receipt_post");
+          let recoveryResult: unknown;
+          let status: "APPLIED" | "REJECTED" = "APPLIED";
+          try {
+            recoveryResult = await applyPurchaseReceiveMutation(pool, {
+              businessId: mutation.businessId, branchId: mutation.branchId,
+              clientMutationId: mutation.clientMutationId, occurredAt: mutation.occurredAt,
+              requireNewReceipt: true,
+            }, mutation.payload as PurchaseReceiveMutationPayload, client);
+            await client.query("RELEASE SAVEPOINT legacy_receipt_post");
+          } catch (error) {
+            // A known business rejection remains auditable. Unexpected failures
+            // roll back the entire recovery so the original request can retry.
+            if (!(error instanceof PurchaseMutationError)) throw error;
+            await client.query("ROLLBACK TO SAVEPOINT legacy_receipt_post");
+            await client.query("RELEASE SAVEPOINT legacy_receipt_post");
+            status = "REJECTED";
+            recoveryResult = { errorCode: error.code, errorMessage: error.message };
+          }
+          await client.query(
+            `UPDATE sync_mutations SET status=$2,result_payload=$3::jsonb,applied_at=now()
+             WHERE id=$1 AND status='RECEIVED'`,
+            [prior.id,status,JSON.stringify(recoveryResult)],
+          );
+          await client.query("COMMIT");
+          return {
+            clientMutationId:mutation.clientMutationId,status,serverReceivedAt:prior.received_at.toISOString(),
+            result:recoveryResult,
+            ...(status==="REJECTED"&&isErrorPayload(recoveryResult)?recoveryResult:{}),
+          };
         }
       }
-      if (!recoveringLegacyPurchase) {
-        await client.query("COMMIT");
-        if(changedLinkedPO)return rejection(mutation.clientMutationId,serverReceivedAt,
-          "PURCHASE_REPLAY_CONFLICT",
-          new Error("A supplier-order receipt with this mutation ID was already submitted with different content"));
-        if(changedFinancial)return rejection(mutation.clientMutationId,serverReceivedAt,
-          "FINANCIAL_REPLAY_CONFLICT",
-          new Error("This refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
-        return {
-          clientMutationId: mutation.clientMutationId,
-          status: prior.status,
-          serverReceivedAt: prior.received_at.toISOString(),
-          ...(prior.result_payload !== null ? { result: prior.result_payload } : {}),
-          ...(prior.status === "REJECTED" && isErrorPayload(prior.result_payload)
-            ? { errorCode: prior.result_payload.errorCode, errorMessage: prior.result_payload.errorMessage }
-            : {}),
-        };
-      }
+      await client.query("COMMIT");
+      if(changedLinkedPO)return rejection(mutation.clientMutationId,serverReceivedAt,
+        "PURCHASE_REPLAY_CONFLICT",
+        new Error("A supplier-order receipt with this mutation ID was already submitted with different content"));
+      if(changedFinancial)return rejection(mutation.clientMutationId,serverReceivedAt,
+        "FINANCIAL_REPLAY_CONFLICT",
+        new Error("This refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
+      return {
+        clientMutationId: mutation.clientMutationId,
+        status: prior.status,
+        serverReceivedAt: prior.received_at.toISOString(),
+        ...(prior.result_payload !== null ? { result: prior.result_payload } : {}),
+        ...(prior.status === "REJECTED" && isErrorPayload(prior.result_payload)
+          ? { errorCode: prior.result_payload.errorCode, errorMessage: prior.result_payload.errorMessage }
+          : {}),
+      };
     }
 
     await client.query("COMMIT");
@@ -247,7 +286,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   }
 
   try {
-    const result = await applyMutation(pool, mutation, recoveringLegacyPurchase);
+    const result = await applyMutation(pool, mutation);
     await pool.query(
       `UPDATE sync_mutations SET status='APPLIED',result_payload=$4::jsonb,applied_at=now()
        WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3`,
@@ -289,12 +328,12 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   }
 }
 
-async function applyMutation(pool: DatabasePool, mutation: ClientMutation, recoveringLegacyPurchase = false): Promise<unknown> {
+async function applyMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
   if (CATALOG_MUTATIONS.has(mutation.mutationType)) return applyCatalogMutation(pool, mutation);
   if (CUSTOMER_MUTATIONS.has(mutation.mutationType) || SUPPLIER_MUTATIONS.has(mutation.mutationType)) {
     return applyMasterDataMutation(pool, mutation);
   }
-  return applyEconomicMutation(pool, mutation, recoveringLegacyPurchase);
+  return applyEconomicMutation(pool, mutation);
 }
 
 async function applyMasterDataMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
@@ -399,7 +438,7 @@ async function applyCatalogMutation(pool: DatabasePool, mutation: ClientMutation
   return { item };
 }
 
-async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutation, recoveringLegacyPurchase = false): Promise<unknown> {
+async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
   if (!mutation.branchId) throw new SyncRequestError("branchId is required for economic mutations");
   const context = {
     businessId: mutation.businessId,
@@ -424,7 +463,7 @@ async function applyEconomicMutation(pool: DatabasePool, mutation: ClientMutatio
     case "PURCHASE_RETURN_CREATE":
       return applyPurchaseReturnMutation(pool, context, mutation.payload as PurchaseReturnPayload);
     case "PURCHASE_RECEIVE_CREATE":
-      return applyPurchaseReceiveMutation(pool, { ...context, requireNewReceipt: recoveringLegacyPurchase }, mutation.payload as PurchaseReceiveMutationPayload);
+      return applyPurchaseReceiveMutation(pool, context, mutation.payload as PurchaseReceiveMutationPayload);
     case "SUPPLIER_PAYMENT_CREATE":
       return applySupplierPaymentMutation(pool, context, mutation.payload as SupplierPaymentPayload);
     case "SALE_CREATE":
