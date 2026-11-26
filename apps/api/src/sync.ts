@@ -161,15 +161,25 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     if (!insertedNew) {
       const existing = await client.query<{
         status: StoredStatus; result_payload: unknown | null; received_at: Date;
-        request_payload:ClientMutation;branch_id:string|null;mutation_type:string;
+        id:string;request_payload:ClientMutation;branch_id:string|null;mutation_type:string;same_request:boolean;recovery_claimed:boolean;
       }>(
-        `SELECT status,result_payload,received_at,request_payload,branch_id,mutation_type
+        `SELECT id,status,result_payload,received_at,request_payload,branch_id,mutation_type,
+                request_payload=$4::jsonb AS same_request,
+                EXISTS (SELECT 1 FROM audit_events a WHERE a.business_id=sync_mutations.business_id
+                  AND a.entity_type='SYNC_MUTATION' AND a.entity_id=sync_mutations.id
+                  AND a.event_type='LEGACY_PURCHASE_RECOVERY_CLAIMED') AS recovery_claimed
            FROM sync_mutations
-         WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 FOR SHARE`,
-        [mutation.businessId, mutation.clientId, mutation.clientMutationId],
+         WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 FOR UPDATE`,
+        [mutation.businessId, mutation.clientId, mutation.clientMutationId, JSON.stringify(mutation)],
       );
       const prior = existing.rows[0];
       if (!prior) throw new Error("Idempotent mutation record disappeared during transaction");
+      if (prior.recovery_claimed && (!prior.same_request || prior.branch_id !== (mutation.branchId ?? null) ||
+          mutation.mutationType !== prior.mutation_type)) {
+        await client.query("COMMIT");
+        return rejection(mutation.clientMutationId,serverReceivedAt,"PURCHASE_REPLAY_CONFLICT",
+          new Error("The recovered purchase receipt ID belongs to its original request."));
+      }
       const existingPO=poLinkedReplaySignature(prior.request_payload?.payload);
       const incomingPO=poLinkedReplaySignature(mutation.payload);
       const changedLinkedPO=(existingPO!==null||incomingPO!==null) &&
@@ -180,6 +190,81 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       const changedFinancial = (previousFinancial !== null || incomingFinancial !== null) &&
         (previousFinancial !== incomingFinancial || prior.mutation_type !== mutation.mutationType ||
           prior.branch_id !== (mutation.branchId ?? null));
+      // Only the precise historical missing-settlement failure is eligible.
+      // Compare the entire server-enriched JSONB request (including the original
+      // timestamp and authenticated actor). Never apply a stored actor or a
+      // modified receipt. The row lock serializes concurrent recovery claims.
+      if (!changedLinkedPO && !changedFinancial && prior.status === "REJECTED" &&
+          isLegacyPurchaseSettlementRejection(prior.mutation_type, prior.request_payload, prior.result_payload)) {
+        if (!prior.same_request || !mutation.branchId || prior.branch_id !== mutation.branchId ||
+            mutation.mutationType !== "PURCHASE_RECEIVE_CREATE") {
+          await client.query("COMMIT");
+          return rejection(mutation.clientMutationId, serverReceivedAt, "PURCHASE_REPLAY_CONFLICT",
+            new Error("The historical purchase receipt must be retried with its original authorized request."));
+        }
+        const claimed = await client.query(
+          `UPDATE sync_mutations SET status='RECEIVED',result_payload=NULL,applied_at=NULL
+           WHERE id=$1 AND status='REJECTED' AND NOT EXISTS (
+             SELECT 1 FROM audit_events WHERE business_id=$2 AND entity_type='SYNC_MUTATION'
+               AND entity_id=$1 AND event_type='LEGACY_PURCHASE_RECOVERY_CLAIMED'
+           ) RETURNING id`,
+          [prior.id, mutation.businessId],
+        );
+        if (claimed.rowCount === 1) {
+          const actor = (mutation.payload as PurchaseReceiveMutationPayload).receivedByStaffId;
+          await client.query(
+            `INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload)
+             VALUES ($1,$2,$3,'LEGACY_PURCHASE_RECOVERY_CLAIMED','SYNC_MUTATION',$4,$5,$6::jsonb)`,
+            [mutation.businessId, mutation.branchId, actor, prior.id, mutation.clientMutationId,
+             JSON.stringify({ previousError: prior.result_payload, recoverySettlement: "SUPPLIER_CREDIT" })],
+          );
+          // Keep the claim, audit, inventory, payable and sync acknowledgement
+          // in this same transaction. On crash, all roll back together.
+          // Revalidate the actor's current membership under lock before posting.
+          const authorized = await client.query(
+            `SELECT m.id FROM business_memberships m JOIN staff s
+               ON s.id=m.staff_id AND s.business_id=m.business_id
+             JOIN businesses b ON b.id=m.business_id
+             WHERE m.business_id=$1 AND m.staff_id=$2 AND m.status='ACTIVE'
+               AND s.is_active=true AND b.status='ACTIVE'
+               AND m.role IN ('OWNER','ADMIN','MANAGER','INVENTORY','ACCOUNTANT')
+             FOR SHARE OF m,s,b`,
+            [mutation.businessId,actor],
+          );
+          if (!authorized.rowCount) throw new AuthError("Purchase recovery access is unavailable",403,"BUSINESS_ACCESS_DENIED");
+          await client.query("SAVEPOINT legacy_receipt_post");
+          let recoveryResult: unknown;
+          let status: "APPLIED" | "REJECTED" = "APPLIED";
+          try {
+            recoveryResult = await applyPurchaseReceiveMutation(pool, {
+              businessId: mutation.businessId, branchId: mutation.branchId,
+              clientMutationId: mutation.clientMutationId, occurredAt: mutation.occurredAt,
+              requireNewReceipt: true,
+            }, mutation.payload as PurchaseReceiveMutationPayload, client);
+            await client.query("RELEASE SAVEPOINT legacy_receipt_post");
+          } catch (error) {
+            // A known business rejection remains auditable. Unexpected failures
+            // roll back the entire recovery so the original request can retry.
+            if (!(error instanceof PurchaseMutationError)) throw error;
+            await client.query("ROLLBACK TO SAVEPOINT legacy_receipt_post");
+            await client.query("RELEASE SAVEPOINT legacy_receipt_post");
+            status = "REJECTED";
+            recoveryResult = { errorCode: error.code, errorMessage: error.message };
+          }
+          const acknowledged = await client.query(
+            `UPDATE sync_mutations SET status=$2,result_payload=$3::jsonb,applied_at=now()
+             WHERE id=$1 AND status='RECEIVED'`,
+            [prior.id,status,JSON.stringify(recoveryResult)],
+          );
+          if (acknowledged.rowCount !== 1) throw new Error("Legacy receipt acknowledgement lost");
+          await client.query("COMMIT");
+          return {
+            clientMutationId:mutation.clientMutationId,status,serverReceivedAt:prior.received_at.toISOString(),
+            result:recoveryResult,
+            ...(status==="REJECTED"&&isErrorPayload(recoveryResult)?recoveryResult:{}),
+          };
+        }
+      }
       await client.query("COMMIT");
       if(changedLinkedPO)return rejection(mutation.clientMutationId,serverReceivedAt,
         "PURCHASE_REPLAY_CONFLICT",
@@ -417,6 +502,19 @@ function requiredCatalogRole(value: unknown): BusinessRole {
     throw new CatalogError("actorRole is invalid", 403, "ROLE_FORBIDDEN");
   }
   return value as BusinessRole;
+}
+
+function isLegacyPurchaseSettlementRejection(type: string, request: unknown, result: unknown): boolean {
+  if (type !== "PURCHASE_RECEIVE_CREATE" || !isErrorPayload(result) ||
+      result.errorCode !== "PURCHASE_INVALID" || result.errorMessage !== "Invalid settlement method" ||
+      !request || typeof request !== "object" || Array.isArray(request)) return false;
+  const body = (request as { payload?: unknown }).payload;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const payload = body as Record<string, unknown>;
+  const method = payload.settlementMethod;
+  return typeof payload.receivedByStaffId === "string" && payload.receivedByStaffId.length > 0 &&
+    payload.purchaseOrderId === undefined && payload.moneyAccountId === undefined &&
+    (method === undefined || method === null || (typeof method === "string" && method.trim() === ""));
 }
 
 function isErrorPayload(value: unknown): value is { errorCode: string; errorMessage: string } {
