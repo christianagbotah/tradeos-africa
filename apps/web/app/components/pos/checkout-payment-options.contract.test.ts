@@ -7,7 +7,10 @@ describe("POS cash / electronic checkout",()=>{
   it("separates primary tenders and pay-later customer credit",()=>{
     expect(checkout).toContain('tos-pay-card__label">Cash');
     expect(checkout).toContain('tos-pay-card__label">Electronic');
-    expect(checkout).toContain('tos-pay-card__label">Pay later (customer credit)');
+    expect(checkout).toContain('tos-pay-card__label">Pay later</span>');
+    expect(checkout).toContain('tos-pay-cards--primary');
+    expect(checkout).not.toContain('Count physical cash');
+    expect(checkout).not.toContain('Not a cash or electronic receipt');
     expect(checkout).not.toContain('value: "OTHER", label: "Other"');
     expect(checkout).not.toContain('value: "BANK", label: "Bank transfer"');
   });

@@ -51,6 +51,9 @@ describe("supplier order form price guard",()=>{
     expect(validatePurchaseOrderLines([start],[{...sample,kind:"SERVICE"}]))
       .toBe(false);
   });
+  it("rejects repeated products even when purchase units differ",()=>{
+    expect(validatePurchaseOrderLines([start,{...start,key:"k2",purchaseUnitCode:"carton"}],[sample])).toBe(false);
+  });
   it("rejects unsafe quantities and money overflow",()=>{
     expect(validatePurchaseOrderLines([{...start,quantity:"0"}],[sample])).toBe(false);
     expect(validatePurchaseOrderLines([{...start,quantity:"1.123456789"}],[sample]))
