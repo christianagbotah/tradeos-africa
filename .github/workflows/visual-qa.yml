@@ -409,6 +409,62 @@ jobs:
               await page.screenshot({path:`${EVIDENCE}/first-customer-receipt-${width}.png`,fullPage:true});
               screenshotCount++;
               console.log("First-customer cash sale, stock decrement, payment and verified receipt passed at "+width);
+              // Simulate actual network loss after the catalog is loaded.
+              // The queued sale must survive locally, remain unconfirmed, and
+              // automatically sync on reconnect without a second stock posting.
+              await page.goto(WEB+"/sell",{waitUntil:"domcontentloaded"});
+              const tile=page.getByRole("button",{name:"Add "+itemName+" (piece) to cart",exact:true});
+              await tile.waitFor();
+              await fresh.setOffline(true);
+              try {
+                await tile.click();
+                await (width<=768?page.locator(".tos-charge-bar__charge"):page.locator("aside button:has-text('Charge')")).click();
+                const offlineCheckout=page.getByRole("dialog",{name:"Checkout",exact:true});
+                await offlineCheckout.getByText("Offline — sale will queue locally",{exact:true}).waitFor();
+                await offlineCheckout.getByRole("group",{name:"Payment method",exact:true}).getByRole("button",{name:"Cash",exact:true}).click();
+                await offlineCheckout.getByRole("group",{name:"Quick cash amounts",exact:true}).getByRole("button").first().click();
+                await offlineCheckout.getByRole("button",{name:/^Charge /}).click();
+                await offlineCheckout.locator(".tos-success__title").filter({hasText:/^Sale queued$/}).waitFor();
+                if(await offlineCheckout.getByRole("button",{name:"Print receipt",exact:true}).count()||
+                   await offlineCheckout.getByRole("button",{name:"Share",exact:true}).count())
+                  throw new Error("Offline sale offered an unconfirmed final receipt");
+                const queue=await page.evaluate(id=>JSON.parse(localStorage.getItem("tradeos.web.mutationQueue.v2."+encodeURIComponent(id))),businessId);
+                if(queue?.pending?.length!==1||queue.failed?.length!==0)
+                  throw new Error("Offline sale was not durably queued exactly once");
+                const mutation=queue.pending[0];
+                if(mutation.mutationType!=="SALE_CREATE"||mutation.businessId!==businessId||
+                   mutation.branchId!==branchId||mutation.payload?.lines?.[0]?.itemId!==itemId)
+                  throw new Error("Offline queued sale has incorrect scope or item");
+                await page.screenshot({path:`${EVIDENCE}/first-customer-offline-sale-${width}.png`});
+                screenshotCount++;
+                // Register response listener before reconnect; periodic flush
+                // and online event may both attempt the same durable queue.
+                const synced=page.waitForResponse(r=>r.url().endsWith("/v1/sync")&&r.request().method()==="POST"&&
+                  r.request().postDataJSON()?.mutations?.some(m=>m.clientMutationId===mutation.clientMutationId),{timeout:45000});
+                await fresh.setOffline(false);
+                const syncResponse=await synced;
+                const syncResult=(await syncResponse.json()).mutationResults?.find(r=>r.clientMutationId===mutation.clientMutationId);
+                if(!syncResponse.ok()||syncResult?.status!=="APPLIED"||syncResult.result?.status!=="COMPLETED"||
+                   syncResult.result?.totalMinor!==1000||!syncResult.result?.saleId)
+                  throw new Error("Offline sale did not reconcile after reconnect");
+                await page.waitForFunction(id=>{
+                  const q=JSON.parse(localStorage.getItem("tradeos.web.mutationQueue.v2."+encodeURIComponent(id))||"null");
+                  return q&&q.pending.length===0&&q.failed.length===0;
+                },businessId,{timeout:20000});
+                if(await available()!==3)throw new Error("Offline sale stock deduction was not exactly one");
+                const syncedId=syncResult.result.saleId;
+                const replay=await request("/v1/sync",{mutations:[mutation]});
+                const replayResult=replay.mutationResults?.find(r=>r.clientMutationId===mutation.clientMutationId);
+                if(replayResult?.status!=="APPLIED"||replayResult.result?.saleId!==syncedId)
+                  throw new Error("Offline replay did not retain original sale identity");
+                if(await available()!==3)throw new Error("Offline replay duplicated stock deduction");
+                const confirmed=(await request("/v1/sales/"+encodeURIComponent(syncedId)+"?businessId="+encodeURIComponent(businessId),null)).sale;
+                if(confirmed?.status!=="COMPLETED"||confirmed.totalMinor!==1000||
+                   confirmed.payments?.length!==1||confirmed.payments[0].method!=="CASH"||
+                   confirmed.payments[0].amountMinor!==1000||confirmed.payments[0].status!=="SUCCEEDED")
+                  throw new Error("Offline sale payment did not reconcile exactly once");
+                console.log("First-customer offline cash sale, automatic reconnect and idempotent replay verified at "+width);
+              }finally{await fresh.setOffline(false);}
             }finally{await fresh.close();}
           }
 
