@@ -208,6 +208,19 @@ describe("purchase receipt compatibility", () => {
       text:"SELECT payload FROM audit_events WHERE business_id=$1 AND event_type='LEGACY_PURCHASE_RECOVERY_CLAIMED'",values:[businessId]});
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]!.payload.previousError).toEqual(oldError);
+    const obligation=await pool.query<{count:string}>("SELECT COUNT(*)::text AS count FROM supplier_credit_obligations WHERE business_id=$1 AND supplier_id=$2",[businessId,supplierId]);
+    expect(obligation.rows[0]!.count).toBe("1");
+    const movement=await pool.query<{count:string}>("SELECT COUNT(*)::text AS count FROM inventory_movements WHERE business_id=$1 AND item_id=$2",[businessId,itemId]);
+    expect(movement.rows[0]!.count).toBe("1");
+    // Simulate a historical rejection whose purchase ID already exists.
+    // Recovery must not acknowledge that receipt as a successful new posting.
+    const collision={...mutation,clientMutationId:"historical-collision"};
+    expect((await send(collision)).json().mutationResults[0].status).toBe("APPLIED");
+    await pool.query("UPDATE sync_mutations SET status='REJECTED',result_payload=$3::jsonb WHERE business_id=$1 AND client_mutation_id=$2",[businessId,collision.clientMutationId,JSON.stringify(oldError)]);
+    expect((await send(collision)).json().mutationResults[0]).toMatchObject({status:"REJECTED",errorCode:"PURCHASE_REPLAY_CONFLICT"});
+    expect((await send(collision)).json().mutationResults[0]).toMatchObject({status:"REJECTED",errorCode:"PURCHASE_REPLAY_CONFLICT"});
+    const finalCount=await pool.query<{count:string}>("SELECT COUNT(*)::text AS count FROM purchases WHERE business_id=$1",[businessId]);
+    expect(finalCount.rows[0]!.count).toBe("2");
     const revoked={...mutation,clientMutationId:"historical-revoked"};
     await seed(revoked);
     await pool.query("UPDATE business_memberships SET is_active=false WHERE business_id=$1",[businessId]);
