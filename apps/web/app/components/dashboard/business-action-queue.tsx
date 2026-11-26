@@ -11,7 +11,7 @@ import styles from "./business-action-queue.module.css";
 
 const ROLES = new Set(["OWNER", "ADMIN", "MANAGER", "ACCOUNTANT"]);
 export function BusinessActionQueue() {
-  const { session, role, queue } = useWorkspace();
+  const { session, role, queue, account } = useWorkspace();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -24,7 +24,7 @@ export function BusinessActionQueue() {
   const context = session ? `${session.businessId}:${session.branchId}` : "";
   const contextRef = useRef(context);
   contextRef.current = context;
-  const explanationScope = session && allowed && queue.online ? context + ":" + role : "";
+  const explanationScope = session && account && allowed && queue.online ? account.id + ":" + context + ":" + role : "";
   const explanationScopeRef = useRef(explanationScope);
   explanationScopeRef.current = explanationScope;
   useEffect(() => {
@@ -218,7 +218,7 @@ export function BusinessActionQueue() {
                         onClick={() => { void changeState(task, "OPEN"); }}>Reopen</button>
                     ) : null}
                     <button className={styles.taskButton} type="button"
-                      disabled={explanationLoading !== null || !queue.online}
+                      disabled={explanationLoading !== null || !explanationScope}
                       aria-expanded={explanation?.scope === explanationScope && explanation.data.actionId === task.id}
                       onClick={() => { void toggleExplanation(task.id); }}>
                       {explanationLoading === task.id ? "Loading…" : explanation?.scope === explanationScope && explanation.data.actionId === task.id ? "Hide explanation" : "Why this task?"}
