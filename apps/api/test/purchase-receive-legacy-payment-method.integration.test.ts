@@ -192,7 +192,7 @@ describe("purchase receipt compatibility", () => {
     const attempts = await Promise.all([send(mutation),send(mutation)]);
     for(const response of attempts) {
       expect(response.statusCode).toBe(200);
-      expect(["APPLIED","RECEIVED"]).toContain(response.json().mutationResults[0].status);
+      expect(response.json().mutationResults[0].status).toBe("APPLIED");
     }
     const replay=await send(mutation);
     expect(replay.json().mutationResults[0]).toMatchObject({status:"APPLIED",result:{totalMinor:24000}});
@@ -221,6 +221,29 @@ describe("purchase receipt compatibility", () => {
     expect((await send(collision)).json().mutationResults[0]).toMatchObject({status:"REJECTED",errorCode:"PURCHASE_REPLAY_CONFLICT"});
     const finalCount=await pool.query<{count:string}>("SELECT COUNT(*)::text AS count FROM purchases WHERE business_id=$1",[businessId]);
     expect(finalCount.rows[0]!.count).toBe("2");
+    expect((await send({...mutation,payload:{...mutation.payload,lines:[{itemId,quantity:4,costMinor:12000}]}})).json().mutationResults[0]).toMatchObject({status:"REJECTED",errorCode:"PURCHASE_REPLAY_CONFLICT"});
+    // Fault injection on the final acknowledgement, after domain writes:
+    // the receipt, ledger, inventory and audit claim must roll back together.
+    const interrupted={...mutation,clientMutationId:"historical-interrupted"};
+    await seed(interrupted);
+    await pool.query(`CREATE FUNCTION test_legacy_recovery_interrupt() RETURNS trigger LANGUAGE plpgsql AS $
+      BEGIN IF NEW.client_mutation_id='historical-interrupted' AND NEW.status='APPLIED' THEN
+        RAISE EXCEPTION 'synthetic acknowledgement interruption'; END IF; RETURN NEW; END; $`);
+    try {
+      await pool.query("CREATE TRIGGER test_legacy_recovery_interrupt BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION test_legacy_recovery_interrupt()");
+      const failed=await send(interrupted);
+      expect(failed.json().mutationResults[0]).toMatchObject({status:"REJECTED",errorCode:"SYNC_INGEST_FAILED"});
+      const saved=await pool.query("SELECT status,result_payload FROM sync_mutations WHERE business_id=$1 AND client_mutation_id=$2",[businessId,interrupted.clientMutationId]);
+      expect(saved.rows[0]).toMatchObject({status:"REJECTED",result_payload:oldError});
+      const posted=await pool.query("SELECT id FROM purchases WHERE business_id=$1 AND client_mutation_id=$2",[businessId,interrupted.clientMutationId]);
+      expect(posted.rowCount).toBe(0);
+      const claim=await pool.query("SELECT id FROM audit_events WHERE business_id=$1 AND correlation_id=$2",[businessId,interrupted.clientMutationId]);
+      expect(claim.rowCount).toBe(0);
+    }finally{
+      await pool.query("DROP TRIGGER IF EXISTS test_legacy_recovery_interrupt ON sync_mutations");
+      await pool.query("DROP FUNCTION IF EXISTS test_legacy_recovery_interrupt()");
+    }
+    expect((await send(interrupted)).json().mutationResults[0]).toMatchObject({status:"APPLIED",result:{totalMinor:24000}});
     const revoked={...mutation,clientMutationId:"historical-revoked"};
     await seed(revoked);
     await pool.query("UPDATE business_memberships SET status='SUSPENDED' WHERE business_id=$1",[businessId]);
