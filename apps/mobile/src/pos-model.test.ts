@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addCartItem,
+  canAddPosItem,
   buildSaleMutation,
   displayCartTotalMinor,
   filterSellableItems,
@@ -259,5 +260,26 @@ describe("Quick Serve catalog expansion",()=>{
     const page=visibleQuickServeGroups(filterSellableItems(items,"cement"),-1);
     expect(page.totalGroups).toBe(1);
     expect(page.hasMore).toBe(false);
+  });
+});
+
+describe("mobile POS presentation guards", () => {
+  it("blocks unauthorized or busy product selection in both modes", () => {
+    const item = projectSellableItems(catalog, inventory)[0]!;
+    for (const quickServe of [true, false]) {
+      expect(canAddPosItem(item, false, false, quickServe)).toBe(false);
+      expect(canAddPosItem(item, true, true, quickServe)).toBe(false);
+      expect(canAddPosItem(item, true, false, quickServe)).toBe(true);
+    }
+  });
+  it("preserves known-stock Quick Serve restrictions without inventing a Standard POS stock policy", () => {
+    const [item, , service] = projectSellableItems(catalog, inventory);
+    for (const availableStock of [0, -1]) {
+      const soldOut = {...item!, availableStock};
+      expect(canAddPosItem(soldOut, true, false, true)).toBe(false);
+      expect(canAddPosItem(soldOut, true, false, false)).toBe(true);
+    }
+    expect(canAddPosItem({...item!, availableStock:null}, true, false, true)).toBe(true);
+    expect(canAddPosItem(service!, true, false, true)).toBe(true);
   });
 });

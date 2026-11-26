@@ -75,6 +75,13 @@ export function filterSellableItems(items: readonly MobileSellableItem[], query:
   });
 }
 
+/** Presentation guard only. Preserve Quick Serve's existing known-stock check;
+ * Standard POS continues to defer inventory policy to authoritative sale processing. */
+export function canAddPosItem(item: MobileSellableItem, canSell: boolean, checkoutBusy: boolean, quickServe: boolean): boolean {
+  return canSell && !checkoutBusy && !(quickServe && item.trackStock &&
+    item.availableStock !== null && item.availableStock <= 0);
+}
+
 export function addCartItem(cart: readonly MobileCartLine[], item: MobileSellableItem): MobileCartLine[] {
   assertSellable(item);
   const existing = cart.find((line) => line.key === item.key);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
@@ -17,7 +17,7 @@ import type {
   MobileImmediatePaymentMethod,
   MobileSellableItem,
 } from "../pos-model";
-import { filterSellableItems, visibleQuickServeGroups, QUICK_SERVE_PAGE_SIZE } from "../pos-model";
+import { canAddPosItem, displayCartTotalMinor, filterSellableItems, visibleQuickServeGroups, QUICK_SERVE_PAGE_SIZE } from "../pos-model";
 import {PdfDeliveryPanel} from "./PdfDeliveryPanel";
 import type {MobileApiClient,MobileOwnCashShiftStatus} from "../api-client";
 import {PosCashShiftPanel} from "./PosCashShiftPanel";
@@ -63,6 +63,9 @@ export function PosScreen({
   onOwnCashShift,
  }: PosScreenProps) {
   const [quickServe,setQuickServe] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const cartOffset = useRef<number | null>(null);
+  const reviewCart = () => { if (cartOffset.current !== null) scrollRef.current?.scrollTo({ y: cartOffset.current, animated: false }); };
   const [quickLimit,setQuickLimit]=useState(QUICK_SERVE_PAGE_SIZE);
   const catalogScope=snapshot.bootstrap?.status==="READY"?snapshot.bootstrap.business.id+":"+snapshot.bootstrap.branch.id:"";
   useEffect(()=>setQuickLimit(QUICK_SERVE_PAGE_SIZE),[search,catalogScope]);
@@ -78,15 +81,14 @@ export function PosScreen({
   const items = snapshot.commerce?.items ?? [];
   const visibleItems = filterSellableItems(items, search);
   const quickCatalog=quickServe?visibleQuickServeGroups(visibleItems,quickLimit):null;
-  const total = items.length === 0 && snapshot.cart.length > 0
-    ? snapshot.cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0)
-    : cartTotal(snapshot.cart);
+  const total = displayCartTotalMinor(snapshot.cart);
 
   return (
     <View style={styles.page}>
     <ScrollView
+      ref={scrollRef}
       style={styles.scroll}
-      contentContainerStyle={[styles.content,quickServe&&styles.contentQuick]}
+      contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
 
@@ -107,7 +109,7 @@ export function PosScreen({
           disabled={snapshot.checkoutBusy}
           style={[styles.modeOption,quickServe&&styles.modeActive]}
           onPress={()=>{onPayment("CASH");setQuickServe(true);}}>
-          <Text style={[styles.modeLabel,quickServe&&styles.modeLabelActive]}>⚡ Quick Serve</Text>
+          <Text style={[styles.modeLabel,quickServe&&styles.modeLabelActive]}>Quick Serve</Text>
         </Pressable>
       </View>
       {attendantOnly&&getOwnCashShift&&onOwnCashShift?(
@@ -124,20 +126,15 @@ export function PosScreen({
       {quickServe&&snapshot.saleNotice?<SaleNoticeBanner notice={snapshot.saleNotice}/>:null}
       <View style={styles.sectionHeader}>
         <View style={styles.flex}>
-          <Text style={styles.kicker}>{quickServe?"Walk-in food sale":"Fast sale"}</Text>
-          <Text style={styles.sectionTitle}>{quickServe?"Tap a portion price":"Catalog"}</Text>
+          <Text style={styles.sectionTitle}>{quickServe?"Portion prices":"Catalog"}</Text>
           <Text style={styles.sectionCopy}>{commerceFreshness(snapshot)}</Text>
         </View>
-        <Button
-          variant="secondary"
-          size="compact"
-          disabled={snapshot.commerceLoading}
-          loading={snapshot.commerceLoading}
-          accessibilityLabel="Refresh catalog"
-          onPress={onRefresh}
-        >
-          Refresh
-        </Button>
+        <Pressable accessibilityRole="button" accessibilityLabel="Refresh catalog"
+          accessibilityState={{disabled:snapshot.commerceLoading,busy:snapshot.commerceLoading}}
+          disabled={snapshot.commerceLoading} onPress={onRefresh}
+          style={({pressed})=>[styles.iconAction,pressed&&styles.quantityPressed]}>
+          {snapshot.commerceLoading?<ActivityIndicator color={colors.midnight}/>:<Icon name="refresh" size={20} color={colors.midnight}/>}
+        </Pressable>
       </View>
 
       {snapshot.commerce?.warning ? (
@@ -147,6 +144,7 @@ export function PosScreen({
 
       <Input
         label="Find an item"
+        accessibilityLabel="Find an item"
         value={search}
         onChangeText={onSearch}
         placeholder="Search item, SKU or selling unit"
@@ -154,6 +152,7 @@ export function PosScreen({
         autoCorrect={false}
         leftAdornment={<Icon name="search" size={16} color={colors.textSoft} />}
         returnKeyType="search"
+        rightAdornment={search ? <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={()=>onSearch("")} style={styles.clearSearch}><Icon name="close" size={20} color={colors.textMuted}/></Pressable> : undefined}
       />
 
       {!snapshot.commerce && snapshot.commerceLoading ? (
@@ -185,15 +184,16 @@ export function PosScreen({
                   const outOfStock=item.trackStock&&item.availableStock!==null&&
                     item.availableStock<=0;
                   const selected=snapshot.cart.find(line=>line.key===item.key)?.quantity??0;
+                  const disabled=!canAddPosItem(item,canSell,snapshot.checkoutBusy,true);
                   return <Pressable key={item.key} accessibilityRole="button"
                     accessibilityLabel={"Add "+item.name+", "+item.unitLabel+", "+
                       formatMoney(item.priceMinor,currencyCode)}
-                    accessibilityState={{disabled:!canSell||outOfStock||snapshot.checkoutBusy}}
-                    disabled={!canSell||outOfStock||snapshot.checkoutBusy}
+                    accessibilityState={{disabled}}
+                    disabled={disabled}
                     onPress={()=>onAdd(item)}
                     style={({pressed})=>[styles.quickPortion,
                       pressed&&styles.quickPortionPressed,
-                      (!canSell||outOfStock)&&styles.quickDisabled]}>
+                      disabled&&styles.quickDisabled]}>
                     <Text style={styles.quickPrice}>{formatMoney(item.priceMinor,currencyCode)}</Text>
                     <Text style={styles.quickUnit} numberOfLines={2}>{item.unitLabel}</Text>
                     {selected>0?<Text style={styles.quickSelected}>{selected} in cart</Text>:null}
@@ -217,15 +217,15 @@ export function PosScreen({
             item={item}
             currencyCode={currencyCode}
             onAdd={() => onAdd(item)}
+            disabled={!canAddPosItem(item,canSell,snapshot.checkoutBusy,false)}
           />
         ))}
       </View>
       )}
 
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.kicker}>Current sale</Text>
-          <Text style={styles.sectionTitle}>Cart · {snapshot.cart.length}</Text>
+      <View style={styles.sectionHeader} onLayout={event=>{cartOffset.current=event.nativeEvent.layout.y;}}>
+        <View style={styles.flex}>
+          <Text accessibilityRole="header" style={styles.sectionTitle}>Cart · {snapshot.cart.length}</Text>
         </View>
         {snapshot.cart.length > 0 ? (
           <Text style={styles.displayTotal}>{formatMoney(total, currencyCode)}</Text>
@@ -238,7 +238,7 @@ export function PosScreen({
             kind="empty"
             icon="cart"
             title="Cart is empty"
-            description="Tap + Add on a catalog unit above to begin a sale."
+            description="Tap + beside a catalog item to begin a sale."
           />
         </Card>
       ) : (
@@ -251,6 +251,7 @@ export function PosScreen({
               isLast={index === snapshot.cart.length - 1}
               onQuantity={onQuantity}
               onRemove={onRemove}
+              disabled={snapshot.checkoutBusy || !canSell}
             />
           ))}
           <View style={styles.totalRow}>
@@ -264,8 +265,7 @@ export function PosScreen({
       )}
 
       {!quickServe?<Card padding="default" style={styles.paymentCard}>
-        <Text style={styles.kicker}>Payment</Text>
-        <Text style={styles.paymentTitle}>How is the customer paying?</Text>
+        <Text accessibilityRole="header" style={styles.paymentTitle}>Payment method</Text>
         <View style={styles.paymentGrid}>
           {PAYMENT_METHODS.filter(method=>!attendantOnly || method.value==="CASH").map((method) => {
             const active = snapshot.paymentMethod === method.value;
@@ -274,7 +274,8 @@ export function PosScreen({
                 key={method.value}
                 accessibilityRole="button"
                 accessibilityLabel={`Select ${method.label} payment`}
-                accessibilityState={{ selected: active }}
+                accessibilityState={{ selected: active, disabled: snapshot.checkoutBusy || !canSell }}
+                disabled={snapshot.checkoutBusy || !canSell}
                 onPress={() => onPayment(method.value)}
                 style={({ pressed }) => [
                   styles.paymentChip,
@@ -322,17 +323,16 @@ export function PosScreen({
         </Text>
       </Card>:(
         <Text style={styles.quickPaymentHint}>
-          Cash walk-in only in Quick Serve. Switch to Standard POS for
-          MoMo, card or other payment options. Cached totals are estimates
-          until the server processes the sale.
+          Cash only. For MoMo or other payments, use Standard POS. Cached totals are estimates until confirmed.
         </Text>
       )}
     </ScrollView>
     {quickServe?(
       <View style={styles.quickSticky} accessibilityLabel="Quick Serve order total and cash collection">
         <View style={styles.quickStickyTotal}>
-          <Text style={styles.quickTotalCaption}>Estimated cash total</Text>
-          <Text style={styles.quickTotal}>{formatMoney(total,currencyCode)}</Text>
+          <View style={styles.flex}><Text style={styles.quickTotalCaption}>Estimated cash total</Text>
+          <Text style={styles.quickTotal}>{formatMoney(total,currencyCode)}</Text></View>
+          <Button variant="secondary" accessibilityLabel="Review current cart" disabled={!snapshot.cart.length} onPress={reviewCart}>Cart · {snapshot.cart.length}</Button>
         </View>
         <Button variant="gold" fullWidth
           disabled={!canSell||!canSubmitMobileSale(snapshot)||
@@ -346,6 +346,13 @@ export function PosScreen({
           {snapshot.syncing?"Wait for synchronization to finish. Your cart is preserved.":"Records locally first. Sync status is shown after each sale."}
         </Text>
       </View>
+    ):snapshot.cart.length>0?(
+      <View style={styles.quickSticky}>
+        <View style={styles.quickStickyTotal}>
+          <View style={styles.flex}><Text style={styles.quickTotalCaption}>Estimated total</Text><Text style={styles.quickTotal}>{formatMoney(total,currencyCode)}</Text></View>
+          <Button variant="gold" accessibilityLabel="Review current cart" onPress={reviewCart}>Cart · {snapshot.cart.length}</Button>
+        </View>
+      </View>
     ):null}
     </View>
   );
@@ -355,10 +362,12 @@ function CatalogCard({
   item,
   currencyCode,
   onAdd,
+  disabled,
 }: {
   item: MobileSellableItem;
   currencyCode: string;
   onAdd: () => void;
+  disabled: boolean;
 }) {
   const stockText = item.trackStock
     ? item.availableStock === null
@@ -368,24 +377,21 @@ function CatalogCard({
   return (
     <Card padding="compact" style={styles.catalogCard}>
       <View style={styles.catalogMain}>
-        <Text style={styles.catalogName} numberOfLines={2}>{item.name}</Text>
-        <Text style={styles.catalogMeta} numberOfLines={1}>
+        <Text style={styles.catalogName}>{item.name}</Text>
+        <Text style={styles.catalogMeta}>
           {item.sku ? `${item.sku} · ` : ""}{item.unitLabel}
         </Text>
-        <Text style={styles.stockText} numberOfLines={1}>{stockText}</Text>
+        <Text style={styles.stockText}>{stockText}</Text>
       </View>
       <View style={styles.catalogAction}>
-        <Text style={styles.catalogPrice} numberOfLines={1}>
+        <Text style={styles.catalogPrice}>
           {formatMoney(item.priceMinor, currencyCode)}
         </Text>
-        <Button
-          variant="secondary"
-          size="compact"
-          accessibilityLabel={`Add ${item.name} to cart`}
-          onPress={onAdd}
-        >
-          + Add
-        </Button>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Add ${item.name}, ${item.unitLabel} to cart`}
+          accessibilityState={{disabled}} disabled={disabled} onPress={onAdd}
+          style={({pressed})=>[styles.iconAction,styles.addAction,pressed&&styles.quantityPressed,disabled&&styles.quickDisabled]}>
+          <Icon name="plus" size={22} color={colors.midnight}/>
+        </Pressable>
       </View>
     </Card>
   );
@@ -397,20 +403,22 @@ function CartRow({
   isLast,
   onQuantity,
   onRemove,
+  disabled,
 }: {
   line: MobileCartLine;
   currencyCode: string;
   isLast: boolean;
   onQuantity: (key: string, quantity: number) => void;
   onRemove: (key: string) => void;
+  disabled: boolean;
 }) {
   const decrease = () =>
     line.quantity <= 1 ? onRemove(line.key) : onQuantity(line.key, line.quantity - 1);
   return (
     <View style={[styles.cartRow, isLast && styles.cartRowLast]}>
       <View style={styles.cartInfo}>
-        <Text style={styles.cartName} numberOfLines={2}>{line.name}</Text>
-        <Text style={styles.cartMeta} numberOfLines={1}>
+        <Text style={styles.cartName}>{line.name}</Text>
+        <Text style={styles.cartMeta}>
           {line.unitLabel} · {formatMoney(line.priceMinor, currencyCode)}
         </Text>
       </View>
@@ -418,6 +426,8 @@ function CartRow({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Decrease ${line.name} quantity`}
+          accessibilityState={{disabled}}
+          disabled={disabled}
           onPress={decrease}
           style={({ pressed }) => [styles.quantityButton, pressed && styles.quantityPressed]}
         >
@@ -427,6 +437,8 @@ function CartRow({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Increase ${line.name} quantity`}
+          accessibilityState={{disabled}}
+          disabled={disabled}
           onPress={() => onQuantity(line.key, line.quantity + 1)}
           style={({ pressed }) => [styles.quantityButton, pressed && styles.quantityPressed]}
         >
@@ -436,7 +448,9 @@ function CartRow({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Remove ${line.name} from cart`}
-        onPress={() => onRemove(line.key)}
+        accessibilityState={{disabled}}
+          disabled={disabled}
+          onPress={() => onRemove(line.key)}
         style={({ pressed }) => [styles.removeButton, pressed && styles.removePressed]}
       >
         <Text style={styles.removeButtonText}>×</Text>
@@ -452,30 +466,28 @@ function SaleNoticeBanner({ notice }: { notice: MobileSaleNotice }) {
   return <Banner tone={tone} message={notice.message} title="Sale result" />;
 }
 
-function cartTotal(cart: ReadonlyArray<MobileCartLine>): number {
-  return cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0);
-}
-
 const styles = StyleSheet.create({
   page: {flex:1,backgroundColor:colors.canvas},
   scroll: {flex:1},
-  contentQuick: {paddingBottom:spacing.s6+85},
   modeRow: {flexDirection:"row",gap:spacing.s2},
   modeOption: {flex:1,alignItems:"center",justifyContent:"center",
     borderRadius:radius.sm,borderWidth:1,borderColor:colors.border,
-    backgroundColor:colors.surface,minHeight:touch.compactTarget,paddingHorizontal:spacing.s2},
+    backgroundColor:colors.surface,minHeight:touch.minTarget,paddingHorizontal:spacing.s2,paddingVertical:spacing.s2},
   modeActive: {backgroundColor:colors.midnight,borderColor:colors.midnight},
-  modeLabel: {fontWeight:typography.weightBlack,color:colors.textStrong},
+  modeLabel: {fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.textStrong,textAlign:"center"},
+  iconAction: {width:touch.minTarget,height:touch.minTarget,borderRadius:radius.sm,borderWidth:1,borderColor:colors.border,backgroundColor:colors.surface,alignItems:"center",justifyContent:"center"},
+  addAction: {backgroundColor:colors.goldSoft,borderColor:colors.goldBorder},
+  clearSearch: {width:touch.iconTarget,height:touch.iconTarget,alignItems:"center",justifyContent:"center"},
   modeLabelActive: {color:colors.textInverse},
   quickFoodList: {gap:spacing.s2},
-  quickFoodCard: {gap:spacing.s3},
+  quickFoodCard: {gap:spacing.s2},
   quickFoodName: {fontSize:typography.body,fontWeight:typography.weightBlack,
     color:colors.textStrong},
   quickPortions: {flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},
-  quickPortion: {flexGrow:1,minWidth:105,minHeight:touch.compactTarget+22,
+  quickPortion: {flexGrow:1,flexBasis:100,minWidth:100,minHeight:touch.minTarget,
     borderWidth:1,borderColor:colors.border,borderRadius:radius.sm,
     backgroundColor:colors.surfaceSoft,alignItems:"flex-start",
-    justifyContent:"center",padding:spacing.s3,gap:3},
+    justifyContent:"center",padding:spacing.s2,gap:3},
   quickPortionPressed: {backgroundColor:colors.border},
   quickDisabled: {opacity:0.45},
   quickPrice: {fontSize:typography.body+2,fontWeight:typography.weightBlack,
@@ -489,7 +501,7 @@ const styles = StyleSheet.create({
     paddingVertical:spacing.s3,borderTopWidth:1,borderTopColor:colors.border,
     gap:spacing.s2},
   quickStickyTotal: {flexDirection:"row",justifyContent:"space-between",
-    alignItems:"center",gap:spacing.s3},
+    alignItems:"center",flexWrap:"wrap",gap:spacing.s2},
   quickTotalCaption: {fontSize:typography.supporting,color:colors.textMuted,
     fontWeight:typography.weightBold},
   quickTotal: {fontSize:typography.section,fontWeight:typography.weightBlack,
@@ -497,26 +509,19 @@ const styles = StyleSheet.create({
   quickStickyNote: {textAlign:"center",fontSize:typography.meta,
     color:colors.textMuted},
   content: {
-    paddingTop: spacing.s4,
+    paddingTop: spacing.s3,
     flexGrow: 1,
     backgroundColor: colors.canvas,
     paddingHorizontal: spacing.s4,
-    paddingBottom: spacing.s6 + 4,
-    gap: spacing.s4,
+    paddingBottom: spacing.s4,
+    gap: spacing.s3,
   },
-  flex: { flex: 1 },
+  flex: { flex: 1, minWidth: 0 },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
     gap: spacing.s3,
-  },
-  kicker: {
-    color: colors.goldStrong,
-    fontSize: typography.meta,
-    fontWeight: typography.weightBlack,
-    letterSpacing: typography.kickerTracking,
-    textTransform: "uppercase",
   },
   sectionTitle: {
     color: colors.textStrong,
@@ -541,6 +546,7 @@ const styles = StyleSheet.create({
   },
   catalogMain: {
     flex: 1,
+    minWidth: 0,
     gap: 3,
   },
   catalogName: {
@@ -560,10 +566,12 @@ const styles = StyleSheet.create({
     fontWeight: typography.weightBold,
   },
   catalogAction: {
+    maxWidth: "45%",
     alignItems: "flex-end",
     gap: spacing.s2,
   },
   catalogPrice: {
+    textAlign: "right",
     color: colors.textStrong,
     fontSize: typography.supporting,
     fontWeight: typography.weightBlack,
@@ -575,6 +583,7 @@ const styles = StyleSheet.create({
   },
   cartRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     gap: spacing.s2 + 2,
     padding: spacing.s3,
@@ -586,6 +595,8 @@ const styles = StyleSheet.create({
   },
   cartInfo: {
     flex: 1,
+    flexBasis: 120,
+    minWidth: 100,
     gap: 2,
   },
   cartName: {
@@ -604,8 +615,8 @@ const styles = StyleSheet.create({
     gap: spacing.s1 + 2,
   },
   quantityButton: {
-    width: 32,
-    height: 32,
+    width: touch.iconTarget,
+    height: touch.iconTarget,
     borderRadius: radius.sm,
     backgroundColor: colors.surfaceSoft,
     borderWidth: 1,
@@ -629,8 +640,8 @@ const styles = StyleSheet.create({
     fontWeight: typography.weightBlack,
   },
   removeButton: {
-    width: 30,
-    height: 30,
+    width: touch.iconTarget,
+    height: touch.iconTarget,
     borderRadius: radius.sm,
     backgroundColor: colors.dangerSoft,
     borderWidth: 1,
@@ -685,7 +696,7 @@ const styles = StyleSheet.create({
     gap: spacing.s2,
   },
   paymentChip: {
-    minHeight: touch.compactTarget,
+    minHeight: touch.minTarget,
     minWidth: 72,
     borderRadius: radius.sm,
     borderWidth: 1,
