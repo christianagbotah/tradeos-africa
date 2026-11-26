@@ -27,6 +27,8 @@ export interface PurchaseReceiveContext {
   branchId: string;
   clientMutationId: string;
   occurredAt: string;
+  /** Internal recovery claims must never acknowledge an unrelated existing receipt. */
+  requireNewReceipt?: boolean;
 }
 
 export interface PurchaseReceiveResult {
@@ -77,6 +79,7 @@ export async function applyPurchaseReceiveMutation(
     );
     const replay = prior.rows[0];
     if (replay) {
+      if (context.requireNewReceipt) throw new PurchaseMutationError("Historical recovery requires review because a receipt already exists", "PURCHASE_REPLAY_CONFLICT");
       if (replay.branch_id !== context.branchId) throw new PurchaseMutationError("Purchase belongs to another branch", "BRANCH_MISMATCH");
       if ((replay.purchase_order_id ?? null) !== (payload.purchaseOrderId ?? null)) throw new PurchaseMutationError("Receipt replay references a different supplier order", "PURCHASE_REPLAY_CONFLICT");
       if (payload.purchaseOrderId) {
