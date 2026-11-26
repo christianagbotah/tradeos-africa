@@ -79,7 +79,13 @@ export type FlushOptions = {
 export class OfflineMutationQueue {
   // Bounded process-local evidence, recorded only after the APPLIED result
   // and durable queue write. Absence from pending is not proof of posting.
-  private readonly acknowledged=new Map<string,{businessId:string;branchId:string|undefined;completedSaleId?:string}>();
+  private readonly acknowledged=new Map<string,{businessId:string;branchId:string|undefined;completedSaleId?:string;completedSaleTotalMinor?:number}>();
+  getCompletedSale(id:string,businessId:string,branchId:string|undefined):{saleId:string;totalMinor:number}|undefined{
+    const evidence=this.acknowledged.get(id);
+    if(evidence?.businessId!==businessId||evidence.branchId!==branchId||
+      !evidence.completedSaleId||evidence.completedSaleTotalMinor===undefined)return undefined;
+    return {saleId:evidence.completedSaleId,totalMinor:evidence.completedSaleTotalMinor};
+  }
   getCompletedSaleId(id:string,businessId:string,branchId:string|undefined):string|undefined{
     const evidence=this.acknowledged.get(id);
     return evidence?.businessId===businessId&&evidence.branchId===branchId?evidence.completedSaleId:undefined;
@@ -206,7 +212,11 @@ export class OfflineMutationQueue {
         const sale=result&&typeof result==="object"&&!Array.isArray(result)?result as Record<string,unknown>:null;
         const completedSaleId=m.mutationType==="SALE_CREATE"&&sale?.status==="COMPLETED"&&typeof sale.saleId==="string"&&
           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sale.saleId)?sale.saleId:undefined;
-        this.acknowledged.set(m.clientMutationId,{businessId:m.businessId,branchId:m.branchId,...(completedSaleId?{completedSaleId}:{})});
+        const completedSaleTotalMinor=completedSaleId&&typeof sale?.totalMinor==="number"&&
+          Number.isSafeInteger(sale.totalMinor)&&sale.totalMinor>=0?sale.totalMinor:undefined;
+        this.acknowledged.set(m.clientMutationId,{businessId:m.businessId,branchId:m.branchId,
+          ...(completedSaleId?{completedSaleId}:{}),
+          ...(completedSaleTotalMinor!==undefined?{completedSaleTotalMinor}:{})});
       }
       while(this.acknowledged.size>1000){const oldest=this.acknowledged.keys().next().value;if(oldest===undefined)break;this.acknowledged.delete(oldest);}
       return {
