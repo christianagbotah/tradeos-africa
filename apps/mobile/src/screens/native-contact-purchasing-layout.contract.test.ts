@@ -1,6 +1,7 @@
 import {readFileSync} from "node:fs";
+import {resolve} from "node:path";
 import {describe,expect,it} from "vitest";
-const read=(name:string)=>readFileSync(new URL("./"+name,import.meta.url),"utf8");
+const read=(name:string)=>readFileSync(resolve(__dirname,name),"utf8");
 const customer=read("CustomersScreen.tsx"), supplier=read("SuppliersScreen.tsx"), orders=read("PurchaseOrdersScreen.tsx");
 describe("native contact and purchasing layout contracts",()=>{
  it("retains authorized customer management and uncertainty handling",()=>{
