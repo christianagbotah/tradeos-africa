@@ -213,6 +213,35 @@ jobs:
           console.log("Business:", businessId, "Branch:", branchId);
           SEED
 
+      # Isolated fictional programme accounts. Privileged provisioning is
+      # intentionally not available as a public API. This SQL runs on hosted QA only.
+      - name: Seed synthetic programme organisations and invitations
+        env:
+          PGPASSWORD: tradeos
+        run: |
+          node --input-type=module << 'PROGRAMME_SEED'
+          for (const width of [390,1280]) {
+            for (const role of ["admin","participant","outsider"]) {
+              const email="programme-"+role+"-"+width+"@tradeos.test";
+              const r=await fetch("http://127.0.0.1:4000/v1/auth/register",{
+                method:"POST",headers:{"content-type":"application/json"},
+                body:JSON.stringify({displayName:"Fictional "+role,email,password:"Programme-QA-1234!",
+                  platform:"WEB",deviceKey:"programme-qa-"+role+"-"+width,appVersion:"qa"})
+              });
+              if(!r.ok)throw Error("Synthetic programme registration failed");
+            }
+          }
+          PROGRAMME_SEED
+          psql -h localhost -U tradeos -d tradeos_qa -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO programme_organisations(name) VALUES ('Skills QA 390'),('Skills QA 1280');
+          INSERT INTO programme_memberships(organisation_id,user_id,role)
+          SELECT o.id,u.id,CASE WHEN u.email LIKE 'programme-admin-%' THEN 'ORG_ADMIN' ELSE 'PARTICIPANT' END
+          FROM programme_organisations o JOIN app_users u ON
+            u.email IN ('programme-admin-'||split_part(o.name,' ',3)||'@tradeos.test',
+                        'programme-participant-'||split_part(o.name,' ',3)||'@tradeos.test')
+          WHERE o.name IN ('Skills QA 390','Skills QA 1280');
+          SQL
+
       # API_BASE_URL is EXPLICIT: web installs /v1 + /api rewrites against the
       # running API. Without it, next.config.ts installs no rewrites at all —
       # production never silently assumes localhost.
@@ -276,6 +305,73 @@ jobs:
           }
 
           const browser = await chromium.launch();
+
+          // Actual programme-only users must not be forced into merchant onboarding.
+          for(const width of [390,1280]){
+            const ctx=await browser.newContext({viewport:{width,height:900}});
+            const p=await ctx.newPage();
+            const signIn=async(role)=>{
+              await p.goto(WEB+"/programmes",{waitUntil:"domcontentloaded"});
+              await p.getByLabel("Email or phone").fill("programme-"+role+"-"+width+"@tradeos.test");
+              await p.getByLabel("Password",{exact:true}).fill("Programme-QA-1234!");
+              await p.getByRole("button",{name:"Sign in",exact:true}).click();
+            };
+            const tab=async(name)=>p.getByRole("navigation",{name:"Programme sections"}).getByRole("button",{name,exact:true}).click();
+            const assertFit=async()=>{
+              if(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))
+                throw Error("Programme page horizontal overflow "+width);
+            };
+            try{
+              await signIn("admin");
+              await p.getByRole("heading",{name:"Skills QA "+width,exact:true}).waitFor();
+              await assertFit();
+              await tab("Programmes");
+              await p.getByLabel("Programme name").fill("Enterprise foundations");
+              await p.getByLabel("Objective").fill("Fictional practical training");
+              await p.getByRole("button",{name:"Create programme",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Programme created."}).waitFor();
+              await tab("Cohorts");
+              await p.getByLabel("Programme",{exact:true}).selectOption({label:"Enterprise foundations"});
+              await p.getByLabel("Cohort name").fill("Cohort One");
+              await p.getByLabel("Capacity").fill("5");
+              await p.getByRole("button",{name:"Create cohort",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Cohort created."}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-cohorts-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("participant");
+              await p.getByLabel("Display name").fill("Fictional Apprentice");
+              await p.getByLabel("I am an adult.").check();
+              await p.getByLabel("I agree to participate and share this profile with my programme coordinators.").check();
+              await p.getByRole("button",{name:"Confirm participation",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Participation consent recorded."}).waitFor();
+              await assertFit();
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("admin");
+              await p.getByRole("heading",{name:"Skills QA "+width,exact:true}).waitFor();
+              await tab("Enrolments");
+              await p.getByLabel("Cohort",{exact:true}).selectOption({label:"Cohort One"});
+              await p.getByLabel("Beneficiary",{exact:true}).selectOption({label:"Fictional Apprentice"});
+              await p.getByRole("button",{name:"Enrol participant",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Participant enrolled."}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-enrolments-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("participant");
+              await p.getByText("Enterprise foundations",{exact:true}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-participant-"+width+".png",fullPage:true});screenshotCount++;
+              p.once("dialog",d=>d.accept());
+              await p.getByRole("button",{name:"Withdraw consent",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Consent withdrawn."}).waitFor();
+              await p.getByText("No active enrolments.",{exact:true}).waitFor();
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("outsider");
+              await p.getByRole("heading",{name:"No programme access",exact:true}).waitFor();
+              await assertFit();
+              console.log("Programme-only sign-in, programme/cohort creation, participant consent, enrolment, withdrawal and outsider denial verified at "+width);
+            }finally{await ctx.close();}
+          }
 
           // First-customer launch acceptance: no API-seeded account or
           // business. Complete public registration and business setup through
