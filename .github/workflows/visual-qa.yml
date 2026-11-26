@@ -351,6 +351,64 @@ jobs:
               if(JSON.stringify(await readScope(page))!==JSON.stringify(original))
                 throw new Error("Returning merchant did not resume the same business and branch");
               console.log("First-customer registration, onboarding, reload and fresh sign-in verified at "+width);
+              // Seed only one catalog item through the new owner's authorized
+              // API; the sale itself must be completed through the real UI.
+              // No external gateway or customer communication is invoked.
+              const itemName="Launch Test Item "+width;
+              const request=async(path,body)=>{
+                const result=await page.evaluate(async({path,body})=>{
+                  const session=JSON.parse(localStorage.getItem("tradeos.web.session.v1"));
+                  const response=await fetch(path,{method:body===null?"GET":"POST",
+                    headers:{Authorization:"Bearer "+session.accessToken,"Content-Type":"application/json"},
+                    ...(body===null?{}:{body:JSON.stringify(body)}),cache:"no-store"});
+                  return {status:response.status,data:await response.json()};
+                },{path,body});
+                if(result.status<200||result.status>=300)throw new Error("First-sale API check failed: "+result.status+" "+path);
+                return result.data;
+              };
+              const {businessId,branchId}=original;
+              const created=await request("/v1/catalog/items",{businessId,name:itemName,sku:"LAUNCH-"+width,
+                kind:"PRODUCT",stockUnitCode:"piece",trackStock:true,
+                units:[{code:"piece",label:"piece",canPurchase:true,canSell:true,canStock:true,defaultSalePriceMinor:1000}],
+                openingStock:{branchId,quantity:5}});
+              const itemId=created.item?.id;
+              if(!itemId)throw new Error("First-sale catalog creation did not return an item");
+              const scope="?businessId="+encodeURIComponent(businessId)+"&branchId="+encodeURIComponent(branchId);
+              const available=async()=>Number((await request("/v1/inventory"+scope,null)).items.find(i=>i.id===itemId)?.available);
+              if(await available()!==5)throw new Error("First-sale opening stock mismatch");
+              await page.goto(WEB+"/sell",{waitUntil:"domcontentloaded"});
+              await page.getByRole("button",{name:"Add "+itemName+" (piece) to cart",exact:true}).click();
+              const charge=width<=768?page.locator(".tos-charge-bar__charge"):page.locator("aside button:has-text('Charge')");
+              await charge.click();
+              const checkout=page.getByRole("dialog",{name:"Checkout",exact:true});
+              await checkout.getByRole("group",{name:"Payment method",exact:true}).getByRole("button",{name:"Cash",exact:true}).click();
+              await checkout.getByRole("group",{name:"Quick cash amounts",exact:true}).getByRole("button").first().click();
+              const submitted=page.waitForResponse(r=>r.url().endsWith("/v1/sync")&&r.request().method()==="POST"&&
+                r.request().postDataJSON()?.mutations?.some(m=>m.mutationType==="SALE_CREATE"));
+              await checkout.getByRole("button",{name:/^Charge /}).click();
+              const saleResponse=await submitted;
+              const response=await saleResponse.json();
+              const result=response.mutationResults?.[0];
+              const saleId=result?.result?.saleId;
+              if(!saleResponse.ok()||result?.status!=="APPLIED"||!saleId||result.result.totalMinor!==1000)
+                throw new Error("First cash sale was not applied at expected total");
+              await checkout.locator(".tos-success__title").filter({hasText:/^Sale complete$/}).waitFor({timeout:20000});
+              if(await available()!==4)throw new Error("First sale did not reduce opening stock by exactly one");
+              const sale=(await request("/v1/sales/"+encodeURIComponent(saleId)+"?businessId="+encodeURIComponent(businessId),null)).sale;
+              if(sale?.status!=="COMPLETED"||sale.totalMinor!==1000||sale.lines?.length!==1||
+                 Number(sale.lines[0].quantity)!==1||sale.payments?.length!==1||
+                 sale.payments[0].method!=="CASH"||sale.payments[0].amountMinor!==1000||
+                 sale.payments[0].status!=="SUCCEEDED")
+                throw new Error("Posted sale and cash payment did not reconcile");
+              await page.screenshot({path:`${EVIDENCE}/first-customer-sale-${width}.png`});
+              screenshotCount++;
+              await page.goto(WEB+"/sales/receipt/"+encodeURIComponent(saleId),{waitUntil:"domcontentloaded"});
+              const receipt=page.locator("#tos-verified-receipt");
+              await receipt.waitFor({timeout:20000});
+              if(!(await receipt.innerText()).includes(itemName))throw new Error("Verified receipt omitted sold item");
+              await page.screenshot({path:`${EVIDENCE}/first-customer-receipt-${width}.png`,fullPage:true});
+              screenshotCount++;
+              console.log("First-customer cash sale, stock decrement, payment and verified receipt passed at "+width);
             }finally{await fresh.close();}
           }
 
