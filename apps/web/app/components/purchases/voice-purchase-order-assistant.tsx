@@ -156,10 +156,10 @@ export function VoicePurchaseOrderAssistant({
     setCorrection(null);setCorrectionError(null);setReviewed(false);
   }
   function addItem(item:CatalogItem){
-    if(rows.length>=50)return;
+    if(rows.length>=50||rows.some(row=>row.itemId===item.id)){setError("Each product can appear only once. Adjust the existing line instead.");return;}
     const unit=purchasableUnits(item)[0];
     if(!unit)return;
-    setRows(prev=>[...prev,{
+    setRows(prev=>prev.length>=50||prev.some(row=>row.itemId===item.id)?prev:[...prev,{
       key:crypto.randomUUID(),itemId:item.id,purchaseUnitCode:unit.code,
       quantity:"1",costMinor:null,confidence:"manual",
       suggestedCostMinor:null,suggestedCostPhrase:null,
@@ -276,7 +276,8 @@ export function VoicePurchaseOrderAssistant({
     setReplacementId("");setUnitCode("");setCorrectionSupplierId("");
     setReviewed(false);
   }
-  const valid=rows.length>0&&rows.length<=50&&Boolean(supplierId)&&
+  const duplicateItems=new Set(rows.map(row=>row.itemId)).size!==rows.length;
+  const valid=rows.length>0&&rows.length<=50&&!duplicateItems&&Boolean(supplierId)&&
     suppliers.some(s=>s.id===supplierId&&s.active)&&rows.every(row=>{
       const item=byId.get(row.itemId);
       const quantity=Number(row.quantity);
@@ -449,6 +450,7 @@ export function VoicePurchaseOrderAssistant({
           <div className={styles.listHeading}>
             <h4>Items and supplier unit costs</h4><span>{rows.length}/50</span>
           </div>
+          {duplicateItems?<p role="alert">Each product can appear only once. Remove the extra line or select a different product.</p>:null}
           <div className={styles.rows}>
             {rows.map((row,index)=>{
               const item=byId.get(row.itemId);
@@ -476,7 +478,7 @@ export function VoicePurchaseOrderAssistant({
                         });
                       }}>
                       <option value="">Choose an item</option>
-                      {items.map(i=><option key={i.id} value={i.id}>
+                      {items.filter(i=>i.id===row.itemId||!rows.some(other=>other.key!==row.key&&other.itemId===i.id)).map(i=><option key={i.id} value={i.id}>
                         {i.name} · {i.sku||"No SKU"}
                       </option>)}
                     </select>

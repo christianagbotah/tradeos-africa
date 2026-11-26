@@ -15,6 +15,8 @@ describe("native procurement",()=>{
  it("separates order drafting and issuance permissions",()=>{
   expect(canWritePurchaseOrders("INVENTORY")).toBe(true);expect(canControlPurchaseOrders("INVENTORY")).toBe(false);expect(canControlPurchaseOrders("MANAGER")).toBe(true);
   const s={id:"s",active:true} as MobileSupplier;const i={id:"i",businessId:"b",active:true,trackStock:true,kind:"PRODUCT",units:[{code:"box",canPurchase:true}]} as MobileCatalogItem;
+  const line={itemId:"i",purchaseUnitCode:"box",quantity:"2",cost:"10"};
+  expect(()=>orderInput({requestId:"r",supplierId:"s",notes:"",delivery:"",lines:[line,line]},"b","br",[s],[i])).toThrow(/only once/);
   expect(orderInput({requestId:"r",supplierId:"s",notes:"",delivery:"2027-01-01",lines:[{itemId:"i",purchaseUnitCode:"box",quantity:"2",cost:"10"}]},"b","br",[s],[i])).toMatchObject({expectedDeliveryDate:"2027-01-01",lines:[{unitCostMinor:1000,quantity:2}]});
  });
 });

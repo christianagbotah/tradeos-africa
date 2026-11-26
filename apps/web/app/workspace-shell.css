@@ -9336,3 +9336,71 @@
   border: 1px solid var(--tos-border, #d4dfe9);
   border-radius: 14px;
 }
+
+/* Compact POS cart and cashier tender selection. */
+.tos-pos__cart-body{justify-content:flex-start;align-content:start;gap:6px;padding:8px;overscroll-behavior-y:contain}
+.tos-pos__cart-body>.tos-cart-line{flex:0 0 auto;gap:4px;padding:8px}
+.tos-cart-line__main{gap:1px}
+.tos-cart-line__qty{padding:1px;gap:2px}
+.tos-cart-line__qty-btn{width:44px;height:44px;min-width:44px;min-height:44px}
+.tos-cart-line__qty-val{min-width:28px}
+.tos-pos__cart-foot{position:sticky;bottom:0;z-index:1;flex-shrink:0}
+/* Standard desktop POS owns the available workspace, not the full viewport.
+   Header, mode switch and (where present) attendant shift consume natural
+   height; only the remaining grid row scrolls. Other routes and Quick Serve
+   retain normal document scrolling. Short screens use a document fallback. */
+@media (min-width: 769px) {
+  .tos-pos__cart-wrap {
+    align-self: stretch;
+    min-height: 0;
+  }
+  .tos-page--standard-pos .tos-pos {
+    height: auto;
+    min-height: 420px;
+  }
+}
+@media (min-width: 769px) and (min-height: 700px) {
+  .tos-main[data-view="sell"]:has(.tos-page--standard-pos:not(.tos-page--attendant-pos)) {
+    height: 100dvh;
+    min-height: 0;
+  }
+  .tos-main[data-view="sell"]:has(.tos-page--standard-pos:not(.tos-page--attendant-pos)) > .tos-topbar {
+    flex: 0 0 var(--tos-topbar-height);
+  }
+  .tos-main[data-view="sell"]:has(.tos-page--standard-pos:not(.tos-page--attendant-pos)) > .tos-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding-bottom: var(--tos-space-4);
+  }
+  .tos-page--standard-pos:not(.tos-page--attendant-pos) {
+    flex: 1 1 0;
+    min-height: 0;
+    gap: var(--tos-space-3);
+  }
+  .tos-page--standard-pos:not(.tos-page--attendant-pos) > :not(.tos-pos) {
+    flex-shrink: 0;
+  }
+  .tos-page--standard-pos:not(.tos-page--attendant-pos) .tos-pos {
+    flex: 1 1 0;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .tos-page--standard-pos:not(.tos-page--attendant-pos) .tos-pos__browser {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    padding-bottom: 4px;
+  }
+  .tos-page--standard-pos:not(.tos-page--attendant-pos) .tos-pos__cart-wrap,
+  .tos-page--standard-pos:not(.tos-page--attendant-pos) .tos-pos__cart {
+    height: 100%;
+    min-height: 0;
+  }
+}
+.tos-pay-cards--primary{grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:8px}
+.tos-pay-cards--primary .tos-pay-card{flex-direction:column;justify-content:center;text-align:center;gap:4px;padding:8px 4px;min-width:0;cursor:pointer}
+.tos-pay-cards--primary .tos-pay-card__icon-wrap{width:30px;height:30px}
+.tos-pay-cards--primary .tos-pay-card__label{font-size:13px;white-space:nowrap}
+.tos-checkout-approvals{display:grid;gap:12px;padding:12px;min-width:0}
+.tos-checkout-approval-link{display:inline-flex;align-items:center;justify-self:start;min-height:40px;padding:8px 12px;border:1px solid var(--tos-border-strong);border-radius:8px;color:var(--tos-text-strong);font-weight:700;font-size:13px;text-decoration:underline;cursor:pointer}
+.tos-checkout-approval-link:focus-visible{outline:2px solid var(--tos-focus);outline-offset:2px}

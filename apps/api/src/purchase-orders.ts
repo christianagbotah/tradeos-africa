@@ -86,6 +86,8 @@ function validate(input:PurchaseOrderInput|undefined){
       throw new PurchaseOrderError("Unit cost must be a nonnegative integer in pesewas");
     return {itemId,unit,quantity:qty,unitCostMinor:cost};
   });
+  if(new Set(lines.map(line=>line.itemId)).size!==lines.length)
+    throw new PurchaseOrderError("Each product can appear only once in a purchase order");
   return {businessId,branchId,supplierId,requestId,notes,expectedDeliveryDate,lines};
 }
 function view(row:OrderRow){

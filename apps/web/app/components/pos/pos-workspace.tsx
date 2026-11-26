@@ -120,7 +120,7 @@ export function PosWorkspace() {
   if (!session) return null;
 
   return (
-    <div className="tos-page">
+    <div className={`tos-page${quickMode ? "" : " tos-page--standard-pos"}${cashOnly ? " tos-page--attendant-pos" : ""}`}>
       <header className="tos-page__head">
         <div className="tos-page__heading">
           <span className="tos-page__eyebrow">TradeOS · Point of sale</span>

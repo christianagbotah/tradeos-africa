@@ -177,7 +177,7 @@ export function PurchaseOrderDraftEditor({order,onClose,onSaved}:Props){
               <option value="">Choose product</option>
               {!item&&line.itemId?<option value={line.itemId}>
                 Current product unavailable — replace</option>:null}
-              {items.map(i=><option key={i.id} value={i.id}>
+              {items.filter(i=>i.id===line.itemId||!lines.some(other=>other.key!==line.key&&other.itemId===i.id)).map(i=><option key={i.id} value={i.id}>
                 {i.name}{i.sku?` · ${i.sku}`:""}</option>)}
             </select>
             <select aria-label={`Edit line ${index+1} purchasing unit`}
@@ -214,8 +214,8 @@ export function PurchaseOrderDraftEditor({order,onClose,onSaved}:Props){
       </div>
     </div>
     <button type="button" className={styles.secondary}
-      disabled={!allowed||lines.length>=50}
-      onClick={()=>{setLines(prev=>[...prev,makeLine()]);setError(null);}}>
+      disabled={!allowed||lines.length>=50||lines.some(line=>!line.itemId)||items.every(item=>lines.some(line=>line.itemId===item.id))}
+      onClick={()=>{setLines(prev=>prev.length>=50||prev.some(line=>!line.itemId)||items.every(item=>prev.some(line=>line.itemId===item.id))?prev:[...prev,makeLine()]);setError(null);}}>
       + Add item
     </button>
     <label className={styles.field}>Notes / delivery terms
