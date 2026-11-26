@@ -151,7 +151,7 @@ describe("purchase receipt compatibility", () => {
     const businessId = onboard.json().business.id as string;
     const branchId = onboard.json().branch.id as string;
     const actor = (await pool.query<{staff_id:string}>(
-      "SELECT staff_id FROM business_memberships WHERE business_id=$1 AND is_active=true LIMIT 1", [businessId]
+      "SELECT staff_id FROM business_memberships WHERE business_id=$1 AND status='ACTIVE' LIMIT 1", [businessId]
     )).rows[0]!.staff_id;
     expect(actor).toBeTruthy();
     const supplier = await app.inject({method:"POST",url:"/v1/suppliers",headers,
@@ -223,7 +223,7 @@ describe("purchase receipt compatibility", () => {
     expect(finalCount.rows[0]!.count).toBe("2");
     const revoked={...mutation,clientMutationId:"historical-revoked"};
     await seed(revoked);
-    await pool.query("UPDATE business_memberships SET is_active=false WHERE business_id=$1",[businessId]);
+    await pool.query("UPDATE business_memberships SET status='SUSPENDED' WHERE business_id=$1",[businessId]);
     expect((await send(revoked)).statusCode).toBeGreaterThanOrEqual(400);
     const state=await pool.query<{status:string}>("SELECT status FROM sync_mutations WHERE business_id=$1 AND client_mutation_id=$2",[businessId,revoked.clientMutationId]);
     expect(state.rows[0]!.status).toBe("REJECTED");
