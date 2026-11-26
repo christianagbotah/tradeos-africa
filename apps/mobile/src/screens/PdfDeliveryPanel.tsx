@@ -39,8 +39,8 @@ export function PdfDeliveryPanel({api,kind,businessId,branchId,id,online,disable
   <Text accessibilityRole="header" style={styles.heading}>Receipt / document PDF</Text>
   <View style={styles.row} accessibilityLabel="Paper size">{pdfPapers.map(p=><Pressable key={p} accessibilityRole="button" accessibilityLabel={p+" paper"} accessibilityState={{selected:paper===p,disabled:busy||disabled}} disabled={busy||disabled} onPress={()=>setPaper(p)} style={[styles.paper,paper===p&&styles.paperActive]}><Text style={styles.paperLabel}>{p}</Text></Pressable>)}</View>
   <View style={styles.row}>
-   <Pressable accessibilityRole="button" accessibilityLabel="Print PDF" accessibilityState={{disabled:unavailable,busy}} disabled={unavailable} onPress={()=>void deliver("print")} style={[styles.action,unavailable&&styles.disabled]}><Icon name="sales" size={20}/><Text style={styles.actionLabel}>Print</Text></Pressable>
-   <Pressable accessibilityRole="button" accessibilityLabel="Share PDF file" accessibilityState={{disabled:unavailable,busy}} disabled={unavailable} onPress={()=>void deliver("share")} style={[styles.action,styles.share,unavailable&&styles.disabled]}><Icon name="arrowRight" size={20}/><Text style={styles.actionLabel}>Share PDF</Text></Pressable>
+   <Pressable accessibilityRole="button" accessibilityLabel="Print PDF" accessibilityState={{disabled:unavailable,busy}} disabled={unavailable} onPress={()=>void deliver("print")} style={[styles.action,unavailable&&styles.disabled]}><Icon name="print" size={20}/><Text style={styles.actionLabel}>Print</Text></Pressable>
+   <Pressable accessibilityRole="button" accessibilityLabel="Share PDF file" accessibilityState={{disabled:unavailable,busy}} disabled={unavailable} onPress={()=>void deliver("share")} style={[styles.action,styles.share,unavailable&&styles.disabled]}><Icon name="share" size={20}/><Text style={styles.actionLabel}>Share PDF</Text></Pressable>
   </View>
   {busy?<View style={styles.progress} accessibilityRole="progressbar"><ActivityIndicator color={colors.midnight}/><Text style={styles.muted}>Preparing PDF…</Text></View>:null}
   {error?<Banner tone="warning" message={error}/>:null}
