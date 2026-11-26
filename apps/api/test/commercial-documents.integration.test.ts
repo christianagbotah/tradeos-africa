@@ -93,6 +93,40 @@ describe("tenant-scoped commercial quotations and proformas",()=>{
     }
   });
 
+  it.each(["QUOTATION","PROFORMA"] as const)("shares only issued, unexpired %s PDFs without changing accounting",async kind=>{
+    const token=await owner("share-"+kind.toLowerCase()+"@tradeos.test");
+    const scope=await business(token,"PDF Sharing");
+    const item=await service(token,scope.businessId,1200);
+    const result=await app.inject({method:"POST",url:"/v1/commercial-documents",headers:bearer(token),
+      payload:{...payload(scope,item),kind,expiresAt:new Date(Date.now()+86400_000).toISOString()}});
+    expect(result.statusCode).toBe(201);
+    const doc=result.json().document;
+    const root="/v1/commercial-documents/"+doc.id;
+    const query="?businessId="+scope.businessId+"&branchId="+scope.branchId+"&purpose=share";
+    const get=async(paper="A5")=>app.inject({method:"GET",url:root+"/pdf"+query+"&paper="+paper,headers:bearer(token)});
+    expect((await get()).statusCode).toBe(409);
+    expect((await app.inject({method:"POST",url:root+"/issue",headers:bearer(token),payload:{businessId:scope.businessId}})).statusCode).toBe(200);
+    for(const paper of ["A5","80mm","58mm"]){
+      const response=await get(paper);
+      expect(response.statusCode).toBe(200);
+      expect(response.rawPayload.subarray(0,5).toString()).toBe("%PDF-");
+      expect(response.headers["cache-control"]).toContain("no-store");
+      expect(response.headers["content-disposition"]).toContain(kind);
+    }
+    expect((await get("invalid")).statusCode).toBe(400);
+    expect((await app.inject({method:"GET",url:root+"/pdf"+query})).statusCode).toBe(401);
+    const foreign=await owner("foreign-share-"+kind.toLowerCase()+"@tradeos.test");
+    expect((await app.inject({method:"GET",url:root+"/pdf"+query,headers:bearer(foreign)})).statusCode).toBe(403);
+    await pool.query("UPDATE commercial_documents SET expires_at=now()-interval '1 day' WHERE id=$1",[doc.id]);
+    expect((await get()).statusCode).toBe(409);
+    expect((await app.inject({method:"POST",url:root+"/cancel",headers:bearer(token),payload:{businessId:scope.businessId}})).statusCode).toBe(200);
+    expect((await get()).statusCode).toBe(409);
+    for(const table of ["sales","payments","inventory_movements","cashbook_entries"]){
+      const count=await pool.query<{count:string}>(`SELECT COUNT(*)::text AS count FROM ${table} WHERE business_id=$1`,[scope.businessId]);
+      expect(count.rows[0]!.count).toBe("0");
+    }
+  });
+
   it("rejects cross-tenant customer/catalog references and hides document detail",async()=>{
     const ownerA=await owner("quote-tenant-a@tradeos.test");
     const ownerB=await owner("quote-tenant-b@tradeos.test");
