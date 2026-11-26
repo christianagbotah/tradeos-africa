@@ -2,6 +2,9 @@ export const updateRepository="christianagbotah/tradeos-africa";
 export const updateFeed="https://api.github.com/repos/"+updateRepository+"/releases?per_page=100";
 const apkName="TradeOS-Africa-Update.apk";
 export type AndroidUpdate={build:number;commit:string;url:string;size:number;tag:string};
+export function sameAndroidUpdate(a:AndroidUpdate|null,b:AndroidUpdate|null):boolean{
+ return a!==null&&b!==null&&a.build===b.build&&a.commit===b.commit&&a.tag===b.tag&&a.url===b.url&&a.size===b.size;
+}
 type Release={tag_name?:unknown;draft?:unknown;prerelease?:unknown;target_commitish?:unknown;assets?:unknown};
 export function installedUpdateBuild(raw:string|undefined):number|null{
  if(!raw||!/^\d+$/.test(raw))return null;
@@ -19,12 +22,19 @@ export function selectAndroidUpdate(input:unknown,installed:number):AndroidUpdat
   const build=installedUpdateBuild(match[1]);if(build===null||build<=installed)continue;
   if(typeof r.target_commitish!=="string"||!(/^[a-f0-9]{40}$/.test(r.target_commitish))||!r.target_commitish.startsWith(match[2]!))continue;
   const url="https://github.com/"+updateRepository+"/releases/download/"+r.tag_name+"/"+apkName;
-  const asset=r.assets.find((a:unknown)=>a&&typeof a==="object"&&(a as Record<string,unknown>).name===apkName) as Record<string,unknown>|undefined;
+  const assets=r.assets.filter((a:unknown)=>a&&typeof a==="object"&&(a as Record<string,unknown>).name===apkName) as Record<string,unknown>[];
+  if(assets.length!==1)continue;
+  const asset=assets[0];
   if(!asset||asset.browser_download_url!==url||asset.state!=="uploaded"||typeof asset.size!=="number"||!Number.isSafeInteger(asset.size)||asset.size<1_000_000||asset.size>500_000_000)continue;
   if(!r.assets.some((a:unknown)=>a&&typeof a==="object"&&(a as Record<string,unknown>).name==="SHA256SUMS.txt"&&(a as Record<string,unknown>).state==="uploaded"))continue;
   matches.push({build,commit:r.target_commitish,url,size:asset.size,tag:r.tag_name});
  }
- return matches.sort((a,b)=>b.build-a.build)[0]??null;
+ const latest=matches.sort((a,b)=>b.build-a.build)[0];
+ // A build number must identify one unambiguous package. Never choose an
+ // arbitrary download when two release records disagree about that build.
+ if(latest&&matches.some(candidate=>candidate.build===latest.build&&!sameAndroidUpdate(candidate,latest)))
+  throw new Error("Conflicting Android update releases.");
+ return latest??null;
 }
 export async function checkAndroidUpdate(installed:number,fetcher:typeof fetch=fetch){
  const controller=new AbortController();
