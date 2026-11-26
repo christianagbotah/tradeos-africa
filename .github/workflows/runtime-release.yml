@@ -3,17 +3,9 @@ name: TradeOS Signed Runtime Release Candidate
 on:
   push:
     branches: [main]
-    paths:
-      - 'apps/api/**'
-      - 'apps/web/**'
-      - 'apps/system-admin/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'tsconfig*.json'
-      - 'ops/release/**'
-      - '.github/workflows/runtime-release.yml'
+    # Activation requires an attested artifact for the exact current main SHA.
+    # Even mobile-only or documentation commits advance main; filtering paths
+    # would make the most recent successful server artifact ineligible.
 
 permissions:
   contents: read
