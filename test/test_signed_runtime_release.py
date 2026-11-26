@@ -62,6 +62,26 @@ class ReleaseProfileTests(unittest.TestCase):
             self.assertFalse(report["authorizedToDeploy"])
             self.assertFalse(report["productionReleaseTouched"])
 
+    def test_restrictive_umask_preserves_private_root_and_traversable_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            self.make(folder)
+            target = folder / "tradeos-rehearsal-release"
+            result = subprocess.run(
+                ["python3", str(ROOT / "ops/release/rehearse-signed-runtime-release.py"),
+                 SHA, str(folder), str(target)],
+                capture_output=True, text=True, check=False, umask=0o077,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o700)
+            for rel in ("apps", "apps/api", "apps/api/dist",
+                        "apps/api/node_modules", "packages", "packages/db",
+                        "packages/db/migrations"):
+                self.assertEqual((target / rel).stat().st_mode & 0o777, 0o755, rel)
+            self.assertEqual((target / "manifest.json").stat().st_mode & 0o777, 0o644)
+            self.assertEqual((target / "bin/start-api.sh").stat().st_mode & 0o777, 0o755)
+            self.assertFalse(json.loads(result.stdout)["authorizedToDeploy"])
+
     def test_pilot_cli_rejects_release_manifest_even_with_pilot_filename(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
