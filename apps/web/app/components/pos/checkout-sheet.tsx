@@ -503,9 +503,17 @@ export function CheckoutSheet({
     }
   };
 
+  // A submitted sale is no longer an editable cart, even while awaiting
+  // sync/payment. Closing its result must not re-open the original basket.
+  const closeCheckout = () => {
+    if (busy || submittingRef.current) return;
+    if (result) onComplete();
+    else onClose();
+  };
+
   return (
     <>
-      <div className="tos-sheet-scrim" onClick={()=>{if(!busy)onClose();}} aria-hidden="true" />
+      <div className="tos-sheet-scrim" onClick={closeCheckout} aria-hidden="true" />
       <div className="tos-sheet tos-sheet--wide tos-sheet--fullscreen" role="dialog" aria-label="Checkout">
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
@@ -516,7 +524,7 @@ export function CheckoutSheet({
             </p>
           </div>
           <button type="button" className="tos-sheet__close"
-            onClick={onClose} disabled={busy} aria-label="Close checkout">
+            onClick={closeCheckout} disabled={busy} aria-label="Close checkout">
             <IconClose style={{ width: 18, height: 18 }} />
           </button>
         </div>
@@ -872,7 +880,7 @@ export function CheckoutSheet({
 
         {!result&&!quickCheckout ? (
           <div className="tos-sheet__foot">
-            <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button variant="ghost" onClick={closeCheckout} disabled={busy}>Cancel</Button>
             <Button
               variant="gold"
               size="lg"

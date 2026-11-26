@@ -674,8 +674,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       if(detail?.businessId!==session.businessId)return;
       const path=detail.path??"";
       if(!path||/\/v1\/catalog\//.test(path))void refreshCatalog();
-      if(!path||/\/v1\/(catalog|inventory|sales|returns|purchases|purchase-orders|supplier-invoices)/.test(path))void refreshInventory();
-      if(!path||/\/v1\/(customers|sales|returns|payments)/.test(path))void refreshCustomers();
+      if(!path||/\/v1\/(sync|catalog|inventory|sales|returns|purchases|purchase-orders|supplier-invoices)/.test(path))void refreshInventory();
+      if(!path||/\/v1\/(sync|customers|sales|returns|payments)/.test(path))void refreshCustomers();
       if(/\/v1\/(businesses|account|staff|branches)\//.test(path))void refreshWorkspaceContext().catch(()=>{});
     };
     window.addEventListener(MUTATION_INVALIDATION_EVENT,listener);
