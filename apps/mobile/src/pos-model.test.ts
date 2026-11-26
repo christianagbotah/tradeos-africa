@@ -84,6 +84,27 @@ describe("mobile POS sellable projection", () => {
     expect(items[2]).toMatchObject({ name: "Delivery service", trackStock: false, availableStock: null });
   });
 
+  it("matches product and unit words in either order, including compact SKU searches", () => {
+    const items = projectSellableItems(catalog, inventory);
+    expect(filterSellableItems(items, "cement bag").map(x=>x.key)).toEqual(["item-1:bag"]);
+    expect(filterSellableItems(items, "tonne   cement").map(x=>x.key)).toEqual(["item-1:ton"]);
+    expect(filterSellableItems(items, "CEM50 bag").map(x=>x.key)).toEqual(["item-1:bag"]);
+    expect(filterSellableItems(items, "cement trip")).toEqual([]);
+    expect(filterSellableItems(items, "  ")).toEqual(items);
+  });
+  it("preserves distinct food portions and tolerates accent differences",()=>{
+    const base=projectSellableItems(catalog,inventory)[0]!;
+    const fish=[
+      {...base,itemId:"fish",key:"fish:small",sku:"FISH-01",name:"Fried fish",unitCode:"SMALL",unitLabel:"Small",priceMinor:1000},
+      {...base,itemId:"fish",key:"fish:large",sku:"FISH-01",name:"Fried fish",unitCode:"LARGE",unitLabel:"Large",priceMinor:2000}
+    ];
+    const cafe={...base,key:"coffee:cup",itemId:"coffee",name:"Café",unitCode:"cup",unitLabel:"Cup",sku:null};
+    expect(filterSellableItems([...fish,cafe],"fish large")).toEqual([fish[1]]);
+    expect(filterSellableItems([...fish,cafe],"FISH01 small")).toEqual([fish[0]]);
+    expect(filterSellableItems([...fish,cafe],"cafe cup")).toEqual([cafe]);
+    expect(fish.map(x=>x.priceMinor)).toEqual([1000,2000]);
+  });
+
   it("searches by name, SKU and unit label case-insensitively", () => {
     const items = projectSellableItems(catalog, inventory);
     expect(filterSellableItems(items, "cem").map((item) => item.key)).toEqual(["item-1:bag", "item-1:ton"]);

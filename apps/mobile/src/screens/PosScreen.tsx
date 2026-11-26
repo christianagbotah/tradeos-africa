@@ -17,7 +17,7 @@ import type {
   MobileImmediatePaymentMethod,
   MobileSellableItem,
 } from "../pos-model";
-import { visibleQuickServeGroups, QUICK_SERVE_PAGE_SIZE } from "../pos-model";
+import { filterSellableItems, visibleQuickServeGroups, QUICK_SERVE_PAGE_SIZE } from "../pos-model";
 import {PdfDeliveryPanel} from "./PdfDeliveryPanel";
 import type {MobileApiClient,MobileOwnCashShiftStatus} from "../api-client";
 import {PosCashShiftPanel} from "./PosCashShiftPanel";
@@ -76,7 +76,7 @@ export function PosScreen({
   const currencyCode = ready.business.currencyCode;
   const canSell = SALE_ROLES.has(ready.membership.role);
   const items = snapshot.commerce?.items ?? [];
-  const visibleItems = filterItems(items, search);
+  const visibleItems = filterSellableItems(items, search);
   const quickCatalog=quickServe?visibleQuickServeGroups(visibleItems,quickLimit):null;
   const total = items.length === 0 && snapshot.cart.length > 0
     ? snapshot.cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0)
@@ -149,7 +149,7 @@ export function PosScreen({
         label="Find an item"
         value={search}
         onChangeText={onSearch}
-        placeholder="Search item, SKU or unit"
+        placeholder="Search item, SKU or selling unit"
         autoCapitalize="none"
         autoCorrect={false}
         leftAdornment={<Icon name="search" size={16} color={colors.textSoft} />}
@@ -454,15 +454,6 @@ function SaleNoticeBanner({ notice }: { notice: MobileSaleNotice }) {
 
 function cartTotal(cart: ReadonlyArray<MobileCartLine>): number {
   return cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.quantity), 0);
-}
-
-function filterItems(items: ReadonlyArray<MobileSellableItem>, query: string): MobileSellableItem[] {
-  const normalized = query.trim().toLocaleLowerCase();
-  if (!normalized) return [...items];
-  return items.filter((item) =>
-    [item.name, item.sku ?? "", item.unitLabel, item.unitCode]
-      .some((value) => value.toLocaleLowerCase().includes(normalized)),
-  );
 }
 
 const styles = StyleSheet.create({
