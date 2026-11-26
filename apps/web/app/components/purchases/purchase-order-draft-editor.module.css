@@ -35,3 +35,5 @@
 @media print{.editor{display:none!important}}
 
 .editor>.secondary{justify-self:end;width:auto;max-width:100%}.line>*{min-width:0}.lineTotal{white-space:normal;overflow-wrap:anywhere;text-overflow:clip}.line .remove{width:32px}
+
+@media(min-width:769px){.rows,.columnLabels,.line{min-width:0}.columnLabels,.line{grid-template-columns:24px minmax(0,1fr) minmax(58px,100px) 58px minmax(72px,100px) minmax(76px,106px) 32px}}

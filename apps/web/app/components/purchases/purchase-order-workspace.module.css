@@ -68,3 +68,5 @@
 @media(max-width:540px){.confirmBackdrop{padding:8px}.confirmDialog{padding:17px}.confirmActions>button{flex:1 1 0}}
 
 .fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;min-width:0}.fields .field{min-width:0;max-width:none}.lineSection>.secondary,.createAction{justify-self:end;width:auto;max-width:100%}.lineRow>*{min-width:0}.lineTotal{overflow-wrap:anywhere;white-space:normal;text-overflow:clip}.lineRow .remove{width:32px}.scrollHint{display:none}@media(max-width:700px){.fields{grid-template-columns:1fr}.scrollHint{display:block}}
+
+@media(min-width:769px){.rows,.rowLabels,.lineRow{min-width:0}.rowLabels,.lineRow{grid-template-columns:24px minmax(0,1fr) minmax(58px,100px) 58px minmax(72px,100px) minmax(76px,106px) 32px}}
