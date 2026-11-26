@@ -83,7 +83,7 @@ validate_install(){
     trusted "$name" file
   done
   count="$(find "$dir" -mindepth 1 -maxdepth 1 -printf x | wc -c)"
-  expected=$(("${#files[@]}"+3))
+  expected=$((${#files[@]}+3))
   [[ "$count" == "$expected" ]] || fail 'unexpected installed file inventory'
   for name in "${files[@]}" installer-source-commit entrypoint-sha256 SHA256SUMS; do
     trusted "$dir/$name" file

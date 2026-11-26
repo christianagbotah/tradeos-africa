@@ -70,11 +70,15 @@ jobs:
 
       - name: Test
         run: pnpm test
-      - name: Verify bounded root extractor upgrade safety contracts
-        run: node --test test/root-signed-extractor-upgrade.test.mjs
         env:
           DATABASE_URL: postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_ci
           PGPASSWORD: tradeos
+
+      - name: Verify bounded root extractor upgrade safety contracts
+        run: node --test test/root-signed-extractor-upgrade.test.mjs
+
+      - name: Rehearse root extractor upgrade in disposable hosted-runner fixture
+        run: sudo /bin/bash test/rehearse-root-signed-extractor-upgrade.sh
 
       - name: Build
         run: pnpm build
