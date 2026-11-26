@@ -134,6 +134,20 @@ export function registerProgrammeRoutes(app:FastifyInstance,pool:DatabasePool){
     const r=await c.query("SELECT id,display_name AS \"displayName\",consented_at AS \"consentedAt\" FROM programme_participants p WHERE organisation_id=$1 AND withdrawn_at IS NULL AND EXISTS (SELECT 1 FROM programme_memberships m WHERE m.organisation_id=p.organisation_id AND m.user_id=p.user_id AND m.status='ACTIVE' AND m.role='PARTICIPANT') ORDER BY consented_at DESC,id LIMIT 100", [org]);
     return {participants:r.rows};
   }));
+  app.get("/v1/programmes/:orgId/enrolments",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);const role=await access(c,org,u,[...managers,"PARTICIPANT"]);
+    const r=await c.query(`SELECT e.id,e.cohort_id AS "cohortId",c.name AS "cohortName",p.name AS "programmeName",
+      e.participant_id AS "participantId",pp.display_name AS "displayName"
+      FROM programme_enrolments e
+      JOIN programme_cohorts c ON c.organisation_id=e.organisation_id AND c.id=e.cohort_id
+      JOIN programmes p ON p.organisation_id=c.organisation_id AND p.id=c.programme_id
+      JOIN programme_participants pp ON pp.organisation_id=e.organisation_id AND pp.id=e.participant_id
+      JOIN programme_memberships m ON m.organisation_id=pp.organisation_id AND m.user_id=pp.user_id
+      WHERE e.organisation_id=$1 AND pp.withdrawn_at IS NULL AND m.status='ACTIVE' AND m.role='PARTICIPANT'
+        AND ($2::boolean OR pp.user_id=$3)
+      ORDER BY e.created_at DESC,e.id LIMIT 100`,[org,managers.includes(role),u]);
+    return {enrolments:r.rows};
+  }));
   app.post("/v1/programmes/:orgId/enrolments",(req,reply)=>handle(req,reply,async(c,u)=>{
     const org=orgOf(req);await access(c,org,u,managers);
     const b=body(req,["clientRequestId","cohortId","participantId"]);
