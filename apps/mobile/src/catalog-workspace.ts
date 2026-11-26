@@ -31,3 +31,13 @@ export function multiUnitDraft(input:Parameters<typeof simpleCatalogDraft>[0],ex
   }
   return draft;
 }
+
+/** Display filters only; no stock policy or valuation changes. */
+export type StockAvailabilityFilter="all"|"available"|"out";
+export function matchesStockAvailability(item:{available:number},filter:StockAvailabilityFilter):boolean{
+  return filter==="all"||(filter==="available"?item.available>0:item.available<=0);
+}
+export function matchesCatalogQuery(item:{name:string;sku:string|null},query:string):boolean{
+  const q=query.trim().toLowerCase();
+  return !q||item.name.toLowerCase().includes(q)||(item.sku??"").toLowerCase().includes(q);
+}
