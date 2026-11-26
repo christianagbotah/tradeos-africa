@@ -20,6 +20,13 @@ describe("POS cash / electronic checkout",()=>{
     expect(checkout).toContain("Settings → Payment providers");
     expect(checkout).toContain("!hubtelAvailable");
   });
+  it("does not label queued or unconfirmed sale results as completed",()=>{
+    expect(checkout).toContain('result?.status==="completed"?"Sale complete":result?"Sale queued"');
+    expect(checkout).toContain('if (resultData?.status !== "COMPLETED" || !resultData.saleId)');
+    expect(checkout).toContain('Review Sales before charging again.');
+    expect(checkout.indexOf('if (resultData?.status !== "COMPLETED" || !resultData.saleId)'))
+      .toBeLessThan(checkout.indexOf('status: "completed",'));
+  });
   it("uses pending Hubtel for both MoMo and card",()=>{
     expect(checkout).toContain('onClick={()=>chooseTender("MOMO")}');
     expect(checkout).toContain('onClick={()=>chooseTender("CARD")}');

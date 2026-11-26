@@ -437,9 +437,18 @@ export function CheckoutSheet({
           onComplete();
           return;
         }
+        // APPLIED acknowledges the sync mutation, not necessarily a final
+        // sale. Never offer a receipt for an unconfirmed domain result.
+        if (resultData?.status !== "COMPLETED" || !resultData.saleId) {
+          setResult({status:"pending",
+            reference:resultData?.saleId??mutation.clientMutationId,
+            changeMinor:null,totalMinor:resultData?.totalMinor??totalMinor,
+            message:"The server has not confirmed a completed sale. Review Sales before charging again."});
+          return;
+        }
         setResult({
           status: "completed",
-          reference: resultData?.saleId ?? resultData?.receiptNo ?? mutation.clientMutationId,
+          reference: resultData.saleId,
           changeMinor: paymentMethod === "CASH" ? changeMinor : null,
           totalMinor: resultData?.totalMinor ?? totalMinor,
           message: "Sale complete.",
@@ -501,7 +510,7 @@ export function CheckoutSheet({
         <div className="tos-sheet__head">
           <div className="tos-sheet__head-main">
             <span className="tos-sheet__eyebrow">Checkout</span>
-            <h2 className="tos-sheet__title">{result?.paymentPending?"Payment pending":result?"Sale complete":"Take payment"}</h2>
+            <h2 className="tos-sheet__title">{result?.paymentPending?"Payment pending":result?.status==="completed"?"Sale complete":result?"Sale queued":"Take payment"}</h2>
             <p className="tos-sheet__sub">
               {online ? "Online — ready to process" : "Offline — sale will queue locally"}
             </p>
