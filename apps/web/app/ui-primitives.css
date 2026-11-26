@@ -2326,3 +2326,48 @@ dl.tos-kv .tos-kv__val {
 .tos-custom-dialog-actions .is-primary { background:#0b1424;color:#fff;border-color:#0b1424; }
 .tos-custom-dialog-actions .is-danger { background:#a62c38;color:#fff;border-color:#a62c38; }
 .tos-custom-dialog-actions button:focus-visible { outline:3px solid #c99935;outline-offset:3px; }
+
+/* TradeOS dashboard: use the existing brand and space/type tokens, not an external layout. */
+.tos-dashboard-page .tos-stat,
+.tos-dashboard-page .tos-stat__head,
+.tos-dashboard-page .tos-list__row-main,
+.tos-dashboard-page .tos-list__row-meta,
+.tos-dashboard-page .tos-quick-action__body {
+  min-width: 0;
+}
+.tos-dashboard-page .tos-stat__value,
+.tos-dashboard-page .tos-stat__value--hero,
+.tos-dashboard-page .tos-list__row-title,
+.tos-dashboard-page .tos-list__row-sub,
+.tos-dashboard-page .tos-list__row-meta {
+  overflow-wrap: anywhere;
+}
+.tos-dashboard-page .tos-dashboard-sales__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  align-items: start;
+  gap: var(--tos-space-3);
+}
+.tos-dashboard-page .tos-list__row-meta {
+  max-width: 100%;
+  text-align: end;
+}
+@media (max-width: 480px) {
+  .tos-dashboard-page .tos-dashboard-stats {
+    gap: var(--tos-space-2);
+  }
+  .tos-dashboard-page .tos-dashboard-sales__row {
+    padding: var(--tos-space-3);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 44%);
+  }
+  .tos-dashboard-page .tos-quick-action__label {
+    font-size: var(--tos-text-supporting);
+    line-height: 1.35;
+  }
+}
+@media (max-width: 360px) {
+  .tos-dashboard-page .tos-dashboard-actions .tos-quick-action-grid,
+  .tos-dashboard-page .tos-dashboard-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
