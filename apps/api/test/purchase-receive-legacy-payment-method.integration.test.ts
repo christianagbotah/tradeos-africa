@@ -226,9 +226,9 @@ describe("purchase receipt compatibility", () => {
     // the receipt, ledger, inventory and audit claim must roll back together.
     const interrupted={...mutation,clientMutationId:"historical-interrupted"};
     await seed(interrupted);
-    await pool.query(`CREATE FUNCTION test_legacy_recovery_interrupt() RETURNS trigger LANGUAGE plpgsql AS $
+    await pool.query(`CREATE FUNCTION test_legacy_recovery_interrupt() RETURNS trigger LANGUAGE plpgsql AS $recovery$
       BEGIN IF NEW.client_mutation_id='historical-interrupted' AND NEW.status='APPLIED' THEN
-        RAISE EXCEPTION 'synthetic acknowledgement interruption'; END IF; RETURN NEW; END; $`);
+        RAISE EXCEPTION 'synthetic acknowledgement interruption'; END IF; RETURN NEW; END; $recovery$`);
     try {
       await pool.query("CREATE TRIGGER test_legacy_recovery_interrupt BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION test_legacy_recovery_interrupt()");
       const failed=await send(interrupted);
