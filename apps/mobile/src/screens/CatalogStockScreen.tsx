@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from "react";
 import {ActivityIndicator,Pressable,ScrollView,StyleSheet,Text,View} from "react-native";
 import {MobileApiError,type MobileApiClient,type MobileCatalogItem,type MobileInventoryItem,type MobileInventoryDetail} from "../api-client";
-import {canBrowseStock,canManageCatalog,simpleCatalogDraft,multiUnitDraft,type AdditionalSaleUnit,catalogContactPatch,reconcileCatalog} from "../catalog-workspace";
+import {canBrowseStock,canManageCatalog,simpleCatalogDraft,multiUnitDraft,type AdditionalSaleUnit,catalogContactPatch,reconcileCatalog,matchesCatalogQuery,matchesStockAvailability,type StockAvailabilityFilter} from "../catalog-workspace";
 import {StockAdjustmentPanel} from "./StockAdjustmentPanel";
 import type {StockAdjustment} from "../inventory-adjustment";
 import type {ReceiptOutcome} from "../customer-payment";
@@ -11,8 +11,8 @@ import {Input} from "../components/Input";
 import {Banner} from "../components/Banner";
 import {EmptyState} from "../components/EmptyState";
 import {Icon} from "../components/icons";
-import {formatMoney} from "../lib/format";
-import {colors,radius,spacing,typography} from "../theme";
+import {formatMoney,formatQuantity} from "../lib/format";
+import {colors,radius,spacing,touch,typography} from "../theme";
 import type {MobileActionFeedback} from "../action-feedback";
 
 type Props={api:Pick<MobileApiClient,"getCatalog"|"getInventory"|"getInventoryDetail"|"createCatalogItem"|"updateCatalogItem">;businessId:string;branchId:string;currencyCode:string;role:string;online:boolean;mode:"catalog"|"inventory";queueVersion:string;onBack:()=>void;onFeedback:(feedback:MobileActionFeedback)=>void;onCatalogChanged:()=>void;onAdjustment:(input:StockAdjustment)=>Promise<ReceiptOutcome>};
@@ -22,6 +22,9 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
  const allowed=canBrowseStock(role),write=canManageCatalog(role)&&mode==="catalog";
  const [items,setItems]=useState<MobileCatalogItem[]>([]),[stock,setStock]=useState<MobileInventoryItem[]>([]);
  const [query,setQuery]=useState(""),[filter,setFilter]=useState<"all"|"active"|"inactive">("all");
+ const [stockFilter,setStockFilter]=useState<StockAvailabilityFilter>("all");
+ const scrollRef=useRef<ScrollView>(null);
+ const revealDetail=()=>scrollRef.current?.scrollTo({y:0,animated:false});
  const [loading,setLoading]=useState(false),[error,setError]=useState<string|null>(null);
  const [selected,setSelected]=useState<MobileCatalogItem|null>(null),[detail,setDetail]=useState<MobileInventoryDetail|null>(null),[detailBusy,setDetailBusy]=useState(false);
  const [draft,setDraft]=useState<Draft|null>(null),[edit,setEdit]=useState<{name:string;sku:string;prices:Record<string,string>}|null>(null);
@@ -80,17 +83,15 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
      if(action==="create"&&!(e instanceof MobileApiError&&[400,403,409,422].includes(e.statusCode))){setUncertain(true);void refresh();}
    }finally{lock.current=false;if(live.current)setSaving(false);}
  }
- const q=query.trim().toLowerCase();
- const matches=(x:{name:string;sku:string|null})=>!q||x.name.toLowerCase().includes(q)||(x.sku??"").toLowerCase().includes(q);
- const visible=items.filter(x=>matches(x)&&(filter==="all"||(filter==="active")===x.active));
- const visibleStock=stock.filter(matches);
- return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-   <View style={styles.row}><View style={styles.flex}><Text style={styles.eyebrow}>{mode==="catalog"?"Master data":"Inventory"}</Text><Text style={styles.title}>{mode==="catalog"?"Catalog":"Stock overview"}</Text></View><Button variant="secondary" size="compact" disabled={saving} accessibilityLabel="Back to more" onPress={onBack}>Back</Button></View>
+ const visible=items.filter(x=>matchesCatalogQuery(x,query)&&(filter==="all"||(filter==="active")===x.active));
+ const visibleStock=stock.filter(x=>matchesCatalogQuery(x,query)&&matchesStockAvailability(x,stockFilter));
+ return <ScrollView ref={scrollRef} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+   <View style={styles.row}><View style={styles.flex}><Text accessibilityRole="header" style={styles.title}>{mode==="catalog"?"Products & services":"Stock overview"}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Back to more" accessibilityState={{disabled:saving}} disabled={saving} onPress={onBack} style={styles.iconButton}><Icon name="close" size={20}/></Pressable></View>
    {!allowed?<Banner tone="warning" message="Your role cannot open this workspace."/>:!online?<Banner tone="info" message="This management view requires a live connection. Offline POS remains available."/>:<>
-   <View style={styles.row}><Button variant="secondary" style={styles.flex} disabled={loading||saving} accessibilityLabel="Refresh records" onPress={()=>void refresh()}>Refresh</Button>{write?<Button variant="gold" style={styles.flex} disabled={saving||!!draft||uncertain} accessibilityLabel="Add catalog item" onPress={()=>{setSelected(null);setEdit(null);setDraft(fresh());setExtraUnits([]);}}>Add item</Button>:null}</View>
+   <View style={styles.row}><Text style={[styles.muted,styles.flex]}>{loading?"Refreshing…":error?"Data unavailable":mode==="catalog"?items.length+" items":stock.length+" stock items"}</Text><Pressable accessibilityRole="button" accessibilityLabel="Refresh records" accessibilityState={{disabled:loading||saving,busy:loading}} disabled={loading||saving} onPress={()=>void refresh()} style={styles.iconButton}>{loading?<ActivityIndicator color={colors.midnight}/>:<Icon name="refresh" size={20}/>}</Pressable>{write?<Button variant="gold" disabled={saving||!!draft||uncertain} accessibilityLabel="Add catalog item" onPress={()=>{setSelected(null);setEdit(null);setDraft(fresh());setExtraUnits([]);revealDetail();}}>Add item</Button>:null}</View>
    {error?<Banner tone="warning" message={error}/>:null}
    {draft?<Card style={styles.card}>
-      <Text style={styles.heading}>New item</Text>
+      <Text accessibilityRole="header" style={styles.heading}>New item</Text>
       <Input label="Name" value={draft.name} editable={!saving&&!uncertain} onChangeText={name=>setDraft(old=>old?{...old,name}:old)}/>
       <Input label="SKU (optional)" value={draft.sku} editable={!saving&&!uncertain} onChangeText={sku=>setDraft(old=>old?{...old,sku}:old)}/>
       <View style={styles.wrap}>{(["PRODUCT","SERVICE","PREPARED_PRODUCT"] as const).map(kind=><Button key={kind} size="compact" variant={draft.kind===kind?"gold":"secondary"} disabled={saving||uncertain} accessibilityLabel={kind} onPress={()=>setDraft(old=>old?{...old,kind}:old)}>{kind==="PREPARED_PRODUCT"?"Prepared food":kind==="PRODUCT"?"Product":"Service"}</Button>)}</View>
@@ -98,7 +99,7 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
       <Input label="Sale unit" value={draft.unitLabel} editable={!saving&&!uncertain} onChangeText={unitLabel=>setDraft(old=>old?{...old,unitLabel}:old)}/>
       <Input label="Sale price" value={draft.price} editable={!saving&&!uncertain} keyboardType="decimal-pad" onChangeText={price=>setDraft(old=>old?{...old,price}:old)}/>
       <Text style={styles.heading}>Additional sale units or portions</Text>
-      <Text style={styles.muted}>For tracked products, enter how many base stock units each additional unit consumes. For example, a box containing 12 pieces uses factor 12.</Text>
+      {draft.kind==="PRODUCT"&&draft.trackStock?<Text style={styles.muted}>Conversion example: a box of 12 pieces uses factor 12.</Text>:null}
       {extraUnits.map((unit,index)=><Card key={index} variant="flat" style={styles.card}>
         <Input label="Unit or portion name" value={unit.label} editable={!saving&&!uncertain} onChangeText={label=>setExtraUnits(old=>old.map((u,i)=>i===index?{...u,label}:u))}/>
         <Input label="Sale price" keyboardType="decimal-pad" value={unit.price} editable={!saving&&!uncertain} onChangeText={price=>setExtraUnits(old=>old.map((u,i)=>i===index?{...u,price}:u))}/>
@@ -123,18 +124,37 @@ export function CatalogStockScreen({api,businessId,branchId,currencyCode,role,on
    </Card>:null}
    {detailBusy?<ActivityIndicator color={colors.goldStrong}/>:null}
    {detail?<Card style={styles.card}><View style={styles.row}><Text style={[styles.heading,styles.flex]}>{detail.item.name}</Text><Button variant="secondary" size="compact" accessibilityLabel="Close stock detail" onPress={()=>{++detailSeq.current;setDetail(null);}}>Close</Button></View>
-      <Text style={styles.title}>{detail.item.available} {detail.item.stockUnitCode}</Text><Text style={styles.muted}>Available · Quarantine {detail.item.quarantine} · Damaged {detail.item.damaged} · Waste {detail.item.waste}</Text><Text style={styles.heading}>Stock value {formatMoney(detail.item.inventoryValueMinor,currencyCode)}</Text>
+      <View style={styles.stockSummary}><Text style={styles.muted}>Available stock</Text><Text style={styles.title}>{formatQuantity(detail.item.available)} {detail.item.stockUnitCode}</Text><Text style={styles.heading}>Stock value · {formatMoney(detail.item.inventoryValueMinor,currencyCode)}</Text></View><View style={styles.wrap}>{([{label:"Quarantine",value:detail.item.quarantine},{label:"Damaged",value:detail.item.damaged},{label:"Waste",value:detail.item.waste}]).map(metric=><View key={metric.label} style={styles.metric}><Text style={styles.heading}>{formatQuantity(metric.value)}</Text><Text style={styles.muted}>{metric.label}</Text></View>)}</View>
       {canManageCatalog(role)&&detail.item.active?<StockAdjustmentPanel key={detail.item.id} itemId={detail.item.id} unit={detail.item.stockUnitCode} onRecord={onAdjustment} onFeedback={onFeedback} onRefresh={()=>{void openStock(detail.item.id);void refresh();onCatalogChanged();}}/>:null}
       <Text style={styles.heading}>Recent movements</Text>{detail.movements.map(m=><View style={styles.line} key={m.id}><View style={styles.flex}><Text style={styles.heading}>{m.reason.replaceAll("_"," ")}</Text><Text style={styles.muted}>{m.occurredAt.slice(0,10)} · {m.location}</Text></View><Text style={styles.heading}>{m.quantityDelta>0?"+":""}{m.quantityDelta} {m.stockUnitCode}</Text></View>)}
       {detail.movements.length===0?<Text style={styles.muted}>No recorded movements.</Text>:null}
    </Card>:null}
    <Card style={styles.card}>
-     <Input label="Search" value={query} onChangeText={setQuery} placeholder="Item name or SKU"/>
-     {mode==="catalog"?<View style={styles.wrap}>{(["all","active","inactive"] as const).map(f=><Button key={f} size="compact" variant={filter===f?"gold":"secondary"} accessibilityLabel={f+" items"} onPress={()=>setFilter(f)}>{f==="inactive"?"Archived":f==="all"?"All":"Active"}</Button>)}</View>:null}
+     <Input label="Find an item" accessibilityLabel="Search items" value={query} onChangeText={setQuery} placeholder="Item name or SKU" autoCorrect={false} autoCapitalize="none" leftAdornment={<Icon name="search" size={18} color={colors.textMuted}/>} rightAdornment={query?<Pressable accessibilityRole="button" accessibilityLabel="Clear item search" onPress={()=>setQuery("")} style={styles.iconButton}><Icon name="close" size={18}/></Pressable>:undefined}/>
+     <View style={styles.wrap}>{mode==="catalog"?(["all","active","inactive"] as const).map(f=><FilterChip key={f} selected={filter===f} label={f==="inactive"?"Archived":f==="all"?"All":"Active"} onPress={()=>setFilter(f)}/>):(["all","available","out"] as const).map(f=><FilterChip key={f} selected={stockFilter===f} label={f==="out"?"Out of stock":f==="available"?"Available":"All"} onPress={()=>setStockFilter(f)}/>)}</View>
      {loading?<ActivityIndicator color={colors.goldStrong}/>:null}
-     {mode==="catalog"?visible.map(i=><Pressable disabled={saving||!!draft} key={i.id} accessibilityRole="button" accessibilityLabel={"View "+i.name} style={styles.line} onPress={()=>{setSelected(i);setEdit(null);setConfirmStatus(false);}}><Icon name="catalog" size={22} color={colors.goldStrong}/><View style={styles.flex}><Text style={styles.heading}>{i.name}</Text><Text style={styles.muted}>{i.sku??"No SKU"} · {i.units.filter(u=>u.canSell).length} sale units</Text></View><Text style={styles.muted}>{i.active?"Active":"Archived"}</Text><Icon name="arrowRight" size={16}/></Pressable>):visibleStock.map(i=><Pressable key={i.id} accessibilityRole="button" accessibilityLabel={"View stock "+i.name} style={styles.line} onPress={()=>void openStock(i.id)}><Icon name="store" color={colors.goldStrong}/><View style={styles.flex}><Text style={styles.heading}>{i.name}</Text><Text style={styles.muted}>{i.sku??"No SKU"}</Text></View><View><Text style={styles.heading}>{i.available} {i.stockUnitCode}</Text><Text style={styles.muted}>{formatMoney(i.inventoryValueMinor,currencyCode)}</Text></View><Icon name="arrowRight" size={16}/></Pressable>)}
-     {!loading&&(mode==="catalog"?visible.length:visibleStock.length)===0?<EmptyState title="No matching items"/>:null}
+     {mode==="catalog"?visible.map(i=><Pressable disabled={saving||!!draft} key={i.id} accessibilityRole="button" accessibilityLabel={"View "+i.name} accessibilityState={{selected:selected?.id===i.id,disabled:saving||!!draft}} style={({pressed})=>[styles.line,(pressed||selected?.id===i.id)&&styles.selected]} onPress={()=>{setSelected(i);setEdit(null);setConfirmStatus(false);revealDetail();}}><Icon name="catalog" size={22} color={colors.goldStrong}/><View style={styles.flex}><Text style={styles.heading}>{i.name}</Text><Text style={styles.muted}>{i.sku??"No SKU"} · {i.units.filter(u=>u.canSell).length} sale units</Text></View><Text style={[styles.status,i.active?styles.positive:styles.archived]}>{i.active?"Active":"Archived"}</Text><Icon name="arrowRight" size={16}/></Pressable>):visibleStock.map(i=><Pressable key={i.id} accessibilityRole="button" accessibilityLabel={"View stock "+i.name} accessibilityState={{selected:detail?.item.id===i.id}} style={({pressed})=>[styles.line,(pressed||detail?.item.id===i.id)&&styles.selected]} onPress={()=>{revealDetail();void openStock(i.id);}}><Icon name="store" color={colors.goldStrong}/><View style={styles.flex}><Text style={styles.heading}>{i.name}</Text><Text style={styles.muted}>{i.sku??"No SKU"}</Text></View><View style={styles.stockAmount}><Text style={[styles.heading,styles.right,i.available<=0&&styles.warning]}>{formatQuantity(i.available)} {i.stockUnitCode}</Text><Text style={[styles.muted,styles.right]}>{formatMoney(i.inventoryValueMinor,currencyCode)}</Text>{i.available<=0?<Text style={[styles.muted,styles.warning,styles.right]}>Out of stock</Text>:null}</View><Icon name="arrowRight" size={16}/></Pressable>)}
+     {!loading&&!error&&(mode==="catalog"?visible.length:visibleStock.length)===0?<EmptyState title="No matching items"/>:null}
    </Card></>}
  </ScrollView>;
 }
-const styles=StyleSheet.create({page:{flexGrow:1,backgroundColor:colors.canvas,padding:spacing.s4,paddingBottom:spacing.s8,gap:spacing.s4},row:{flexDirection:"row",alignItems:"center",gap:spacing.s2},flex:{flex:1,minWidth:0},eyebrow:{color:colors.goldStrong,fontSize:typography.meta,fontWeight:typography.weightBold,textTransform:"uppercase"},title:{fontSize:typography.display,fontWeight:typography.weightHeavy,color:colors.textStrong},heading:{fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.textStrong},muted:{fontSize:typography.meta,color:colors.textMuted},card:{gap:spacing.s3},wrap:{flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},line:{flexDirection:"row",alignItems:"center",gap:spacing.s2,paddingVertical:spacing.s3,borderBottomWidth:1,borderBottomColor:colors.border}});
+function FilterChip({selected,label,onPress}:{selected:boolean;label:string;onPress:()=>void}){
+ return <Pressable accessibilityRole="button" accessibilityState={{selected}} accessibilityLabel={label+" items"} onPress={onPress} style={[styles.filter,selected&&styles.filterActive]}><Text style={[styles.filterLabel,selected&&styles.filterLabelActive]}>{label}</Text></Pressable>;
+}
+const styles=StyleSheet.create({
+ page:{flexGrow:1,backgroundColor:colors.canvas,padding:spacing.s3,paddingBottom:spacing.s6,gap:spacing.s3},
+ row:{flexDirection:"row",alignItems:"center",flexWrap:"wrap",gap:spacing.s2},flex:{flex:1,minWidth:0},
+ title:{fontSize:typography.section,fontWeight:typography.weightHeavy,color:colors.textStrong},
+ heading:{fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.textStrong,flexShrink:1},
+ muted:{fontSize:typography.meta,lineHeight:typography.metaLine,color:colors.textMuted},card:{gap:spacing.s3},
+ wrap:{flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},
+ line:{flexDirection:"row",alignItems:"center",gap:spacing.s2,minHeight:touch.minTarget,paddingVertical:spacing.s3,borderBottomWidth:1,borderBottomColor:colors.border},
+ selected:{backgroundColor:colors.goldSoft},
+ iconButton:{width:touch.iconTarget,minHeight:touch.iconTarget,alignItems:"center",justifyContent:"center",borderRadius:radius.sm,backgroundColor:colors.surfaceSoft},
+ filter:{minHeight:touch.iconTarget,justifyContent:"center",paddingHorizontal:spacing.s3,paddingVertical:spacing.s2,borderRadius:radius.sm,borderWidth:1,borderColor:colors.border,backgroundColor:colors.surface},
+ filterActive:{backgroundColor:colors.midnight,borderColor:colors.midnight},filterLabel:{fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.textStrong},filterLabelActive:{color:colors.textInverse},
+ stockSummary:{padding:spacing.s3,backgroundColor:colors.surfaceSoft,borderRadius:radius.sm,gap:spacing.s1},
+ metric:{flexGrow:1,flexBasis:78,minWidth:78,padding:spacing.s2,borderRadius:radius.sm,backgroundColor:colors.surfaceSoft,gap:spacing.s1},
+ stockAmount:{maxWidth:"44%",alignItems:"flex-end",minWidth:0,gap:spacing.s1},right:{textAlign:"right"},
+ status:{fontSize:typography.meta,fontWeight:typography.weightBold,maxWidth:"34%",flexShrink:1},positive:{color:colors.positive},archived:{color:colors.textMuted},warning:{color:colors.warning},
+});
