@@ -157,3 +157,17 @@ test('TradeOS release retention is explicit, and other apps inherit no destructi
   assert.match(deploy, /prune_stale_release_archives "\$sha"/);
   assert.match(deploy, /verify_configured_health/);
 });
+
+test('signed runtime release covers every main push without weakening activation or disclosure gates', () => {
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/runtime-release.yml'), 'utf8');
+  const trigger = workflow.split(/^permissions:/m)[0];
+  assert.match(trigger, /^on:\s*\n  push:\s*\n    branches: \[main\]/m);
+  assert.doesNotMatch(trigger, /^\s+(?:paths|paths-ignore|branches-ignore):/m);
+  assert.doesNotMatch(trigger, /^\s*(?:workflow_dispatch|pull_request):/m);
+  assert.match(workflow, /runs-on: ubuntu-22\.04/);
+  assert.match(workflow, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow, /uses: actions\/attest@v4/);
+  assert.match(workflow, /github\.event\.repository\.private == true \|\| vars\.TRADEOS_PUBLIC_RUNTIME_RELEASES == 'true'/);
+  assert.match(workflow, /requiresOperatorApproval/);
+  assert.doesNotMatch(workflow, /self-hosted|lightworld-deploy-tradeos-staging|pm2 restart/);
+});
