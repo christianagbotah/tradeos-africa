@@ -444,6 +444,109 @@ jobs:
           const state = await loginContext.storageState();
           await loginContext.close();
 
+          // Merchant UAT regression: exercise client-side navigation (no reload)
+          // and the actual scroll lock, including stock-adjustment open/close.
+          for (const width of [390, 1280]) {
+            const ctx = await browser.newContext({ storageState: state, viewport: { width, height: 600 } });
+            const p = await ctx.newPage();
+            try {
+              await p.goto(`${WEB}/dashboard`, { waitUntil:"domcontentloaded" });
+              await p.getByRole("heading", {name:"Dashboard", exact:true}).waitFor({timeout:30000});
+              await p.evaluate(() => { window.__tradeosNavigationQA = "same-document"; });
+              const navigate = async (path, heading) => {
+                if(width===390) {
+                  await p.getByRole("button", {name:"More navigation"}).click();
+                  await p.locator(`.tos-more-tile[href="${path}"]`).click();
+                } else {
+                  await p.locator(`.tos-sidebar__link[href="${path}"]`).click();
+                }
+                await p.waitForURL(`**${path}`);
+                await p.getByRole("heading", {name:heading, exact:true}).waitFor({timeout:30000});
+                await p.waitForFunction(() => document.body.style.overflow !== "hidden", {timeout:10000});
+                if(await p.evaluate(() => window.__tradeosNavigationQA) !== "same-document")
+                  throw new Error("Navigation unexpectedly reloaded document");
+              };
+              const checkScroll = async () => {
+                await p.waitForFunction(() => {
+                  const el=document.scrollingElement;
+                  return el && el.scrollHeight > el.clientHeight + 30;
+                }, null, {timeout:15000});
+                await p.evaluate(() => window.scrollTo(0,0));
+                await p.waitForFunction(() => window.scrollY === 0);
+                await p.mouse.move(width-36, 350);
+                await p.mouse.wheel(0, 500);
+                await p.waitForFunction(() => window.scrollY > 20, null, {timeout:8000});
+              };
+              await navigate("/inventory","Inventory");
+              await checkScroll();
+              const adjust=width===390
+                ? p.getByRole("button",{name:/Adjust stock for Coca-Cola/})
+                : p.getByRole("button",{name:"Adjust",exact:true}).first();
+              await adjust.click();
+              const sheet=p.getByRole("dialog",{name:"Inventory adjustment"});
+              await sheet.waitFor();
+              await p.waitForFunction(() => document.body.style.overflow === "hidden");
+              await sheet.getByRole("button",{name:"Close",exact:true}).click();
+              await sheet.waitFor({state:"hidden"});
+              await p.waitForFunction(() => document.body.style.overflow !== "hidden");
+              await checkScroll();
+              await navigate("/purchase-orders","Purchase orders");
+              await navigate("/inventory","Inventory");
+              await checkScroll();
+              await p.screenshot({path:`${EVIDENCE}/inventory-navigation-${width}.png`});
+              screenshotCount++;
+              console.log("Inventory client navigation and adjustment scroll regression passed at "+width);
+            } catch(err) { failures.push("inventory-navigation-"+width+": "+err.message); }
+            finally { await ctx.close(); }
+          }
+
+          // Purchase-order layout and product uniqueness: no orders posted.
+          for(const width of [390,1024,1280,1440]) {
+            const ctx=await browser.newContext({storageState:state,viewport:{width,height:850}});
+            const p=await ctx.newPage();
+            try {
+              await p.goto(`${WEB}/purchase-orders`, {waitUntil:"domcontentloaded"});
+              const form=p.getByRole("region",{name:"Create purchase order",exact:true});
+              await form.waitFor({timeout:30000});
+              const add=form.getByRole("button",{name:"+ Add item",exact:true});
+              const first=form.getByLabel("Line 1 item",{exact:true});
+              await first.locator("option").filter({hasText:"Coca-Cola 500ml"}).waitFor({state:"attached",timeout:30000});
+              if(!await add.isDisabled())throw new Error("Add item enabled before selecting product");
+              await first.selectOption({label:"Coca-Cola 500ml"});
+              await add.click();
+              const second=form.getByLabel("Line 2 item",{exact:true});
+              await second.waitFor();
+              if(!await add.isDisabled())throw new Error("Add item enabled with an empty row");
+              if(await second.locator("option").filter({hasText:"Coca-Cola 500ml"}).count())
+                throw new Error("Previously selected product is still selectable");
+              await second.selectOption({label:"Voltic Water 1.5L"});
+              if(await first.locator("option").filter({hasText:"Voltic Water 1.5L"}).count())
+                throw new Error("Later selected product is still selectable in first row");
+              const dimensions=await form.evaluate(el=>{
+                const supplier=el.querySelector("select");
+                const date=el.querySelector('input[type="date"]');
+                const region=el.querySelector('[aria-label^="Purchase order items"]');
+                const add=[...el.querySelectorAll("button")].find(b=>b.textContent.trim()==="+ Add item");
+                const create=[...el.querySelectorAll("button")].find(b=>b.textContent.trim()==="Create draft order");
+                return {sameRow:Math.abs(supplier.getBoundingClientRect().top-date.getBoundingClientRect().top)<2,
+                  rowOverflow:region.scrollWidth-region.clientWidth,
+                  addWidth:add.offsetWidth,createWidth:create.offsetWidth,formWidth:el.clientWidth,
+                  pageOverflow:document.documentElement.scrollWidth-document.documentElement.clientWidth};
+              });
+              if(width>=1024 && (!dimensions.sameRow || dimensions.rowOverflow>2))
+                throw new Error("Desktop field alignment or item grid overflow: "+JSON.stringify(dimensions));
+              if(dimensions.pageOverflow>2 || dimensions.addWidth>=dimensions.formWidth*.7 || dimensions.createWidth>=dimensions.formWidth*.7)
+                throw new Error("Page overflow or full-width action: "+JSON.stringify(dimensions));
+              await p.screenshot({path:`${EVIDENCE}/purchase-order-create-${width}.png`,fullPage:true});
+              screenshotCount++;
+              await form.getByRole("button",{name:"Remove line 2"}).click();
+              if(!await first.locator("option").filter({hasText:"Voltic Water 1.5L"}).count())
+                throw new Error("Removed product did not become selectable again");
+              console.log("Purchase-order layout and uniqueness passed at "+width);
+            } catch(err){failures.push("purchase-order-create-"+width+": "+err.message);}
+            finally {await ctx.close();}
+          }
+
           // === STEP 2: Routes + markers ===
           const routes = [
             { path: "/dashboard", marker: "Dashboard", name: "dashboard" },

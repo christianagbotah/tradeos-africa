@@ -75,20 +75,23 @@ export function InventoryAdjustmentSheet({ row, onClose, onSaved }: InventoryAdj
     }
   }, [row]);
 
-  // Lock body scroll while mounted.
+  // This component remains mounted with row=null when closed. Lock only
+  // while the actual adjustment dialog is visible, and release on close.
+  const adjustmentOpen = Boolean(row && session);
   useEffect(() => {
-    if (typeof document === "undefined") return;
+    if (!adjustmentOpen || typeof document === "undefined") return;
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
     };
-  }, []);
+  }, [adjustmentOpen]);
 
   const unitCode = row?.item.stockUnitCode ?? "units";
 
   const countDelta = useMemo(() => {
-    if (reason !== "COUNT_CORRECTION" || countedQuantity === null) return null;
-    return countedQuantity - row!.available;
+    if (!row || reason !== "COUNT_CORRECTION" || countedQuantity === null) return null;
+    return countedQuantity - row.available;
   }, [reason, countedQuantity, row]);
 
   const moveQty = reason === "COUNT_CORRECTION"
