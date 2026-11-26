@@ -402,6 +402,12 @@ jobs:
                 throw new Error("Posted sale and cash payment did not reconcile");
               await page.screenshot({path:`${EVIDENCE}/first-customer-sale-${width}.png`});
               screenshotCount++;
+              await checkout.getByRole("button",{name:"Close checkout",exact:true}).click();
+              await checkout.waitFor({state:"hidden"});
+              if(await page.locator(".tos-cart-line").count()!==0)
+                throw new Error("Closing completed checkout retained a chargeable basket");
+              await page.getByRole("button",{name:"Add "+itemName+" (piece) to cart",exact:true})
+                .getByText("4 left",{exact:true}).waitFor({timeout:20000});
               await page.goto(WEB+"/sales/receipt/"+encodeURIComponent(saleId),{waitUntil:"domcontentloaded"});
               const receipt=page.locator("#tos-verified-receipt");
               await receipt.waitFor({timeout:20000});
@@ -437,6 +443,10 @@ jobs:
                   throw new Error("Offline queued sale has incorrect scope or item");
                 await page.screenshot({path:`${EVIDENCE}/first-customer-offline-sale-${width}.png`});
                 screenshotCount++;
+                await offlineCheckout.getByRole("button",{name:"Close checkout",exact:true}).click();
+                await offlineCheckout.waitFor({state:"hidden"});
+                if(await page.locator(".tos-cart-line").count()!==0)
+                  throw new Error("Closing queued checkout retained a chargeable basket");
                 // Register response listener before reconnect; periodic flush
                 // and online event may both attempt the same durable queue.
                 const synced=page.waitForResponse(r=>r.url().endsWith("/v1/sync")&&r.request().method()==="POST"&&
@@ -452,6 +462,7 @@ jobs:
                   return q&&q.pending.length===0&&q.failed.length===0;
                 },businessId,{timeout:20000});
                 if(await available()!==3)throw new Error("Offline sale stock deduction was not exactly one");
+                await tile.getByText("3 left",{exact:true}).waitFor({timeout:20000});
                 const syncedId=syncResult.result.saleId;
                 const replay=await request("/v1/sync",{mutations:[mutation]});
                 const replayResult=replay.mutationResults?.find(r=>r.clientMutationId===mutation.clientMutationId);
