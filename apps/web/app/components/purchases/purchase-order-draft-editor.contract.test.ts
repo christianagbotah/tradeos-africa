@@ -38,7 +38,9 @@ describe("saved purchase-order draft correction contract",()=>{
     expect(api).toContain('PURCHASE_ORDER_DRAFT_UPDATED');
   });
   it("preserves one-row editing and excludes unposted edits from printable supplier document",()=>{
-    expect(styles).toContain('min-width:950px');
+    expect(styles).toContain('min-width:640px');
+    expect(editor).toContain('lines.some(line=>!line.itemId)');
+    expect(editor).toContain('other.key!==line.key&&other.itemId===i.id');
     expect(styles).toContain('overflow-x:auto');
     expect(styles).toContain('@media(max-width:650px)');
     expect(styles).toContain('@media print{.editor{display:none!important}}');

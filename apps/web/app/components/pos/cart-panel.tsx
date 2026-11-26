@@ -107,9 +107,8 @@ export function CartPanel({
               <div className="tos-cart-line__top">
                 <div className="tos-cart-line__main">
                   <span className="tos-cart-line__name" title={line.sellable.name}>{line.sellable.name}</span>
-                  <span className="tos-cart-line__sub">{line.sellable.unitLabel}</span>
                   <span className="tos-cart-line__unit">
-                    {formatMoney(line.sellable.priceMinor, currencyCode)} each
+                    {line.sellable.unitLabel} · {formatMoney(line.sellable.priceMinor, currencyCode)} each
                   </span>
                 </div>
                 <button

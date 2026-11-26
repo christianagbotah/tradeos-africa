@@ -37,7 +37,14 @@ async function merchant(tag:string){
       "can_purchase,can_sell,can_stock) VALUES($1,$2,$3,$4,true,false,false)",
       [businessId,item,unit,label]);
   }
-  return {businessId,branchId,supplier,item,headers};
+  const secondItem=(await pool.query<{id:string}>(
+    "INSERT INTO catalog_items(business_id,name,kind,stock_unit_code,track_stock,sku) "+
+    "VALUES($1,'Steel mesh','PRODUCT','piece',true,'PO-MESH') RETURNING id",
+    [businessId])).rows[0]!.id;
+  await pool.query("INSERT INTO catalog_item_units(business_id,item_id,unit_code,unit_label,"+
+    "can_purchase,can_sell,can_stock) VALUES($1,$2,'bundle','Bundle',true,false,false)",
+    [businessId,secondItem]);
+  return {businessId,branchId,supplier,item,secondItem,headers};
 }
 type Merchant=Awaited<ReturnType<typeof merchant>>;
 function payload(m:Merchant,id=randomUUID()){
@@ -46,7 +53,7 @@ function payload(m:Merchant,id=randomUUID()){
     notes:"Deliver safely in Accra",
     lines:[
       {itemId:m.item,purchaseUnitCode:"piece",quantity:2,unitCostMinor:2500},
-      {itemId:m.item,purchaseUnitCode:"bundle",quantity:0.5,unitCostMinor:25000},
+      {itemId:m.secondItem,purchaseUnitCode:"bundle",quantity:0.5,unitCostMinor:25000},
     ]};
 }
 const request=(m:Merchant,body:unknown)=>app.inject({
@@ -76,7 +83,7 @@ describe("supplier purchase order creation and lifecycle",()=>{
     expect(order.status).toBe("DRAFT");
     expect(order.lines).toMatchObject([
       {itemName:"Steel rods",purchaseUnitCode:"piece",quantity:2,lineTotalMinor:5_000},
-      {itemName:"Steel rods",purchaseUnitCode:"bundle",quantity:.5,lineTotalMinor:12_500},
+      {itemName:"Steel mesh",purchaseUnitCode:"bundle",quantity:.5,lineTotalMinor:12_500},
     ]);
     const retry=await request(m,same);
     expect(retry.statusCode,retry.body).toBe(200);
@@ -155,6 +162,25 @@ describe("supplier purchase order creation and lifecycle",()=>{
       expect([400,409]).toContain(r.statusCode);
     }
     expect(await tableCount("supplier_purchase_orders",m.businessId)).toBe(0);
+  });
+
+  it("rejects repeated product IDs across purchasing units on create and edit",async()=>{
+    const m=await merchant("duplicate");
+    const base=payload(m);
+    const duplicate=[base.lines[0]!,{...base.lines[1]!,itemId:m.item}];
+    const rejected=await request(m,{...base,lines:duplicate});
+    expect(rejected.statusCode,rejected.body).toBe(400);
+    expect(await tableCount("supplier_purchase_orders",m.businessId)).toBe(0);
+    const created=await request(m,base);
+    expect(created.statusCode,created.body).toBe(201);
+    const order=created.json().order;
+    const rejectedPatch=await app.inject({method:"PATCH",url:`/v1/purchase-orders/${order.id}`,
+      headers:m.headers,payload:{...base,lines:duplicate,expectedUpdatedAt:order.updatedAt}});
+    expect(rejectedPatch.statusCode,rejectedPatch.body).toBe(400);
+    const unchanged=await app.inject({method:"GET",headers:m.headers,
+      url:`/v1/purchase-orders/${order.id}?businessId=${m.businessId}`});
+    expect(unchanged.json().order.totalMinor).toBe(17500);
+    expect(unchanged.json().order.lines).toHaveLength(2);
   });
 
   it("does not expose orders without bearer authorization",async()=>{

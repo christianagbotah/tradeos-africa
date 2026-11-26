@@ -14,7 +14,10 @@ const previewStyle=readFileSync(fileURLToPath(
 describe("supplier purchase order presentation contracts",()=>{
   it("keeps the item, purchasing unit, quantity, cost, total and remove in one row",()=>{
     expect(formStyle).toMatch(/\.lineRow\{[^}]*display:grid;grid-template-columns:[^}]*;/);
-    expect(formStyle).toContain("min-width:955px");
+    expect(formStyle).toContain("min-width:640px");
+    expect(formStyle).toContain(".lineSection>.secondary,.createAction{justify-self:end");
+    expect(form).toContain("lines.some(line=>!line.itemId)");
+    expect(form).toContain("other.key!==line.key&&other.itemId===i.id");
     expect(formStyle).toContain("overflow-x:auto");
     expect(form).toContain('className={styles.lineRow}');
     expect(form).toContain('className={styles.scroll}');

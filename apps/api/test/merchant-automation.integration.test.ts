@@ -88,6 +88,10 @@ describe("owner-approved merchant action automation", () => {
     });
     const events = await pool.query("SELECT event_type,actor_user_id FROM business_action_events WHERE action_id=$1", [tasks.rows[0].id]);
     expect(events.rows).toEqual([{ event_type: "CREATED", actor_user_id: owner.userId }]);
+    const explanation=await app.inject({method:"GET",url:"/v1/intelligence/actions/"+tasks.rows[0].id+"/explanation"+qs(owner),headers:owner.headers});
+    expect(explanation.statusCode).toBe(200);
+    expect(explanation.json()).toMatchObject({origin:"APPROVED_AUTOMATION",sourceAlert:{state:"OPEN"},approval:{policyVersion:1}});
+    expect(explanation.json().approval.approvedAt).toBeTruthy();
     const again = await decide(owner, run.id, "APPROVE");
     expect(again.statusCode).toBe(409);
     const audit = await pool.query(

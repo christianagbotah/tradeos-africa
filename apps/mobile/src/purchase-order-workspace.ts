@@ -9,6 +9,7 @@ export function orderDraft(order:MobilePurchaseOrder,requestId:string):OrderDraf
  return {requestId,supplierId:order.supplierId,notes:order.notes,delivery:order.expectedDeliveryDate??"",revision:{id:order.id,expectedUpdatedAt:order.updatedAt},lines:order.lines.map(l=>({itemId:l.itemId,purchaseUnitCode:l.purchaseUnitCode,quantity:String(l.quantity),cost:(l.unitCostMinor/100).toFixed(2)}))};
 }
 export function orderInput(d:OrderDraft,businessId:string,branchId:string,suppliers:MobileSupplier[],catalog:MobileCatalogItem[]):MobilePurchaseOrderInput{
+ if(new Set(d.lines.map(line=>line.itemId)).size!==d.lines.length)throw new Error("Each product can appear only once in a purchase order.");
  const supplier=suppliers.find(s=>s.id===d.supplierId&&s.active);
  if(!supplier||d.lines.length>50||d.notes.length>2000)throw new Error("Select an active supplier, 1–50 lines and valid notes.");
  if(d.delivery&&(!/^\d{4}-\d{2}-\d{2}$/.test(d.delivery)||!Number.isFinite(Date.parse(d.delivery))||new Date(d.delivery).toISOString().slice(0,10)!==d.delivery))throw new Error("Enter a valid delivery date (YYYY-MM-DD).");

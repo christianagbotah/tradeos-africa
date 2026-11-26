@@ -625,7 +625,7 @@ export function CheckoutSheet({
                     Refresh prices & approvals
                   </button>
                 </div>
-                <div className="tos-section__body" style={{display:"grid",gap:12}}>
+                <div className="tos-section__body tos-checkout-approvals">
                   {lines.map((l,i)=>{
                     const base=quote?.lines[i]?.unitPriceMinor??l.sellable.priceMinor;
                     const usable=approvals.filter(a=>a.status==="APPROVED"&&
@@ -650,7 +650,7 @@ export function CheckoutSheet({
                       </select>
                     </label>;
                   })}
-                  <a href="/pricing" style={{fontWeight:750,fontSize:13}}>
+                  <a href="/pricing" className="tos-checkout-approval-link">
                     Request a new discount or view approval status
                   </a>
                 </div>
@@ -658,7 +658,7 @@ export function CheckoutSheet({
 
               <div className="tos-field">
                 <span className="tos-field__label">Payment method</span>
-                <div className="tos-pay-cards" role="group" aria-label="Payment method">
+                <div className="tos-pay-cards tos-pay-cards--primary" role="group" aria-label="Payment method">
                   <button type="button" className="tos-pay-card"
                     aria-pressed={!hubtelSelected&&paymentMethod==="CASH"}
                     onClick={()=>chooseTender("CASH")}>
@@ -667,7 +667,6 @@ export function CheckoutSheet({
                     </span>
                     <span className="tos-pay-card__text">
                       <span className="tos-pay-card__label">Cash</span>
-                      <span className="tos-pay-card__sub">Count physical cash</span>
                     </span>
                   </button>
                   {!cashOnly ? <button type="button" className="tos-pay-card"
@@ -678,9 +677,17 @@ export function CheckoutSheet({
                     </span>
                     <span className="tos-pay-card__text">
                       <span className="tos-pay-card__label">Electronic</span>
-                      <span className="tos-pay-card__sub">
-                        {gatewayName} · verified online checkout
-                      </span>
+                    </span>
+                  </button> : null}
+                  {!cashOnly ?
+                  <button type="button" className="tos-pay-card"
+                    aria-pressed={!hubtelSelected&&paymentMethod==="CUSTOMER_CREDIT"}
+                    onClick={()=>chooseTender("CUSTOMER_CREDIT")}>
+                    <span className="tos-pay-card__icon-wrap" aria-hidden="true">
+                      <IconWallet className="tos-pay-card__icon"/>
+                    </span>
+                    <span className="tos-pay-card__text">
+                      <span className="tos-pay-card__label">Pay later</span>
                     </span>
                   </button> : null}
                 </div>
@@ -730,20 +737,7 @@ export function CheckoutSheet({
                     </p>:null}
                   </div>
                 </section>:null}
-                {!cashOnly ? <div style={{paddingTop:10}}>
-                  <button type="button" className="tos-pay-card"
-                    style={{width:"100%",maxWidth:450}}
-                    aria-pressed={!hubtelSelected&&paymentMethod==="CUSTOMER_CREDIT"}
-                    onClick={()=>chooseTender("CUSTOMER_CREDIT")}>
-                    <span className="tos-pay-card__icon-wrap" aria-hidden="true">
-                      <IconWallet className="tos-pay-card__icon"/>
-                    </span>
-                    <span className="tos-pay-card__text">
-                      <span className="tos-pay-card__label">Pay later (customer credit)</span>
-                      <span className="tos-pay-card__sub">Not a cash or electronic receipt</span>
-                    </span>
-                  </button>
-                </div> : null}
+
               </div>
 
               {voiceSuggestion && !cashOnly?<section className="tos-section"
