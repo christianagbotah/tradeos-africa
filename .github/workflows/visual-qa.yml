@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feat/programme-foundation-20261126
+      - feat/programme-apprenticeship-20261126
   workflow_dispatch:
 
 # A newer PR head makes its earlier screenshot capture obsolete.
@@ -222,7 +223,7 @@ jobs:
         run: |
           node --input-type=module << 'PROGRAMME_SEED'
           for (const width of [390,1280]) {
-            for (const role of ["admin","participant","mentor","outsider"]) {
+            for (const role of ["admin","coordinator","participant","mentor","outsider"]) {
               const email="programme-"+role+"-"+width+"@tradeos.test";
               const r=await fetch("http://127.0.0.1:4000/v1/auth/register",{
                 method:"POST",headers:{"content-type":"application/json"},
@@ -236,11 +237,12 @@ jobs:
           psql -h localhost -U tradeos -d tradeos_qa -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO programme_organisations(name) VALUES ('Skills QA 390'),('Skills QA 1280');
           INSERT INTO programme_memberships(organisation_id,user_id,role)
-          SELECT o.id,u.id,CASE WHEN u.email LIKE 'programme-admin-%' THEN 'ORG_ADMIN' WHEN u.email LIKE 'programme-mentor-%' THEN 'MENTOR' ELSE 'PARTICIPANT' END
+          SELECT o.id,u.id,CASE WHEN u.email LIKE 'programme-admin-%' THEN 'ORG_ADMIN' WHEN u.email LIKE 'programme-coordinator-%' THEN 'COORDINATOR' WHEN u.email LIKE 'programme-mentor-%' THEN 'MENTOR' ELSE 'PARTICIPANT' END
           FROM programme_organisations o JOIN app_users u ON
             u.email IN ('programme-admin-'||split_part(o.name,' ',3)||'@tradeos.test',
                         'programme-participant-'||split_part(o.name,' ',3)||'@tradeos.test',
-                        'programme-mentor-'||split_part(o.name,' ',3)||'@tradeos.test')
+                        'programme-mentor-'||split_part(o.name,' ',3)||'@tradeos.test',
+                        'programme-coordinator-'||split_part(o.name,' ',3)||'@tradeos.test')
           WHERE o.name IN ('Skills QA 390','Skills QA 1280');
           SQL
 
@@ -384,6 +386,28 @@ jobs:
               await p.getByRole("button",{name:"Save progress",exact:true}).click();
               await p.getByRole("status").filter({hasText:"Training progress recorded."}).waitFor();
               await p.getByText("Fictional mentor · COMPLETED",{exact:true}).waitFor();
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("coordinator");
+              await p.getByRole("heading",{name:"Skills QA "+width,exact:true}).waitFor();
+              await tab("Equipment");
+              await p.getByLabel("Asset code",{exact:true}).fill("QA-MACHINE-01");
+              await p.getByLabel("Equipment name",{exact:true}).fill("Sewing machine");
+              await p.getByRole("button",{name:"Register equipment",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Equipment registered."}).waitFor();
+              await p.getByLabel("Available equipment",{exact:true}).selectOption({label:"QA-MACHINE-01 · Sewing machine"});
+              await p.getByLabel("Equipment beneficiary",{exact:true}).selectOption({label:"Fictional Apprentice · Cohort One"});
+              await p.getByRole("button",{name:"Reserve equipment",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Equipment reserved for approval."}).waitFor();
+              if(await p.getByRole("button",{name:"Approve allocation",exact:true}).count())throw Error("Coordinator can self-approve");
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-equipment-reserved-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("admin");
+              await p.getByRole("heading",{name:"Skills QA "+width,exact:true}).waitFor();
+              await tab("Equipment");
+              await p.getByRole("button",{name:"Approve allocation",exact:true}).click();
+              await p.getByRole("dialog",{name:"Approve allocation",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Allocation approved."}).waitFor();
               await assertFit();
               await p.screenshot({path:EVIDENCE+"/programme-mentor-progress-"+width+".png",fullPage:true});screenshotCount++;
               await p.getByRole("button",{name:"Sign out",exact:true}).click();
@@ -391,6 +415,13 @@ jobs:
               await p.getByText("Enterprise foundations",{exact:true}).waitFor();
               await p.getByText("Tailoring fundamentals",{exact:true}).waitFor();
               await p.getByText("Fictional mentor · 40 hours · COMPLETED",{exact:true}).waitFor();
+              await p.getByRole("button",{name:"Confirm equipment received",exact:true}).click();
+              await p.getByRole("dialog",{name:"Confirm physical receipt",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Equipment receipt confirmed."}).waitFor();
+              await p.getByText("QA-MACHINE-01 · NEW · HANDED OVER",{exact:true}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-equipment-received-"+width+".png",fullPage:true});screenshotCount++;
+              console.log("Programme equipment registration, independent approval and beneficiary handover verified at "+width);
               await assertFit();
               await p.screenshot({path:EVIDENCE+"/programme-participant-"+width+".png",fullPage:true});screenshotCount++;
               p.once("dialog",d=>d.accept());
