@@ -13,8 +13,10 @@ type Mentor={id:string;displayName:string};
 type Placement={id:string;status:string;pathwayName:string;plannedHours:number;participantName:string;mentorName:string;enrolmentId:string;pathwayId:string};
 type EquipmentUnit={id:string;assetCode:string;name:string;condition:string;status:string};
 type Allocation={id:string;status:string;equipmentName:string;assetCode:string;condition:string;participantName:string|null;reservedAt:string;approvedAt:string|null;handedOverAt:string|null;canApprove:boolean};
-type Overview={programmes:Programme[];cohorts:Cohort[];participants:Participant[];enrolments:Enrolment[];self:Participant|null;pathways:Pathway[];mentors:Mentor[];placements:Placement[];units:EquipmentUnit[];allocations:Allocation[]};
-const empty:Overview={programmes:[],cohorts:[],participants:[],enrolments:[],self:null,pathways:[],mentors:[],placements:[],units:[],allocations:[]};
+type Lesson={id:string;cohortId:string;cohortName:string;title:string;topic:string;lessonText:string;question:string;options:string[];version:number;enrolmentId?:string;passed?:boolean;attempts?:number};
+const literacyTopics:Record<string,string>={RECORD_KEEPING:"Record keeping",COSTING_PRICING:"Costing and pricing",BUDGETING:"Budgeting",SAVINGS:"Savings",CASH_RECONCILIATION:"Cash and MoMo reconciliation",BUSINESS_FINANCE:"Business finance",STOCK_CONTROL:"Stock control",CREDIT_BASICS:"Credit basics"};
+type Overview={programmes:Programme[];cohorts:Cohort[];participants:Participant[];enrolments:Enrolment[];self:Participant|null;pathways:Pathway[];mentors:Mentor[];placements:Placement[];units:EquipmentUnit[];allocations:Allocation[];lessons:Lesson[]};
+const empty:Overview={programmes:[],cohorts:[],participants:[],enrolments:[],self:null,pathways:[],mentors:[],placements:[],units:[],allocations:[],lessons:[]};
 const managers=["ORG_ADMIN","COORDINATOR"];
 const roleLabel:Record<string,string>={ORG_ADMIN:"Administrator",COORDINATOR:"Coordinator",MENTOR:"Mentor",PARTICIPANT:"Participant",REPORT_VIEWER:"Report viewer"};
 type Session={accessToken:string;refreshToken:string};
@@ -60,7 +62,18 @@ export default function ProgrammePage(){
   const [equipmentId,setEquipmentId]=useState("");
   const [equipmentEnrolment,setEquipmentEnrolment]=useState("");
   const [equipmentAction,setEquipmentAction]=useState<{id:string;action:"APPROVE"|"CANCEL"|"ACKNOWLEDGE";name:string}|null>(null);
+  const [lessonCohort,setLessonCohort]=useState("");
+  const [lessonTitle,setLessonTitle]=useState("");
+  const [lessonTopic,setLessonTopic]=useState("RECORD_KEEPING");
+  const [lessonVersion,setLessonVersion]=useState("1");
+  const [lessonText,setLessonText]=useState("");
+  const [question,setQuestion]=useState("");
+  const [options,setOptions]=useState(["","",""]);
+  const [correctOption,setCorrectOption]=useState("0");
+  const [selectedLesson,setSelectedLesson]=useState("");
+  const [answer,setAnswer]=useState("");
   function resetTraining(){
+    setLessonCohort("");setLessonTitle("");setLessonTopic("RECORD_KEEPING");setLessonVersion("1");setLessonText("");setQuestion("");setOptions(["","",""]);setCorrectOption("0");setSelectedLesson("");setAnswer("");
     setAssetCode("");setAssetName("");setCondition("NEW");setEquipmentId("");setEquipmentEnrolment("");setEquipmentAction(null);
     setTrainingCohort("");setPathwayName("");setHours("40");setPathwayId("");setTrainingEnrolment("");setMentorId("");setProgressId("");setProgressNote("");setProgressStatus("IN_PROGRESS");
   }
@@ -89,14 +102,14 @@ export default function ProgrammePage(){
   const prefix=(o:Organisation)=>"/v1/programmes/"+encodeURIComponent(o.id);
   async function load(o:Organisation){
     if(managers.includes(o.role)){
-      const [p,c,b,e,t,m,a,eq,al]=await Promise.all([
+      const [p,c,b,e,t,m,a,eq,al,le]=await Promise.all([
         json<{programmes:Programme[]}>(prefix(o)+"/programmes"),json<{cohorts:Cohort[]}>(prefix(o)+"/cohorts"),
-        json<{participants:Participant[]}>(prefix(o)+"/participants"),json<{enrolments:Enrolment[]}>(prefix(o)+"/enrolments"),json<{pathways:Pathway[]}>(prefix(o)+"/training/pathways"),json<{mentors:Mentor[]}>(prefix(o)+"/training/mentors"),json<{placements:Placement[]}>(prefix(o)+"/training/placements"),json<{units:EquipmentUnit[]}>(prefix(o)+"/equipment/units"),json<{allocations:Allocation[]}>(prefix(o)+"/equipment/allocations")]);
-      setData({...empty,programmes:p.programmes,cohorts:c.cohorts,participants:b.participants,enrolments:e.enrolments,pathways:t.pathways,mentors:m.mentors,placements:a.placements,units:eq.units,allocations:al.allocations});
+        json<{participants:Participant[]}>(prefix(o)+"/participants"),json<{enrolments:Enrolment[]}>(prefix(o)+"/enrolments"),json<{pathways:Pathway[]}>(prefix(o)+"/training/pathways"),json<{mentors:Mentor[]}>(prefix(o)+"/training/mentors"),json<{placements:Placement[]}>(prefix(o)+"/training/placements"),json<{units:EquipmentUnit[]}>(prefix(o)+"/equipment/units"),json<{allocations:Allocation[]}>(prefix(o)+"/equipment/allocations"),json<{lessons:Lesson[]}>(prefix(o)+"/literacy/lessons")]);
+      setData({...empty,programmes:p.programmes,cohorts:c.cohorts,participants:b.participants,enrolments:e.enrolments,pathways:t.pathways,mentors:m.mentors,placements:a.placements,units:eq.units,allocations:al.allocations,lessons:le.lessons});
     }else if(o.role==="PARTICIPANT"){
-      const [p,e,a,al]=await Promise.all([json<{participant:Participant|null}>(prefix(o)+"/participants/self"),
-        json<{enrolments:Enrolment[]}>(prefix(o)+"/enrolments"),json<{placements:Placement[]}>(prefix(o)+"/training/placements"),json<{allocations:Allocation[]}>(prefix(o)+"/equipment/allocations")]);
-      setData({...empty,self:p.participant,enrolments:e.enrolments,placements:a.placements,allocations:al.allocations});
+      const [p,e,a,al,le]=await Promise.all([json<{participant:Participant|null}>(prefix(o)+"/participants/self"),
+        json<{enrolments:Enrolment[]}>(prefix(o)+"/enrolments"),json<{placements:Placement[]}>(prefix(o)+"/training/placements"),json<{allocations:Allocation[]}>(prefix(o)+"/equipment/allocations"),json<{lessons:Lesson[]}>(prefix(o)+"/literacy/lessons")]);
+      setData({...empty,self:p.participant,enrolments:e.enrolments,placements:a.placements,allocations:al.allocations,lessons:le.lessons});
     }else if(o.role==="MENTOR"){const a=await json<{placements:Placement[]}>(prefix(o)+"/training/placements");setData({...empty,placements:a.placements});}else setData(empty);
   }
   async function selectOrg(o:Organisation){
@@ -120,16 +133,16 @@ export default function ProgrammePage(){
   async function signOut(){
     await run(async()=>{try{if(token.current)await json("/v1/auth/logout",{});}finally{reset();}});
   }
-  async function write(path:string,payload:Record<string,unknown>,message:string,after?:()=>void){
+  async function write(path:string,payload:Record<string,unknown>,message:string|((receipt:{passed?:boolean})=>string),after?:()=>void){
     if(!org)return;
     const current=org;
     await run(async()=>{
       const key=JSON.stringify([current.id,path,payload]);
       const id=requestIds.current.get(key)??crypto.randomUUID();
       requestIds.current.set(key,id);
-      await json(prefix(current)+path,{...payload,clientRequestId:id});
+      const receipt=await json<{passed?:boolean}>(prefix(current)+path,{...payload,clientRequestId:id});
       // Keep the ID until refresh also succeeds; retry after lost reply is exact.
-      await load(current);requestIds.current.delete(key);after?.();setNotice(message);
+      await load(current);requestIds.current.delete(key);after?.();setNotice(typeof message==="function"?message(receipt):message);
     });
   }
   const manager=org&&managers.includes(org.role);
@@ -137,6 +150,7 @@ export default function ProgrammePage(){
   const mentor=org?.role==="MENTOR";
   const activePathway=data.pathways.find(p=>p.id===pathwayId);
   const progressPlacement=data.placements.find(p=>p.id===progressId);
+  const activeLesson=data.lessons.find(l=>l.id===selectedLesson);
   const submit=(f:()=>void)=>(e:FormEvent)=>{e.preventDefault();f();};
   const list=(rows:{id:string;title:string;subtitle:string}[],fallback:string)=><div className={styles.rows}>{rows.length?rows.map(x=><div className={styles.row} key={x.id}><strong>{x.title}</strong><span>{x.subtitle}</span></div>):<p className={styles.muted}>{fallback}</p>}</div>;
   return <main className={styles.shell} data-programme-ready={ready?"true":"false"}>
@@ -157,7 +171,7 @@ export default function ProgrammePage(){
         </div>
         {!organisations.length&&<section className={styles.card}><h2>No programme access</h2><p>Contact the programme administrator for an invitation. No business membership is created here.</p></section>}
         {manager&&org&&<>
-          <nav className={styles.tabs} aria-label="Programme sections">{["Overview","Programmes","Cohorts","Beneficiaries","Enrolments","Apprenticeship","Equipment"].map(t=><button key={t} type="button" aria-current={tab===t?"page":undefined} disabled={busy} onClick={()=>setTab(t)}>{t}</button>)}</nav>
+          <nav className={styles.tabs} aria-label="Programme sections">{["Overview","Programmes","Cohorts","Beneficiaries","Enrolments","Apprenticeship","Equipment","Financial literacy"].map(t=><button key={t} type="button" aria-current={tab===t?"page":undefined} disabled={busy} onClick={()=>setTab(t)}>{t}</button>)}</nav>
           {tab==="Overview"&&<><div className={styles.metrics}>{[["Programmes",data.programmes.length],["Cohorts",data.cohorts.length],["Beneficiaries",data.participants.length],["Enrolments",data.enrolments.length]].map(([label,value])=><button key={label} disabled={busy} onClick={()=>setTab(String(label))}><span>{label}</span><strong>{value}</strong><small>Loaded records</small></button>)}</div><section className={styles.card}><h2>Getting started</h2><p>Create a programme, add a cohort, then enrol a participant who has accepted the programme consent.</p><Button variant="primary" onClick={()=>setTab("Programmes")}>Manage programmes</Button></section></>}
           {tab==="Programmes"&&<div className={styles.grid}><section className={styles.card}><h2>New programme</h2><form className={styles.form} onSubmit={submit(()=>void write("/programmes",{name:name.trim(),objective:objective.trim()},"Programme created.",()=>{setName("");setObjective("");}))}><label>Programme name<input className="tos-input" required maxLength={160} value={name} onChange={e=>setName(e.target.value)} disabled={busy}/></label><label>Objective<textarea className="tos-input" maxLength={1000} value={objective} onChange={e=>setObjective(e.target.value)} disabled={busy}/></label><Button type="submit" variant="primary" loading={busy}>Create programme</Button></form></section><section className={styles.card}><h2>Programmes</h2>{list(data.programmes.map(p=>({id:p.id,title:p.name,subtitle:p.status+" · "+(p.objective||"No objective")})),"No programmes yet.")}</section></div>}
           {tab==="Cohorts"&&<div className={styles.grid}><section className={styles.card}><h2>New cohort</h2><form className={styles.form} onSubmit={submit(()=>void write("/cohorts",{programmeId,name:cohortName.trim(),capacity:Number(capacity)},"Cohort created.",()=>setCohortName("")))}><label>Programme<select className="tos-select" aria-label="Programme" required value={programmeId} onChange={e=>setProgrammeId(e.target.value)} disabled={busy}><option value="">Select programme</option>{data.programmes.filter(p=>p.status!=="CLOSED").map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select></label><label>Cohort name<input className="tos-input" required maxLength={160} value={cohortName} onChange={e=>setCohortName(e.target.value)} disabled={busy}/></label><label>Capacity<input className="tos-input" type="number" min={1} max={10000} step={1} required value={capacity} onChange={e=>setCapacity(e.target.value)} disabled={busy}/></label><Button type="submit" variant="primary" loading={busy}>Create cohort</Button></form></section><section className={styles.card}><h2>Cohorts</h2>{list(data.cohorts.map(c=>({id:c.id,title:c.name,subtitle:(data.programmes.find(p=>p.id===c.programmeId)?.name??"Programme")+" · "+c.capacity+" seats"})),"No cohorts yet.")}</section></div>}
@@ -205,6 +219,31 @@ export default function ProgrammePage(){
           <section className={styles.card}><h2>Allocations and handovers</h2><p className={styles.muted}>Another administrator must approve a reservation. Only the beneficiary confirms receipt.</p>{data.allocations.length?data.allocations.map(a=><div className={styles.row} key={a.id}><strong>{a.equipmentName}</strong><span>{a.assetCode+" · "+(a.participantName??"Inactive participant")+" · "+a.status.replaceAll("_"," ")}</span>{a.handedOverAt&&<span>Receipt confirmed: {new Date(a.handedOverAt).toLocaleDateString()}</span>}
           {a.status==="RESERVED"||a.status==="APPROVED"?<div className={styles.actions}>{a.canApprove&&<Button variant="primary" disabled={busy} onClick={()=>setEquipmentAction({id:a.id,action:"APPROVE",name:a.equipmentName})}>Approve allocation</Button>}<Button variant="outline" disabled={busy} onClick={()=>setEquipmentAction({id:a.id,action:"CANCEL",name:a.equipmentName})}>Cancel reservation</Button></div>:null}</div>):<p className={styles.muted}>No equipment allocations.</p>}</section>
         </div>}
+        {manager&&tab==="Financial literacy"&&<div className={styles.grid}>
+          <section className={styles.card}><h2>Publish a learning lesson</h2><p className={styles.muted}>Publish a new immutable lesson version for an assigned cohort. Practice is for learning, not eligibility decisions.</p>
+            <form className={styles.form} onSubmit={submit(()=>void write("/literacy/lessons",{cohortId:lessonCohort,title:lessonTitle.trim(),topic:lessonTopic,version:Number(lessonVersion),lessonText:lessonText.trim(),question:question.trim(),options:options.map(o=>o.trim()),correctOption:Number(correctOption)},"Lesson published.",()=>{setLessonTitle("");setLessonText("");setQuestion("");setOptions(["","",""]);setLessonVersion("1");setCorrectOption("0");}))}>
+              <label>Cohort<select aria-label="Learning cohort" className="tos-select" required value={lessonCohort} onChange={e=>setLessonCohort(e.target.value)} disabled={busy}><option value="">Select cohort</option>{data.cohorts.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+              <label>Lesson title<input className="tos-input" required maxLength={160} value={lessonTitle} onChange={e=>setLessonTitle(e.target.value)} disabled={busy}/></label>
+              <label>Topic<select aria-label="Lesson topic" className="tos-select" value={lessonTopic} onChange={e=>setLessonTopic(e.target.value)} disabled={busy}>{Object.entries(literacyTopics).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+              <label>Version<input className="tos-input" type="number" min={1} max={1000} step={1} required value={lessonVersion} onChange={e=>setLessonVersion(e.target.value)} disabled={busy}/></label>
+              <label>Lesson content<textarea className="tos-input" required maxLength={4000} value={lessonText} onChange={e=>setLessonText(e.target.value)} disabled={busy}/></label>
+              <label>Practice question<input className="tos-input" required maxLength={500} value={question} onChange={e=>setQuestion(e.target.value)} disabled={busy}/></label>
+              {options.map((option,i)=><label key={i}>Answer option {i+1}<input className="tos-input" required maxLength={250} value={option} onChange={e=>setOptions(prev=>prev.map((v,j)=>i===j?e.target.value:v))} disabled={busy}/></label>)}
+              <label>Correct answer<select aria-label="Correct answer" className="tos-select" value={correctOption} onChange={e=>setCorrectOption(e.target.value)} disabled={busy}>{options.map((_,i)=><option key={i} value={i}>Option {i+1}</option>)}</select></label>
+              <Button type="submit" variant="primary" loading={busy}>Publish lesson</Button>
+            </form></section>
+          <section className={styles.card}><h2>Published lessons</h2>{list(data.lessons.map(l=>({id:l.id,title:l.title,subtitle:l.cohortName+" · "+(literacyTopics[l.topic]??l.topic)+" · Version "+l.version})),"No published lessons.")}</section>
+        </div>}
+        {selected&&<section className={styles.card}><h2>Financial literacy learning centre</h2><p className={styles.muted}>Build practical business skills. Your practice answers are private and do not determine grant eligibility.</p>
+          {data.lessons.length?<div className={styles.form}>
+            <label>Choose lesson<select aria-label="Choose lesson" className="tos-select" value={selectedLesson} onChange={e=>{setSelectedLesson(e.target.value);setAnswer("");}} disabled={busy}><option value="">Select lesson</option>{data.lessons.map(l=><option value={l.id} key={l.id}>{l.title+" · v"+l.version+(l.passed?" · Completed":"")}</option>)}</select></label>
+            {activeLesson&&<><div className={styles.row}><strong>{activeLesson.title}</strong><span>{literacyTopics[activeLesson.topic]??activeLesson.topic} · {activeLesson.passed?"Completed":"Practice pending"} · {activeLesson.attempts??0} attempt(s)</span></div><p className={styles.lessonText}>{activeLesson.lessonText}</p>
+              <form className={styles.form} onSubmit={submit(()=>{if(activeLesson.enrolmentId&&answer!=="")void write("/literacy/attempts",{lessonId:activeLesson.id,enrolmentId:activeLesson.enrolmentId,answerOption:Number(answer)},r=>r.passed?"Correct answer. Lesson completed.":"Not quite. Review the lesson and try again.",()=>setAnswer(""));})}>
+                <fieldset className={styles.question}><legend>{activeLesson.question}</legend>{activeLesson.options.map((option,i)=><label className={styles.check} key={i}><input type="radio" name="literacy-answer" value={i} checked={answer===String(i)} onChange={()=>setAnswer(String(i))} disabled={busy} required/>{option}</label>)}</fieldset>
+                <Button type="submit" variant="primary" loading={busy} disabled={answer===""}>Submit answer</Button>
+              </form></>}
+          </div>:<p className={styles.muted}>No lessons assigned yet.</p>}
+        </section>}
         {selected&&<section className={styles.card}><h2>My startup equipment</h2>{data.allocations.length?data.allocations.map(a=><div className={styles.row} key={a.id}><strong>{a.equipmentName}</strong><span>{a.assetCode+" · "+a.condition+" · "+a.status.replaceAll("_"," ")}</span>{a.handedOverAt&&<span>Receipt confirmed: {new Date(a.handedOverAt).toLocaleDateString()}</span>}{a.status==="APPROVED"&&<Button variant="primary" disabled={busy} onClick={()=>setEquipmentAction({id:a.id,action:"ACKNOWLEDGE",name:a.equipmentName})}>Confirm equipment received</Button>}</div>):<p className={styles.muted}>No equipment allocated yet.</p>}</section>}
         {equipmentAction&&<div className={styles.modalBackdrop}><section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="equipment-action-title"><h2 id="equipment-action-title">{equipmentAction.action==="APPROVE"?"Approve allocation":equipmentAction.action==="CANCEL"?"Cancel reservation":"Confirm physical receipt"}</h2><p>{equipmentAction.name}</p><p className={styles.muted}>{equipmentAction.action==="ACKNOWLEDGE"?"Confirm only if the equipment has actually been handed over to you. This records your receipt.":equipmentAction.action==="CANCEL"?"This releases the equipment for another reservation.":"This approves the reservation for handover; it does not confirm delivery."}</p><div className={styles.actions}><Button variant="outline" disabled={busy} onClick={()=>setEquipmentAction(null)}>Back</Button><Button variant="primary" loading={busy} onClick={()=>{const a=equipmentAction;void write("/equipment/transitions",{allocationId:a.id,action:a.action},a.action==="APPROVE"?"Allocation approved.":a.action==="CANCEL"?"Reservation cancelled.":"Equipment receipt confirmed.",()=>setEquipmentAction(null));}}>Confirm</Button></div></section></div>}
         {selected&&<section className={styles.card}><h2>My training</h2>{list(data.placements.map(p=>({id:p.id,title:p.pathwayName,subtitle:p.mentorName+" · "+p.plannedHours+" hours · "+p.status.replaceAll("_"," ")})),"No training placements yet.")}</section>}

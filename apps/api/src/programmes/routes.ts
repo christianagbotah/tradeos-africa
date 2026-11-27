@@ -370,7 +370,8 @@ export function registerProgrammeRoutes(app:FastifyInstance,pool:DatabasePool){
     const org=orgOf(req);await access(c,org,u,managers);
     const b=body(req,["clientRequestId","cohortId","title","topic","lessonText","question","options","correctOption","version"]);
     const requestId=identifier(b.clientRequestId),cohortId=identifier(b.cohortId),title=str(b.title,160),topic=b.topic,version=b.version,
-      lessonText=str(b.lessonText,4000),question=str(b.question,500),correctOption=b.correctOption;
+      lessonText=typeof b.lessonText==="string"?b.lessonText.trim():"",question=str(b.question,500),correctOption=b.correctOption;
+    if(!lessonText||lessonText.length>4000||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(lessonText))throw invalid("Invalid lesson content");
     if(typeof topic!=="string"||!["RECORD_KEEPING","COSTING_PRICING","BUDGETING","SAVINGS","CASH_RECONCILIATION","BUSINESS_FINANCE","STOCK_CONTROL","CREDIT_BASICS"].includes(topic))throw invalid("Invalid lesson topic");
     if(typeof version!=="number"||!Number.isInteger(version)||version<1||version>1000)throw invalid("Invalid lesson version");
     if(!Array.isArray(b.options)||b.options.length!==3)throw invalid("Three answer options required");
