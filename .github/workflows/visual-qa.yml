@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - feat/programme-foundation-20261126
   workflow_dispatch:
 
 # A newer PR head makes its earlier screenshot capture obsolete.
@@ -221,7 +222,7 @@ jobs:
         run: |
           node --input-type=module << 'PROGRAMME_SEED'
           for (const width of [390,1280]) {
-            for (const role of ["admin","participant","outsider"]) {
+            for (const role of ["admin","participant","mentor","outsider"]) {
               const email="programme-"+role+"-"+width+"@tradeos.test";
               const r=await fetch("http://127.0.0.1:4000/v1/auth/register",{
                 method:"POST",headers:{"content-type":"application/json"},
@@ -235,10 +236,11 @@ jobs:
           psql -h localhost -U tradeos -d tradeos_qa -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO programme_organisations(name) VALUES ('Skills QA 390'),('Skills QA 1280');
           INSERT INTO programme_memberships(organisation_id,user_id,role)
-          SELECT o.id,u.id,CASE WHEN u.email LIKE 'programme-admin-%' THEN 'ORG_ADMIN' ELSE 'PARTICIPANT' END
+          SELECT o.id,u.id,CASE WHEN u.email LIKE 'programme-admin-%' THEN 'ORG_ADMIN' WHEN u.email LIKE 'programme-mentor-%' THEN 'MENTOR' ELSE 'PARTICIPANT' END
           FROM programme_organisations o JOIN app_users u ON
             u.email IN ('programme-admin-'||split_part(o.name,' ',3)||'@tradeos.test',
-                        'programme-participant-'||split_part(o.name,' ',3)||'@tradeos.test')
+                        'programme-participant-'||split_part(o.name,' ',3)||'@tradeos.test',
+                        'programme-mentor-'||split_part(o.name,' ',3)||'@tradeos.test')
           WHERE o.name IN ('Skills QA 390','Skills QA 1280');
           SQL
 
@@ -356,9 +358,39 @@ jobs:
               await p.getByRole("status").filter({hasText:"Participant enrolled."}).waitFor();
               await assertFit();
               await p.screenshot({path:EVIDENCE+"/programme-enrolments-"+width+".png",fullPage:true});screenshotCount++;
+              await tab("Apprenticeship");
+              await p.getByLabel("Training cohort",{exact:true}).selectOption({label:"Cohort One"});
+              await p.getByLabel("Pathway name",{exact:true}).fill("Tailoring fundamentals");
+              await p.getByLabel("Planned hours",{exact:true}).fill("40");
+              await p.getByRole("button",{name:"Create pathway",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Training pathway created."}).waitFor();
+              await p.getByLabel("Training pathway",{exact:true}).selectOption({label:"Tailoring fundamentals"});
+              await p.getByLabel("Apprentice",{exact:true}).selectOption({label:"Fictional Apprentice"});
+              await p.getByLabel("Assigned mentor",{exact:true}).selectOption({label:"Fictional mentor"});
+              await p.getByRole("button",{name:"Assign placement",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Training placement assigned."}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-training-placement-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("mentor");
+              await p.getByRole("heading",{name:"My apprentices",exact:true}).waitFor();
+              await p.getByLabel("Training placement",{exact:true}).selectOption({label:"Fictional Apprentice · Tailoring fundamentals"});
+              await p.getByLabel("Progress note",{exact:true}).fill("Started practical training");
+              await p.getByRole("button",{name:"Save progress",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Training progress recorded."}).waitFor();
+              await p.getByLabel("Training placement",{exact:true}).selectOption({label:"Fictional Apprentice · Tailoring fundamentals"});
+              await p.getByLabel("Progress status",{exact:true}).selectOption("COMPLETED");
+              await p.getByLabel("Progress note",{exact:true}).fill("Practical milestone completed");
+              await p.getByRole("button",{name:"Save progress",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Training progress recorded."}).waitFor();
+              await p.getByText("Fictional mentor · COMPLETED",{exact:true}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-mentor-progress-"+width+".png",fullPage:true});screenshotCount++;
               await p.getByRole("button",{name:"Sign out",exact:true}).click();
               await signIn("participant");
               await p.getByText("Enterprise foundations",{exact:true}).waitFor();
+              await p.getByText("Tailoring fundamentals",{exact:true}).waitFor();
+              await p.getByText("Fictional mentor · 40 hours · COMPLETED",{exact:true}).waitFor();
               await assertFit();
               await p.screenshot({path:EVIDENCE+"/programme-participant-"+width+".png",fullPage:true});screenshotCount++;
               p.once("dialog",d=>d.accept());
