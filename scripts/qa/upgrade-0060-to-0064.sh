@@ -64,6 +64,6 @@ BEGIN
  EXCEPTION WHEN foreign_key_violation THEN NULL;
  END;
  INSERT INTO programme_cohorts(organisation_id,programme_id,name,capacity) VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','dddddddd-dddd-4ddd-8ddd-dddddddddddd','Cohort A',1);
-END $;
+END $$;
 SQL
 printf 'Upgrade rehearsal passed: 60 -> 65, existing table fingerprints preserved, replay and tenant constraints verified. Synthetic data only.\n'
