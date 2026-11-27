@@ -259,4 +259,87 @@ export function registerProgrammeRoutes(app:FastifyInstance,pool:DatabasePool){
     });
   },201));
 
+  // Grant assets are distinct from merchant stock and never post cash or ledger entries.
+  app.get("/v1/programmes/:orgId/equipment/units",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,managers);
+    const result=await c.query(`SELECT e.id,e.asset_code AS "assetCode",e.name,e.condition,
+      COALESCE(a.status,'AVAILABLE') AS status FROM programme_equipment_units e
+      LEFT JOIN programme_equipment_allocations a ON a.organisation_id=e.organisation_id AND a.equipment_id=e.id AND a.status<>'CANCELLED'
+      WHERE e.organisation_id=$1 ORDER BY e.created_at DESC,e.id LIMIT 100`,[org]);
+    return {units:result.rows};
+  }));
+  app.post("/v1/programmes/:orgId/equipment/units",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,managers);
+    const b=body(req,["clientRequestId","assetCode","name","condition"]);
+    const requestId=identifier(b.clientRequestId),assetCode=str(b.assetCode,80).toUpperCase(),name=str(b.name,160),condition=b.condition;
+    if(condition!=="NEW"&&condition!=="GOOD"&&condition!=="REFURBISHED")throw invalid("Invalid equipment condition");
+    return write(c,org,u,requestId,"EQUIPMENT_REGISTERED",{assetCode,name,condition},async()=>{
+      const result=await c.query<{id:string}>("INSERT INTO programme_equipment_units(organisation_id,asset_code,name,condition) VALUES($1,$2,$3,$4) RETURNING id",[org,assetCode,name,condition]);
+      return result.rows[0]!.id;
+    });
+  },201));
+  app.post("/v1/programmes/:orgId/equipment/allocations",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,managers);
+    const b=body(req,["clientRequestId","equipmentId","enrolmentId"]);
+    const requestId=identifier(b.clientRequestId),equipmentId=identifier(b.equipmentId),enrolmentId=identifier(b.enrolmentId);
+    return write(c,org,u,requestId,"EQUIPMENT_RESERVED",{equipmentId,enrolmentId},async()=>{
+      const asset=await c.query("SELECT id FROM programme_equipment_units WHERE organisation_id=$1 AND id=$2 FOR UPDATE",[org,equipmentId]);
+      const enrol=await c.query<{cohort_id:string}>(`SELECT e.cohort_id FROM programme_enrolments e
+        JOIN programme_participants p ON p.organisation_id=e.organisation_id AND p.id=e.participant_id
+        JOIN programme_memberships m ON m.organisation_id=p.organisation_id AND m.user_id=p.user_id
+        JOIN programme_cohorts co ON co.organisation_id=e.organisation_id AND co.id=e.cohort_id
+        JOIN programmes pr ON pr.organisation_id=co.organisation_id AND pr.id=co.programme_id
+        WHERE e.organisation_id=$1 AND e.id=$2 AND p.withdrawn_at IS NULL AND m.role='PARTICIPANT' AND m.status='ACTIVE' AND pr.status<>'CLOSED'
+        FOR SHARE OF e,p,m,co,pr`,[org,enrolmentId]);
+      if(!asset.rowCount||!enrol.rows[0])throw denied();
+      const result=await c.query<{id:string}>("INSERT INTO programme_equipment_allocations(organisation_id,cohort_id,enrolment_id,equipment_id,reserved_by) VALUES($1,$2,$3,$4,$5) RETURNING id",[org,enrol.rows[0].cohort_id,enrolmentId,equipmentId,u]);
+      return result.rows[0]!.id;
+    });
+  },201));
+  app.get("/v1/programmes/:orgId/equipment/allocations",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req),role=await access(c,org,u,[...managers,"PARTICIPANT"]);
+    const result=await c.query(`SELECT a.id,a.status,e.name AS "equipmentName",e.asset_code AS "assetCode",e.condition,
+      CASE WHEN p.withdrawn_at IS NULL AND m.status='ACTIVE' THEN p.display_name ELSE NULL END AS "participantName",
+      a.created_at AS "reservedAt",a.approved_at AS "approvedAt",a.handed_over_at AS "handedOverAt",
+      (a.reserved_by<>$3 AND $4='ORG_ADMIN' AND a.status='RESERVED' AND p.withdrawn_at IS NULL AND m.status='ACTIVE') AS "canApprove"
+      FROM programme_equipment_allocations a
+      JOIN programme_equipment_units e ON e.organisation_id=a.organisation_id AND e.id=a.equipment_id
+      JOIN programme_enrolments en ON en.organisation_id=a.organisation_id AND en.cohort_id=a.cohort_id AND en.id=a.enrolment_id
+      JOIN programme_participants p ON p.organisation_id=en.organisation_id AND p.id=en.participant_id
+      JOIN programme_memberships m ON m.organisation_id=p.organisation_id AND m.user_id=p.user_id
+      WHERE a.organisation_id=$1 AND ($2::boolean OR (p.user_id=$3 AND p.withdrawn_at IS NULL AND m.status='ACTIVE'))
+      ORDER BY a.created_at DESC,a.id LIMIT 100`,[org,managers.includes(role),u,role]);
+    return {allocations:result.rows};
+  }));
+  app.post("/v1/programmes/:orgId/equipment/transitions",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req),role=await access(c,org,u,[...managers,"PARTICIPANT"]);
+    const b=body(req,["clientRequestId","allocationId","action"]);
+    const requestId=identifier(b.clientRequestId),allocationId=identifier(b.allocationId),action=b.action;
+    if(action!=="APPROVE"&&action!=="CANCEL"&&action!=="ACKNOWLEDGE")throw invalid("Invalid equipment action");
+    if((action==="APPROVE"&&role!=="ORG_ADMIN")||(action==="CANCEL"&&!managers.includes(role))||(action==="ACKNOWLEDGE"&&role!=="PARTICIPANT"))throw denied();
+    // Revalidate current scope before executing or returning replay evidence.
+    const target=await c.query<{status:string;reserved_by:string;user_id:string;active:boolean;open:boolean}>(`SELECT a.status,a.reserved_by,p.user_id,
+      (p.withdrawn_at IS NULL AND m.status='ACTIVE' AND m.role='PARTICIPANT') AS active,(pr.status<>'CLOSED') AS open
+      FROM programme_equipment_allocations a
+      JOIN programme_enrolments en ON en.organisation_id=a.organisation_id AND en.cohort_id=a.cohort_id AND en.id=a.enrolment_id
+      JOIN programme_participants p ON p.organisation_id=en.organisation_id AND p.id=en.participant_id
+      JOIN programme_memberships m ON m.organisation_id=p.organisation_id AND m.user_id=p.user_id
+      JOIN programme_cohorts co ON co.organisation_id=en.organisation_id AND co.id=en.cohort_id
+      JOIN programmes pr ON pr.organisation_id=co.organisation_id AND pr.id=co.programme_id
+      WHERE a.organisation_id=$1 AND a.id=$2 FOR UPDATE OF a FOR SHARE OF p,m,en,co,pr`,[org,allocationId]);
+    const row=target.rows[0];
+    if(!row||(action==="ACKNOWLEDGE"&&row.user_id!==u)||(action!=="CANCEL"&&(!row.active||!row.open)))throw denied();
+    if(action==="APPROVE"&&row.reserved_by===u)throw denied();
+    return write(c,org,u,requestId,"EQUIPMENT_"+action,{allocationId,action},async()=>{
+      if(action==="APPROVE"&&row.status==="RESERVED")
+        await c.query("UPDATE programme_equipment_allocations SET status='APPROVED',approved_by=$3,approved_at=now() WHERE organisation_id=$1 AND id=$2",[org,allocationId,u]);
+      else if(action==="ACKNOWLEDGE"&&row.status==="APPROVED")
+        await c.query("UPDATE programme_equipment_allocations SET status='HANDED_OVER',acknowledged_by=$3,handed_over_at=now() WHERE organisation_id=$1 AND id=$2",[org,allocationId,u]);
+      else if(action==="CANCEL"&&["RESERVED","APPROVED"].includes(row.status))
+        await c.query("UPDATE programme_equipment_allocations SET status='CANCELLED',cancelled_at=now() WHERE organisation_id=$1 AND id=$2",[org,allocationId]);
+      else throw conflict("Equipment action is not valid for the current status");
+      return allocationId;
+    });
+  },201));
+
 }

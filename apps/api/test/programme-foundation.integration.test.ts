@@ -127,3 +127,39 @@ describe("apprenticeship pathway and mentor scope",()=>{
     expect((await f.post(f.mentor,f.org,"training/progress",done)).statusCode).toBe(403);
   });
 });
+
+describe("startup equipment custody and participant handover",()=>{
+  it("prevents double allocation, foreign access and self-approval; records one acknowledged handover",async()=>{
+    const f=await fixture(),coordinator=await user("equipment-coordinator");
+    await pool.query("INSERT INTO programme_memberships(organisation_id,user_id,role) VALUES($1,$2,'COORDINATOR')",[f.org,coordinator.id]);
+    const programme=await f.createProgramme(),cohortId=await f.createCohort(programme,2),participantId=await f.consent(),secondId=await f.consent(f.second);
+    const enrol=await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId,participantId});
+    const otherEnrol=await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId,participantId:secondId});
+    const unit=await f.post(coordinator,f.org,"equipment/units",{clientRequestId:randomUUID(),assetCode:"QA-SEW-01",name:"Sewing machine",condition:"NEW"});
+    expect(unit.statusCode).toBe(201);const equipmentId=unit.json().id;
+    const reserve={clientRequestId:randomUUID(),equipmentId,enrolmentId:enrol.json().id};
+    const allocation=await f.post(coordinator,f.org,"equipment/allocations",reserve);
+    expect(allocation.statusCode).toBe(201);const allocationId=allocation.json().id;
+    expect((await f.post(coordinator,f.org,"equipment/allocations",reserve)).json().id).toBe(allocationId);
+    expect((await f.post(coordinator,f.org,"equipment/allocations",{...reserve,clientRequestId:randomUUID(),enrolmentId:otherEnrol.json().id})).statusCode).toBe(409);
+    expect((await f.get(f.foreign,f.org,"equipment/allocations")).statusCode).toBe(403);
+    expect((await f.get(f.second,f.org,"equipment/allocations")).json().allocations).toEqual([]);
+    const approval={clientRequestId:randomUUID(),allocationId,action:"APPROVE"};
+    expect((await f.post(coordinator,f.org,"equipment/transitions",approval)).statusCode).toBe(403);
+    const ack={clientRequestId:randomUUID(),allocationId,action:"ACKNOWLEDGE"};
+    expect((await f.post(f.person,f.org,"equipment/transitions",ack)).statusCode).toBe(409);
+    expect((await f.post(f.admin,f.org,"equipment/transitions",approval)).statusCode).toBe(201);
+    expect((await f.post(f.second,f.org,"equipment/transitions",ack)).statusCode).toBe(403);
+    expect((await f.post(f.person,f.org,"equipment/transitions",ack)).statusCode).toBe(201);
+    expect((await f.post(f.person,f.org,"equipment/transitions",ack)).json().replayed).toBe(true);
+    const handed=(await f.get(f.person,f.org,"equipment/allocations")).json().allocations[0];
+    expect(handed.status).toBe("HANDED_OVER");expect(handed.handedOverAt).toBeTruthy();
+    expect((await f.post(f.admin,f.org,"equipment/transitions",{clientRequestId:randomUUID(),allocationId,action:"CANCEL"})).statusCode).toBe(409);
+    expect((await pool.query("SELECT id FROM programme_audit_events WHERE organisation_id=$1 AND event_type='EQUIPMENT_ACKNOWLEDGE'",[f.org])).rowCount).toBe(1);
+    const adminUnit=await f.post(f.admin,f.org,"equipment/units",{clientRequestId:randomUUID(),assetCode:"QA-SEW-02",name:"Second machine",condition:"GOOD"});
+    const adminAllocation=await f.post(f.admin,f.org,"equipment/allocations",{clientRequestId:randomUUID(),equipmentId:adminUnit.json().id,enrolmentId:enrol.json().id});
+    expect((await f.post(f.admin,f.org,"equipment/transitions",{clientRequestId:randomUUID(),allocationId:adminAllocation.json().id,action:"APPROVE"})).statusCode).toBe(403);
+    expect((await f.post(f.admin,f.org,"equipment/transitions",{clientRequestId:randomUUID(),allocationId:adminAllocation.json().id,action:"CANCEL"})).statusCode).toBe(201);
+    expect((await f.get(f.admin,f.org,"equipment/units")).json().units.find((x:{assetCode:string})=>x.assetCode==="QA-SEW-02").status).toBe("AVAILABLE");
+  });
+});
