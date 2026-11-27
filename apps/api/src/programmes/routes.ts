@@ -166,4 +166,97 @@ export function registerProgrammeRoutes(app:FastifyInstance,pool:DatabasePool){
       return r.rows[0]!.id;
     });
   },201));
+  // Training roles are intentionally separate from merchant access.
+  app.get("/v1/programmes/:orgId/training/mentors",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,managers);
+    const r=await c.query(`SELECT m.user_id AS id,u.display_name AS "displayName"
+      FROM programme_memberships m JOIN app_users u ON u.id=m.user_id
+      WHERE m.organisation_id=$1 AND m.role='MENTOR' AND m.status='ACTIVE' AND u.status='ACTIVE'
+      ORDER BY u.display_name,m.user_id LIMIT 100`,[org]);
+    return {mentors:r.rows};
+  }));
+  app.get("/v1/programmes/:orgId/training/pathways",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,managers);
+    const r=await c.query(`SELECT t.id,t.cohort_id AS "cohortId",c.name AS "cohortName",t.name,t.description,t.planned_hours AS "plannedHours"
+      FROM programme_training_pathways t JOIN programme_cohorts c ON c.organisation_id=t.organisation_id AND c.id=t.cohort_id
+      WHERE t.organisation_id=$1 ORDER BY t.created_at DESC,t.id LIMIT 100`,[org]);
+    return {pathways:r.rows};
+  }));
+  app.post("/v1/programmes/:orgId/training/pathways",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,managers);
+    const b=body(req,["clientRequestId","cohortId","name","description","plannedHours"]);
+    const requestId=identifier(b.clientRequestId),cohortId=identifier(b.cohortId),name=str(b.name,160),description=str(b.description,1000,true),hours=b.plannedHours;
+    if(typeof hours!=="number"||!Number.isInteger(hours)||hours<1||hours>10000)throw invalid("Planned hours must be 1–10000");
+    return write(c,org,u,requestId,"TRAINING_PATHWAY_CREATED",{cohortId,name,description,hours},async()=>{
+      const cohort=await c.query(`SELECT c.id FROM programme_cohorts c JOIN programmes p ON p.organisation_id=c.organisation_id AND p.id=c.programme_id
+        WHERE c.organisation_id=$1 AND c.id=$2 AND p.status!='CLOSED' FOR SHARE OF c,p`,[org,cohortId]);
+      if(!cohort.rowCount)throw denied();
+      const r=await c.query<{id:string}>("INSERT INTO programme_training_pathways(organisation_id,cohort_id,name,description,planned_hours) VALUES($1,$2,$3,$4,$5) RETURNING id",[org,cohortId,name,description,hours]);
+      return r.rows[0]!.id;
+    });
+  },201));
+  app.post("/v1/programmes/:orgId/training/placements",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,managers);
+    const b=body(req,["clientRequestId","pathwayId","enrolmentId","mentorId"]);
+    const requestId=identifier(b.clientRequestId),pathwayId=identifier(b.pathwayId),enrolmentId=identifier(b.enrolmentId),mentorId=identifier(b.mentorId);
+    return write(c,org,u,requestId,"TRAINING_PLACEMENT_ASSIGNED",{pathwayId,enrolmentId,mentorId},async()=>{
+      const row=await c.query<{cohort_id:string}>(`SELECT e.cohort_id FROM programme_enrolments e
+        JOIN programme_training_pathways t ON t.organisation_id=e.organisation_id AND t.cohort_id=e.cohort_id AND t.id=$3
+        JOIN programme_participants pp ON pp.organisation_id=e.organisation_id AND pp.id=e.participant_id
+        JOIN programme_memberships pm ON pm.organisation_id=pp.organisation_id AND pm.user_id=pp.user_id
+        JOIN programme_memberships mm ON mm.organisation_id=e.organisation_id AND mm.user_id=$4
+        JOIN app_users mu ON mu.id=mm.user_id
+        JOIN programme_cohorts c ON c.organisation_id=e.organisation_id AND c.id=e.cohort_id
+        JOIN programmes p ON p.organisation_id=c.organisation_id AND p.id=c.programme_id
+        WHERE e.organisation_id=$1 AND e.id=$2 AND pp.withdrawn_at IS NULL AND pm.role='PARTICIPANT' AND pm.status='ACTIVE'
+          AND mm.role='MENTOR' AND mm.status='ACTIVE' AND mu.status='ACTIVE' AND p.status!='CLOSED'
+        FOR SHARE OF e,t,pp,pm,mm,mu,c,p`,[org,enrolmentId,pathwayId,mentorId]);
+      if(!row.rows[0])throw denied();
+      const r=await c.query<{id:string}>("INSERT INTO programme_training_placements(organisation_id,cohort_id,enrolment_id,pathway_id,mentor_user_id) VALUES($1,$2,$3,$4,$5) RETURNING id",[org,row.rows[0].cohort_id,enrolmentId,pathwayId,mentorId]);
+      return r.rows[0]!.id;
+    });
+  },201));
+  app.get("/v1/programmes/:orgId/training/placements",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req),role=await access(c,org,u,[...managers,"MENTOR","PARTICIPANT"]);
+    const r=await c.query(`SELECT t.id,t.status,p.name AS "pathwayName",p.planned_hours AS "plannedHours",
+       pp.display_name AS "participantName",mu.display_name AS "mentorName",
+       t.enrolment_id AS "enrolmentId",t.pathway_id AS "pathwayId"
+      FROM programme_training_placements t
+      JOIN programme_training_pathways p ON p.organisation_id=t.organisation_id AND p.cohort_id=t.cohort_id AND p.id=t.pathway_id
+      JOIN programme_enrolments e ON e.organisation_id=t.organisation_id AND e.cohort_id=t.cohort_id AND e.id=t.enrolment_id
+      JOIN programme_participants pp ON pp.organisation_id=e.organisation_id AND pp.id=e.participant_id
+      JOIN programme_memberships pm ON pm.organisation_id=pp.organisation_id AND pm.user_id=pp.user_id
+      JOIN programme_memberships mm ON mm.organisation_id=t.organisation_id AND mm.user_id=t.mentor_user_id
+      JOIN app_users mu ON mu.id=mm.user_id
+      WHERE t.organisation_id=$1 AND pp.withdrawn_at IS NULL AND pm.status='ACTIVE' AND pm.role='PARTICIPANT'
+        AND mm.status='ACTIVE' AND mm.role='MENTOR' AND mu.status='ACTIVE'
+        AND ($2::boolean OR ($3='MENTOR' AND t.mentor_user_id=$4) OR ($3='PARTICIPANT' AND pp.user_id=$4))
+      ORDER BY t.created_at DESC,t.id LIMIT 100`,[org,managers.includes(role),role,u]);
+    return {placements:r.rows};
+  }));
+  app.post("/v1/programmes/:orgId/training/progress",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req),role=await access(c,org,u,[...managers,"MENTOR"]);
+    const b=body(req,["clientRequestId","placementId","status","note"]);
+    const requestId=identifier(b.clientRequestId),placementId=identifier(b.placementId),status=b.status,note=str(b.note,500);
+    if(status!=="IN_PROGRESS"&&status!=="COMPLETED")throw invalid("Invalid training status");
+    // Recheck the live placement scope before idempotent replay too.
+    const row=await c.query<{status:string}>(`SELECT t.status FROM programme_training_placements t
+      JOIN programme_enrolments e ON e.organisation_id=t.organisation_id AND e.cohort_id=t.cohort_id AND e.id=t.enrolment_id
+      JOIN programme_participants pp ON pp.organisation_id=e.organisation_id AND pp.id=e.participant_id
+      JOIN programme_memberships pm ON pm.organisation_id=pp.organisation_id AND pm.user_id=pp.user_id
+      JOIN programme_memberships mm ON mm.organisation_id=t.organisation_id AND mm.user_id=t.mentor_user_id
+      JOIN programme_cohorts c ON c.organisation_id=e.organisation_id AND c.id=e.cohort_id
+      JOIN programmes p ON p.organisation_id=c.organisation_id AND p.id=c.programme_id
+      WHERE t.organisation_id=$1 AND t.id=$2 AND pp.withdrawn_at IS NULL AND pm.status='ACTIVE' AND pm.role='PARTICIPANT'
+        AND mm.status='ACTIVE' AND mm.role='MENTOR' AND p.status!='CLOSED'
+        AND ($3::boolean OR t.mentor_user_id=$4) FOR UPDATE OF t FOR SHARE OF pp,pm,mm,e,c,p`,[org,placementId,managers.includes(role),u]);
+    if(!row.rows[0])throw denied();
+    return write(c,org,u,requestId,"TRAINING_PROGRESS_RECORDED",{placementId,status,note},async()=>{
+      if((row.rows[0]!.status==="ASSIGNED"&&status!=="IN_PROGRESS")||row.rows[0]!.status==="COMPLETED")throw conflict("Invalid training status transition");
+      const r=await c.query<{id:string}>("INSERT INTO programme_training_progress(organisation_id,placement_id,actor_user_id,status,note) VALUES($1,$2,$3,$4,$5) RETURNING id",[org,placementId,u,status,note]);
+      await c.query("UPDATE programme_training_placements SET status=$3 WHERE organisation_id=$1 AND id=$2",[org,placementId,status]);
+      return r.rows[0]!.id;
+    });
+  },201));
+
 }

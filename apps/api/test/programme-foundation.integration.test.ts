@@ -90,3 +90,40 @@ describe("independent opt-in programme foundation",()=>{
     expect((await pool.query("SELECT id FROM programme_enrolments WHERE organisation_id=$1",[f.org])).rowCount).toBe(1);
   });
 });
+
+describe("apprenticeship pathway and mentor scope",()=>{
+  it("assigns an enrolled participant to a same-cohort pathway and restricts progress to the assigned mentor",async()=>{
+    const f=await fixture(),programme=await f.createProgramme(),cohortId=await f.createCohort(programme,2);
+    const participantId=await f.consent();
+    const enrol=(await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId,participantId})).json().id;
+    const pathway=await f.post(f.admin,f.org,"training/pathways",{clientRequestId:randomUUID(),cohortId,name:"Tailoring basics",description:"Practical training",plannedHours:40});
+    expect(pathway.statusCode).toBe(201);
+    const pathwayId=pathway.json().id;
+    const payload={clientRequestId:randomUUID(),pathwayId,enrolmentId:enrol,mentorId:f.mentor.id};
+    expect((await f.post(f.admin,f.org,"training/placements",{...payload,mentorId:f.foreign.id})).statusCode).toBe(403);
+    const placement=await f.post(f.admin,f.org,"training/placements",payload);
+    expect(placement.statusCode).toBe(201);
+    const placementId=placement.json().id;
+    expect((await f.post(f.admin,f.org,"training/placements",payload)).json().id).toBe(placementId);
+    const unassigned=await user("unassigned-mentor");
+    await pool.query("INSERT INTO programme_memberships(organisation_id,user_id,role) VALUES($1,$2,'MENTOR')",[f.org,unassigned.id]);
+    expect((await f.get(unassigned,f.org,"training/placements")).json().placements).toEqual([]);
+    expect((await f.get(f.second,f.org,"training/placements")).json().placements).toEqual([]);
+    expect((await f.get(f.person,f.org,"training/placements")).json().placements[0].id).toBe(placementId);
+    expect((await f.get(f.mentor,f.org,"training/placements")).json().placements[0].id).toBe(placementId);
+    const progress={clientRequestId:randomUUID(),placementId,status:"IN_PROGRESS",note:"Started practical training"};
+    expect((await f.post(f.person,f.org,"training/progress",progress)).statusCode).toBe(403);
+    expect((await f.post(unassigned,f.org,"training/progress",progress)).statusCode).toBe(403);
+    expect((await f.post(f.mentor,f.org,"training/progress",{...progress,status:"COMPLETED"})).statusCode).toBe(409);
+    expect((await f.post(f.mentor,f.org,"training/progress",progress)).statusCode).toBe(201);
+    const done={clientRequestId:randomUUID(),placementId,status:"COMPLETED",note:"Practical milestone completed"};
+    const result=await f.post(f.mentor,f.org,"training/progress",done);
+    expect(result.statusCode).toBe(201);
+    expect((await f.post(f.mentor,f.org,"training/progress",done)).json().id).toBe(result.json().id);
+    expect((await f.get(f.person,f.org,"training/placements")).json().placements[0].status).toBe("COMPLETED");
+    expect((await pool.query("SELECT id FROM programme_training_progress WHERE organisation_id=$1",[f.org])).rowCount).toBe(2);
+    await f.post(f.person,f.org,"participants/self/withdraw",{clientRequestId:randomUUID()});
+    expect((await f.get(f.mentor,f.org,"training/placements")).json().placements).toEqual([]);
+    expect((await f.post(f.mentor,f.org,"training/progress",done)).statusCode).toBe(403);
+  });
+});

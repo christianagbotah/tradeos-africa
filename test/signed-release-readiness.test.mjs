@@ -44,7 +44,8 @@ test('database read uses a single read-only snapshot and rolls back',async()=>{
 });
 
 test('development programme migration is deliberately not approved for live promotion',()=>{
- assert.equal(actualFiles.size,65);
+ assert.equal(actualFiles.size,66);
+ assert.ok(actualFiles.has('0066_programme_apprenticeship.sql'));
  assert.ok(actualFiles.has('0065_programme_foundation.sql'));
  assert.equal(assessExpansion(actualFiles,rows).migrationAction,'HOLD');
  const all=[...actualFiles].map(([migration_name,checksum_sha256])=>({migration_name,checksum_sha256,state:'APPLIED'}));
