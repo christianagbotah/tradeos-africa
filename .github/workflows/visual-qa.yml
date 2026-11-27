@@ -6,6 +6,7 @@ on:
       - main
       - feat/programme-foundation-20261126
       - feat/programme-apprenticeship-20261126
+      - feat/programme-equipment-20261127
   workflow_dispatch:
 
 # A newer PR head makes its earlier screenshot capture obsolete.
@@ -418,6 +419,19 @@ jobs:
               await p.getByRole("button",{name:"Approve allocation",exact:true}).click();
               await p.getByRole("dialog",{name:"Approve allocation",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
               await p.getByRole("status").filter({hasText:"Allocation approved."}).waitFor();
+              await tab("Financial literacy");
+              await p.getByLabel("Learning cohort",{exact:true}).selectOption({label:"Cohort One"});
+              await p.getByLabel("Lesson title",{exact:true}).fill("Daily cash records");
+              await p.getByLabel("Lesson content",{exact:true}).fill("Keep daily records. Sales of 100 cedis minus costs of 60 cedis leave 40 cedis before other expenses.");
+              await p.getByLabel("Practice question",{exact:true}).fill("What remains before other expenses?");
+              await p.getByLabel("Answer option 1",{exact:true}).fill("20 cedis");
+              await p.getByLabel("Answer option 2",{exact:true}).fill("40 cedis");
+              await p.getByLabel("Answer option 3",{exact:true}).fill("100 cedis");
+              await p.getByLabel("Correct answer",{exact:true}).selectOption("1");
+              await p.getByRole("button",{name:"Publish lesson",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Lesson published."}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-literacy-author-"+width+".png",fullPage:true});screenshotCount++;
               await assertFit();
 
               await p.getByRole("button",{name:"Sign out",exact:true}).click();
@@ -429,6 +443,17 @@ jobs:
               await p.getByRole("dialog",{name:"Confirm physical receipt",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
               await p.getByRole("status").filter({hasText:"Equipment receipt confirmed."}).waitFor();
               await p.getByText("QA-MACHINE-01 · NEW · HANDED OVER",{exact:true}).waitFor();
+              await p.getByLabel("Choose lesson",{exact:true}).selectOption({label:"Daily cash records · v1"});
+              await p.getByRole("radio",{name:"20 cedis",exact:true}).check();
+              await p.getByRole("button",{name:"Submit answer",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Not quite. Review the lesson and try again."}).waitFor();
+              await p.getByRole("radio",{name:"40 cedis",exact:true}).check();
+              await p.getByRole("button",{name:"Submit answer",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Correct answer. Lesson completed."}).waitFor();
+              await p.getByText("Record keeping · Completed · 2 attempt(s)",{exact:true}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-literacy-completed-"+width+".png",fullPage:true});screenshotCount++;
+              console.log("Financial literacy publishing, retry and learner completion verified at "+width);
               await assertFit();
               await p.screenshot({path:EVIDENCE+"/programme-equipment-received-"+width+".png",fullPage:true});screenshotCount++;
               console.log("Programme equipment registration, independent approval and beneficiary handover verified at "+width);
