@@ -126,6 +126,7 @@ export function registerProgrammeRoutes(app:FastifyInstance,pool:DatabasePool){
     return write(c,org,u,requestId,"PARTICIPANT_WITHDREW",{},async()=>{
       const r=await c.query<{id:string}>("UPDATE programme_participants SET withdrawn_at=now() WHERE organisation_id=$1 AND user_id=$2 AND withdrawn_at IS NULL RETURNING id",[org,u]);
       if(!r.rows[0])throw conflict("No active participant consent");
+      await c.query("UPDATE programme_business_links SET revoked_at=now() WHERE organisation_id=$1 AND participant_id=$2 AND revoked_at IS NULL",[org,r.rows[0].id]);
       return r.rows[0].id;
     });
   }));
@@ -409,5 +410,71 @@ export function registerProgrammeRoutes(app:FastifyInstance,pool:DatabasePool){
     if(!stored.rows[0])throw conflict("Attempt receipt unavailable");
     return {...receipt,passed:stored.rows[0].passed};
   },201));
+
+  // Participant-owned businesses remain independent. No sponsor endpoint returns
+  // merchant identities, branch IDs, sales, stock, balances or customer details.
+  app.get("/v1/programmes/:orgId/businesses/self",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,["PARTICIPANT"]);
+    const result=await c.query(`SELECT b.id,b.name,b.business_type AS "businessType",
+      l.id AS "linkId",l.linked_at AS "linkedAt"
+      FROM programme_participants p
+      JOIN business_memberships bm ON bm.user_id=p.user_id AND bm.role='OWNER' AND bm.status='ACTIVE'
+      JOIN businesses b ON b.id=bm.business_id AND b.status='ACTIVE'
+      LEFT JOIN programme_business_links l ON l.organisation_id=p.organisation_id AND l.participant_id=p.id
+        AND l.business_id=b.id AND l.owner_user_id=p.user_id AND l.revoked_at IS NULL
+      WHERE p.organisation_id=$1 AND p.user_id=$2 AND p.withdrawn_at IS NULL
+      ORDER BY b.name,b.id LIMIT 100`,[org,u]);
+    return {businesses:result.rows};
+  }));
+  app.post("/v1/programmes/:orgId/businesses/link",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,["PARTICIPANT"]);
+    const b=body(req,["clientRequestId","businessId","consentVersion","consent"]);
+    const requestId=identifier(b.clientRequestId),businessId=identifier(b.businessId);
+    if(b.consentVersion!=="v1"||b.consent!==true)throw invalid("Explicit business linking consent required");
+    const participant=await c.query<{id:string}>(`SELECT p.id FROM programme_participants p
+      JOIN business_memberships bm ON bm.user_id=p.user_id AND bm.business_id=$3
+      JOIN businesses b ON b.id=bm.business_id
+      WHERE p.organisation_id=$1 AND p.user_id=$2 AND p.withdrawn_at IS NULL
+        AND bm.role='OWNER' AND bm.status='ACTIVE' AND b.status='ACTIVE'
+      FOR UPDATE OF p FOR SHARE OF bm,b`,[org,u,businessId]);
+    if(!participant.rows[0])throw denied();
+    const participantId=participant.rows[0].id;
+    return write(c,org,u,requestId,"BUSINESS_LINK_CONSENTED",{businessId,consentVersion:"v1"},async()=>{
+      const result=await c.query<{id:string}>("INSERT INTO programme_business_links(organisation_id,participant_id,business_id,owner_user_id,consent_version) VALUES($1,$2,$3,$4,'v1') RETURNING id",[org,participantId,businessId,u]);
+      return result.rows[0]!.id;
+    });
+  },201));
+  app.post("/v1/programmes/:orgId/businesses/unlink",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,["PARTICIPANT"]);
+    const b=body(req,["clientRequestId","linkId"]);
+    const requestId=identifier(b.clientRequestId),linkId=identifier(b.linkId);
+    // Revocation is allowed even after merchant membership or consent ends.
+    const owned=await c.query("SELECT id FROM programme_business_links WHERE organisation_id=$1 AND id=$2 AND owner_user_id=$3 FOR UPDATE",[org,linkId,u]);
+    if(!owned.rowCount)throw denied();
+    return write(c,org,u,requestId,"BUSINESS_LINK_REVOKED",{linkId},async()=>{
+      const result=await c.query<{id:string}>("UPDATE programme_business_links SET revoked_at=now() WHERE organisation_id=$1 AND id=$2 AND owner_user_id=$3 AND revoked_at IS NULL RETURNING id",[org,linkId,u]);
+      if(!result.rows[0])throw conflict("Business link is already revoked");
+      return result.rows[0].id;
+    });
+  },201));
+  app.get("/v1/programmes/:orgId/businesses/summary",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,[...managers,"REPORT_VIEWER"]);
+    // Fixed organisation-wide snapshot; no participant/cohort filters.
+    // Suppress small populations and small nonzero positive/negative cells.
+    const result=await c.query<{participants:number;linked:number}>(`SELECT count(*)::integer AS participants,
+      count(*) FILTER(WHERE EXISTS(
+        SELECT 1 FROM programme_business_links l
+        JOIN businesses b ON b.id=l.business_id AND b.status='ACTIVE'
+        JOIN business_memberships bm ON bm.business_id=b.id AND bm.user_id=l.owner_user_id AND bm.role='OWNER' AND bm.status='ACTIVE'
+        WHERE l.organisation_id=p.organisation_id AND l.participant_id=p.id AND l.owner_user_id=p.user_id AND l.revoked_at IS NULL
+      ))::integer AS linked
+      FROM programme_participants p JOIN programme_memberships m ON m.organisation_id=p.organisation_id AND m.user_id=p.user_id
+      JOIN app_users u ON u.id=p.user_id AND u.status='ACTIVE'
+      WHERE p.organisation_id=$1 AND p.withdrawn_at IS NULL AND m.role='PARTICIPANT' AND m.status='ACTIVE'`,[org]);
+    const {participants,linked}=result.rows[0]!;
+    const other=participants-linked;
+    const suppressed=participants<5||(linked>0&&linked<5)||(other>0&&other<5);
+    return {suppressed,minimumCellSize:5,participants:suppressed?null:participants,linked:suppressed?null:linked};
+  }));
 
 }

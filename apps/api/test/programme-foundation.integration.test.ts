@@ -200,3 +200,43 @@ describe("financial literacy lesson versions and participant practice",()=>{
     expect((await f.post(f.person,f.org,"literacy/attempts",attempt)).statusCode).toBe(403);
   });
 });
+
+describe("participant owned business consent and aggregate disclosure",()=>{
+  it("links only the participant's owned merchant, denies sponsor access and revokes on withdrawal",async()=>{
+    const f=await fixture();await f.consent();await f.consent(f.second);
+    const onboard=async(actor:typeof f.person,name:string)=>{
+      const result=await app.inject({method:"POST",url:"/v1/onboarding/business",headers:actor.headers,payload:{name,branchName:"Main",businessType:"SERVICES"}});
+      expect(result.statusCode).toBe(201);return result.json().business.id as string;
+    };
+    const own=await onboard(f.person,"Fictional workshop"),foreign=await onboard(f.second,"Other workshop");
+    const list=await f.get(f.person,f.org,"businesses/self");
+    expect(list.json().businesses.map((x:{id:string})=>x.id)).toEqual([own]);
+    expect((await f.get(f.admin,f.org,"businesses/self")).statusCode).toBe(403);
+    expect((await f.get(f.foreign,f.org,"businesses/summary")).statusCode).toBe(403);
+    const payload={clientRequestId:randomUUID(),businessId:own,consentVersion:"v1",consent:true};
+    expect((await f.post(f.admin,f.org,"businesses/link",payload)).statusCode).toBe(403);
+    expect((await f.post(f.person,f.org,"businesses/link",{...payload,businessId:foreign})).statusCode).toBe(403);
+    expect((await f.post(f.person,f.org,"businesses/link",{...payload,consent:false})).statusCode).toBe(400);
+    const result=await f.post(f.person,f.org,"businesses/link",payload);
+    expect(result.statusCode).toBe(201);const linkId=result.json().id;
+    expect((await f.post(f.person,f.org,"businesses/link",payload)).json().id).toBe(linkId);
+    expect((await f.post(f.person,f.org,"businesses/link",{...payload,clientRequestId:randomUUID()})).statusCode).toBe(409);
+    expect((await f.get(f.person,f.org,"businesses/self")).json().businesses[0].linkId).toBe(linkId);
+    const summary=await f.get(f.admin,f.org,"businesses/summary");
+    expect(summary.json()).toEqual({suppressed:true,minimumCellSize:5,participants:null,linked:null});
+    const context=await app.inject({method:"GET",url:"/v1/businesses/"+own+"/context",headers:f.admin.headers});
+    expect(context.statusCode).toBe(403);
+    expect((await f.post(f.second,f.org,"businesses/unlink",{clientRequestId:randomUUID(),linkId})).statusCode).toBe(403);
+    const revoke={clientRequestId:randomUUID(),linkId};
+    expect((await f.post(f.person,f.org,"businesses/unlink",revoke)).statusCode).toBe(201);
+    expect((await f.post(f.person,f.org,"businesses/unlink",revoke)).json().replayed).toBe(true);
+    expect((await f.get(f.person,f.org,"businesses/self")).json().businesses[0].linkId).toBeNull();
+    expect((await f.post(f.person,f.org,"businesses/link",{...payload,clientRequestId:randomUUID()})).statusCode).toBe(201);
+    await f.post(f.person,f.org,"participants/self/withdraw",{clientRequestId:randomUUID()});
+    expect((await f.get(f.person,f.org,"businesses/self")).json().businesses).toEqual([]);
+    expect((await f.post(f.person,f.org,"businesses/link",payload)).statusCode).toBe(403);
+    expect((await pool.query("SELECT id FROM programme_business_links WHERE organisation_id=$1 AND revoked_at IS NULL",[f.org])).rowCount).toBe(0);
+    expect((await app.inject({method:"GET",url:"/v1/businesses/"+own+"/context",headers:f.person.headers})).statusCode).toBe(200);
+    expect((await pool.query("SELECT id FROM business_memberships WHERE business_id=$1",[own])).rowCount).toBe(1);
+  });
+});
