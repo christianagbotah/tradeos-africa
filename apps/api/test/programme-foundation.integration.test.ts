@@ -163,3 +163,40 @@ describe("startup equipment custody and participant handover",()=>{
     expect((await f.get(f.admin,f.org,"equipment/units")).json().units.find((x:{assetCode:string})=>x.assetCode==="QA-SEW-02").status).toBe("AVAILABLE");
   });
 });
+
+describe("financial literacy lesson versions and participant practice",()=>{
+  it("publishes immutable cohort lessons and grades only the participant's own attempts",async()=>{
+    const f=await fixture(),programme=await f.createProgramme(),cohortId=await f.createCohort(programme,2),participantId=await f.consent(),secondId=await f.consent(f.second);
+    const enrol=await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId,participantId});
+    const second=await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId,participantId:secondId});
+    const payload={clientRequestId:randomUUID(),cohortId,title:"Daily cash records",topic:"RECORD_KEEPING",
+      lessonText:"Record each sale and expense. Sales of 100 cedis minus costs of 60 cedis leave 40 cedis before other expenses.",
+      question:"What remains before other expenses?",options:["20 cedis","40 cedis","100 cedis"],correctOption:1,version:1};
+    expect((await f.post(f.person,f.org,"literacy/lessons",payload)).statusCode).toBe(403);
+    const created=await f.post(f.admin,f.org,"literacy/lessons",payload);
+    expect(created.statusCode).toBe(201);const lessonId=created.json().id;
+    expect((await f.post(f.admin,f.org,"literacy/lessons",payload)).json().id).toBe(lessonId);
+    expect((await f.post(f.admin,f.org,"literacy/lessons",{...payload,clientRequestId:randomUUID(),version:3})).statusCode).toBe(409);
+    expect((await f.get(f.foreign,f.org,"literacy/lessons")).statusCode).toBe(403);
+    expect((await f.get(f.mentor,f.org,"literacy/lessons")).statusCode).toBe(403);
+    const visible=(await f.get(f.person,f.org,"literacy/lessons")).json().lessons[0];
+    expect(visible.id).toBe(lessonId);expect(visible).not.toHaveProperty("correctOption");expect(visible).not.toHaveProperty("correct_option");
+    const attempt={clientRequestId:randomUUID(),lessonId,enrolmentId:enrol.json().id,answerOption:0};
+    expect((await f.post(f.second,f.org,"literacy/attempts",attempt)).statusCode).toBe(403);
+    expect((await f.post(f.person,f.org,"literacy/attempts",{...attempt,enrolmentId:second.json().id})).statusCode).toBe(403);
+    const wrong=await f.post(f.person,f.org,"literacy/attempts",attempt);
+    expect(wrong.statusCode).toBe(201);expect(wrong.json().passed).toBe(false);
+    expect((await f.post(f.person,f.org,"literacy/attempts",attempt)).json().id).toBe(wrong.json().id);
+    expect((await f.post(f.person,f.org,"literacy/attempts",{...attempt,answerOption:1})).statusCode).toBe(409);
+    const right=await f.post(f.person,f.org,"literacy/attempts",{...attempt,clientRequestId:randomUUID(),answerOption:1});
+    expect(right.statusCode).toBe(201);expect(right.json().passed).toBe(true);
+    const completed=(await f.get(f.person,f.org,"literacy/lessons")).json().lessons[0];
+    expect(completed.passed).toBe(true);expect(completed.attempts).toBe(2);
+    expect((await f.get(f.second,f.org,"literacy/lessons")).json().lessons[0].attempts).toBe(0);
+    expect((await f.post(f.admin,f.org,"literacy/lessons",{...payload,clientRequestId:randomUUID(),version:2})).statusCode).toBe(201);
+    expect((await f.get(f.person,f.org,"literacy/lessons")).json().lessons).toHaveLength(2);
+    await f.post(f.person,f.org,"participants/self/withdraw",{clientRequestId:randomUUID()});
+    expect((await f.get(f.person,f.org,"literacy/lessons")).json().lessons).toEqual([]);
+    expect((await f.post(f.person,f.org,"literacy/attempts",attempt)).statusCode).toBe(403);
+  });
+});

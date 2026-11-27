@@ -342,4 +342,71 @@ export function registerProgrammeRoutes(app:FastifyInstance,pool:DatabasePool){
     });
   },201));
 
+  // Immutable cohort lesson versions; practice results are not grant eligibility.
+  // The answer key is never returned to participant clients.
+  app.get("/v1/programmes/:orgId/literacy/lessons",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req),role=await access(c,org,u,[...managers,"PARTICIPANT"]);
+    if(managers.includes(role)){
+      const result=await c.query(`SELECT l.id,l.cohort_id AS "cohortId",co.name AS "cohortName",l.title,l.topic,
+        l.lesson_text AS "lessonText",l.question,l.options,l.version
+        FROM programme_literacy_lessons l JOIN programme_cohorts co ON co.organisation_id=l.organisation_id AND co.id=l.cohort_id
+        WHERE l.organisation_id=$1 ORDER BY l.created_at DESC,l.id LIMIT 100`,[org]);
+      return {lessons:result.rows};
+    }
+    const result=await c.query(`SELECT l.id,l.cohort_id AS "cohortId",co.name AS "cohortName",l.title,l.topic,l.lesson_text AS "lessonText",
+       l.question,l.options,l.version,e.id AS "enrolmentId",
+       EXISTS(SELECT 1 FROM programme_literacy_attempts a WHERE a.organisation_id=l.organisation_id AND a.enrolment_id=e.id AND a.lesson_id=l.id AND a.passed) AS passed,
+       (SELECT count(*)::integer FROM programme_literacy_attempts a WHERE a.organisation_id=l.organisation_id AND a.enrolment_id=e.id AND a.lesson_id=l.id) AS attempts
+      FROM programme_literacy_lessons l
+      JOIN programme_cohorts co ON co.organisation_id=l.organisation_id AND co.id=l.cohort_id
+      JOIN programmes pr ON pr.organisation_id=co.organisation_id AND pr.id=co.programme_id
+      JOIN programme_enrolments e ON e.organisation_id=l.organisation_id AND e.cohort_id=l.cohort_id
+      JOIN programme_participants p ON p.organisation_id=e.organisation_id AND p.id=e.participant_id
+      WHERE l.organisation_id=$1 AND p.user_id=$2 AND p.withdrawn_at IS NULL AND pr.status<>'CLOSED'
+      ORDER BY l.created_at DESC,l.id LIMIT 100`,[org,u]);
+    return {lessons:result.rows};
+  }));
+  app.post("/v1/programmes/:orgId/literacy/lessons",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,managers);
+    const b=body(req,["clientRequestId","cohortId","title","topic","lessonText","question","options","correctOption","version"]);
+    const requestId=identifier(b.clientRequestId),cohortId=identifier(b.cohortId),title=str(b.title,160),topic=b.topic,version=b.version,
+      lessonText=str(b.lessonText,4000),question=str(b.question,500),correctOption=b.correctOption;
+    if(typeof topic!=="string"||!["RECORD_KEEPING","COSTING_PRICING","BUDGETING","SAVINGS","CASH_RECONCILIATION","BUSINESS_FINANCE","STOCK_CONTROL","CREDIT_BASICS"].includes(topic))throw invalid("Invalid lesson topic");
+    if(typeof version!=="number"||!Number.isInteger(version)||version<1||version>1000)throw invalid("Invalid lesson version");
+    if(!Array.isArray(b.options)||b.options.length!==3)throw invalid("Three answer options required");
+    const options=b.options.map(x=>str(x,250));
+    if(new Set(options.map(x=>x.toLowerCase())).size!==3)throw invalid("Answer options must differ");
+    if(typeof correctOption!=="number"||!Number.isInteger(correctOption)||correctOption<0||correctOption>2)throw invalid("Select a correct answer");
+    return write(c,org,u,requestId,"LITERACY_LESSON_PUBLISHED",{cohortId,title,topic,lessonText,question,options,correctOption,version},async()=>{
+      const cohort=await c.query(`SELECT co.id FROM programme_cohorts co JOIN programmes pr ON pr.organisation_id=co.organisation_id AND pr.id=co.programme_id
+        WHERE co.organisation_id=$1 AND co.id=$2 AND pr.status<>'CLOSED' FOR UPDATE OF co FOR SHARE OF pr`,[org,cohortId]);
+      if(!cohort.rowCount)throw denied();
+      const latest=await c.query<{version:number}>("SELECT COALESCE(max(version),0)::integer AS version FROM programme_literacy_lessons WHERE organisation_id=$1 AND cohort_id=$2 AND title=$3",[org,cohortId,title]);
+      if(version!==latest.rows[0]!.version+1)throw conflict("Lesson version must follow the previous published version");
+      const result=await c.query<{id:string}>("INSERT INTO programme_literacy_lessons(organisation_id,cohort_id,title,topic,lesson_text,question,options,correct_option,version,created_by) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10) RETURNING id",[org,cohortId,title,topic,lessonText,question,JSON.stringify(options),correctOption,version,u]);
+      return result.rows[0]!.id;
+    });
+  },201));
+  app.post("/v1/programmes/:orgId/literacy/attempts",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,["PARTICIPANT"]);
+    const b=body(req,["clientRequestId","lessonId","enrolmentId","answerOption"]);
+    const requestId=identifier(b.clientRequestId),lessonId=identifier(b.lessonId),enrolmentId=identifier(b.enrolmentId),answerOption=b.answerOption;
+    if(typeof answerOption!=="number"||!Number.isInteger(answerOption)||answerOption<0||answerOption>2)throw invalid("Select an answer");
+    const lesson=await c.query<{cohort_id:string;correct_option:number}>(`SELECT l.cohort_id,l.correct_option FROM programme_literacy_lessons l
+      JOIN programme_enrolments e ON e.organisation_id=l.organisation_id AND e.cohort_id=l.cohort_id AND e.id=$3
+      JOIN programme_participants p ON p.organisation_id=e.organisation_id AND p.id=e.participant_id
+      JOIN programme_cohorts co ON co.organisation_id=l.organisation_id AND co.id=l.cohort_id
+      JOIN programmes pr ON pr.organisation_id=co.organisation_id AND pr.id=co.programme_id
+      WHERE l.organisation_id=$1 AND l.id=$2 AND p.user_id=$4 AND p.withdrawn_at IS NULL AND pr.status<>'CLOSED'
+      FOR SHARE OF l,e,p,co,pr`,[org,lessonId,enrolmentId,u]);
+    if(!lesson.rows[0])throw denied();
+    const receipt=await write(c,org,u,requestId,"LITERACY_ATTEMPT_RECORDED",{lessonId,enrolmentId,answerOption},async()=>{
+      const result=await c.query<{id:string}>("INSERT INTO programme_literacy_attempts(organisation_id,cohort_id,lesson_id,enrolment_id,answer_option,passed) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",[org,lesson.rows[0]!.cohort_id,lessonId,enrolmentId,answerOption,answerOption===lesson.rows[0]!.correct_option]);
+      return result.rows[0]!.id;
+    });
+    const stored=await c.query<{passed:boolean}>("SELECT passed FROM programme_literacy_attempts WHERE organisation_id=$1 AND id=$2 AND enrolment_id=$3 AND lesson_id=$4",[org,receipt.id,enrolmentId,lessonId]);
+    if(!stored.rows[0])throw conflict("Attempt receipt unavailable");
+    return {...receipt,passed:stored.rows[0].passed};
+  },201));
+
 }

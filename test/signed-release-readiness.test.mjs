@@ -44,7 +44,8 @@ test('database read uses a single read-only snapshot and rolls back',async()=>{
 });
 
 test('development programme migration is deliberately not approved for live promotion',()=>{
- assert.equal(actualFiles.size,67);
+ assert.equal(actualFiles.size,68);
+ assert.ok(actualFiles.has('0068_programme_financial_literacy.sql'));
  assert.ok(actualFiles.has('0067_programme_equipment.sql'));
  assert.ok(actualFiles.has('0066_programme_apprenticeship.sql'));
  assert.ok(actualFiles.has('0065_programme_foundation.sql'));

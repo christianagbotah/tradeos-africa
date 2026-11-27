@@ -34,20 +34,20 @@ cmp "$base/before" "$base/restored"
 export DATABASE_URL=postgresql://tradeos:tradeos@127.0.0.1:5432/tradeos_upgrade_restored_ci
 migration_dir="$(realpath packages/db/migrations)"
 # This rehearsal includes the additive programme migration; not activation approval.
-test "$(find "$migration_dir" -maxdepth 1 -name '*.sql' | wc -l)" -eq 67
+test "$(find "$migration_dir" -maxdepth 1 -name '*.sql' | wc -l)" -eq 68
 pnpm --filter @tradeos/api exec tsx src/scripts/apply-migrations.ts "$migration_dir"
-test "$(psql -X -At -d tradeos_upgrade_restored_ci -c "SELECT count(*) FROM lightworld_schema_migrations WHERE state='APPLIED'")" -eq 67
-test "$(psql -X -At -d tradeos_upgrade_restored_ci -c "SELECT count(*) FROM lightworld_schema_migrations")" -eq 67
+test "$(psql -X -At -d tradeos_upgrade_restored_ci -c "SELECT count(*) FROM lightworld_schema_migrations WHERE state='APPLIED'")" -eq 68
+test "$(psql -X -At -d tradeos_upgrade_restored_ci -c "SELECT count(*) FROM lightworld_schema_migrations")" -eq 68
 psql -X -At -v ON_ERROR_STOP=1 -d tradeos_upgrade_restored_ci -f "$base/fingerprint.sql" > "$base/after"
 cmp "$base/before" "$base/after"
 pnpm --filter @tradeos/api exec tsx src/scripts/apply-migrations.ts "$migration_dir" | tee "$base/replay"
-grep -F '0 applied, 67 already applied' "$base/replay"
+grep -F '0 applied, 68 already applied' "$base/replay"
 psql -X -v ON_ERROR_STOP=1 -d tradeos_upgrade_restored_ci <<'SQL'
 DO $$
 BEGIN
  IF (SELECT role FROM staff WHERE id='66666666-6666-4666-8666-666666666666') <> 'CASHIER' THEN RAISE EXCEPTION 'cashier role changed'; END IF;
  IF EXISTS(SELECT 1 FROM branch_shift_sale_policy_events) OR EXISTS(SELECT 1 FROM pos_attendant_branch_assignments) THEN RAISE EXCEPTION 'unexpected opt-in/backfill'; END IF;
- IF EXISTS(SELECT 1 FROM programme_organisations) OR EXISTS(SELECT 1 FROM programme_memberships) OR EXISTS(SELECT 1 FROM programmes) OR EXISTS(SELECT 1 FROM programme_cohorts) OR EXISTS(SELECT 1 FROM programme_participants) OR EXISTS(SELECT 1 FROM programme_enrolments) OR EXISTS(SELECT 1 FROM programme_requests) OR EXISTS(SELECT 1 FROM programme_audit_events) OR EXISTS(SELECT 1 FROM programme_training_pathways) OR EXISTS(SELECT 1 FROM programme_training_placements) OR EXISTS(SELECT 1 FROM programme_training_progress) OR EXISTS(SELECT 1 FROM programme_equipment_units) OR EXISTS(SELECT 1 FROM programme_equipment_allocations) THEN RAISE EXCEPTION 'unexpected programme backfill'; END IF;
+ IF EXISTS(SELECT 1 FROM programme_organisations) OR EXISTS(SELECT 1 FROM programme_memberships) OR EXISTS(SELECT 1 FROM programmes) OR EXISTS(SELECT 1 FROM programme_cohorts) OR EXISTS(SELECT 1 FROM programme_participants) OR EXISTS(SELECT 1 FROM programme_enrolments) OR EXISTS(SELECT 1 FROM programme_requests) OR EXISTS(SELECT 1 FROM programme_audit_events) OR EXISTS(SELECT 1 FROM programme_training_pathways) OR EXISTS(SELECT 1 FROM programme_training_placements) OR EXISTS(SELECT 1 FROM programme_training_progress) OR EXISTS(SELECT 1 FROM programme_equipment_units) OR EXISTS(SELECT 1 FROM programme_equipment_allocations) OR EXISTS(SELECT 1 FROM programme_literacy_lessons) OR EXISTS(SELECT 1 FROM programme_literacy_attempts) THEN RAISE EXCEPTION 'unexpected programme backfill'; END IF;
  IF (SELECT sum(amount_delta_minor) FROM cashbook_entries WHERE business_id='11111111-1111-4111-8111-111111111111') <> 2500 THEN RAISE EXCEPTION 'ledger balance changed'; END IF;
  INSERT INTO staff(id,business_id,display_name,role) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','11111111-1111-4111-8111-111111111111','Attendant','POS_ATTENDANT');
  BEGIN
@@ -66,4 +66,4 @@ BEGIN
  INSERT INTO programme_cohorts(organisation_id,programme_id,name,capacity) VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','dddddddd-dddd-4ddd-8ddd-dddddddddddd','Cohort A',1);
 END $$;
 SQL
-printf 'Upgrade rehearsal passed: 60 -> 67, existing table fingerprints preserved, replay and tenant constraints verified. Synthetic data only.\n'
+printf 'Upgrade rehearsal passed: 60 -> 68, existing table fingerprints preserved, replay and tenant constraints verified. Synthetic data only.\n'
