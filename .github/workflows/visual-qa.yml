@@ -7,6 +7,7 @@ on:
       - feat/programme-foundation-20261126
       - feat/programme-apprenticeship-20261126
       - feat/programme-equipment-20261127
+      - feat/programme-literacy-20261127
   workflow_dispatch:
 
 # A newer PR head makes its earlier screenshot capture obsolete.
@@ -232,6 +233,14 @@ jobs:
                   platform:"WEB",deviceKey:"programme-qa-"+role+"-"+width,appVersion:"qa"})
               });
               if(!r.ok)throw Error("Synthetic programme registration failed");
+              if(role==="participant"){
+                const registered=await r.json();
+                const onboard=await fetch("http://127.0.0.1:4000/v1/onboarding/business",{
+                  method:"POST",headers:{"content-type":"application/json",authorization:"Bearer "+registered.session.accessToken},
+                  body:JSON.stringify({name:"Fictional workshop "+width,branchName:"Main",businessType:"SERVICES"})
+                });
+                if(!onboard.ok)throw Error("Synthetic participant business onboarding failed: "+onboard.status);
+              }
             }
           }
           PROGRAMME_SEED
@@ -451,6 +460,20 @@ jobs:
               await p.getByRole("button",{name:"Submit answer",exact:true}).click();
               await p.getByRole("status").filter({hasText:"Correct answer. Lesson completed."}).waitFor();
               await p.getByText("Record keeping · Completed · 2 attempt(s)",{exact:true}).waitFor();
+              await p.getByLabel("Owned business",{exact:true}).selectOption({label:"Fictional workshop "+width});
+              await p.getByRole("checkbox",{name:"I consent to include my business activation in the programme aggregate."}).check();
+              await p.getByRole("button",{name:"Link my business",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Business linked."}).waitFor();
+              await p.getByText("Linked to programme",{exact:true}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-business-linked-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Remove business link",exact:true}).click();
+              await p.getByRole("dialog",{name:"Remove business link",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Business link removed."}).waitFor();
+              await p.getByText("Not linked",{exact:true}).waitFor();
+              await p.getByText("Fictional workshop "+width,{exact:true}).waitFor();
+              await assertFit();
+              console.log("Participant-owned merchant onboarding, consent linking and independent unlink verified at "+width);
               await assertFit();
               await p.screenshot({path:EVIDENCE+"/programme-literacy-completed-"+width+".png",fullPage:true});screenshotCount++;
               console.log("Financial literacy publishing, retry and learner completion verified at "+width);
