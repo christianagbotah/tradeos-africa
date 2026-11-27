@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "../components/ui/button";
 import styles from "./programme.module.css";
 
@@ -20,6 +20,8 @@ const roleLabel:Record<string,string>={ORG_ADMIN:"Administrator",COORDINATOR:"Co
 type Session={accessToken:string;refreshToken:string};
 
 export default function ProgrammePage(){
+  const [ready,setReady]=useState(false);
+  useEffect(()=>setReady(true),[]);
   const token=useRef<Session|null>(null);
   const pending=useRef(false);
   const requestIds=useRef(new Map<string,string>());
@@ -137,7 +139,7 @@ export default function ProgrammePage(){
   const progressPlacement=data.placements.find(p=>p.id===progressId);
   const submit=(f:()=>void)=>(e:FormEvent)=>{e.preventDefault();f();};
   const list=(rows:{id:string;title:string;subtitle:string}[],fallback:string)=><div className={styles.rows}>{rows.length?rows.map(x=><div className={styles.row} key={x.id}><strong>{x.title}</strong><span>{x.subtitle}</span></div>):<p className={styles.muted}>{fallback}</p>}</div>;
-  return <main className={styles.shell}>
+  return <main className={styles.shell} data-programme-ready={ready?"true":"false"}>
     <header className={styles.header}><div className={styles.brand}><span className={styles.mark}>T</span><div><strong>TradeOS Africa</strong><small>Empowerment workspace</small></div></div>
       {authenticated?<Button variant="outline" size="sm" onClick={()=>void signOut()} disabled={busy}>Sign out</Button>:<a href="/">Business sign in</a>}
     </header>
@@ -147,7 +149,7 @@ export default function ProgrammePage(){
       {!authenticated?<section className={styles.signin}><span className={styles.eyebrow}>Programme access</span><h1>Build skills. Grow enterprises.</h1><p>Sign in with your invited programme account.</p>
         <form onSubmit={signIn} className={styles.form}><label>Email or phone<input className="tos-input" autoComplete="username" required value={identifier} onChange={e=>setIdentifier(e.target.value)} disabled={busy}/></label>
         <label>Password<input className="tos-input" type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} disabled={busy}/></label>
-        <Button variant="primary" type="submit" block loading={busy}>Sign in</Button></form>
+        <Button variant="primary" type="submit" block disabled={!ready} loading={busy}>Sign in</Button></form>
         <p className={styles.muted}>Programme access is invitation-only. Business accounts remain separate.</p></section>:
       <>
         <div className={styles.heading}><div><span className={styles.eyebrow}>Programme management</span><h1>{org?.name??"Choose your organisation"}</h1><p>{org?roleLabel[org.role]??org.role:"Select an assigned programme workspace."}</p></div>

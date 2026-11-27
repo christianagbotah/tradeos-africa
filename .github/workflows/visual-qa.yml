@@ -315,10 +315,19 @@ jobs:
             const ctx=await browser.newContext({viewport:{width,height:900}});
             const p=await ctx.newPage();
             const signIn=async(role)=>{
+              // Wait for the previous logout before navigation; ensure the form
+              // has hydrated before interacting and check the actual login reply.
+              if(p.url().endsWith("/programmes"))
+                await p.getByRole("button",{name:"Sign in",exact:true}).waitFor({timeout:20000});
               await p.goto(WEB+"/programmes",{waitUntil:"domcontentloaded"});
+              await p.locator('[data-programme-ready="true"]').waitFor({timeout:30000});
               await p.getByLabel("Email or phone").fill("programme-"+role+"-"+width+"@tradeos.test");
               await p.getByLabel("Password",{exact:true}).fill("Programme-QA-1234!");
+              const reply=p.waitForResponse(r=>r.url().endsWith("/v1/auth/login")&&r.request().method()==="POST",{timeout:30000});
               await p.getByRole("button",{name:"Sign in",exact:true}).click();
+              const response=await reply;
+              if(!response.ok())throw Error("Programme sign-in rejected for synthetic "+role+" at "+width+": "+response.status());
+              console.log("Programme sign-in accepted for synthetic "+role+" at "+width);
             };
             const tab=async(name)=>p.getByRole("navigation",{name:"Programme sections"}).getByRole("button",{name,exact:true}).click();
             const assertFit=async()=>{
@@ -386,6 +395,7 @@ jobs:
               await p.getByRole("button",{name:"Save progress",exact:true}).click();
               await p.getByRole("status").filter({hasText:"Training progress recorded."}).waitFor();
               await p.getByText("Fictional mentor · COMPLETED",{exact:true}).waitFor();
+              await p.screenshot({path:EVIDENCE+"/programme-mentor-progress-"+width+".png",fullPage:true});screenshotCount++;
               await p.getByRole("button",{name:"Sign out",exact:true}).click();
               await signIn("coordinator");
               await p.getByRole("heading",{name:"Skills QA "+width,exact:true}).waitFor();
@@ -409,7 +419,7 @@ jobs:
               await p.getByRole("dialog",{name:"Approve allocation",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
               await p.getByRole("status").filter({hasText:"Allocation approved."}).waitFor();
               await assertFit();
-              await p.screenshot({path:EVIDENCE+"/programme-mentor-progress-"+width+".png",fullPage:true});screenshotCount++;
+
               await p.getByRole("button",{name:"Sign out",exact:true}).click();
               await signIn("participant");
               await p.getByText("Enterprise foundations",{exact:true}).waitFor();
