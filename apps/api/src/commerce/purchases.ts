@@ -58,6 +58,7 @@ export async function applyPurchaseReceiveMutation(
   payload: PurchaseReceiveMutationPayload,
   transaction?: DatabaseClient,
 ): Promise<PurchaseReceiveResult> {
+  if(!payload||typeof payload!=="object"||Array.isArray(payload))throw new PurchaseMutationError("Purchase payload is required");
   const runtimeSettlementMethod = (payload as { settlementMethod?: unknown }).settlementMethod;
   const legacyBlankSettlementMethod = typeof runtimeSettlementMethod === "string" && runtimeSettlementMethod.trim() === "";
   if (runtimeSettlementMethod === undefined || runtimeSettlementMethod === null || legacyBlankSettlementMethod) {
@@ -359,24 +360,26 @@ function validate(context: PurchaseReceiveContext, payload: PurchaseReceiveMutat
   if (payload.settlementMethod === "SUPPLIER_CREDIT" && payload.moneyAccountId !== undefined) throw new PurchaseMutationError("Credit cannot have money account IDs");
   if (!settlementMethods.includes(payload.settlementMethod)) throw new PurchaseMutationError("Invalid settlement method");
   if (!payload.receivedByStaffId) throw new PurchaseMutationError("Authenticated staff actor required", "STAFF_ACTOR_REQUIRED");
-  if (!payload.supplierId) throw new PurchaseMutationError("supplierId is required", "SUPPLIER_REQUIRED");
+  if (typeof payload.supplierId!=="string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.supplierId))
+    throw new PurchaseMutationError("Valid supplierId is required", "SUPPLIER_REQUIRED");
   if (!Array.isArray(payload.lines) || payload.lines.length === 0)
     throw new PurchaseMutationError("At least one purchase line is required");
   const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if(payload.lines.some(line=>!line||typeof line!=="object"||Array.isArray(line)))throw new PurchaseMutationError("Invalid purchase line");
   if (payload.purchaseOrderId && !uuid.test(payload.purchaseOrderId))
     throw new PurchaseMutationError("Invalid supplier order ID", "PO_ID_INVALID");
   if (!payload.purchaseOrderId && payload.lines.some(line=>line.purchaseOrderLineId!==undefined))
     throw new PurchaseMutationError("Order line cannot be linked without an order", "PO_LINE_MISMATCH");
   if (payload.purchaseOrderId && payload.lines.some(line=>!line.purchaseOrderLineId || !uuid.test(line.purchaseOrderLineId)))
     throw new PurchaseMutationError("Every PO receipt line needs a valid order line ID", "PO_LINE_MISMATCH");
+  if (payload.supplierReference!==undefined&&typeof payload.supplierReference!=="string")throw new PurchaseMutationError("Invalid supplier reference");
   if (payload.supplierReference && payload.supplierReference.trim().length > 160) throw new PurchaseMutationError("Supplier reference is too long");
   for (const declaredLine of payload.lines) {
     const line = declaredLine as RuntimePurchaseLine;
     const unitCostMinor = line.unitCostMinor ?? line.costMinor;
-    if (!line.itemId) throw new PurchaseMutationError("Purchase lines need an item and purchase unit");
-    if (line.purchaseUnitCode !== undefined && !line.purchaseUnitCode?.trim()) throw new PurchaseMutationError("Purchase lines need an item and purchase unit");
-    quantityUnits(line.quantity);
-    if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new PurchaseMutationError("Purchase quantity must be positive");
+    if (typeof line.itemId!=="string"||!uuid.test(line.itemId)) throw new PurchaseMutationError("Purchase lines need a valid item and purchase unit");
+    if (line.purchaseUnitCode !== undefined && (typeof line.purchaseUnitCode!=="string"||!line.purchaseUnitCode.trim())) throw new PurchaseMutationError("Purchase lines need an item and purchase unit");
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0 || line.quantity>Number.MAX_SAFE_INTEGER/1e8) throw new PurchaseMutationError("Purchase quantity must be positive");
     if (!Number.isSafeInteger(unitCostMinor) || (unitCostMinor ?? -1) < 0) throw new PurchaseMutationError("Unit cost must be a non-negative minor-unit integer");
   }
 }
@@ -405,12 +408,13 @@ async function writeEvents(
 export const settlementMethods = ["CASH","MOMO","CARD","BANK","OTHER","SUPPLIER_CREDIT"] as const;
 export type SettlementMethod = typeof settlementMethods[number];
 export interface SupplierPaymentPayload { moneyAccountId?:string; supplierId: string; amountMinor: number; method: Exclude<SettlementMethod,"SUPPLIER_CREDIT">; providerReference?: string; paidByStaffId?: string }
-export async function applySupplierPaymentMutation(pool: DatabasePool, context: PurchaseReceiveContext, payload: SupplierPaymentPayload) {
+export async function applySupplierPaymentMutation(pool: DatabasePool, context: PurchaseReceiveContext, payload: SupplierPaymentPayload, transaction?:DatabaseClient) {
  if (!context.branchId || !context.clientMutationId || Number.isNaN(Date.parse(context.occurredAt))) throw new PurchaseMutationError("Invalid payment context");
- if (!payload.supplierId || !payload.paidByStaffId || !Number.isSafeInteger(payload.amountMinor) || payload.amountMinor <= 0 || !settlementMethods.includes(payload.method) || (payload.method as string) === "SUPPLIER_CREDIT") throw new PurchaseMutationError("Invalid supplier payment");
+ if (!payload || typeof payload!=="object" || Array.isArray(payload) || !payload.supplierId || !payload.paidByStaffId || !Number.isSafeInteger(payload.amountMinor) || payload.amountMinor <= 0 || !settlementMethods.includes(payload.method) || (payload.method as string) === "SUPPLIER_CREDIT") throw new PurchaseMutationError("Invalid supplier payment");
+ if(payload.providerReference!==undefined&&typeof payload.providerReference!=="string")throw new PurchaseMutationError("Invalid supplier payment reference");
  const providerReference = payload.providerReference?.trim() || null;
  if (providerReference && providerReference.length > 200) throw new PurchaseMutationError("Supplier payment provider reference is too long");
- return withTransaction(pool, async client => {
+ const apply=async (client:DatabaseClient)=>{
   await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${context.businessId}:${context.clientMutationId}`]);
   const branch = await client.query<{currency_code:string}>(`SELECT b.currency_code FROM businesses b JOIN branches br ON br.business_id=b.id WHERE b.id=$1 AND br.id=$2 AND br.is_active=true`,[context.businessId,context.branchId]);
   if (!branch.rows[0]) throw new PurchaseMutationError("Branch not found", "BRANCH_NOT_FOUND");
@@ -435,5 +439,6 @@ export async function applySupplierPaymentMutation(pool: DatabasePool, context: 
   await client.query(`INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at) VALUES ($1,$2,$3,'SUPPLIER_PAYMENT_CREATED','SUPPLIER_PAYMENT',$4,$5,$6::jsonb,$7)`,[context.businessId,context.branchId,payload.paidByStaffId,paymentId,context.clientMutationId,eventPayload,context.occurredAt]);
   await client.query(`INSERT INTO outbox_events (business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at) VALUES ($1,$2,'SUPPLIER',$3,'SUPPLIER_PAYMENT_CREATED',$4::jsonb,$5)`,[context.businessId,context.branchId,payload.supplierId,eventPayload,context.occurredAt]);
   return {paymentId,balanceMinor:addSignedMinor(outstanding,-payload.amountMinor),idempotentReplay:false};
- });
+ };
+ return transaction?apply(transaction):withTransaction(pool,apply);
 }

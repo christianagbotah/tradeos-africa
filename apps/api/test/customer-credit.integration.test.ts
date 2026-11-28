@@ -79,6 +79,23 @@ describe("customer credit and receivables", () => {
     )).rows[0]?.count)).toBe(1);
 
     const spoofedStaffId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    await pool.query(`CREATE FUNCTION qa_customer_payment_ack_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.client_mutation_id='customer-payment-001' AND NEW.status='APPLIED' THEN
+      RAISE EXCEPTION 'Synthetic customer payment acknowledgement failure'; END IF; RETURN NEW; END $$`);
+    try{
+      await pool.query("CREATE TRIGGER qa_customer_payment_ack_failure BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION qa_customer_payment_ack_failure()");
+      const failed=await app.inject({method:"POST",url:"/v1/sync",headers:bearer(owner.accessToken),payload:{mutations:[{
+        clientId:"credit-device",clientMutationId:"customer-payment-001",businessId:business.businessId,
+        branchId:business.branchId,mutationType:"CUSTOMER_PAYMENT_CREATE",occurredAt:new Date().toISOString(),
+        payload:{customerId:customer.id,amountMinor:2000,method:"CASH"}}]}});
+      expect(failed.statusCode).toBe(500);
+      expect((await getCustomer(owner.accessToken,business.businessId,customer.id)).customer.balanceMinor).toBe(5000);
+      expect((await pool.query("SELECT count(*)::int AS n FROM customer_payments")).rows[0].n).toBe(0);
+      expect((await pool.query("SELECT count(*)::int AS n FROM sync_mutations WHERE client_mutation_id='customer-payment-001'")).rows[0].n).toBe(0);
+    }finally{
+      await pool.query("DROP TRIGGER IF EXISTS qa_customer_payment_ack_failure ON sync_mutations");
+      await pool.query("DROP FUNCTION IF EXISTS qa_customer_payment_ack_failure()");
+    }
     const payment = await sync(owner.accessToken, {
       clientId: "credit-device",
       clientMutationId: "customer-payment-001",
