@@ -96,6 +96,7 @@ describe("offline commerce mutations", () => {
     const requests=[mutation("device-a"),mutation("device-b")];
     const results=await Promise.all(requests.map(async m=>(await ingestSyncBatch(pool,{mutations:[m]})).mutationResults[0]!));
     expect(results.map(r=>r.status).sort()).toEqual(["APPLIED","REJECTED"]);
+    expect(results.find(r=>r.status==="REJECTED")?.errorCode).toBe("INSUFFICIENT_STOCK");
     expect(await availableStock()).toBe(250);
     const counts=(await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries WHERE entry_type='SALE_RECEIPT') AS receipts")).rows[0];
     expect(counts).toEqual({sales:1,payments:1,receipts:1});
@@ -129,6 +130,20 @@ describe("offline commerce mutations", () => {
     expect((await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]?.result).toEqual(first.result);
     expect(await availableStock()).toBe(650);
     expect((await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries) AS cashbook,(SELECT count(*)::int FROM sync_mutations WHERE status='APPLIED') AS sync")).rows[0]).toEqual({sales:1,payments:1,cashbook:1,sync:1});
+  });
+
+  it("does not terminally reject an otherwise available sale when valuation data is inconsistent",async()=>{
+    await pool.query("INSERT INTO inventory_valuations(business_id,branch_id,item_id,location_type,quantity,value_minor) VALUES($1,$2,$3,'AVAILABLE',10,100)",[businessId,branchId,whiskyId]);
+    const mutation={clientId:"valuation-device",clientMutationId:"valuation-fault",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:1,saleUnitCode:"glass"}]}};
+    await expect(ingestSyncBatch(pool,{mutations:[mutation]})).rejects.toThrow("Inventory valuation is below the requested stock quantity");
+    expect(await availableStock()).toBe(750);
+    expect((await pool.query("SELECT count(*)::int AS count FROM sync_mutations")).rows[0]?.count).toBe(0);
+    // Repair synthetic fixture only, then replay the exact request.
+    await pool.query("UPDATE inventory_valuations SET quantity=750,value_minor=7500 WHERE business_id=$1 AND branch_id=$2 AND item_id=$3",[businessId,branchId,whiskyId]);
+    expect((await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]?.status).toBe("APPLIED");
+    expect(await availableStock()).toBe(700);
   });
 
   it("rejects reuse of a sale identifier on another device and leaves historical RECEIVED records alone",async()=>{
