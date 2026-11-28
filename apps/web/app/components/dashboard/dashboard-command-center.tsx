@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { BusinessBriefingPanel } from "./business-briefing-panel";
+import { BusinessEventFeedPanel } from "./business-event-feed-panel";
 import { BusinessQuestionPanel } from "./business-question-panel";
 import type { ReactNode } from "react";
 import Link from "next/link";
@@ -130,6 +131,7 @@ export function DashboardCommandCenter() {
       </div>
 
       <BusinessBriefingPanel />
+      <BusinessEventFeedPanel />
 
       <div className="tos-dashboard-recent-sales">
         <section className="tos-section">
