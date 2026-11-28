@@ -283,10 +283,18 @@ export async function applyReturnMutationInTransaction(
 function validateReturn(context: ReturnMutationContext, payload: ReturnMutationPayload): void {
   if (!context.branchId || !context.clientMutationId) throw new ReturnMutationError("branchId and clientMutationId are required");
   if (Number.isNaN(Date.parse(context.occurredAt))) throw new ReturnMutationError("occurredAt must be an ISO date-time");
-  if (!payload.originalSaleId || !payload.reason?.trim()) throw new ReturnMutationError("Original sale and reason are required");
+  const validId=(value:unknown):value is string=>typeof value==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  if (!payload || typeof payload!=="object" || Array.isArray(payload) ||
+      !validId(payload.originalSaleId) || typeof payload.reason!=="string" || !payload.reason.trim())
+    throw new ReturnMutationError("Original sale and reason are required");
+  if (!["CASH","MOMO","CARD","BANK","CUSTOMER_CREDIT","ORIGINAL_METHOD"].includes(payload.refundMethod))
+    throw new ReturnMutationError("Invalid refund method");
   if (!Array.isArray(payload.lines) || payload.lines.length === 0) throw new ReturnMutationError("At least one return line is required");
   for (const line of payload.lines) {
-    if (!line.saleLineId || !Number.isFinite(line.quantity) || line.quantity <= 0) throw new ReturnMutationError("Return lines need a sale line and positive quantity");
+    if (!line || typeof line!=="object" || !validId(line.saleLineId) || !Number.isFinite(line.quantity) || line.quantity <= 0)
+      throw new ReturnMutationError("Return lines need a sale line and positive quantity");
+    if (!["RESTOCK","QUARANTINE","DISCARD","NOT_RETURNED","NOT_APPLICABLE"].includes(line.disposition))
+      throw new ReturnMutationError("Invalid return disposition");
   }
 }
 
