@@ -43,6 +43,7 @@ describe("purchase receiving and supplier payables", () => {
   const received=await sync("receipt-1","PURCHASE_RECEIVE_CREATE",receipt);
   expect(received.status).toBe("APPLIED");expect(received.result.totalMinor).toBe(30000);
   expect((await sync("receipt-1","PURCHASE_RECEIVE_CREATE",receipt)).status).toBe("APPLIED");
+  expect(await sync("receipt-1","PURCHASE_RECEIVE_CREATE",{...receipt,lines:[{...receipt.lines[0],unitCostMinor:15001}]})).toMatchObject({status:"REJECTED",errorCode:"PURCHASE_REPLAY_CONFLICT"});
   const purchase=await pool.query(`SELECT received_by_staff_id FROM purchases`);
   const actor=await pool.query(`SELECT staff_id FROM business_memberships WHERE business_id=$1`,[businessId]);
   expect(purchase.rows[0].received_by_staff_id).toBe(actor.rows[0].staff_id);

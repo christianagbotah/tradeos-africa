@@ -56,7 +56,7 @@ const SUPPLIER_MUTATIONS = new Set(["SUPPLIER_CREATE", "SUPPLIER_UPDATE"]);
 // silently reinterpreted as a *different* financial request with the same ID.
 const STRICT_FINANCIAL_REPLAY_TYPES = new Set([
   "SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE", "INVENTORY_ADJUSTMENT_CREATE",
-  "CUSTOMER_PAYMENT_CREATE","SUPPLIER_PAYMENT_CREATE",
+  "CUSTOMER_PAYMENT_CREATE","SUPPLIER_PAYMENT_CREATE","PURCHASE_RECEIVE_CREATE",
 ]);
 type StoredStatus = "RECEIVED" | "APPLIED" | "REJECTED";
 
@@ -121,7 +121,7 @@ function financialReplaySignature(mutationType: string, payload: unknown): strin
   if (!STRICT_FINANCIAL_REPLAY_TYPES.has(mutationType)) return null;
   const excluded = mutationType === "SALE_CREATE"
     ? new Set(["cashierStaffId", "cashierMembershipId"])
-    : mutationType === "CUSTOMER_PAYMENT_CREATE" ? new Set(["receivedByStaffId"])
+    : mutationType === "CUSTOMER_PAYMENT_CREATE" || mutationType === "PURCHASE_RECEIVE_CREATE" ? new Set(["receivedByStaffId"])
     : mutationType === "SUPPLIER_PAYMENT_CREATE" ? new Set(["paidByStaffId","receivedByStaffId"])
     : mutationType === "INVENTORY_ADJUSTMENT_CREATE"
       ? new Set(["actorStaffId"])
@@ -219,7 +219,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       // Compare the entire server-enriched JSONB request (including the original
       // timestamp and authenticated actor). Never apply a stored actor or a
       // modified receipt. The row lock serializes concurrent recovery claims.
-      if (!changedLinkedPO && !changedFinancial && prior.status === "REJECTED" &&
+      if (!changedLinkedPO && prior.status === "REJECTED" &&
           isLegacyPurchaseSettlementRejection(prior.mutation_type, prior.request_payload, prior.result_payload)) {
         if (!prior.same_request || !mutation.branchId || prior.branch_id !== mutation.branchId ||
             mutation.mutationType !== "PURCHASE_RECEIVE_CREATE") {
@@ -295,7 +295,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
         "PURCHASE_REPLAY_CONFLICT",
         new Error("A supplier-order receipt with this mutation ID was already submitted with different content"));
       if(changedFinancial)return rejection(mutation.clientMutationId,serverReceivedAt,
-        "FINANCIAL_REPLAY_CONFLICT",
+        prior.mutation_type==="PURCHASE_RECEIVE_CREATE"||mutation.mutationType==="PURCHASE_RECEIVE_CREATE"?"PURCHASE_REPLAY_CONFLICT":"FINANCIAL_REPLAY_CONFLICT",
         new Error("This sale, refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
       return {
         clientMutationId: mutation.clientMutationId,
@@ -325,7 +325,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     // A database/acknowledgement failure is not a final sale rejection. Roll
     // back the whole new sale and let the client retry the exact same ID. If
     // COMMIT succeeded but its response was lost, the committed receipt wins.
-    if(atomicSale||atomicReturn||atomicExchange||atomicCreditPurchase)throw error;
+    if(atomicSale||atomicReturn||atomicExchange||(atomicCreditPurchase&&insertedNew))throw error;
     return rejection(mutation.clientMutationId, serverReceivedAt, "SYNC_INGEST_FAILED", error);
   } finally {
     client.release();
