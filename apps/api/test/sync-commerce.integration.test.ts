@@ -333,6 +333,40 @@ describe("offline commerce mutations", () => {
     expect(await availableStock()).toBe(750);
   });
 
+  it("rolls back an exchange and both component postings on lost acknowledgement",async()=>{
+    const sale={clientId:"exchange-atomic-device",clientMutationId:"exchange-atomic-sale",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:2,saleUnitCode:"glass"}]}};
+    const posted=(await ingestSyncBatch(pool,{mutations:[sale]})).mutationResults[0]!;
+    expect(posted.status).toBe("APPLIED");
+    const saleId=(posted.result as {saleId:string}).saleId;
+    const saleLineId=(await pool.query<{id:string}>("SELECT id FROM sale_lines WHERE sale_id=$1",[saleId])).rows[0]!.id;
+    const exchange={...sale,clientMutationId:"exchange-atomic-fault",mutationType:"EXCHANGE_CREATE",
+      payload:{originalSaleId:saleId,reason:"Synthetic exchange",
+        returnedLines:[{saleLineId,quantity:1,disposition:"RESTOCK"}],
+        replacementLines:[{itemId:whiskyId,quantity:1,saleUnitCode:"glass"}],settlementMethod:"CASH"}};
+    const counts=async()=>(await pool.query("SELECT (SELECT count(*)::int FROM exchange_cases) AS exchanges,(SELECT count(*)::int FROM return_cases) AS returns,(SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM sync_mutations WHERE client_mutation_id='exchange-atomic-fault') AS sync")).rows[0];
+    await pool.query(`CREATE FUNCTION qa_fail_exchange_ack() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.client_mutation_id='exchange-atomic-fault' AND NEW.status='APPLIED' THEN
+      RAISE EXCEPTION 'Synthetic exchange acknowledgement failure'; END IF; RETURN NEW; END $$`);
+    try{
+      await pool.query("CREATE TRIGGER qa_fail_exchange_ack BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION qa_fail_exchange_ack()");
+      await expect(ingestSyncBatch(pool,{mutations:[exchange]})).rejects.toThrow("Synthetic exchange acknowledgement failure");
+      expect(await counts()).toEqual({exchanges:0,returns:0,sales:1,sync:0});
+      expect(await availableStock()).toBe(650);
+    }finally{
+      await pool.query("DROP TRIGGER IF EXISTS qa_fail_exchange_ack ON sync_mutations");
+      await pool.query("DROP FUNCTION IF EXISTS qa_fail_exchange_ack()");
+    }
+    const first=(await ingestSyncBatch(pool,{mutations:[exchange]})).mutationResults[0]!;
+    expect(first.status).toBe("APPLIED");
+    expect((await ingestSyncBatch(pool,{mutations:[exchange]})).mutationResults[0]?.result).toEqual(first.result);
+    expect((await ingestSyncBatch(pool,{mutations:[{...exchange,clientId:"exchange-other-device"}]})).mutationResults[0])
+      .toMatchObject({status:"REJECTED",errorCode:"EXCHANGE_DEVICE_REPLAY_CONFLICT"});
+    expect(await counts()).toEqual({exchanges:1,returns:1,sales:2,sync:2});
+    expect(await availableStock()).toBe(650);
+  });
+
   it("rolls back return posting and cash reversal if acknowledgement fails, then retries exactly once",async()=>{
     const sale={clientId:"return-device",clientMutationId:"atomic-return-sale",businessId,branchId,
       occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",

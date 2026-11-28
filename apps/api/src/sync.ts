@@ -144,13 +144,20 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   let insertedNew = false;
   const atomicSale=mutation.mutationType==="SALE_CREATE";
   const atomicReturn=mutation.mutationType==="RETURN_CREATE"||mutation.mutationType==="REFUND_CREATE";
+  const atomicExchange=mutation.mutationType==="EXCHANGE_CREATE";
 
   try {
     await client.query("BEGIN");
     // Sales use business-wide economic IDs, while sync receipts also include a
     // device key. Serialize new sales across devices before claiming a receipt.
-    if(atomicSale||atomicReturn)await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[
-      (atomicSale?"tradeos-sale:":"tradeos-return:")+mutation.businessId+":"+mutation.clientMutationId]);
+    if(atomicSale||atomicReturn||atomicExchange){
+      const ids=atomicExchange?[
+        "tradeos-exchange:"+mutation.businessId+":"+mutation.clientMutationId,
+        "tradeos-return:"+mutation.businessId+":"+mutation.clientMutationId+":return",
+        "tradeos-sale:"+mutation.businessId+":"+mutation.clientMutationId+":replacement"
+      ]:[(atomicSale?"tradeos-sale:":"tradeos-return:")+mutation.businessId+":"+mutation.clientMutationId];
+      for(const key of ids.sort())await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[key]);
+    }
     const inserted = await client.query<{
       status: StoredStatus;
       result_payload: unknown | null;
@@ -291,10 +298,12 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       };
     }
 
-    if(atomicSale||atomicReturn){
+    if(atomicSale||atomicReturn||atomicExchange){
       const result=atomicSale
         ? await applyNewSaleAndAcknowledge(client,mutation,serverReceivedAt)
-        : await applyNewReturnAndAcknowledge(client,mutation,serverReceivedAt);
+        : atomicReturn
+          ? await applyNewReturnAndAcknowledge(client,mutation,serverReceivedAt)
+          : await applyNewExchangeAndAcknowledge(pool,client,mutation,serverReceivedAt);
       await client.query("COMMIT");
       return result;
     }
@@ -304,7 +313,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     // A database/acknowledgement failure is not a final sale rejection. Roll
     // back the whole new sale and let the client retry the exact same ID. If
     // COMMIT succeeded but its response was lost, the committed receipt wins.
-    if(atomicSale||atomicReturn)throw error;
+    if(atomicSale||atomicReturn||atomicExchange)throw error;
     return rejection(mutation.clientMutationId, serverReceivedAt, "SYNC_INGEST_FAILED", error);
   } finally {
     client.release();
@@ -421,6 +430,40 @@ async function applyNewReturnAndAcknowledge(client:DatabaseClient,mutation:Clien
     WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 AND status='RECEIVED'`,
     [mutation.businessId,mutation.clientId,mutation.clientMutationId,status,JSON.stringify(result)]);
   if(acknowledged.rowCount!==1)throw new Error("Return acknowledgement lost");
+  return {clientMutationId:mutation.clientMutationId,status,serverReceivedAt,result,
+    ...(status==="REJECTED"&&isErrorPayload(result)?result:{})};
+}
+
+/** New exchanges share the return, replacement sale, net settlement and receipt transaction. */
+async function applyNewExchangeAndAcknowledge(pool:DatabasePool,client:DatabaseClient,mutation:ClientMutation,serverReceivedAt:string):Promise<MutationResult>{
+  await client.query("SAVEPOINT new_exchange_post");
+  let status:"APPLIED"|"REJECTED"="APPLIED";
+  let result:unknown;
+  try{
+    if(!mutation.branchId)throw new ExchangeMutationError("branchId is required");
+    const collision=await client.query(`SELECT 1 FROM sync_mutations WHERE business_id=$1 AND
+      ((client_mutation_id=$2 AND client_id<>$3 AND mutation_type='EXCHANGE_CREATE')
+        OR (client_mutation_id=$2||':return' AND mutation_type IN ('RETURN_CREATE','REFUND_CREATE'))
+        OR (client_mutation_id=$2||':replacement' AND mutation_type='SALE_CREATE')) LIMIT 1`,
+      [mutation.businessId,mutation.clientMutationId,mutation.clientId]);
+    if(collision.rowCount)throw new ExchangeMutationError("Exchange or component identifier requires reconciliation.","EXCHANGE_DEVICE_REPLAY_CONFLICT");
+    const exchange=await applyExchangeMutation(pool,{businessId:mutation.businessId,branchId:mutation.branchId,
+      clientMutationId:mutation.clientMutationId,occurredAt:mutation.occurredAt},mutation.payload as ExchangeMutationPayload,client);
+    if(exchange.idempotentReplay)throw new ExchangeMutationError("Existing exchange requires reconciliation.","EXCHANGE_DEVICE_REPLAY_CONFLICT");
+    result=exchange;
+    await client.query("RELEASE SAVEPOINT new_exchange_post");
+  }catch(error){
+    if(!(error instanceof ExchangeMutationError||error instanceof ReturnMutationError||error instanceof SaleMutationError||
+      error instanceof ShiftSalePolicyError||error instanceof PriceRuleError||error instanceof CustomerCreditError||
+      error instanceof CashbookError||error instanceof AuthError)||error.code.endsWith("_CREATE_FAILED")||error.code.endsWith("_LINE_CREATE_FAILED"))throw error;
+    await client.query("ROLLBACK TO SAVEPOINT new_exchange_post");
+    await client.query("RELEASE SAVEPOINT new_exchange_post");
+    status="REJECTED";result={errorCode:error.code,errorMessage:error.message};
+  }
+  const acknowledged=await client.query(`UPDATE sync_mutations SET status=$4,result_payload=$5::jsonb,applied_at=now()
+    WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 AND status='RECEIVED'`,
+    [mutation.businessId,mutation.clientId,mutation.clientMutationId,status,JSON.stringify(result)]);
+  if(acknowledged.rowCount!==1)throw new Error("Exchange acknowledgement lost");
   return {clientMutationId:mutation.clientMutationId,status,serverReceivedAt,result,
     ...(status==="REJECTED"&&isErrorPayload(result)?result:{})};
 }
