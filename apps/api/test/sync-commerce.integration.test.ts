@@ -315,6 +315,24 @@ describe("offline commerce mutations", () => {
     expect(Number(returned.rows[0]?.quantity_delta)).toBe(50);
   });
 
+  it("rejects malformed return payloads without leaving RECEIVED receipts",async()=>{
+    const id=randomUUID(),lineId=randomUUID();
+    const valid={originalSaleId:id,reason:"Synthetic return",refundMethod:"ORIGINAL_METHOD",
+      lines:[{saleLineId:lineId,quantity:1,disposition:"RESTOCK"}]};
+    const invalid=[null,{...valid,reason:3},{...valid,originalSaleId:"invalid"},
+      {...valid,refundMethod:"INVALID"},{...valid,lines:[null]},
+      {...valid,lines:[{...valid.lines[0]!,disposition:"INVALID"}]}];
+    for(const [index,payload] of invalid.entries()){
+      const mutation={clientId:"malformed-return-device",clientMutationId:"malformed-return-"+index,
+        businessId,branchId,occurredAt:new Date().toISOString(),mutationType:"RETURN_CREATE",payload};
+      expect((await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0])
+        .toMatchObject({status:"REJECTED",errorCode:"RETURN_INVALID"});
+    }
+    expect((await pool.query("SELECT count(*)::int AS count FROM sync_mutations WHERE status='RECEIVED'")).rows[0]?.count).toBe(0);
+    expect((await pool.query("SELECT count(*)::int AS count FROM return_cases")).rows[0]?.count).toBe(0);
+    expect(await availableStock()).toBe(750);
+  });
+
   it("rolls back return posting and cash reversal if acknowledgement fails, then retries exactly once",async()=>{
     const sale={clientId:"return-device",clientMutationId:"atomic-return-sale",businessId,branchId,
       occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
