@@ -56,7 +56,8 @@ const SUPPLIER_MUTATIONS = new Set(["SUPPLIER_CREATE", "SUPPLIER_UPDATE"]);
 // silently reinterpreted as a *different* financial request with the same ID.
 const STRICT_FINANCIAL_REPLAY_TYPES = new Set([
   "SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE", "INVENTORY_ADJUSTMENT_CREATE",
-  "CUSTOMER_PAYMENT_CREATE","SUPPLIER_PAYMENT_CREATE","PURCHASE_RECEIVE_CREATE",
+  "CUSTOMER_PAYMENT_CREATE","SUPPLIER_PAYMENT_CREATE","PURCHASE_RECEIVE_CREATE","PURCHASE_RETURN_CREATE",
+  "EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE",
 ]);
 type StoredStatus = "RECEIVED" | "APPLIED" | "REJECTED";
 
@@ -123,6 +124,8 @@ function financialReplaySignature(mutationType: string, payload: unknown): strin
     ? new Set(["cashierStaffId", "cashierMembershipId"])
     : mutationType === "CUSTOMER_PAYMENT_CREATE" || mutationType === "PURCHASE_RECEIVE_CREATE" ? new Set(["receivedByStaffId"])
     : mutationType === "SUPPLIER_PAYMENT_CREATE" ? new Set(["paidByStaffId","receivedByStaffId"])
+    : mutationType === "PURCHASE_RETURN_CREATE" ? new Set(["returnedByStaffId"])
+    : ["EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE"].includes(mutationType) ? new Set(["actorStaffId","actorRole"])
     : mutationType === "INVENTORY_ADJUSTMENT_CREATE"
       ? new Set(["actorStaffId"])
       : new Set(["initiatedByStaffId", "approvedByStaffId", "actorStaffId"]);
@@ -148,7 +151,8 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   const atomicSale=mutation.mutationType==="SALE_CREATE";
   const atomicReturn=mutation.mutationType==="RETURN_CREATE"||mutation.mutationType==="REFUND_CREATE";
   const atomicExchange=mutation.mutationType==="EXCHANGE_CREATE";
-  const atomicCreditPurchase=["CUSTOMER_PAYMENT_CREATE","SUPPLIER_PAYMENT_CREATE","PURCHASE_RECEIVE_CREATE"].includes(mutation.mutationType);
+  const atomicCreditPurchase=["CUSTOMER_PAYMENT_CREATE","SUPPLIER_PAYMENT_CREATE","PURCHASE_RECEIVE_CREATE","PURCHASE_RETURN_CREATE"].includes(mutation.mutationType);
+  const atomicCashbook=["EXPENSE_CREATE","CASHBOOK_ADJUSTMENT_CREATE"].includes(mutation.mutationType);
 
   try {
     await client.query("BEGIN");
@@ -168,6 +172,8 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
         ["tradeos-"+namespace+mutation.businessId+":"+mutation.clientMutationId]);
     }
+    if(atomicCashbook)await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+      ["tradeos-cashbook:"+mutation.businessId+":"+mutation.clientMutationId]);
     const inserted = await client.query<{
       status: StoredStatus;
       result_payload: unknown | null;
@@ -308,13 +314,14 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       };
     }
 
-    if(atomicSale||atomicReturn||atomicExchange||atomicCreditPurchase){
+    if(atomicSale||atomicReturn||atomicExchange||atomicCreditPurchase||atomicCashbook){
       const result=atomicSale
         ? await applyNewSaleAndAcknowledge(client,mutation,serverReceivedAt)
         : atomicReturn
           ? await applyNewReturnAndAcknowledge(client,mutation,serverReceivedAt)
           : atomicExchange
             ? await applyNewExchangeAndAcknowledge(pool,client,mutation,serverReceivedAt)
+            : atomicCashbook?await applyNewCashbookAndAcknowledge(pool,client,mutation,serverReceivedAt)
             : await applyNewCreditPurchaseAndAcknowledge(pool,client,mutation,serverReceivedAt);
       await client.query("COMMIT");
       return result;
@@ -325,7 +332,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
     // A database/acknowledgement failure is not a final sale rejection. Roll
     // back the whole new sale and let the client retry the exact same ID. If
     // COMMIT succeeded but its response was lost, the committed receipt wins.
-    if(atomicSale||atomicReturn||atomicExchange||(atomicCreditPurchase&&insertedNew))throw error;
+    if(atomicSale||atomicReturn||atomicExchange||atomicCashbook||(atomicCreditPurchase&&insertedNew))throw error;
     return rejection(mutation.clientMutationId, serverReceivedAt, "SYNC_INGEST_FAILED", error);
   } finally {
     client.release();
@@ -488,7 +495,7 @@ async function applyNewCreditPurchaseAndAcknowledge(pool:DatabasePool,client:Dat
   try{
     if(!mutation.branchId)throw new PurchaseMutationError("branchId is required");
     const context={businessId:mutation.businessId,branchId:mutation.branchId,clientMutationId:mutation.clientMutationId,occurredAt:mutation.occurredAt};
-    const types=mutation.mutationType==="CUSTOMER_PAYMENT_CREATE"?["CUSTOMER_PAYMENT_CREATE"]:["PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE"];
+    const types=mutation.mutationType==="CUSTOMER_PAYMENT_CREATE"?["CUSTOMER_PAYMENT_CREATE"]:["PURCHASE_RECEIVE_CREATE","SUPPLIER_PAYMENT_CREATE","PURCHASE_RETURN_CREATE"];
     const collision=await client.query(`SELECT 1 FROM sync_mutations WHERE business_id=$1 AND client_mutation_id=$2
       AND (client_id<>$3 OR mutation_type<>$4) AND mutation_type=ANY($5::text[]) LIMIT 1`,
       [mutation.businessId,mutation.clientMutationId,mutation.clientId,mutation.mutationType,types]);
@@ -497,7 +504,9 @@ async function applyNewCreditPurchaseAndAcknowledge(pool:DatabasePool,client:Dat
       ? await applyCustomerPaymentMutation(pool,context,mutation.payload as CustomerPaymentMutationPayload,client)
       : mutation.mutationType==="SUPPLIER_PAYMENT_CREATE"
         ? await applySupplierPaymentMutation(pool,context,mutation.payload as SupplierPaymentPayload,client)
-        : await applyPurchaseReceiveMutation(pool,{...context,requireNewReceipt:true},mutation.payload as PurchaseReceiveMutationPayload,client);
+        : mutation.mutationType==="PURCHASE_RETURN_CREATE"
+          ? await applyPurchaseReturnMutation(pool,context,mutation.payload as PurchaseReturnPayload,client)
+          : await applyPurchaseReceiveMutation(pool,{...context,requireNewReceipt:true},mutation.payload as PurchaseReceiveMutationPayload,client);
     if(posted.idempotentReplay)throw new PurchaseMutationError("Existing economic posting requires reconciliation.","CREDIT_PURCHASE_REPLAY_CONFLICT");
     result=posted;
     await client.query("RELEASE SAVEPOINT new_credit_purchase_post");
@@ -512,6 +521,37 @@ async function applyNewCreditPurchaseAndAcknowledge(pool:DatabasePool,client:Dat
     WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 AND status='RECEIVED'`,
     [mutation.businessId,mutation.clientId,mutation.clientMutationId,status,JSON.stringify(result)]);
   if(acknowledged.rowCount!==1)throw new Error("Credit or purchase acknowledgement lost");
+  return {clientMutationId:mutation.clientMutationId,status,serverReceivedAt,result,
+    ...(status==="REJECTED"&&isErrorPayload(result)?result:{})};
+}
+
+async function applyNewCashbookAndAcknowledge(pool:DatabasePool,client:DatabaseClient,mutation:ClientMutation,serverReceivedAt:string):Promise<MutationResult>{
+  await client.query("SAVEPOINT new_cashbook_post");
+  let status:"APPLIED"|"REJECTED"="APPLIED";
+  let result:unknown;
+  try{
+    if(!mutation.branchId)throw new CashbookError("branchId is required");
+    const collision=await client.query(`SELECT 1 FROM sync_mutations WHERE business_id=$1 AND client_mutation_id=$2
+      AND (client_id<>$3 OR mutation_type<>$4)
+      AND mutation_type IN ('EXPENSE_CREATE','CASHBOOK_ADJUSTMENT_CREATE') LIMIT 1`,
+      [mutation.businessId,mutation.clientMutationId,mutation.clientId,mutation.mutationType]);
+    if(collision.rowCount)throw new CashbookError("Existing cashbook identifier requires review","CASHBOOK_REPLAY_CONFLICT");
+    const posted=await applyCashbookMutation(pool,{businessId:mutation.businessId,branchId:mutation.branchId,
+      clientMutationId:mutation.clientMutationId,occurredAt:mutation.occurredAt},mutation.payload as CashbookMutationPayload,
+      mutation.mutationType==="CASHBOOK_ADJUSTMENT_CREATE",client);
+    if(posted.idempotentReplay)throw new CashbookError("Existing cashbook posting requires reconciliation","CASHBOOK_REPLAY_CONFLICT");
+    result=posted;
+    await client.query("RELEASE SAVEPOINT new_cashbook_post");
+  }catch(error){
+    if(!(error instanceof CashbookError||error instanceof AuthError)||error.code.endsWith("_CREATE_FAILED"))throw error;
+    await client.query("ROLLBACK TO SAVEPOINT new_cashbook_post");
+    await client.query("RELEASE SAVEPOINT new_cashbook_post");
+    status="REJECTED";result={errorCode:error.code,errorMessage:error.message};
+  }
+  const acknowledged=await client.query(`UPDATE sync_mutations SET status=$4,result_payload=$5::jsonb,applied_at=now()
+    WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 AND status='RECEIVED'`,
+    [mutation.businessId,mutation.clientId,mutation.clientMutationId,status,JSON.stringify(result)]);
+  if(acknowledged.rowCount!==1)throw new Error("Cashbook acknowledgement lost");
   return {clientMutationId:mutation.clientMutationId,status,serverReceivedAt,result,
     ...(status==="REJECTED"&&isErrorPayload(result)?result:{})};
 }

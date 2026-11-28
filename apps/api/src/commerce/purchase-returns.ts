@@ -1,5 +1,5 @@
 import { recordCashbookEntry, isCashMethod } from "./cashbook.js";
-import type { DatabasePool } from "../db.js";
+import type { DatabaseClient, DatabasePool } from "../db.js";
 import { withTransaction } from "../db.js";
 import { reduceSupplierObligationForPurchase } from "./credit-obligations.js";
 import { PurchaseMutationError, type PurchaseReceiveContext } from "./purchases.js";
@@ -14,15 +14,15 @@ export interface PurchaseReturnPayload {
  recoveryMethod: typeof recoveryMethods[number];
  lines: Array<{ purchaseLineId: string; quantity: number; sourceLocation: "AVAILABLE" | "QUARANTINE" }>;
 }
-export async function applyPurchaseReturnMutation(pool: DatabasePool, context: PurchaseReceiveContext, payload: PurchaseReturnPayload) {
- if (!context.branchId || !context.clientMutationId || Number.isNaN(Date.parse(context.occurredAt)) || !payload.originalPurchaseId || !payload.supplierId || !payload.returnedByStaffId || !recoveryMethods.includes(payload.recoveryMethod) || !Array.isArray(payload.lines) || !payload.lines.length) throw new PurchaseMutationError("Invalid purchase return");
+export async function applyPurchaseReturnMutation(pool: DatabasePool, context: PurchaseReceiveContext, payload: PurchaseReturnPayload, transaction?:DatabaseClient) {
+ if (!context.branchId || !context.clientMutationId || Number.isNaN(Date.parse(context.occurredAt)) || !payload || typeof payload!=="object" || Array.isArray(payload) || !payload.originalPurchaseId || !payload.supplierId || !payload.returnedByStaffId || !recoveryMethods.includes(payload.recoveryMethod) || !Array.isArray(payload.lines) || !payload.lines.length) throw new PurchaseMutationError("Invalid purchase return");
  if(payload.recoveryMethod=== "CREDIT_NOTE" && payload.moneyAccountId !== undefined) throw new PurchaseMutationError("Credit cannot have money account IDs");
  const seen = new Set<string>();
  for (const line of payload.lines) {
-  if (!line.purchaseLineId || seen.has(line.purchaseLineId) || quantityUnits(line.quantity) <= 0n || !["AVAILABLE","QUARANTINE"].includes(line.sourceLocation)) throw new PurchaseMutationError("Invalid or duplicate return line");
+  if (!line || typeof line!=="object" || typeof line.purchaseLineId!=="string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(line.purchaseLineId) || seen.has(line.purchaseLineId) || !Number.isFinite(line.quantity) || line.quantity<=0 || line.quantity>Number.MAX_SAFE_INTEGER/1e8 || quantityUnits(line.quantity) <= 0n || !["AVAILABLE","QUARANTINE"].includes(line.sourceLocation)) throw new PurchaseMutationError("Invalid or duplicate return line");
   seen.add(line.purchaseLineId);
  }
- return withTransaction(pool, async client => {
+ const apply=async (client:DatabaseClient)=>{
   await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,[`${context.businessId}:${context.clientMutationId}`]);
   const prior = await client.query(`SELECT * FROM purchase_return_cases WHERE business_id=$1 AND client_mutation_id=$2`,[context.businessId,context.clientMutationId]);
   if (prior.rows[0]) {
@@ -93,5 +93,6 @@ export async function applyPurchaseReturnMutation(pool: DatabasePool, context: P
   await client.query(`INSERT INTO audit_events (business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at) VALUES ($1,$2,$3,'PURCHASE_RETURN_CREATED','PURCHASE_RETURN',$4,$5,$6::jsonb,$7)`,[context.businessId,context.branchId,payload.returnedByStaffId,returnCaseId,context.clientMutationId,event,context.occurredAt]);
   await client.query(`INSERT INTO outbox_events (business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at) VALUES ($1,$2,'PURCHASE_RETURN',$3,'PURCHASE_RETURN_CREATED',$4::jsonb,$5)`,[context.businessId,context.branchId,returnCaseId,event,context.occurredAt]);
   return {returnCaseId,supplierRecoveryMinor:recovery,inventoryValueRemovedMinor:removed,purchasePriceVarianceMinor:variance,idempotentReplay:false};
- });
+ };
+ return transaction?apply(transaction):withTransaction(pool,apply);
 }

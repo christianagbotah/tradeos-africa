@@ -39,6 +39,20 @@ describe("purchase returns", () => {
   const purchaseLineId = originalDetail.json().lines[0].id;
   const spoof = "00000000-0000-4000-8000-000000000000";
   const payload = {originalPurchaseId:purchaseId,supplierId,returnedByStaffId:spoof,recoveryMethod:"CREDIT_NOTE" as const,lines:[{purchaseLineId,quantity:0.5,sourceLocation:"AVAILABLE" as const}]};
+  await pool.query(`CREATE FUNCTION qa_supplier_return_ack_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.client_mutation_id='first-return' AND NEW.status='APPLIED' THEN
+    RAISE EXCEPTION 'Synthetic supplier return acknowledgement failure'; END IF; RETURN NEW; END $$`);
+  try{
+    await pool.query("CREATE TRIGGER qa_supplier_return_ack_failure BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION qa_supplier_return_ack_failure()");
+    const failed=await app.inject({method:"POST",url:"/v1/sync",headers,payload:{mutations:[{clientId:"return-device",clientMutationId:"first-return",businessId,branchId,mutationType:"PURCHASE_RETURN_CREATE",occurredAt:new Date().toISOString(),payload}]}});
+    expect(failed.statusCode).toBe(500);
+    expect((await pool.query("SELECT count(*)::int AS n FROM purchase_return_cases")).rows[0].n).toBe(0);
+    expect((await pool.query("SELECT count(*)::int AS n FROM inventory_movements WHERE reason='PURCHASE_RETURN'")).rows[0].n).toBe(0);
+    expect((await pool.query("SELECT sum(balance_delta_minor)::int AS balance FROM supplier_payable_ledger WHERE supplier_id=$1",[supplierId])).rows[0].balance).toBe(30000);
+  }finally{
+    await pool.query("DROP TRIGGER IF EXISTS qa_supplier_return_ack_failure ON sync_mutations");
+    await pool.query("DROP FUNCTION IF EXISTS qa_supplier_return_ack_failure()");
+  }
   const returned = await sync("first-return","PURCHASE_RETURN_CREATE",payload);
   expect(returned.status).toBe("APPLIED");
   expect(returned.result).toMatchObject({supplierRecoveryMinor:7500,inventoryValueRemovedMinor:7500,purchasePriceVarianceMinor:0});

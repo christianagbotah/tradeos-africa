@@ -53,7 +53,7 @@ describe("unified cashbook and expenses", () => {
     // Force a failure after expense and ledger insertion to prove transaction rollback.
     await pool.query(`CREATE FUNCTION test_reject_cashbook_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='EXPENSE_CREATED' THEN RAISE EXCEPTION 'forced audit failure'; END IF; RETURN NEW; END $$`);
     await pool.query(`CREATE TRIGGER test_cashbook_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION test_reject_cashbook_audit()`);
-    try { expect((await f.sync("rollback", "EXPENSE_CREATE", f.expense)).status).toBe("REJECTED"); }
+    try { expect((await f.request("rollback", "EXPENSE_CREATE", f.expense)).statusCode).toBe(500); }
     finally { await pool.query(`DROP TRIGGER test_cashbook_audit ON audit_events`); await pool.query(`DROP FUNCTION test_reject_cashbook_audit()`); }
     expect(Number((await pool.query(`SELECT COUNT(*) FROM expenses`)).rows[0].count)).toBe(1);
     expect(Number((await pool.query(`SELECT COUNT(*) FROM cashbook_entries`)).rows[0].count)).toBe(1);
@@ -102,6 +102,29 @@ describe("unified cashbook and expenses", () => {
     }
     expect((await app.inject({ method: "GET", url, headers: f.headers })).statusCode).toBe(200);
     expect((await pool.query(`SELECT DISTINCT actor_staff_id FROM cashbook_entries`)).rows).toEqual([{ actor_staff_id: f.actor }]);
+  });
+
+  it("rolls back expense and adjustment acknowledgement failure and safely retries",async()=>{
+    const f=await fixture();
+    const adjustment={amountDeltaMinor:1000,reason:"OPENING_BALANCE",note:"Starting cash",method:"CASH"};
+    await pool.query(`CREATE FUNCTION qa_cashbook_ack_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.client_mutation_id IN ('qa-expense','qa-adjustment') AND NEW.status='APPLIED' THEN
+      RAISE EXCEPTION 'Synthetic acknowledgement failure'; END IF; RETURN NEW; END $$`);
+    try{
+      await pool.query("CREATE TRIGGER qa_cashbook_ack_failure BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION qa_cashbook_ack_failure()");
+      expect((await f.request("qa-expense","EXPENSE_CREATE",f.expense)).statusCode).toBe(500);
+      expect((await f.request("qa-adjustment","CASHBOOK_ADJUSTMENT_CREATE",adjustment)).statusCode).toBe(500);
+      const counts=(await pool.query("SELECT (SELECT count(*)::int FROM expenses) AS expenses,(SELECT count(*)::int FROM cashbook_adjustments) AS adjustments,(SELECT count(*)::int FROM cashbook_entries) AS ledger,(SELECT count(*)::int FROM sync_mutations) AS sync")).rows[0];
+      expect(counts).toEqual({expenses:0,adjustments:0,ledger:0,sync:0});
+    }finally{
+      await pool.query("DROP TRIGGER IF EXISTS qa_cashbook_ack_failure ON sync_mutations");
+      await pool.query("DROP FUNCTION IF EXISTS qa_cashbook_ack_failure()");
+    }
+    expect((await f.sync("qa-expense","EXPENSE_CREATE",f.expense)).status).toBe("APPLIED");
+    expect((await f.sync("qa-adjustment","CASHBOOK_ADJUSTMENT_CREATE",adjustment)).status).toBe("APPLIED");
+    expect((await f.sync("qa-expense","EXPENSE_CREATE",f.expense)).status).toBe("APPLIED");
+    expect(await f.sync("qa-expense","EXPENSE_CREATE",{...f.expense,amountMinor:251})).toMatchObject({status:"REJECTED",errorCode:"FINANCIAL_REPLAY_CONFLICT"});
+    expect((await pool.query("SELECT sum(amount_delta_minor)::int AS balance,count(*)::int AS n FROM cashbook_entries")).rows[0]).toEqual({balance:750,n:2});
   });
 
   it("manages expense-category lifecycle with revisions while preserving historical expenses", async () => {
