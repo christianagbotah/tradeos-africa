@@ -14,7 +14,7 @@ import { unsupportedBranchRanking } from "./question-periods.js";
 import { resolveBusinessFollowUp } from "./question-followups.js";
 import { classifyBusinessQuestion } from "./question-service.js";
 import { listBusinessNotifications, acknowledgeBusinessNotification, BusinessNotificationError } from "./notification-service.js";
-import { listBusinessEventFeed } from "../commerce/internal-event-feed.js";
+import { listBusinessEventFeed, readInternalFeedDeliveryStatus } from "../commerce/internal-event-feed.js";
 import type { BusinessNotificationKind } from "@tradeos/contracts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -44,6 +44,16 @@ export function registerBusinessIntelligenceRoutes(app: FastifyInstance, pool: D
     },
   );
 
+
+  app.get<{ Querystring: Query }>("/v1/intelligence/activity-feed/status", async(request,reply)=>{
+    try{
+      const scope=await notificationScope(pool,request.headers.authorization,request.query);
+      const result=await readInternalFeedDeliveryStatus(pool,scope.businessId,scope.branchId);
+      return reply.header("Cache-Control","private, no-store, max-age=0").send(result);
+    }catch(error){
+      return sendBusinessIntelligenceError(request,reply,error,"BUSINESS_ACTIVITY_STATUS_READ_FAILED");
+    }
+  });
 
   app.get<{ Querystring: Query }>("/v1/intelligence/notifications", async (request, reply) => {
     try {
