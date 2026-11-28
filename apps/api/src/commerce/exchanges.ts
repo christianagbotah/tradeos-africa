@@ -25,9 +25,10 @@ export async function applyExchangeMutation(
   pool: DatabasePool,
   context: ExchangeContext,
   payload: ExchangeMutationPayload,
+  transaction?: DatabaseClient,
 ): Promise<ExchangeResult & { idempotentReplay: boolean }> {
   validateExchange(context, payload);
-  return withTransaction(pool, async (client) => {
+  const apply = async (client: DatabaseClient): Promise<ExchangeResult & { idempotentReplay: boolean }> => {
     const prior = await client.query<ExchangeRow>(
       `SELECT id,original_sale_id,return_case_id,replacement_sale_id,return_total_minor,replacement_total_minor,net_difference_minor,status
        FROM exchange_cases WHERE business_id=$1 AND client_mutation_id=$2`,
@@ -51,6 +52,8 @@ export async function applyExchangeMutation(
       { settleRefund: false, recordedRefundMethod: "EXCHANGE_CREDIT" },
     );
 
+    if (returned.idempotentReplay) throw new ExchangeMutationError("Existing return component requires reconciliation", "EXCHANGE_COMPONENT_REPLAY_CONFLICT");
+
     const replacementPayload: SaleMutationPayload = {
       ...(original.customer_id ? { customerId: original.customer_id } : {}),
       ...(actorStaffId ? { cashierStaffId: actorStaffId } : {}),
@@ -62,6 +65,8 @@ export async function applyExchangeMutation(
       replacementPayload,
       { settlePayments: false },
     );
+
+    if (replacement.idempotentReplay) throw new ExchangeMutationError("Existing replacement component requires reconciliation", "EXCHANGE_COMPONENT_REPLAY_CONFLICT");
 
     const netDifferenceMinor = replacement.totalMinor - returned.refundTotalMinor;
     if(payload.expectedNetDifferenceMinor!==undefined&&(!Number.isSafeInteger(payload.expectedNetDifferenceMinor)||payload.expectedNetDifferenceMinor!==netDifferenceMinor)){
@@ -119,7 +124,8 @@ export async function applyExchangeMutation(
       status,
       idempotentReplay: false,
     };
-  });
+  };
+  return transaction ? apply(transaction) : withTransaction(pool, apply);
 }
 
 async function loadOriginalSale(client: DatabaseClient, context: ExchangeContext, saleId: string): Promise<OriginalSale> {
