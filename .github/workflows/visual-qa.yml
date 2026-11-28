@@ -807,6 +807,28 @@ jobs:
               await page.screenshot({path:`${EVIDENCE}/first-customer-refunded-receipt-${width}.png`,fullPage:true});
               screenshotCount++;
               console.log("First-customer full cash return, restock, payment reversal and idempotent replay verified at "+width);
+              // Obtain a real rejected replay from the disposable API, then
+              // represent its existing durable failed-queue entry on this test device.
+              const conflictingReturn={...returnMutation,payload:{...returnMutation.payload,reason:"Synthetic conflicting replay"}};
+              const conflictResponse=await request("/v1/sync",{mutations:[conflictingReturn]});
+              const failedResult=conflictResponse.mutationResults?.find(r=>r.clientMutationId===returnMutation.clientMutationId);
+              if(failedResult?.status!=="REJECTED"||failedResult.errorCode!=="FINANCIAL_REPLAY_CONFLICT")throw Error("Expected replay conflict");
+              await page.evaluate(({id,mutation,result})=>{
+                const key="tradeos.web.mutationQueue.v2."+encodeURIComponent(id);
+                const snapshot=JSON.parse(localStorage.getItem(key)||'{"pending":[],"failed":[]}');
+                if(snapshot.pending.length||snapshot.failed.length)throw Error("Unexpected existing queue");
+                snapshot.failed.push({mutation,result,failedAt:new Date().toISOString()});
+                localStorage.setItem(key,JSON.stringify(snapshot));
+              },{id:businessId,mutation:conflictingReturn,result:failedResult});
+              await page.reload({waitUntil:"domcontentloaded"});
+              await page.getByRole("button",{name:"Account menu",exact:true}).click();
+              const accountMenu=page.getByRole("menu",{name:"Account menu",exact:true});
+              await accountMenu.getByText("0 pending · 1 need review",{exact:true}).waitFor();
+              await accountMenu.getByText("Check original transactions with your manager before entering them again.",{exact:true}).waitFor();
+              if(!await accountMenu.getByRole("button",{name:"Sync pending changes",exact:true}).isDisabled())throw Error("No pending work should be retried");
+              if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error("Sync review menu overflow "+width);
+              await page.screenshot({path:EVIDENCE+"/sync-review-"+width+".png"});screenshotCount++;
+              console.log("Failed queue review visibility verified at "+width);
             }finally{await fresh.close();}
           }
 

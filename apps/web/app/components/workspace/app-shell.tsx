@@ -45,6 +45,7 @@ export function AppShell({ children }: AppShellProps) {
     contextBusy,
     signOut,
     queue,
+    flushQueue,
     switchBusiness,
     switchBranch,
   } = useWorkspace();
@@ -57,6 +58,7 @@ export function AppShell({ children }: AppShellProps) {
   const moreCloseRef = useRef<HTMLButtonElement>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [manualSyncBusy,setManualSyncBusy]=useState(false);
   const [shellFeedback, setShellFeedback] = useState<ShellFeedback>(null);
 
   // Keep the desktop preference per device without coupling it to business access.
@@ -228,11 +230,11 @@ export function AppShell({ children }: AppShellProps) {
           ))}
         </nav>
         <div className="tos-sidebar__foot">
-          {queue.pending > 0 || !queue.online ? (
+          {queue.pending > 0 || queue.failed > 0 || !queue.online ? (
             <div className="tos-sidebar__queue" title={queue.online ? `${queue.pending} pending offline changes` : "Offline — changes will sync once online"}>
-              <span className="tos-sidebar__queue-title">{queue.online ? `${queue.pending} pending` : "Offline"}</span>
+              <span className="tos-sidebar__queue-title">{queue.failed > 0 ? `${queue.failed} need review` : queue.online ? `${queue.pending} pending` : "Offline"}</span>
               <span className="tos-sidebar__queue-text">
-                {queue.online ? "Queued offline changes will sync automatically." : "Sales will queue locally and sync when you reconnect."}
+                {queue.failed > 0 ? "Check the original transaction before retrying." : queue.online ? "Queued offline changes will sync automatically." : "Sales will queue locally and sync when you reconnect."}
               </span>
             </div>
           ) : null}
@@ -360,7 +362,12 @@ export function AppShell({ children }: AppShellProps) {
           </div>
 
           {queue.online ? (
-            queue.pending > 0 ? (
+            queue.failed > 0 ? (
+              <span className="tos-topbar__pill tos-topbar__pill--danger" role="status" title="Review original transactions before retrying.">
+                <span className="tos-topbar__pill-dot" />
+                {queue.failed} need review
+              </span>
+            ) : queue.pending > 0 ? (
               <span className="tos-topbar__pill tos-topbar__pill--warning" title={queue.lastError ?? undefined}>
                 <span className="tos-topbar__pill-dot" />
                 {queue.pending} syncing
@@ -400,6 +407,12 @@ export function AppShell({ children }: AppShellProps) {
                     <strong>{displayName}</strong>
                     <span>{account?.email ?? account?.phoneE164 ?? "TradeOS account"}</span>
                   </div>
+                </div>
+                <div className="tos-shell-popover__section" aria-label="Synchronization status">
+                  <span className="tos-shell-popover__section-title">Synchronization</span>
+                  <div className="tos-shell-feedback tos-shell-feedback--info" role="status">{queue.pending} pending · {queue.failed} need review</div>
+                  {queue.failed>0?<div className="tos-shell-feedback tos-shell-feedback--error">Check original transactions with your manager before entering them again.</div>:null}
+                  <Button variant="outline" size="sm" block disabled={!queue.online||manualSyncBusy||contextBusy||queue.pending===0} loading={manualSyncBusy} onClick={async()=>{setManualSyncBusy(true);try{await flushQueue();}finally{setManualSyncBusy(false);}}}>Sync pending changes</Button>
                 </div>
                 {!attendantOnly ? <>
                 <Link href="/settings?section=profile" className="tos-account-link" role="menuitem" onClick={() => setAccountOpen(false)}><IconUser />My profile</Link>

@@ -250,6 +250,44 @@ describe("WebOfflineQueue access-token recovery", () => {
     expect(queue.sessions.load()?.accessToken).toBe("fresh-access");
   });
 
+  it("never retries a rejected old request using a different cashier on the same device and business",async()=>{
+    installWindow(new FakeLocalStorage());
+    const queue=makeQueue();queue.sessions.save(session("business-a","old-access"));
+    const replacement={...session("business-a","new-access"),staffId:"staff-2",refreshToken:"new-refresh"};
+    const transport=vi.fn(async (_input:unknown,_init?:RequestInit)=>{
+      queue.sessions.save(replacement);
+      return new Response(JSON.stringify({error:"ACCESS_REJECTED"}),{status:401});
+    });
+    vi.stubGlobal("fetch",transport);
+    await expect(queue.authenticatedFetch("/v1/sync",{method:"POST",body:"{}"})).rejects.toThrow("account or workspace changed");
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(queue.sessions.load()).toEqual(replacement);
+  });
+
+  it("does not restore credentials after sign-out or branch switching during refresh",async()=>{
+    for(const change of ["sign-out","branch-switch","account-switch"]){
+      installWindow(new FakeLocalStorage());
+      const queue=makeQueue();const original=session("business-a","old-access");queue.sessions.save(original);
+      let release!:(value:Response)=>void;let started!:()=>void;
+      const refreshStarted=new Promise<void>(resolve=>{started=resolve;});
+      const deferred=new Promise<Response>(resolve=>{release=resolve;});
+      const transport=vi.fn(async (input:unknown,_init?:RequestInit)=>{
+        if(String(input)==="/v1/auth/refresh"){started();return deferred;}
+        return new Response(JSON.stringify({error:"ACCESS_REJECTED"}),{status:401});
+      });
+      vi.stubGlobal("fetch",transport);
+      const pending=queue.authenticatedFetch("/v1/sync",{method:"POST",body:"{}"});
+      await refreshStarted;
+      const replacement=change==="sign-out"?null:change==="branch-switch"?{...original,branchId:"branch-2"}:
+        {...original,staffId:"staff-2",accessToken:"other-access",refreshToken:"other-refresh"};
+      queue.sessions.save(replacement);
+      release(new Response(JSON.stringify({session:{accessToken:"late-access",refreshToken:"late-refresh",clientId:original.clientId}}),{status:200}));
+      await expect(pending).rejects.toThrow("account or workspace changed");
+      expect(queue.sessions.load()).toEqual(replacement);
+      expect(transport).toHaveBeenCalledTimes(2);
+    }
+  });
+
   it("shows a friendly session-expired error when the refresh token is also rejected", async () => {
     const storage = new FakeLocalStorage();
     installWindow(storage);

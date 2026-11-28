@@ -19,7 +19,7 @@ import {
   type CustomerPaymentMutationPayload,
 } from "./commerce/customer-credit.js";
 import { applyReturnMutation, ReturnMutationError, type ReturnMutationPayload } from "./commerce/returns.js";
-import { applySaleMutation, SaleMutationError, type SaleMutationPayload } from "./commerce/sales.js";
+import { applySaleMutation, applySaleMutationInTransaction, SaleMutationError, type SaleMutationPayload } from "./commerce/sales.js";
 import {PriceRuleError} from "./commerce/price-rules.js";
 import {ShiftSalePolicyError} from "./operations/shift-sale-policy.js";
 import { applyExchangeMutation, ExchangeMutationError, type ExchangeMutationPayload } from "./commerce/exchanges.js";
@@ -45,17 +45,17 @@ import {
   SupplierServiceError,
   SUPPLIER_WRITE_ROLES,
 } from "./supplier-service.js";
-import type { DatabasePool } from "./db.js";
+import type { DatabaseClient, DatabasePool } from "./db.js";
 
 const MAX_BATCH_SIZE = 100;
 const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER", "INVENTORY"];
 const CATALOG_MUTATIONS = new Set(["CATALOG_ITEM_CREATE", "CATALOG_ITEM_UPDATE", "CATALOG_ITEM_ARCHIVE", "CATALOG_ITEM_REACTIVATE"]);
 const CUSTOMER_MUTATIONS = new Set(["CUSTOMER_CREATE", "CUSTOMER_UPDATE"]);
 const SUPPLIER_MUTATIONS = new Set(["SUPPLIER_CREATE", "SUPPLIER_UPDATE"]);
-// Once accepted, a refund, exchange or stock adjustment must never be
+// Once accepted, a sale, refund, exchange or stock adjustment must never be
 // silently reinterpreted as a *different* financial request with the same ID.
 const STRICT_FINANCIAL_REPLAY_TYPES = new Set([
-  "RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE", "INVENTORY_ADJUSTMENT_CREATE",
+  "SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE", "INVENTORY_ADJUSTMENT_CREATE",
 ]);
 type StoredStatus = "RECEIVED" | "APPLIED" | "REJECTED";
 
@@ -118,9 +118,11 @@ function poLinkedReplaySignature(payload:unknown):string|null {
  */
 function financialReplaySignature(mutationType: string, payload: unknown): string | null {
   if (!STRICT_FINANCIAL_REPLAY_TYPES.has(mutationType)) return null;
-  const excluded = mutationType === "INVENTORY_ADJUSTMENT_CREATE"
-    ? new Set(["actorStaffId"])
-    : new Set(["initiatedByStaffId", "approvedByStaffId", "actorStaffId"]);
+  const excluded = mutationType === "SALE_CREATE"
+    ? new Set(["cashierStaffId", "cashierMembershipId"])
+    : mutationType === "INVENTORY_ADJUSTMENT_CREATE"
+      ? new Set(["actorStaffId"])
+      : new Set(["initiatedByStaffId", "approvedByStaffId", "actorStaffId"]);
   const sorted = (value: unknown, depth = 0): unknown => {
     if (depth > 32) throw new SyncRequestError("Financial mutation payload nesting exceeds limit");
     if (Array.isArray(value)) return value.map((part) => sorted(part, depth + 1));
@@ -140,9 +142,13 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
   const serverReceivedAt = new Date().toISOString();
   const client = await pool.connect();
   let insertedNew = false;
+  const atomicSale=mutation.mutationType==="SALE_CREATE";
 
   try {
     await client.query("BEGIN");
+    // Sales use business-wide economic IDs, while sync receipts also include a
+    // device key. Serialize new sales across devices before claiming a receipt.
+    if(atomicSale)await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",["tradeos-sale:"+mutation.businessId+":"+mutation.clientMutationId]);
     const inserted = await client.query<{
       status: StoredStatus;
       result_payload: unknown | null;
@@ -271,7 +277,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
         new Error("A supplier-order receipt with this mutation ID was already submitted with different content"));
       if(changedFinancial)return rejection(mutation.clientMutationId,serverReceivedAt,
         "FINANCIAL_REPLAY_CONFLICT",
-        new Error("This refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
+        new Error("This sale, refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
       return {
         clientMutationId: mutation.clientMutationId,
         status: prior.status,
@@ -283,9 +289,18 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       };
     }
 
+    if(atomicSale){
+      const result=await applyNewSaleAndAcknowledge(client,mutation,serverReceivedAt);
+      await client.query("COMMIT");
+      return result;
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
+    // A database/acknowledgement failure is not a final sale rejection. Roll
+    // back the whole new sale and let the client retry the exact same ID. If
+    // COMMIT succeeded but its response was lost, the committed receipt wins.
+    if(atomicSale)throw error;
     return rejection(mutation.clientMutationId, serverReceivedAt, "SYNC_INGEST_FAILED", error);
   } finally {
     client.release();
@@ -336,6 +351,41 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
       result,
     };
   }
+}
+
+
+/** New sales only. Historical RECEIVED rows remain untouched until reconciled. */
+async function applyNewSaleAndAcknowledge(client:DatabaseClient,mutation:ClientMutation,serverReceivedAt:string):Promise<MutationResult>{
+  await client.query("SAVEPOINT new_sale_post");
+  let status:"APPLIED"|"REJECTED"="APPLIED";
+  let result:unknown;
+  try{
+    if(!mutation.branchId)throw new SaleMutationError("branchId is required");
+    // Never return another device's sale as the success of a different sync
+    // request. Also refuse ambiguous historical economic IDs without proof.
+    const collision=await client.query(`SELECT 1 FROM sync_mutations WHERE business_id=$1 AND client_mutation_id=$2
+      AND client_id<>$3 AND mutation_type='SALE_CREATE' LIMIT 1`,[mutation.businessId,mutation.clientMutationId,mutation.clientId]);
+    if(collision.rowCount)throw new SaleMutationError("Sale identifier already belongs to another device. Review the original transaction.","SALE_DEVICE_REPLAY_CONFLICT");
+    const sale=await applySaleMutationInTransaction(client,{businessId:mutation.businessId,branchId:mutation.branchId,
+      clientMutationId:mutation.clientMutationId,occurredAt:mutation.occurredAt},mutation.payload as SaleMutationPayload);
+    if(sale.idempotentReplay)throw new SaleMutationError("Existing sale requires reconciliation before reuse of this identifier.","SALE_DEVICE_REPLAY_CONFLICT");
+    result=sale;
+    await client.query("RELEASE SAVEPOINT new_sale_post");
+  }catch(error){
+    // Only recognized domain/authorization errors are terminal. SQL errors,
+    // disconnects and unknown failures roll back both posting and receipt.
+    if(!(error instanceof SaleMutationError||error instanceof ShiftSalePolicyError||error instanceof PriceRuleError||
+      error instanceof CustomerCreditError||error instanceof CashbookError||error instanceof AuthError))throw error;
+    await client.query("ROLLBACK TO SAVEPOINT new_sale_post");
+    await client.query("RELEASE SAVEPOINT new_sale_post");
+    status="REJECTED";result={errorCode:error.code,errorMessage:error.message};
+  }
+  const acknowledged=await client.query(`UPDATE sync_mutations SET status=$4,result_payload=$5::jsonb,applied_at=now()
+    WHERE business_id=$1 AND client_id=$2 AND client_mutation_id=$3 AND status='RECEIVED'`,
+    [mutation.businessId,mutation.clientId,mutation.clientMutationId,status,JSON.stringify(result)]);
+  if(acknowledged.rowCount!==1)throw new Error("Sale acknowledgement lost");
+  return {clientMutationId:mutation.clientMutationId,status,serverReceivedAt,result,
+    ...(status==="REJECTED"&&isErrorPayload(result)?result:{})};
 }
 
 async function applyMutation(pool: DatabasePool, mutation: ClientMutation): Promise<unknown> {
