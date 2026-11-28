@@ -12,7 +12,7 @@ Updated 2026-11-28. This is a public, source-level tracker; keep credentials, cu
 - [x] Make new sale posting and sync acknowledgement atomic, with cross-device collision and failure regression coverage (#301).
 - [x] Bind web refresh/retry to original workspace, device and staff (#304).
 - [x] Expose pending/rejected queue state and safe review guidance across merchant interfaces (#303).
-- [ ] Run combined-main CI and signed runtime verification for these integrations.
+- [x] Run combined-main CI and signed runtime candidate build for #301/#303/#304 (60815bdf; CI 46138381658, signed candidate 46138381650, runtime pilot 46138411594 all successful). Deployment/UAT remain separate gates.
 - [ ] Extend atomic acknowledgement/reconciliation to returns, exchanges, credit, cashbook and other financial mutations; prove historical RECEIVED recovery without reposting.
 - [ ] Define outbox consumer contracts; durable delivery/acknowledgement; tenant-scoped leasing, retries, dead-letter review, replay/idempotency and crash tests (#218).
 - [ ] Verify provider reservation expiry and reconciliation, webhook signature/replay checks, settlement consistency and payment exceptions (#134).
@@ -58,3 +58,12 @@ Updated 2026-11-28. This is a public, source-level tracker; keep credentials, cu
 Merged #301 (424a1d3), #304 (4efdabee), #303 (b201b6fe), after passing domain, desktop-native, visual QA and runtime artifact pilot checks on their PR revisions. Combined-main checks and deployment remain unverified. Third-party automated review was skipped by its provider; source diff review and CI are not a replacement for independent release sign-off.
 
 Next: verify combined-main workflows; review stacked programme integration against current main and consent/provisioning requirements; continue outbox consumer/acknowledgement implementation (#218) and remaining financial mutation safety. Do not promote while reconciliation gates fail. Preserve unresolved work; no destructive cleanup without proving recoverability and inactivity.
+
+### Checkpoint — 2026-11-28, second development pass
+- #305 consolidated programme stack passed domain, native, visual, runtime and migration checks at dbc49a3f. Expanded consent/withdrawal disclosure in f005d767; fresh checks required; no real programme provisioning or activation.
+- #306 implements atomic new return/refund acknowledgement, shared cross-device alias collision guard and malformed payload validation with synthetic database regression coverage (5efdcb80). Draft pending fresh CI.
+- #307 introduces an explicit business-scoped transactional local outbox delivery primitive, with row locking and synthetic durable destination tests (5ec2f02f). Draft pending CI. No production consumer or automatic scheduling; do not mark events delivered until genuine destination contract and verified acknowledgement are implemented.
+- #285 refreshed merchant native/shared UI integration against current financial safety changes (5714084c); fresh checks and physical device acceptance remain required.
+- Rechecked staging availability and financial outbox readiness using a read-only aggregate query: gate remains blocked. No production data changed; detailed operational counts are not stored in this public tracker.
+
+Next: finish fresh CI and review of #305–307/#285; define actual registered outbox consumers and implement durable backoff, poison review, operator metrics and acknowledgement-loss coverage; continue atomic exchange/purchase/credit posting. Keep the financial gate enforced and verify exact-main runtime candidate after integration.
