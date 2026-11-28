@@ -17,6 +17,13 @@ export type { MutationResult, SyncPushRequest, SyncResponse };
 
 export const MAX_SYNC_BATCH_SIZE = 100;
 
+// A conflict can describe an operation already posted under its old ID.
+// Reissuing it with a fresh ID would bypass the server replay protection.
+const reconciliationRequiredCodes=new Set(["FINANCIAL_REPLAY_CONFLICT","PURCHASE_REPLAY_CONFLICT","SALE_DEVICE_REPLAY_CONFLICT","SALE_REPLAY_INCOMPLETE","SYNC_INGEST_FAILED","MUTATION_APPLY_FAILED"]);
+export function requiresReconciliationBeforeRetry(result:Pick<MutationResult,"errorCode">):boolean{
+  return typeof result.errorCode==="string"&&reconciliationRequiredCodes.has(result.errorCode);
+}
+
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const branchOptionalMutationTypes = new Set([
@@ -126,6 +133,7 @@ export class OfflineMutationQueue {
       const index = snapshot.failed.findIndex((entry) => entry.mutation.clientMutationId === clientMutationId);
       if (index < 0) return false;
 
+      if(requiresReconciliationBeforeRetry(snapshot.failed[index]!.result))return false;
       const [failed] = snapshot.failed.splice(index, 1);
       const replacement: QueuedMutation = {
         ...failed!.mutation,
