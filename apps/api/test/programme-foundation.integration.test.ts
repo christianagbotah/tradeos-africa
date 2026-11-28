@@ -254,16 +254,39 @@ describe("privacy-limited recorded programme outcomes",()=>{
     const ids:string[]=[];
     for(const actor of actors)ids.push(await f.consent(actor));
     const programme=await f.createProgramme(),cohort=await f.createCohort(programme,10),secondCohort=await f.createCohort(programme,10);
+    const enrolments:string[]=[];
     for(const participantId of ids.slice(0,5)){
-      expect((await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId:cohort,participantId})).statusCode).toBe(201);
+      const enrolled=await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId:cohort,participantId});
+      expect(enrolled.statusCode).toBe(201);enrolments.push(enrolled.json().id);
     }
     expect((await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId:secondCohort,participantId:ids[0]})).statusCode).toBe(201);
+    const pathway=await f.post(f.admin,f.org,"training/pathways",{clientRequestId:randomUUID(),cohortId:cohort,name:"Outcome pathway",plannedHours:10});
+    expect(pathway.statusCode).toBe(201);
+    const lesson=await f.post(f.admin,f.org,"literacy/lessons",{clientRequestId:randomUUID(),cohortId:cohort,title:"Outcome lesson",topic:"RECORD_KEEPING",lessonText:"Record each sale.",question:"What should be recorded?",options:["Each sale","Nothing","Only errors"],correctOption:0,version:1});
+    expect(lesson.statusCode).toBe(201);
+    const coordinator=await user("outcome-coordinator");
+    await pool.query("INSERT INTO programme_memberships(organisation_id,user_id,role) VALUES($1,$2,'COORDINATOR')",[f.org,coordinator.id]);
+    for(let i=0;i<5;i++){
+      const enrolmentId=enrolments[i]!,actor=actors[i]!;
+      const placed=await f.post(f.admin,f.org,"training/placements",{clientRequestId:randomUUID(),pathwayId:pathway.json().id,enrolmentId,mentorId:f.mentor.id});
+      expect(placed.statusCode).toBe(201);
+      for(const status of ["IN_PROGRESS","COMPLETED"])expect((await f.post(f.mentor,f.org,"training/progress",{clientRequestId:randomUUID(),placementId:placed.json().id,status,note:"Synthetic milestone"})).statusCode).toBe(201);
+      const unit=await f.post(coordinator,f.org,"equipment/units",{clientRequestId:randomUUID(),assetCode:"OUTCOME-"+i,name:"Fictional equipment",condition:"NEW"});
+      expect(unit.statusCode).toBe(201);
+      const allocation=await f.post(coordinator,f.org,"equipment/allocations",{clientRequestId:randomUUID(),equipmentId:unit.json().id,enrolmentId});
+      expect(allocation.statusCode).toBe(201);
+      expect((await f.post(f.admin,f.org,"equipment/transitions",{clientRequestId:randomUUID(),allocationId:allocation.json().id,action:"APPROVE"})).statusCode).toBe(201);
+      expect((await f.post(actor,f.org,"equipment/transitions",{clientRequestId:randomUUID(),allocationId:allocation.json().id,action:"ACKNOWLEDGE"})).statusCode).toBe(201);
+      expect((await f.post(actor,f.org,"literacy/attempts",{clientRequestId:randomUUID(),lessonId:lesson.json().id,enrolmentId,answerOption:0})).json().passed).toBe(true);
+    }
+    // A second passing attempt does not inflate the participant count.
+    expect((await f.post(actors[0]!,f.org,"literacy/attempts",{clientRequestId:randomUUID(),lessonId:lesson.json().id,enrolmentId:enrolments[0],answerOption:0})).json().passed).toBe(true);
     const response=await f.get(viewer,f.org,"outcomes");
     expect(response.statusCode).toBe(200);
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.json()).toEqual({minimumCellSize:5,participants:10,metrics:[
-      {key:"enrolled",count:5,suppressed:false},{key:"trained",count:null,suppressed:true},
-      {key:"equipped",count:null,suppressed:true},{key:"learned",count:null,suppressed:true}
+      {key:"enrolled",count:5,suppressed:false},{key:"trained",count:5,suppressed:false},
+      {key:"equipped",count:5,suppressed:false},{key:"learned",count:5,suppressed:false}
     ]});
     expect((await f.get(f.admin,f.org,"outcomes")).json()).toEqual(response.json());
     for(const actor of [f.person,f.mentor,f.foreign,f.merchant])expect((await f.get(actor,f.org,"outcomes")).statusCode).toBe(403);
@@ -273,5 +296,5 @@ describe("privacy-limited recorded programme outcomes",()=>{
     const after=(await f.get(viewer,f.org,"outcomes")).json();
     expect(after.participants).toBeNull();
     expect(after.metrics.every((m:{count:number|null;suppressed:boolean})=>m.count===null&&m.suppressed)).toBe(true);
-  });
+  },30000);
 });

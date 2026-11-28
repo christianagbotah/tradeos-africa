@@ -8,6 +8,7 @@ on:
       - feat/programme-apprenticeship-20261126
       - feat/programme-equipment-20261127
       - feat/programme-literacy-20261127
+      - feat/programme-business-link-20261127
   workflow_dispatch:
 
 # A newer PR head makes its earlier screenshot capture obsolete.
@@ -377,6 +378,13 @@ jobs:
               await p.getByLabel("Beneficiary",{exact:true}).selectOption({label:"Fictional Apprentice"});
               await p.getByRole("button",{name:"Enrol participant",exact:true}).click();
               await p.getByRole("status").filter({hasText:"Participant enrolled."}).waitFor();
+              await tab("Outcomes");
+              await p.getByRole("heading",{name:"Recorded programme outcomes",exact:true}).waitFor();
+              if(await p.getByText("Withheld",{exact:true}).count()!==5)throw Error("Small group outcome disclosure");
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-outcomes-"+width+".png",fullPage:true});screenshotCount++;
+              console.log("Privacy-limited programme outcomes verified at "+width);
+              await tab("Enrolments");
               await assertFit();
               await p.screenshot({path:EVIDENCE+"/programme-enrolments-"+width+".png",fullPage:true});screenshotCount++;
               await tab("Apprenticeship");
