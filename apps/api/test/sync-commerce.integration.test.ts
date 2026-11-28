@@ -315,6 +315,42 @@ describe("offline commerce mutations", () => {
     expect(Number(returned.rows[0]?.quantity_delta)).toBe(50);
   });
 
+  it("rolls back return posting and cash reversal if acknowledgement fails, then retries exactly once",async()=>{
+    const sale={clientId:"return-device",clientMutationId:"atomic-return-sale",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:2,saleUnitCode:"glass"}]}};
+    const posted=(await ingestSyncBatch(pool,{mutations:[sale]})).mutationResults[0]!;
+    expect(posted.status).toBe("APPLIED");
+    const saleId=(posted.result as {saleId:string}).saleId;
+    const saleLineId=(await pool.query<{id:string}>("SELECT id FROM sale_lines WHERE sale_id=$1",[saleId])).rows[0]!.id;
+    const mutation={...sale,clientMutationId:"atomic-return-fault",mutationType:"RETURN_CREATE",
+      payload:{originalSaleId:saleId,reason:"Synthetic return",refundMethod:"ORIGINAL_METHOD",
+        lines:[{saleLineId,quantity:1,disposition:"RESTOCK"}]}};
+    const counts=async()=>(await pool.query("SELECT (SELECT count(*)::int FROM return_cases) AS returns,(SELECT count(*)::int FROM refund_transactions) AS refunds,(SELECT count(*)::int FROM cashbook_entries WHERE entry_type='SALE_REFUND') AS reversals,(SELECT count(*)::int FROM sync_mutations WHERE client_mutation_id='atomic-return-fault') AS sync")).rows[0];
+    await pool.query(`CREATE FUNCTION qa_fail_return_ack() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.client_mutation_id='atomic-return-fault' AND NEW.status='APPLIED' THEN
+      RAISE EXCEPTION 'Synthetic return acknowledgement failure'; END IF; RETURN NEW; END $$`);
+    try{
+      await pool.query("CREATE TRIGGER qa_fail_return_ack BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION qa_fail_return_ack()");
+      await expect(ingestSyncBatch(pool,{mutations:[mutation]})).rejects.toThrow("Synthetic return acknowledgement failure");
+      expect(await counts()).toEqual({returns:0,refunds:0,reversals:0,sync:0});
+      expect(await availableStock()).toBe(650);
+      expect((await pool.query("SELECT status FROM payments WHERE sale_id=$1",[saleId])).rows[0]?.status).toBe("SUCCEEDED");
+    }finally{
+      await pool.query("DROP TRIGGER IF EXISTS qa_fail_return_ack ON sync_mutations");
+      await pool.query("DROP FUNCTION IF EXISTS qa_fail_return_ack()");
+    }
+    const first=(await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]!;
+    expect(first.status).toBe("APPLIED");
+    expect((await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]?.result).toEqual(first.result);
+    expect(await counts()).toEqual({returns:1,refunds:1,reversals:1,sync:1});
+    expect(await availableStock()).toBe(700);
+    const other={...mutation,clientId:"another-return-device",mutationType:"REFUND_CREATE"};
+    expect((await ingestSyncBatch(pool,{mutations:[other]})).mutationResults[0]).toMatchObject({status:"REJECTED",errorCode:"RETURN_DEVICE_REPLAY_CONFLICT"});
+    expect(await availableStock()).toBe(700);
+    expect(await counts()).toEqual({returns:1,refunds:1,reversals:1,sync:2});
+  });
+
   it("reconciles repeated partial CASH returns through final refund without duplicating stock, money or audit", async () => {
     // A single sale of two glasses (2 × 50 ml) is refunded in two separate,
     // legitimate partial returns. This runs against the CI-only PostgreSQL DB.
