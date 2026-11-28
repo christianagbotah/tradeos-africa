@@ -21,6 +21,7 @@ import { registerCustomerRoutes } from "./customers.js";
 import { CUSTOMER_WRITE_ROLES } from "./customer-service.js";
 import { SUPPLIER_WRITE_ROLES } from "./supplier-service.js";
 import type { DatabasePool } from "./db.js";
+import { registerProgrammeRoutes } from "./programmes/routes.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
 import { registerMediaRoutes } from "./media/routes.js";
 import { registerPlatformAdminRoutes } from "./platform-admin/routes.js";
@@ -75,6 +76,7 @@ export function buildApp(pool: DatabasePool) {
   registerPlatformAdminAttentionRoutes(app, pool);
   registerPlatformAdminAutomationRoutes(app, pool);
   registerOnboardingRoutes(app, pool);
+  registerProgrammeRoutes(app, pool);
   registerBusinessRoutes(app, pool);
   registerMediaRoutes(app, pool);
   registerCatalogRoutes(app, pool);

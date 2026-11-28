@@ -4,6 +4,11 @@ on:
   pull_request:
     branches:
       - main
+      - feat/programme-foundation-20261126
+      - feat/programme-apprenticeship-20261126
+      - feat/programme-equipment-20261127
+      - feat/programme-literacy-20261127
+      - feat/programme-business-link-20261127
   workflow_dispatch:
 
 # A newer PR head makes its earlier screenshot capture obsolete.
@@ -213,6 +218,45 @@ jobs:
           console.log("Business:", businessId, "Branch:", branchId);
           SEED
 
+      # Isolated fictional programme accounts. Privileged provisioning is
+      # intentionally not available as a public API. This SQL runs on hosted QA only.
+      - name: Seed synthetic programme organisations and invitations
+        env:
+          PGPASSWORD: tradeos
+        run: |
+          node --input-type=module << 'PROGRAMME_SEED'
+          for (const width of [390,1280]) {
+            for (const role of ["admin","coordinator","participant","mentor","outsider"]) {
+              const email="programme-"+role+"-"+width+"@tradeos.test";
+              const r=await fetch("http://127.0.0.1:4000/v1/auth/register",{
+                method:"POST",headers:{"content-type":"application/json"},
+                body:JSON.stringify({displayName:"Fictional "+role,email,password:"Programme-QA-1234!",
+                  platform:"WEB",deviceKey:"programme-qa-"+role+"-"+width,appVersion:"qa"})
+              });
+              if(!r.ok)throw Error("Synthetic programme registration failed");
+              if(role==="participant"){
+                const registered=await r.json();
+                const onboard=await fetch("http://127.0.0.1:4000/v1/onboarding/business",{
+                  method:"POST",headers:{"content-type":"application/json",authorization:"Bearer "+registered.session.accessToken},
+                  body:JSON.stringify({name:"Fictional workshop "+width,branchName:"Main",businessType:"SERVICES"})
+                });
+                if(!onboard.ok)throw Error("Synthetic participant business onboarding failed: "+onboard.status);
+              }
+            }
+          }
+          PROGRAMME_SEED
+          psql -h localhost -U tradeos -d tradeos_qa -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO programme_organisations(name) VALUES ('Skills QA 390'),('Skills QA 1280');
+          INSERT INTO programme_memberships(organisation_id,user_id,role)
+          SELECT o.id,u.id,CASE WHEN u.email LIKE 'programme-admin-%' THEN 'ORG_ADMIN' WHEN u.email LIKE 'programme-coordinator-%' THEN 'COORDINATOR' WHEN u.email LIKE 'programme-mentor-%' THEN 'MENTOR' ELSE 'PARTICIPANT' END
+          FROM programme_organisations o JOIN app_users u ON
+            u.email IN ('programme-admin-'||split_part(o.name,' ',3)||'@tradeos.test',
+                        'programme-participant-'||split_part(o.name,' ',3)||'@tradeos.test',
+                        'programme-mentor-'||split_part(o.name,' ',3)||'@tradeos.test',
+                        'programme-coordinator-'||split_part(o.name,' ',3)||'@tradeos.test')
+          WHERE o.name IN ('Skills QA 390','Skills QA 1280');
+          SQL
+
       # API_BASE_URL is EXPLICIT: web installs /v1 + /api rewrites against the
       # running API. Without it, next.config.ts installs no rewrites at all —
       # production never silently assumes localhost.
@@ -276,6 +320,187 @@ jobs:
           }
 
           const browser = await chromium.launch();
+
+          // Actual programme-only users must not be forced into merchant onboarding.
+          for(const width of [390,1280]){
+            const ctx=await browser.newContext({viewport:{width,height:900}});
+            const p=await ctx.newPage();
+            const signIn=async(role)=>{
+              // Wait for the previous logout before navigation; ensure the form
+              // has hydrated before interacting and check the actual login reply.
+              if(p.url().endsWith("/programmes"))
+                await p.getByRole("button",{name:"Sign in",exact:true}).waitFor({timeout:20000});
+              await p.goto(WEB+"/programmes",{waitUntil:"domcontentloaded"});
+              await p.locator('[data-programme-ready="true"]').waitFor({timeout:30000});
+              await p.getByLabel("Email or phone").fill("programme-"+role+"-"+width+"@tradeos.test");
+              await p.getByLabel("Password",{exact:true}).fill("Programme-QA-1234!");
+              const reply=p.waitForResponse(r=>r.url().endsWith("/v1/auth/login")&&r.request().method()==="POST",{timeout:30000});
+              await p.getByRole("button",{name:"Sign in",exact:true}).click();
+              const response=await reply;
+              if(!response.ok())throw Error("Programme sign-in rejected for synthetic "+role+" at "+width+": "+response.status());
+              console.log("Programme sign-in accepted for synthetic "+role+" at "+width);
+            };
+            const tab=async(name)=>p.getByRole("navigation",{name:"Programme sections"}).getByRole("button",{name,exact:true}).click();
+            const assertFit=async()=>{
+              if(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))
+                throw Error("Programme page horizontal overflow "+width);
+            };
+            try{
+              await signIn("admin");
+              await p.getByRole("heading",{name:"Skills QA "+width,exact:true}).waitFor();
+              await assertFit();
+              await tab("Programmes");
+              await p.getByLabel("Programme name").fill("Enterprise foundations");
+              await p.getByLabel("Objective").fill("Fictional practical training");
+              await p.getByRole("button",{name:"Create programme",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Programme created."}).waitFor();
+              await tab("Cohorts");
+              await p.getByLabel("Programme",{exact:true}).selectOption({label:"Enterprise foundations"});
+              await p.getByLabel("Cohort name").fill("Cohort One");
+              await p.getByLabel("Capacity").fill("5");
+              await p.getByRole("button",{name:"Create cohort",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Cohort created."}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-cohorts-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("participant");
+              await p.getByLabel("Display name").fill("Fictional Apprentice");
+              await p.getByLabel("I am an adult.").check();
+              await p.getByLabel("I agree to participate and share this profile with my programme coordinators.").check();
+              await p.getByRole("button",{name:"Confirm participation",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Participation consent recorded."}).waitFor();
+              await assertFit();
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("admin");
+              await p.getByRole("heading",{name:"Skills QA "+width,exact:true}).waitFor();
+              await tab("Enrolments");
+              await p.getByLabel("Cohort",{exact:true}).selectOption({label:"Cohort One"});
+              await p.getByLabel("Beneficiary",{exact:true}).selectOption({label:"Fictional Apprentice"});
+              await p.getByRole("button",{name:"Enrol participant",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Participant enrolled."}).waitFor();
+              await tab("Outcomes");
+              await p.getByRole("heading",{name:"Recorded programme outcomes",exact:true}).waitFor();
+              if(await p.getByText("Withheld",{exact:true}).count()!==5)throw Error("Small group outcome disclosure");
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-outcomes-"+width+".png",fullPage:true});screenshotCount++;
+              console.log("Privacy-limited programme outcomes verified at "+width);
+              await tab("Enrolments");
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-enrolments-"+width+".png",fullPage:true});screenshotCount++;
+              await tab("Apprenticeship");
+              await p.getByLabel("Training cohort",{exact:true}).selectOption({label:"Cohort One"});
+              await p.getByLabel("Pathway name",{exact:true}).fill("Tailoring fundamentals");
+              await p.getByLabel("Planned hours",{exact:true}).fill("40");
+              await p.getByRole("button",{name:"Create pathway",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Training pathway created."}).waitFor();
+              await p.getByLabel("Training pathway",{exact:true}).selectOption({label:"Tailoring fundamentals"});
+              await p.getByLabel("Apprentice",{exact:true}).selectOption({label:"Fictional Apprentice"});
+              await p.getByLabel("Assigned mentor",{exact:true}).selectOption({label:"Fictional mentor"});
+              await p.getByRole("button",{name:"Assign placement",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Training placement assigned."}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-training-placement-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("mentor");
+              await p.getByRole("heading",{name:"My apprentices",exact:true}).waitFor();
+              await p.getByLabel("Training placement",{exact:true}).selectOption({label:"Fictional Apprentice · Tailoring fundamentals"});
+              await p.getByLabel("Progress note",{exact:true}).fill("Started practical training");
+              await p.getByRole("button",{name:"Save progress",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Training progress recorded."}).waitFor();
+              await p.getByLabel("Training placement",{exact:true}).selectOption({label:"Fictional Apprentice · Tailoring fundamentals"});
+              await p.getByLabel("Progress status",{exact:true}).selectOption("COMPLETED");
+              await p.getByLabel("Progress note",{exact:true}).fill("Practical milestone completed");
+              await p.getByRole("button",{name:"Save progress",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Training progress recorded."}).waitFor();
+              await p.getByText("Fictional mentor · COMPLETED",{exact:true}).waitFor();
+              await p.screenshot({path:EVIDENCE+"/programme-mentor-progress-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("coordinator");
+              await p.getByRole("heading",{name:"Skills QA "+width,exact:true}).waitFor();
+              await tab("Equipment");
+              await p.getByLabel("Asset code",{exact:true}).fill("QA-MACHINE-01");
+              await p.getByLabel("Equipment name",{exact:true}).fill("Sewing machine");
+              await p.getByRole("button",{name:"Register equipment",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Equipment registered."}).waitFor();
+              await p.getByLabel("Available equipment",{exact:true}).selectOption({label:"QA-MACHINE-01 · Sewing machine"});
+              await p.getByLabel("Equipment beneficiary",{exact:true}).selectOption({label:"Fictional Apprentice · Cohort One"});
+              await p.getByRole("button",{name:"Reserve equipment",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Equipment reserved for approval."}).waitFor();
+              if(await p.getByRole("button",{name:"Approve allocation",exact:true}).count())throw Error("Coordinator can self-approve");
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-equipment-reserved-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("admin");
+              await p.getByRole("heading",{name:"Skills QA "+width,exact:true}).waitFor();
+              await tab("Equipment");
+              await p.getByRole("button",{name:"Approve allocation",exact:true}).click();
+              await p.getByRole("dialog",{name:"Approve allocation",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Allocation approved."}).waitFor();
+              await tab("Financial literacy");
+              await p.getByLabel("Learning cohort",{exact:true}).selectOption({label:"Cohort One"});
+              await p.getByLabel("Lesson title",{exact:true}).fill("Daily cash records");
+              await p.getByLabel("Lesson content",{exact:true}).fill("Keep daily records. Sales of 100 cedis minus costs of 60 cedis leave 40 cedis before other expenses.");
+              await p.getByLabel("Practice question",{exact:true}).fill("What remains before other expenses?");
+              await p.getByLabel("Answer option 1",{exact:true}).fill("20 cedis");
+              await p.getByLabel("Answer option 2",{exact:true}).fill("40 cedis");
+              await p.getByLabel("Answer option 3",{exact:true}).fill("100 cedis");
+              await p.getByLabel("Correct answer",{exact:true}).selectOption("1");
+              await p.getByRole("button",{name:"Publish lesson",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Lesson published."}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-literacy-author-"+width+".png",fullPage:true});screenshotCount++;
+              await assertFit();
+
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("participant");
+              await p.getByText("Enterprise foundations",{exact:true}).waitFor();
+              await p.getByText("Tailoring fundamentals",{exact:true}).waitFor();
+              await p.getByText("Fictional mentor · 40 hours · COMPLETED",{exact:true}).waitFor();
+              await p.getByRole("button",{name:"Confirm equipment received",exact:true}).click();
+              await p.getByRole("dialog",{name:"Confirm physical receipt",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Equipment receipt confirmed."}).waitFor();
+              await p.getByText("QA-MACHINE-01 · NEW · HANDED OVER",{exact:true}).waitFor();
+              await p.getByLabel("Choose lesson",{exact:true}).selectOption({label:"Daily cash records · v1"});
+              await p.getByRole("radio",{name:"20 cedis",exact:true}).check();
+              await p.getByRole("button",{name:"Submit answer",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Not quite. Review the lesson and try again."}).waitFor();
+              await p.getByRole("radio",{name:"40 cedis",exact:true}).check();
+              await p.getByRole("button",{name:"Submit answer",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Correct answer. Lesson completed."}).waitFor();
+              await p.getByText("Record keeping · Completed · 2 attempt(s)",{exact:true}).waitFor();
+              await p.getByLabel("Owned business",{exact:true}).selectOption({label:"Fictional workshop "+width});
+              await p.getByRole("checkbox",{name:"I consent to include my business activation in the programme aggregate."}).check();
+              await p.getByRole("button",{name:"Link my business",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Business linked."}).waitFor();
+              await p.getByText("Linked to programme",{exact:true}).waitFor();
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-business-linked-"+width+".png",fullPage:true});screenshotCount++;
+              await p.getByRole("button",{name:"Remove business link",exact:true}).click();
+              await p.getByRole("dialog",{name:"Remove business link",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Business link removed."}).waitFor();
+              await p.getByText("Not linked",{exact:true}).waitFor();
+              await p.locator("strong").filter({hasText:new RegExp("^Fictional workshop "+width+"$")}).waitFor();
+              await assertFit();
+              console.log("Participant-owned merchant onboarding, consent linking and independent unlink verified at "+width);
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-literacy-completed-"+width+".png",fullPage:true});screenshotCount++;
+              console.log("Financial literacy publishing, retry and learner completion verified at "+width);
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-equipment-received-"+width+".png",fullPage:true});screenshotCount++;
+              console.log("Programme equipment registration, independent approval and beneficiary handover verified at "+width);
+              await assertFit();
+              await p.screenshot({path:EVIDENCE+"/programme-participant-"+width+".png",fullPage:true});screenshotCount++;
+              p.once("dialog",d=>d.accept());
+              await p.getByRole("button",{name:"Withdraw consent",exact:true}).click();
+              await p.getByRole("status").filter({hasText:"Consent withdrawn."}).waitFor();
+              await p.getByText("No active enrolments.",{exact:true}).waitFor();
+              await p.getByRole("button",{name:"Sign out",exact:true}).click();
+              await signIn("outsider");
+              await p.getByRole("heading",{name:"No programme access",exact:true}).waitFor();
+              await assertFit();
+              console.log("Programme-only sign-in, programme/cohort creation, participant consent, enrolment, withdrawal and outsider denial verified at "+width);
+            }finally{await ctx.close();}
+          }
 
           // First-customer launch acceptance: no API-seeded account or
           // business. Complete public registration and business setup through
