@@ -206,6 +206,14 @@ export async function applySaleMutationInTransaction(
       const lineTotalMinor = safeMinor(lineNetMinor + lineTaxMinor);
       const stockQuantity = await stockQuantityForSale(client, item, requested.quantity, saleUnitCode);
 
+      // Check physical availability under the existing catalog row locks before
+      // valuation. A genuine stock shortage is a domain rejection; a valuation
+      // inconsistency must not be mislabeled as an ordinary shortage.
+      if(item.kind==="PRODUCT"&&item.track_stock&&stockQuantity!==null){
+        if(!item.stock_unit_code)throw new SaleMutationError(`${item.name} has invalid stock configuration`);
+        await assertStockAvailable(client,{businessId:context.businessId,branchId:context.branchId,itemId:item.id,
+          itemName:item.name,unit:item.stock_unit_code,quantity:stockQuantity});
+      }
       let lineCostMinor = item.kind === "PRODUCT" && item.track_stock && stockQuantity !== null
         ? await consumeValuation(client, context, item.id, stockQuantity) : 0;
       let unitCostMinor = proportionalMinor(lineCostMinor, 1, requested.quantity);
@@ -412,7 +420,7 @@ interface StockUse {
   actorStaffId: string | null; idempotencyKey: string; occurredAt: string;
 }
 
-async function consumeStock(client: DatabaseClient, input: StockUse): Promise<string> {
+async function assertStockAvailable(client:DatabaseClient,input:Pick<StockUse,"businessId"|"branchId"|"itemId"|"itemName"|"unit"|"quantity">):Promise<void> {
   const balance = await client.query<{ quantity: string | number }>(
     `SELECT COALESCE(SUM(quantity_delta),0) AS quantity FROM inventory_movements
      WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 AND stock_unit_code=$4 AND location_type='AVAILABLE'`,
@@ -422,6 +430,10 @@ async function consumeStock(client: DatabaseClient, input: StockUse): Promise<st
   if (available + Number.EPSILON < input.quantity) {
     throw new SaleMutationError(`${input.itemName} has ${available} ${input.unit}; ${input.quantity} is required`, "INSUFFICIENT_STOCK");
   }
+}
+
+async function consumeStock(client: DatabaseClient, input: StockUse): Promise<string> {
+  await assertStockAvailable(client,input);
   const result = await client.query<{ id: string }>(
     `INSERT INTO inventory_movements (
        business_id,branch_id,item_id,stock_unit_code,quantity_delta,location_type,reason,
@@ -515,6 +527,8 @@ async function consumeDefinition(
   for (let index = 0; index < plan.length; index += 1) {
     const component = plan[index]!;
     const row = components.rows[index]!;
+    await assertStockAvailable(client,{businessId:context.businessId,branchId:context.branchId,itemId:component.componentProductId,
+      itemName:row.component_name,unit:component.stockUnitId,quantity:component.totalPlannedQuantity});
     const componentCost = await consumeValuation(
       client, context, component.componentProductId, component.totalPlannedQuantity,
     );
