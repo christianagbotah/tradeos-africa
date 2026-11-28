@@ -49,10 +49,11 @@ export async function applyCustomerPaymentMutation(
   pool: DatabasePool,
   context: CustomerPaymentMutationContext,
   payload: CustomerPaymentMutationPayload,
+  transaction?: DatabaseClient,
 ): Promise<CustomerPaymentMutationResult> {
   validateCustomerPayment(context, payload);
 
-  return withTransaction(pool, async (client) => {
+  const apply=async (client:DatabaseClient):Promise<CustomerPaymentMutationResult>=>{
     const prior = await client.query<{ id: string; customer_id: string; amount_minor: string | number; status: string }>(
       `SELECT id,customer_id,amount_minor,status FROM customer_payments
        WHERE business_id=$1 AND client_mutation_id=$2`,
@@ -132,7 +133,8 @@ export async function applyCustomerPaymentMutation(
       status: "SUCCEEDED",
       idempotentReplay: false,
     };
-  });
+  };
+  return transaction?apply(transaction):withTransaction(pool,apply);
 }
 
 export async function assertCustomerCreditAvailable(
@@ -238,7 +240,11 @@ async function requireActiveBranch(client: DatabaseClient, businessId: string, b
 function validateCustomerPayment(context: CustomerPaymentMutationContext, payload: CustomerPaymentMutationPayload): void {
   if (!context.branchId || !context.clientMutationId) throw new CustomerCreditError("branchId and clientMutationId are required");
   if (Number.isNaN(Date.parse(context.occurredAt))) throw new CustomerCreditError("occurredAt must be an ISO date-time");
-  if (!payload.customerId) throw new CustomerCreditError("customerId is required", "CUSTOMER_REQUIRED");
+  if (!payload || typeof payload!=="object" || Array.isArray(payload) || typeof payload.customerId!=="string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.customerId))
+    throw new CustomerCreditError("Valid customerId is required", "CUSTOMER_REQUIRED");
+  if(payload.providerReference!==undefined&&typeof payload.providerReference!=="string")
+    throw new CustomerCreditError("Invalid provider reference");
   if (!Number.isSafeInteger(payload.amountMinor) || payload.amountMinor <= 0) {
     throw new CustomerCreditError("Payment amount must be a positive minor-unit integer", "INVALID_PAYMENT_AMOUNT");
   }

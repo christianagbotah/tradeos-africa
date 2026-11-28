@@ -27,9 +27,23 @@ describe("purchase receiving and supplier payables", () => {
    expect(response.statusCode).toBe(200);return response.json().mutationResults[0];
   };
   const receipt={supplierId,receivedByStaffId:"00000000-0000-4000-8000-000000000000",settlementMethod:"SUPPLIER_CREDIT",lines:[{itemId,purchaseUnitCode:"bottle",quantity:2,unitCostMinor:15000}]};
+  const postRaw=(id:string,type:string,payload:unknown)=>app.inject({method:"POST",url:"/v1/sync",headers,payload:{mutations:[{clientId:"purchase-device",clientMutationId:id,businessId,branchId,mutationType:type,occurredAt:new Date().toISOString(),payload}]}});
+  await pool.query(`CREATE FUNCTION qa_procurement_ack_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.client_mutation_id IN ('receipt-1','payment-1') AND NEW.status='APPLIED' THEN
+    RAISE EXCEPTION 'Synthetic procurement acknowledgement failure'; END IF; RETURN NEW; END $$`);
+  try{
+    await pool.query("CREATE TRIGGER qa_procurement_ack_failure BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION qa_procurement_ack_failure()");
+    expect((await postRaw("receipt-1","PURCHASE_RECEIVE_CREATE",receipt)).statusCode).toBe(500);
+    const counts=(await pool.query("SELECT (SELECT count(*)::int FROM purchases) AS purchases,(SELECT count(*)::int FROM supplier_payable_ledger) AS ledger,(SELECT count(*)::int FROM inventory_movements) AS movements,(SELECT count(*)::int FROM sync_mutations) AS sync")).rows[0];
+    expect(counts).toEqual({purchases:0,ledger:0,movements:0,sync:0});
+  }finally{
+    await pool.query("DROP TRIGGER IF EXISTS qa_procurement_ack_failure ON sync_mutations");
+    await pool.query("DROP FUNCTION IF EXISTS qa_procurement_ack_failure()");
+  }
   const received=await sync("receipt-1","PURCHASE_RECEIVE_CREATE",receipt);
   expect(received.status).toBe("APPLIED");expect(received.result.totalMinor).toBe(30000);
   expect((await sync("receipt-1","PURCHASE_RECEIVE_CREATE",receipt)).status).toBe("APPLIED");
+  expect(await sync("receipt-1","PURCHASE_RECEIVE_CREATE",{...receipt,lines:[{...receipt.lines[0],unitCostMinor:15001}]})).toMatchObject({status:"REJECTED",errorCode:"PURCHASE_REPLAY_CONFLICT"});
   const purchase=await pool.query(`SELECT received_by_staff_id FROM purchases`);
   const actor=await pool.query(`SELECT staff_id FROM business_memberships WHERE business_id=$1`,[businessId]);
   expect(purchase.rows[0].received_by_staff_id).toBe(actor.rows[0].staff_id);
@@ -64,8 +78,22 @@ describe("purchase receiving and supplier payables", () => {
   expect(Number(obligation.original_minor)).toBe(30000); expect(Number(obligation.open_minor)).toBe(30000);
   expect(obligation.due_at.getTime()-obligation.issued_at.getTime()).toBe(45*86_400_000);
   const payment={supplierId,amountMinor:10000,method:"MOMO",paidByStaffId:receipt.receivedByStaffId};
+  await pool.query(`CREATE FUNCTION qa_supplier_payment_ack_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.client_mutation_id='payment-1' AND NEW.status='APPLIED' THEN
+    RAISE EXCEPTION 'Synthetic supplier payment acknowledgement failure'; END IF; RETURN NEW; END $$`);
+  try{
+    await pool.query("CREATE TRIGGER qa_supplier_payment_ack_failure BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION qa_supplier_payment_ack_failure()");
+    expect((await postRaw("payment-1","SUPPLIER_PAYMENT_CREATE",payment)).statusCode).toBe(500);
+    expect(await balances()).toBe(30000);
+    expect((await pool.query("SELECT count(*)::int AS n FROM supplier_payable_ledger WHERE source_type='PAYMENT'")).rows[0].n).toBe(0);
+    expect((await pool.query("SELECT count(*)::int AS n FROM sync_mutations WHERE client_mutation_id='payment-1'")).rows[0].n).toBe(0);
+  }finally{
+    await pool.query("DROP TRIGGER IF EXISTS qa_supplier_payment_ack_failure ON sync_mutations");
+    await pool.query("DROP FUNCTION IF EXISTS qa_supplier_payment_ack_failure()");
+  }
   expect((await sync("payment-1","SUPPLIER_PAYMENT_CREATE",payment)).status).toBe("APPLIED");
   expect((await sync("payment-1","SUPPLIER_PAYMENT_CREATE",payment)).status).toBe("APPLIED");
+  expect(await sync("payment-1","SUPPLIER_PAYMENT_CREATE",{...payment,amountMinor:10001})).toMatchObject({status:"REJECTED",errorCode:"FINANCIAL_REPLAY_CONFLICT"});
   expect(await balances()).toBe(20000);
   obligation=(await pool.query<{open_minor:string}>(`SELECT open_minor FROM supplier_credit_obligations WHERE business_id=$1 AND supplier_id=$2`,[businessId,supplierId])).rows[0] as any;
   expect(Number(obligation.open_minor)).toBe(20000);
