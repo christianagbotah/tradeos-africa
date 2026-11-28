@@ -334,6 +334,38 @@ describe("offline commerce mutations", () => {
     expect(audited.rows.every((row) => row.event_type === "RETURN_ACCEPTED")).toBe(true);
   });
 
+  it("separates quarantined, discarded and retained goods while reconciling cash and historical cost", async () => {
+    await pool.query("INSERT INTO inventory_valuations(business_id,branch_id,item_id,location_type,quantity,value_minor) VALUES($1,$2,$3,'AVAILABLE',750,7500)",[businessId,branchId,whiskyId]);
+    const context={clientId:"disposition-device",businessId,branchId,occurredAt:new Date().toISOString()};
+    const sold=await ingestSyncBatch(pool,{mutations:[{...context,clientMutationId:"disposition-sale",mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:3,saleUnitCode:"glass"}]}}]});
+    expect(sold.mutationResults[0]?.status).toBe("APPLIED");
+    const saleId=(sold.mutationResults[0]?.result as {saleId:string}).saleId;
+    const line=(await pool.query<{id:string;line_cost_minor:string}>("SELECT id,line_cost_minor FROM sale_lines WHERE sale_id=$1",[saleId])).rows[0]!;
+    expect(Number(line.line_cost_minor)).toBe(1500);
+    expect(await availableStock()).toBe(600);
+    for(const disposition of ["QUARANTINE","DISCARD","NOT_RETURNED"] as const){
+      const mutation={...context,clientMutationId:"disposition-"+disposition,mutationType:"RETURN_CREATE",
+        payload:{originalSaleId:saleId,reason:"Synthetic return disposition",refundMethod:"ORIGINAL_METHOD",lines:[{saleLineId:line.id,quantity:1,disposition}]}};
+      const first=await ingestSyncBatch(pool,{mutations:[mutation]});
+      expect(first.mutationResults[0]?.status).toBe("APPLIED");
+      const replay=await ingestSyncBatch(pool,{mutations:[mutation]});
+      expect(replay.mutationResults[0]?.result).toMatchObject({returnCaseId:(first.mutationResults[0]?.result as {returnCaseId:string}).returnCaseId});
+      expect(await availableStock()).toBe(600);
+    }
+    const rows=(await pool.query<{disposition:string;cogs_reversal_minor:string;discarded_cost_minor:string}>(
+      "SELECT l.disposition,l.cogs_reversal_minor,l.discarded_cost_minor FROM return_lines l JOIN return_cases c ON c.id=l.return_case_id WHERE c.original_sale_id=$1 ORDER BY l.disposition",[saleId])).rows;
+    expect(rows.map(r=>[r.disposition,Number(r.cogs_reversal_minor),Number(r.discarded_cost_minor)])).toEqual([["DISCARD",0,500],["NOT_RETURNED",0,0],["QUARANTINE",500,0]]);
+    const stock=(await pool.query<{location_type:string;quantity:string;value_minor:string}>("SELECT location_type,quantity,value_minor FROM inventory_valuations WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 ORDER BY location_type",[businessId,branchId,whiskyId])).rows;
+    expect(stock.map(r=>[r.location_type,Number(r.quantity),Number(r.value_minor)])).toEqual([["AVAILABLE",600,6000],["QUARANTINE",50,500]]);
+    const movements=(await pool.query<{location_type:string;quantity_delta:string}>("SELECT location_type,quantity_delta FROM inventory_movements WHERE business_id=$1 AND reason='SALE_RETURN'",[businessId])).rows;
+    expect(movements.map(r=>[r.location_type,Number(r.quantity_delta)])).toEqual([["QUARANTINE",50]]);
+    const cash=(await pool.query<{entry_type:string;amount_delta_minor:string}>("SELECT entry_type,amount_delta_minor FROM cashbook_entries WHERE business_id=$1 AND source_type IN ('PAYMENT','REFUND_TRANSACTION')",[businessId])).rows;
+    expect(cash.map(r=>[r.entry_type,Number(r.amount_delta_minor)]).sort()).toEqual([["SALE_RECEIPT",5400],["SALE_REFUND",-1800],["SALE_REFUND",-1800],["SALE_REFUND",-1800]].sort());
+    expect((await pool.query("SELECT status FROM sales WHERE id=$1",[saleId])).rows[0]?.status).toBe("REFUNDED");
+    expect((await pool.query("SELECT status FROM payments WHERE sale_id=$1",[saleId])).rows[0]?.status).toBe("REVERSED");
+  });
+
   it("keeps MoMo refunds pending instead of pretending the provider already reversed money", async () => {
     const saleMutation = {
       clientId: "test-device",
