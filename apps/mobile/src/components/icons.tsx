@@ -34,7 +34,9 @@ export type IconName =
   | "chart"
   | "shield"
   | "arrowRight"
-  | "trash";
+  | "trash"
+  | "print"
+  | "share";
 
 export type IconProps = {
   name: IconName;
@@ -53,7 +55,7 @@ const GLYPHS: Record<IconName, React.ComponentProps<typeof Ionicons>["name"]> = 
   cart: "cart-outline", catalog: "pricetags-outline", wifiOff: "cloud-offline-outline",
   wifiOn: "wifi-outline", spinner: "reload-outline", branch: "location-outline",
   currency: "cash-outline", chart: "stats-chart-outline", shield: "shield-checkmark-outline",
-  arrowRight: "chevron-forward", trash: "trash-outline",
+  arrowRight: "chevron-forward", trash: "trash-outline", print: "print-outline", share: "share-outline",
 };
 
 export function Icon({ name, size = 22, color, accessibilityLabel }: IconProps) {

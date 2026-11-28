@@ -13,7 +13,7 @@ import {EmptyState} from "../components/EmptyState";
 import {Icon} from "../components/icons";
 import {formatMoney} from "../lib/format";
 import {displaySaleDate} from "../sales-history";
-import {colors,radius,spacing,typography} from "../theme";
+import {colors,radius,spacing,touch,typography} from "../theme";
 
 type Props={api:Pick<MobileApiClient,"getCustomers"|"getCustomer"|"updateCustomerContact"|"createCustomerContact"|"getMoneyAccounts"|"getMoneyDefaults"|"updateCustomerCredit">;businessId:string;branchId:string;onReceipt:(input:CustomerReceiptInput)=>Promise<ReceiptOutcome>;role:string;currencyCode:string;timezone:string;online:boolean;onFeedback:(feedback:MobileActionFeedback)=>void};
 const FILTERS:readonly {value:CustomerFilter;label:string}[]=[{value:"ALL",label:"All"},{value:"ACTIVE",label:"Active"},{value:"INACTIVE",label:"Inactive"},{value:"OWES",label:"Owes balance"}];
@@ -120,14 +120,16 @@ export function CustomersScreen({api,businessId,branchId,role,currencyCode,timez
       if(!rejected){setUncertainCreate(true);setQuery(contact.name);setFilter("ALL");setRefreshNonce(n=>n+1);}
     }finally{saveLock.current=false;setSaving(false);}
   }
+  const scrollRef=useRef<ScrollView>(null);
+  const revealDetail=()=>scrollRef.current?.scrollTo({y:0,animated:false});
   const visible=filterCustomers(rows??[],filter);
-  return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+  return <ScrollView ref={scrollRef} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
     <View style={styles.heading}>
-      <View style={styles.flex}><Text style={styles.eyebrow}>Master data</Text><Text style={styles.title}>Customers</Text><Text style={styles.muted}>Manage contacts and outstanding balances.</Text></View>
-      {online&&allowed?<Button variant="secondary" size="compact" accessibilityLabel="Refresh customers" onPress={()=>void reload()}>Refresh</Button>:null}
+      <View style={styles.flex}><Text accessibilityRole="header" style={styles.title}>Customers</Text><Text style={styles.muted}>{loading?"Refreshing…":rows?visible.length+" matching customers":"Customer directory"}</Text></View>
+      {online&&allowed?<Pressable accessibilityRole="button" accessibilityLabel="Refresh customers" accessibilityState={{disabled:loading||saving,busy:loading}} disabled={loading||saving} onPress={()=>void reload()} style={styles.iconButton}>{loading?<ActivityIndicator color={colors.midnight}/>:<Icon name="refresh" size={20}/>}</Pressable>:null}
     </View>
     {!allowed?<Banner tone="warning" title="Restricted access" message="Your role cannot view customer accounts."/>:!online?<Banner tone="info" title="Offline" message="Customer accounts require a live connection. Your offline POS remains available."/>:<>
-      {canEdit?<Button variant="gold" fullWidth disabled={saving||Boolean(create)} accessibilityLabel="Add customer" onPress={startCreate}>+ Add customer</Button>:null}
+      {canEdit?<Button variant="gold" fullWidth disabled={saving||Boolean(create)} accessibilityLabel="Add customer" onPress={()=>{startCreate();revealDetail();}}>Add customer</Button>:null}
       {create?<Card style={styles.section}>
         <Text style={styles.sectionTitle}>New customer</Text>
         <Input label="Customer name" accessibilityLabel="New customer name" value={create.name} maxLength={160} editable={!saving&&!uncertainCreate} onChangeText={name=>setCreate(old=>old?{...old,name}:old)}/>
@@ -140,7 +142,7 @@ export function CustomersScreen({api,businessId,branchId,role,currencyCode,timez
         </>}
       </Card>:null}
       {selected?<Card style={styles.section}>
-        <View style={styles.heading}><Text style={[styles.sectionTitle,styles.flex]}>Customer details</Text><Button size="compact" variant="secondary" disabled={saving} accessibilityLabel="Close customer details" onPress={closeDetail}>Close</Button></View>
+        <View style={styles.heading}><Text style={[styles.sectionTitle,styles.flex]}>Customer details</Text><Pressable accessibilityRole="button" accessibilityLabel="Close customer details" disabled={saving} accessibilityState={{disabled:saving}} onPress={closeDetail} style={styles.iconButton}><Icon name="close" size={20}/></Pressable></View>
         {detailLoading?<ActivityIndicator color={colors.goldStrong}/>:null}
         {detailError?<Banner tone="danger" message={detailError}/>:null}
         {detail?<>
@@ -163,14 +165,14 @@ export function CustomersScreen({api,businessId,branchId,role,currencyCode,timez
         </>:null}
       </Card>:null}
       <Card style={styles.section}>
-        <Input label="Search customers" value={query} onChangeText={setQuery} editable={!saving} placeholder="Name, phone or email" leftAdornment={<Icon name="search" size={18} color={colors.textMuted}/>}/>
+        <Input label="Search customers" value={query} onChangeText={setQuery} editable={!saving} placeholder="Name, phone or email" leftAdornment={<Icon name="search" size={18} color={colors.textMuted}/>} rightAdornment={query?<Pressable accessibilityRole="button" accessibilityLabel="Clear customer search" disabled={saving} onPress={()=>setQuery("")} style={styles.iconButton}><Icon name="close" size={18}/></Pressable>:undefined}/>
         <View style={styles.filters}>{FILTERS.map(item=><Pressable key={item.value} accessibilityRole="button" accessibilityState={{selected:filter===item.value}} onPress={()=>setFilter(item.value)} style={[styles.chip,filter===item.value&&styles.chipActive]}><Text style={[styles.chipText,filter===item.value&&styles.chipTextActive]}>{item.label}</Text></Pressable>)}</View>
         {loading?<ActivityIndicator color={colors.goldStrong}/>:null}
         {error?<Banner tone="danger" message={error}/>:null}
         {rows&&visible.length===0&&!loading?<EmptyState title="No matching customers" description="Try another search or filter."/>:null}
-        {visible.map(row=><Pressable key={row.id} disabled={saving||Boolean(create)} accessibilityRole="button" accessibilityLabel={"View customer "+row.name} onPress={()=>void openCustomer(row.id)} style={styles.row}>
+        {visible.map(row=><Pressable key={row.id} disabled={saving||Boolean(create)} accessibilityRole="button" accessibilityLabel={"View customer "+row.name} accessibilityState={{selected:selected===row.id,disabled:saving||Boolean(create)}} onPress={()=>{revealDetail();void openCustomer(row.id);}} style={({pressed})=>[styles.row,(pressed||selected===row.id)&&styles.selected]}>
           <View style={styles.avatar}><Text style={styles.avatarText}>{row.name.trim().slice(0,1).toUpperCase()}</Text></View>
-          <View style={styles.flex}><Text style={styles.rowTitle} numberOfLines={1}>{row.name}</Text><Text style={styles.muted} numberOfLines={1}>{row.phone??row.email??"No contact details"}</Text><Text style={styles.muted}>{row.active?"Active":"Inactive"}</Text></View>
+          <View style={styles.flex}><Text style={styles.rowTitle}>{row.name}</Text><Text style={styles.muted}>{row.phone??row.email??"No contact details"}</Text><Text style={styles.muted}>{row.active?"Active":"Inactive"}</Text></View>
           <View style={styles.amount}><Text style={styles.rowTitle}>{formatMoney(row.balanceMinor,currencyCode)}</Text><Text style={styles.muted}>Balance</Text></View><Icon name="arrowRight" size={16} color={colors.textMuted}/>
         </Pressable>)}
         {rows?.length===200?<Text style={styles.muted}>Showing up to 200 results. Search for a specific customer.</Text>:null}
@@ -179,10 +181,10 @@ export function CustomersScreen({api,businessId,branchId,role,currencyCode,timez
   </ScrollView>;
 }
 const styles=StyleSheet.create({
-  page:{flexGrow:1,backgroundColor:colors.canvas,padding:spacing.s4,gap:spacing.s4,paddingBottom:spacing.s8},
+  page:{flexGrow:1,backgroundColor:colors.canvas,padding:spacing.s3,gap:spacing.s3,paddingBottom:spacing.s6},
   heading:{flexDirection:"row",alignItems:"center",gap:spacing.s3},flex:{flex:1,minWidth:0},eyebrow:{fontSize:typography.meta,fontWeight:typography.weightBold,color:colors.goldStrong,textTransform:"uppercase",letterSpacing:1},
-  title:{fontSize:typography.display,color:colors.textStrong,fontWeight:typography.weightHeavy},muted:{fontSize:typography.meta,lineHeight:typography.metaLine,color:colors.textMuted},
+  title:{fontSize:typography.section,color:colors.textStrong,fontWeight:typography.weightHeavy},muted:{fontSize:typography.meta,lineHeight:typography.metaLine,color:colors.textMuted},
   section:{gap:spacing.s3},sectionTitle:{fontSize:typography.body,fontWeight:typography.weightHeavy,color:colors.textStrong},balance:{backgroundColor:colors.goldSoft,borderRadius:radius.sm,padding:spacing.s3},money:{fontSize:typography.kpi,fontWeight:typography.weightHeavy,color:colors.midnight},
-  filters:{flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},chip:{padding:spacing.s2,borderWidth:1,borderColor:colors.border,borderRadius:radius.pill,minHeight:40,justifyContent:"center"},chipActive:{backgroundColor:colors.goldSoft,borderColor:colors.gold},chipText:{fontSize:typography.meta,color:colors.textMuted,fontWeight:typography.weightMedium},chipTextActive:{color:colors.midnight},
-  row:{flexDirection:"row",alignItems:"center",gap:spacing.s2,paddingVertical:spacing.s3,borderBottomWidth:1,borderBottomColor:colors.border},rowTitle:{fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.textStrong},avatar:{width:36,height:36,borderRadius:18,backgroundColor:colors.goldSoft,alignItems:"center",justifyContent:"center"},avatarText:{color:colors.goldStrong,fontWeight:typography.weightHeavy},amount:{alignItems:"flex-end",maxWidth:"42%"},
+  filters:{flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},chip:{padding:spacing.s2,borderWidth:1,borderColor:colors.border,borderRadius:radius.pill,minHeight:touch.iconTarget,justifyContent:"center"},chipActive:{backgroundColor:colors.midnight,borderColor:colors.midnight},chipText:{fontSize:typography.meta,color:colors.textMuted,fontWeight:typography.weightMedium},chipTextActive:{color:colors.textInverse},
+  row:{flexDirection:"row",alignItems:"center",gap:spacing.s2,paddingVertical:spacing.s3,borderBottomWidth:1,borderBottomColor:colors.border},rowTitle:{fontSize:typography.supporting,fontWeight:typography.weightBold,color:colors.textStrong},avatar:{width:36,height:36,borderRadius:18,backgroundColor:colors.goldSoft,alignItems:"center",justifyContent:"center"},avatarText:{color:colors.goldStrong,fontWeight:typography.weightHeavy},amount:{alignItems:"flex-end",maxWidth:"42%",minWidth:0},selected:{backgroundColor:colors.goldSoft},iconButton:{width:touch.iconTarget,minHeight:touch.iconTarget,alignItems:"center",justifyContent:"center",borderRadius:radius.sm,backgroundColor:colors.surfaceSoft},
 });

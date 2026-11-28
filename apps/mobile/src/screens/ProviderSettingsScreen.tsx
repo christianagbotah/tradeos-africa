@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useRef,useState} from "react";
-import {AppState,ScrollView,Text,View,StyleSheet} from "react-native";
+import {ActivityIndicator,Pressable,AppState,ScrollView,Text,View,StyleSheet} from "react-native";
 import type {MobileApiClient} from "../api-client";
 import {canManageProviders,assertVaultScope,paymentActionAllowed,paymentFields,smsFields,smsProviders,type ProviderEnvironment,type ProviderAction,type PaymentVault,type GatewayOptions,type SmsVault,type SmsProvider} from "../provider-workspace";
 import type {MobileActionFeedback} from "../action-feedback";
@@ -7,7 +7,8 @@ import {Button} from "../components/Button";
 import {Card} from "../components/Card";
 import {Input} from "../components/Input";
 import {Banner} from "../components/Banner";
-import {colors,spacing,typography} from "../theme";
+import {Icon} from "../components/icons";
+import {colors,radius,spacing,touch,typography} from "../theme";
 type Props={api:MobileApiClient;businessId:string;role:string;online:boolean;onFeedback:(f:MobileActionFeedback)=>void;onBack:()=>void};
 type Action=ProviderAction|"preference";
 const actionLabels:Record<Action,string>={save:"Save credentials",verify:"Verify account",request:"Request activation",revoke:"Revoke credentials",preference:"Set preferred gateway"};
@@ -79,25 +80,25 @@ export function ProviderSettingsScreen({api,businessId,role,online,onFeedback,on
   finally{lock.current=false;if(live.current){clear();setBusy(false);}}
  }
  return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
- <View style={styles.row}><Text style={[styles.title,styles.flex]}>Payment &amp; SMS integrations</Text><Button variant="secondary" size="compact" disabled={busy} accessibilityLabel="Back to more" onPress={onBack}>Back</Button></View>
+ <View style={styles.row}><Text accessibilityRole="header" style={[styles.title,styles.flex]}>Payment &amp; SMS integrations</Text><Pressable accessibilityRole="button" accessibilityLabel="Back to more" accessibilityState={{disabled:busy}} disabled={busy} onPress={onBack} style={styles.iconButton}><Icon name="close" size={20}/></Pressable></View>
  {!allowed?<Banner tone="warning" message="Only business owners and administrators can configure provider credentials."/>:!online?<Banner tone="info" message="Connect online to manage secure provider settings."/>:<>
  <Banner tone="info" message="Use credentials issued to your own business. Secrets are sent directly to the HTTPS API and encrypted in the server vault. They cannot be viewed after saving."/>
  <View style={styles.wrap}>{(["payment","sms"] as const).map(t=><Button key={t} size="compact" variant={tab===t?"gold":"secondary"} disabled={busy||!!confirm} accessibilityLabel={t==="payment"?"Payment providers":"SMS providers"} onPress={()=>{if(t!==tab){clear();setTab(t);}}}>{t==="payment"?"Payment providers":"SMS providers"}</Button>)}</View>
- <Button variant="secondary" size="compact" disabled={busy||loading||!!confirm} accessibilityLabel="Refresh providers" onPress={()=>void refresh()}>{loading?"Loading…":"Refresh provider status"}</Button>
+ <View style={styles.row}><Text style={[styles.muted,styles.flex]}>{loading?"Loading…":"Provider status"}</Text><Pressable accessibilityRole="button" accessibilityLabel="Refresh providers" accessibilityState={{disabled:busy||loading||!!confirm,busy:loading}} disabled={busy||loading||!!confirm} onPress={()=>void refresh()} style={styles.iconButton}>{loading?<ActivityIndicator color={colors.midnight}/>:<Icon name="refresh" size={20}/>}</Pressable></View>
  {error?<Banner tone="warning" message={error}/>:null}
  {tab==="payment"&&payment&&schema?<Card style={styles.section}>
  <Text style={styles.heading}>Merchant payment provider</Text><View style={styles.wrap}>{payment.schemas.map(s=><Button key={s.providerCode} variant={provider===s.providerCode?"gold":"secondary"} size="compact" disabled={busy||!!confirm} accessibilityLabel={s.providerCode} onPress={()=>setProvider(s.providerCode)}>{s.providerCode}</Button>)}</View>
  <Text style={styles.muted}>Preferred: {gateway?.preferredProvider??gateway?.effectiveLegacyProvider??"Not set"} · Existing collection readiness: {gateway?.collectionReady?"Ready":"Not ready"}</Text>
  <Button variant="secondary" disabled={!canAction("preference")||!!confirm} accessibilityLabel="Set preferred payment gateway" onPress={()=>prepare("preference")}>Use {provider} as preferred gateway</Button>
  <View style={styles.wrap}>{(["TEST","LIVE"] as const).map(e=><Button key={e} size="compact" variant={environment===e?"gold":"secondary"} disabled={busy||!!confirm} accessibilityLabel={e+" credentials"} onPress={()=>setEnvironment(e)}>{e}</Button>)}</View>
- <Text style={styles.heading}>{current?.status.replaceAll("_"," ")??"Not configured"}</Text>{current?.activationRequestedAt?<Text style={styles.muted}>Activation requested: {current.activationRequestedAt}</Text>:null}
+ <View style={styles.record}><Text style={styles.muted}>Credential status · {environment}</Text><Text style={styles.heading}>{current?.status.replaceAll("_"," ")??"Not configured"}</Text></View>{current?.activationRequestedAt?<Text style={styles.muted}>Activation requested: {current.activationRequestedAt}</Text>:null}
  {!payment.vaultReady?<Banner tone="warning" message="Server credential vault is unavailable. Credential changes are disabled."/>:null}
  {schema.fields.map(f=><Input key={f.id} label={f.label+(f.required?" *":"")} hint={f.hint??null} value={values[f.id]??""} secureTextEntry={f.secret} autoCapitalize="none" autoCorrect={false} editable={enabled&&!confirm&&payment.vaultReady} onChangeText={v=>setValues(old=>({...old,[f.id]:v}))}/>)}
  <Input label="Current TradeOS password" value={password} secureTextEntry autoCapitalize="none" autoCorrect={false} editable={enabled&&!confirm} onChangeText={setPassword}/>
  {!confirm?<View style={styles.section}>{(["save","verify","request","revoke"] as const).map(a=><Button key={a} variant={a==="save"?"gold":a==="revoke"?"danger":"secondary"} disabled={!canAction(a)} accessibilityLabel={actionLabels[a]} onPress={()=>prepare(a)}>{actionLabels[a]}</Button>)}</View>:null}
  <Text style={styles.muted}>Verification is available only for supported providers. Saving credentials or requesting activation does not enable live collection.</Text></Card>:null}
  {tab==="sms"&&messaging?<Card style={styles.section}><Text style={styles.heading}>SMS provider</Text><View style={styles.wrap}>{smsProviders.map(s=><Button key={s.code} variant={sms===s.code?"gold":"secondary"} size="compact" disabled={busy||!!confirm} accessibilityLabel={s.name} onPress={()=>setSms(s.code)}>{s.name}</Button>)}</View>
- <Text style={styles.heading}>{smsCurrent?.status.replaceAll("_"," ")??"Not configured"}</Text>
+ <View style={styles.record}><Text style={styles.muted}>SMS credential status</Text><Text style={styles.heading}>{smsCurrent?.status.replaceAll("_"," ")??"Not configured"}</Text></View>
  {!messaging.vaultReady?<Banner tone="warning" message="Server credential vault is unavailable."/>:null}
  {smsInfo.accountLabel?<Input label={smsInfo.accountLabel} value={account} autoCapitalize="none" autoCorrect={false} editable={enabled&&!confirm&&messaging.vaultReady} onChangeText={setAccount}/>:null}
  <Input label={smsInfo.senderLabel} value={sender} autoCapitalize="none" autoCorrect={false} editable={enabled&&!confirm&&messaging.vaultReady} onChangeText={setSender}/>
@@ -109,4 +110,4 @@ export function ProviderSettingsScreen({api,businessId,role,online,onFeedback,on
  </>}
  </ScrollView>;
 }
-const styles=StyleSheet.create({page:{flexGrow:1,padding:spacing.s4,gap:spacing.s4,backgroundColor:colors.canvas,paddingBottom:spacing.s8},section:{gap:spacing.s3},row:{flexDirection:"row",alignItems:"center",gap:spacing.s2},flex:{flex:1,minWidth:0},title:{fontSize:typography.section,fontWeight:typography.weightHeavy,color:colors.textStrong},heading:{fontSize:typography.body,fontWeight:typography.weightBold,color:colors.textStrong},muted:{fontSize:typography.meta,color:colors.textMuted},wrap:{flexDirection:"row",flexWrap:"wrap",gap:spacing.s2}});
+const styles=StyleSheet.create({page:{flexGrow:1,padding:spacing.s3,gap:spacing.s3,backgroundColor:colors.canvas,paddingBottom:spacing.s6},section:{gap:spacing.s3},row:{flexDirection:"row",alignItems:"center",flexWrap:"wrap",gap:spacing.s2},flex:{flex:1,minWidth:0},title:{fontSize:typography.section,fontWeight:typography.weightHeavy,color:colors.textStrong},heading:{fontSize:typography.body,fontWeight:typography.weightBold,color:colors.textStrong},muted:{fontSize:typography.meta,lineHeight:typography.metaLine,color:colors.textMuted},wrap:{flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},record:{backgroundColor:colors.surfaceSoft,borderRadius:radius.sm,padding:spacing.s3,gap:spacing.s2},iconButton:{width:touch.iconTarget,minHeight:touch.iconTarget,alignItems:"center",justifyContent:"center",borderRadius:radius.sm,backgroundColor:colors.surfaceSoft}});

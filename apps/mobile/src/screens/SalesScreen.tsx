@@ -1,15 +1,14 @@
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
-import { Card, HeroCard } from "../components/Card";
+import { Card } from "../components/Card";
 import type {SaleReversal} from "../sale-reversal";
 import type {ReceiptOutcome} from "../customer-payment";
 import type {MobileActionFeedback} from "../action-feedback";
 import { PostedSalesHistory } from "./PostedSalesHistory";
 import type { MobileApiClient } from "../api-client";
-import { Icon, IconTile } from "../components/icons";
-import { StatCard } from "../components/StatCard";
-import { colors, radius, spacing, typography } from "../theme";
+import { IconTile } from "../components/icons";
+import { colors, spacing, typography } from "../theme";
 import type { MobileAppSnapshot } from "../app-model";
 
 export type SalesScreenProps = {
@@ -26,97 +25,30 @@ export function SalesScreen({ snapshot, api, onSync, onGoToSell,onReversal,onFee
   const ready = snapshot.bootstrap;
   const queue = ready.queue;
 
-
   return (
-    <ScrollView
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-
-      <HeroCard padding="comfortable" style={styles.hero}>
-        <Text style={styles.heroKicker}>Sales · mobile view</Text>
-        <Text style={styles.heroTitle}>Sales history &amp; sync queue</Text>
-        <Text style={styles.heroLead}>
-          TradeOS records every sale as authoritative evidence on the server.
-          Review posted sales and transactions waiting to sync, in one workspace.
-        </Text>
-      </HeroCard>
-
-      <View style={styles.statGrid}>
-        <StatCard
-          label="Pending sync"
-          value={String(queue.pending)}
-          tone={queue.pending > 0 ? "warning" : "neutral"}
-          hint={queue.pending > 0 ? "On this device" : "All synced"}
-        />
-        <StatCard
-          label="Other business"
-          value={String(queue.blocked)}
-          tone="info"
-          hint="Held locally"
-        />
-        <StatCard
-          label="Needs review"
-          value={String(queue.failed)}
-          tone={queue.failed > 0 ? "danger" : "neutral"}
-          hint={queue.failed > 0 ? "Server rejected" : "No rejections"}
-        />
+    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <View style={styles.sectionHeader}>
+        <View style={styles.flex}>
+          <Text accessibilityRole="header" style={styles.title}>Sales history</Text>
+          <Text style={styles.sectionCopy}>{ready.branch.name}</Text>
+        </View>
+        <Button variant="gold" accessibilityLabel="Start a new sale" onPress={onGoToSell}>New sale</Button>
       </View>
-
-      <Card padding="default" style={styles.section}>
+      <Card padding="compact" variant="flat" style={styles.section}>
         <View style={styles.sectionHeader}>
-          <IconTile name="sync" size={40} background={colors.warningSoft} tint={colors.warning} accessibilityLabel="Pending sync" />
-          <View style={styles.flex}>
-            <Text style={styles.sectionTitle}>Pending sync queue</Text>
-            <Text style={styles.sectionCopy}>
-              {queue.pending === 0
-                ? "No transactions are waiting. Offline-capable submissions are saved here."
-                : `${queue.pending} transaction${queue.pending === 1 ? "" : "s"} captured on this device will sync automatically when the connection returns.`}
-            </Text>
-          </View>
+          <IconTile name="sync" size={36} background={colors.goldSoft} tint={colors.midnight}/>
+          <Text accessibilityRole="header" style={[styles.sectionTitle,styles.flex]}>Sync queue</Text>
+          <Button variant="secondary" disabled={snapshot.syncing || snapshot.online !== true || queue.pending === 0}
+            loading={snapshot.syncing} accessibilityLabel="Sync pending sales now" onPress={onSync}>Sync now</Button>
         </View>
-        <Button
-          variant="primary"
-          fullWidth
-          disabled={snapshot.syncing || snapshot.online !== true || queue.pending === 0}
-          loading={snapshot.syncing}
-          accessibilityLabel="Sync pending sales now"
-          onPress={onSync}
-        >
-          {snapshot.online === false ? "Offline — will sync on reconnect" : "Sync now"}
-        </Button>
-        {snapshot.online === false ? (
-          <Text style={styles.helperText}>
-            You are offline. TradeOS will flush this business automatically when the connection returns.
-          </Text>
-        ) : null}
-      </Card>
-
-      <Card padding="default" style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <IconTile
-            name="warning"
-            size={40}
-            background={queue.failed > 0 ? colors.dangerSoft : colors.surfaceSoft}
-            tint={queue.failed > 0 ? colors.danger : colors.textSoft}
-            accessibilityLabel="Needs review"
-          />
-          <View style={styles.flex}>
-            <Text style={styles.sectionTitle}>Needs review</Text>
-            <Text style={styles.sectionCopy}>
-              {queue.failed === 0
-                ? "No transactions were rejected by the server."
-                : `${queue.failed} transaction${queue.failed === 1 ? "" : "s"} could not be applied. The evidence is preserved on this device for correction or retry.`}
-            </Text>
-          </View>
+        <View style={styles.statGrid}>
+          <QueueMetric label="Pending sync" value={queue.pending} color={queue.pending>0?colors.warning:colors.textStrong}/>
+          <QueueMetric label="Other business" value={queue.blocked} color={queue.blocked>0?colors.info:colors.textStrong}/>
+          <QueueMetric label="Needs review" value={queue.failed} color={queue.failed>0?colors.danger:colors.textStrong}/>
         </View>
-        {queue.failed > 0 ? (
-          <Banner
-            tone="danger"
-            message="Open the web workspace to inspect the rejection reason and resubmit, or contact your business admin."
-            title="Why a sale lands here"
-          />
-        ) : null}
+        {queue.blocked>0?<Text style={styles.helperText}>Other business records are held locally until that business is active.</Text>:null}
+        {snapshot.online === false?<Banner tone="info" title="Working offline" message="Pending records will sync automatically when you reconnect."/>:null}
+        {queue.failed>0?<Banner tone="danger" title="Needs review" message="Rejected transactions are preserved on this device. Open the web workspace to inspect the reason and resubmit, or contact your business admin."/>:null}
       </Card>
 
       <PostedSalesHistory
@@ -124,82 +56,28 @@ export function SalesScreen({ snapshot, api, onSync, onGoToSell,onReversal,onFee
         api={api} businessId={ready.membership.businessId} branchId={ready.branch.id}
         role={ready.membership.role} timezone={ready.branch.timezone}
         online={snapshot.online===true} syncing={snapshot.syncing} pendingCount={queue.pending} onReversal={onReversal} onFeedback={onFeedback}/>
-      <Button variant="gold" fullWidth accessibilityLabel="Start a new sale" onPress={onGoToSell}>Start a new sale</Button>
-
-      <Text style={styles.footerNote}>
-        TradeOS Africa · Mobile sales view · {ready.business.currencyCode}
-      </Text>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  content: {
-    paddingTop: spacing.s4,
-    flexGrow: 1,
-    backgroundColor: colors.canvas,
-    paddingHorizontal: spacing.s4,
-    paddingBottom: spacing.s6 + 4,
-    gap: spacing.s4,
-  },
-  hero: {
-    marginTop: spacing.s2,
-  },
-  heroKicker: {
-    color: colors.gold,
-    fontSize: typography.meta,
-    fontWeight: typography.weightHeavy,
-    letterSpacing: typography.kickerTracking,
-    textTransform: "uppercase",
-  },
-  heroTitle: {
-    color: colors.textInverse,
-    fontSize: typography.section + 4,
-    fontWeight: typography.weightBlack,
-    lineHeight: typography.sectionLine + 6,
-    marginTop: spacing.s1,
-  },
-  heroLead: {
-    color: colors.textInverseMuted,
-    fontSize: typography.supporting,
-    lineHeight: typography.supportingLine,
-    marginTop: spacing.s2,
-  },
-  statGrid: {
-    flexDirection: "row",
-    gap: spacing.s2 + 2,
-  },
-  section: {
-    gap: spacing.s3,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.s3,
-  },
-  flex: { flex: 1 },
-  sectionTitle: {
-    color: colors.textStrong,
-    fontSize: typography.body,
-    fontWeight: typography.weightBlack,
-    lineHeight: typography.bodyLine,
-  },
-  sectionCopy: {
-    color: colors.textMuted,
-    fontSize: typography.supporting,
-    lineHeight: typography.supportingLine,
-    marginTop: 2,
-  },
-  helperText: {
-    color: colors.warning,
-    fontSize: typography.meta,
-    lineHeight: typography.metaLine,
-    fontWeight: typography.weightBold,
-  },
-  footerNote: {
-    color: colors.textSoft,
-    fontSize: typography.meta,
-    textAlign: "center",
-    marginTop: spacing.s2,
-  },
+function QueueMetric({label,value,color}:{label:string;value:number;color:string}){
+  return <View style={styles.metric} accessibilityLabel={label+": "+value}>
+    <Text style={[styles.metricValue,{color}]}>{value}</Text>
+    <Text style={styles.metricLabel}>{label}</Text>
+  </View>;
+}
+
+const styles=StyleSheet.create({
+  content:{paddingTop:spacing.s3,flexGrow:1,backgroundColor:colors.canvas,paddingHorizontal:spacing.s4,paddingBottom:spacing.s6,gap:spacing.s3},
+  title:{fontSize:typography.section,fontWeight:typography.weightHeavy,color:colors.textStrong},
+  section:{gap:spacing.s3},
+  sectionHeader:{flexDirection:"row",flexWrap:"wrap",alignItems:"center",gap:spacing.s2},
+  flex:{flex:1,minWidth:0},
+  sectionTitle:{color:colors.textStrong,fontSize:typography.body,fontWeight:typography.weightBold,lineHeight:typography.bodyLine},
+  sectionCopy:{color:colors.textMuted,fontSize:typography.supporting,lineHeight:typography.supportingLine},
+  statGrid:{flexDirection:"row",flexWrap:"wrap",gap:spacing.s2},
+  metric:{flexGrow:1,flexBasis:78,minWidth:78,padding:spacing.s2,backgroundColor:colors.surfaceSoft,gap:spacing.s1},
+  metricValue:{fontSize:typography.kpi,fontWeight:typography.weightHeavy},
+  metricLabel:{color:colors.textMuted,fontSize:typography.meta,fontWeight:typography.weightMedium},
+  helperText:{color:colors.textMuted,fontSize:typography.meta,lineHeight:typography.metaLine},
 });

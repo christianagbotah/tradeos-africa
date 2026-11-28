@@ -22,7 +22,10 @@ describe("native food vendor quick-sale UX",()=>{
     expect(source).toContain("onPress={()=>onAdd(item)}");
     expect(source).toContain("item.unitLabel");
     expect(source).toContain("outOfStock");
-    expect(source).toContain("disabled={!canSell||outOfStock||snapshot.checkoutBusy}");
+    expect(source).toContain("const disabled=!canAddPosItem(item,canSell,snapshot.checkoutBusy,true)");
+    expect(source).toContain("disabled={disabled}");
+    expect(model).toContain("return canSell && !checkoutBusy && !(quickServe && item.trackStock");
+    expect(model).toContain("item.availableStock !== null && item.availableStock <= 0");
     expect(model).toContain('mutationType: "SALE_CREATE"');
   });
   it("keeps a fixed cash action and shows pending sync outcomes",()=>{

@@ -78,7 +78,7 @@ export function DashboardCommandCenter() {
   const sales = !loading && !error ? data?.sales ?? [] : [];
 
   return (
-    <div className="tos-page">
+    <div className="tos-page tos-dashboard-page">
       <DashboardHeader role={role} />
 
       {!queue.online ? (
@@ -129,8 +129,6 @@ export function DashboardCommandCenter() {
         />
       </div>
 
-      <BusinessBriefingPanel />
-
       <div className="tos-dashboard-recent-sales">
         <section className="tos-section">
           <div className="tos-section__head">
@@ -152,7 +150,7 @@ export function DashboardCommandCenter() {
                 variant="empty"
                 icon={<IconReceipt className="tos-state__icon" />}
                 title="No recent sales"
-                text="The most recent synced sales will appear here, including the customer, amount and status."
+                text="Synced sales will appear here."
                 actionLabel="Open POS"
                 onAction={() => { window.location.href = "/sell"; }}
               />
@@ -180,6 +178,9 @@ export function DashboardCommandCenter() {
 
       </div>
 
+      {/* Detailed intelligence follows the everyday sales overview. */}
+      <BusinessBriefingPanel />
+
       {role === "VIEWER" ? (
         <div className="tos-callout tos-callout--info">
           You are signed in as a viewer. Sales and inventory actions are hidden. Ask an owner or manager to upgrade your role.
@@ -196,7 +197,7 @@ function DashboardHeader({ role }: { role: WorkspaceRole | null }) {
       <div className="tos-page__heading">
         <span className="tos-page__eyebrow">TradeOS</span>
         <h1 className="tos-page__title">Dashboard</h1>
-        <p className="tos-page__subtitle">Your recorded trading, stock and synchronization overview.</p>
+        <p className="tos-page__subtitle">Sales, stock and sync at a glance.</p>
       </div>
       <div className="tos-page__actions">
         {allowed.has("sell") ? <Link href="/sell">

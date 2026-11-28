@@ -1,11 +1,11 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AndroidUpdatePanel } from "../components/AndroidUpdatePanel";
 import { Banner } from "../components/Banner";
 import { Button } from "../components/Button";
 import { Card, HeroCard } from "../components/Card";
 import { Icon, IconTile } from "../components/icons";
 import { StatCard } from "../components/StatCard";
-import { colors, radius, spacing, typography } from "../theme";
+import { colors, radius, spacing, typography, touch } from "../theme";
 import type { MobileAppSnapshot } from "../app-model";
 
 export type MoreScreenProps = {
@@ -64,7 +64,7 @@ export function MoreScreen({
         <View style={styles.heroFooter}>
           <View style={styles.pill}>
             <Icon name="currency" size={12} color={colors.gold} />
-            <Text style={styles.pillText}>{ready.business.currencyCode}</Text>
+            <Text style={styles.pillText}>{ready.business.currencyCode === "GHS" ? "₵" : ready.business.currencyCode}</Text>
           </View>
           <View style={styles.pill}>
             <Text style={styles.pillText}>{ready.business.countryCode}</Text>
@@ -77,19 +77,24 @@ export function MoreScreen({
       <Button variant="secondary" fullWidth accessibilityLabel="Switch business or branch" onPress={onGoToWorkspaceSwitch}>Switch business or branch</Button>
 
       <AndroidUpdatePanel manual online={snapshot.online===true} cart={snapshot.cart.length} pending={queue.pending} failed={queue.failed} blocked={queue.blocked} canDownload={canDownloadUpdate} busy={snapshot.syncing||snapshot.checkoutBusy}/>
-      <Card padding="default" style={styles.section}>
-        <Text style={styles.kicker}>Master data and inventory</Text>
-        <Text style={styles.sectionTitle}>Products and stock</Text>
-        {["OWNER","ADMIN"].includes(ready.membership.role)?<Button variant="secondary" fullWidth accessibilityLabel="Open payment and SMS settings" onPress={onGoToProviders}>Payment &amp; SMS integrations</Button>:null}
-        <Button variant="secondary" fullWidth accessibilityLabel="Open business administration" onPress={onGoToBusinessAdmin}>Business administration</Button>
-        <Button variant="secondary" fullWidth accessibilityLabel="Open financial reports" onPress={onGoToReports}>Reports &amp; analytics</Button>
-        <Button variant="secondary" fullWidth accessibilityLabel="Open operating days and shifts" onPress={onGoToOperations}>Operating days &amp; shifts</Button>
-        <Button variant="secondary" fullWidth accessibilityLabel="Open cashbook and expenses" onPress={onGoToFinance}>Cashbook &amp; expenses</Button>
-        <Button variant="secondary" fullWidth accessibilityLabel="Open purchase orders" onPress={onGoToPurchaseOrders}>Purchase orders</Button>
-        <Button variant="secondary" fullWidth accessibilityLabel="Open suppliers and purchases" onPress={onGoToSuppliers}>Suppliers &amp; purchases</Button>
-        <Button variant="secondary" fullWidth accessibilityLabel="Open quotations and proformas" onPress={onGoToDocuments}>Quotes &amp; proformas</Button>
-        <Button variant="secondary" fullWidth accessibilityLabel="Open catalog" onPress={onGoToCatalog}>Catalog</Button>
-        <Button variant="secondary" fullWidth accessibilityLabel="Open inventory" onPress={onGoToInventory}>Inventory</Button>
+      <Text accessibilityRole="header" style={styles.groupTitle}>Products &amp; purchases</Text>
+      <Card padding="none" variant="flat">
+        <MenuRow icon="catalog" label="Catalog" accessibilityLabel="Open catalog" onPress={onGoToCatalog} first />
+        <MenuRow icon="catalog" label="Inventory" accessibilityLabel="Open inventory" onPress={onGoToInventory} />
+        <MenuRow icon="store" label="Suppliers & purchases" accessibilityLabel="Open suppliers and purchases" onPress={onGoToSuppliers} />
+        <MenuRow icon="sales" label="Purchase orders" accessibilityLabel="Open purchase orders" onPress={onGoToPurchaseOrders} />
+        <MenuRow icon="sales" label="Quotes & proformas" accessibilityLabel="Open quotations and proformas" onPress={onGoToDocuments} />
+      </Card>
+      <Text accessibilityRole="header" style={styles.groupTitle}>Finance &amp; operations</Text>
+      <Card padding="none" variant="flat">
+        <MenuRow icon="currency" label="Cashbook & expenses" accessibilityLabel="Open cashbook and expenses" onPress={onGoToFinance} first />
+        <MenuRow icon="chart" label="Reports & analytics" accessibilityLabel="Open financial reports" onPress={onGoToReports} />
+        <MenuRow icon="store" label="Operating days & shifts" accessibilityLabel="Open operating days and shifts" onPress={onGoToOperations} />
+      </Card>
+      <Text accessibilityRole="header" style={styles.groupTitle}>Business settings</Text>
+      <Card padding="none" variant="flat">
+        <MenuRow icon="shield" label="Business administration" accessibilityLabel="Open business administration" onPress={onGoToBusinessAdmin} first />
+        {["OWNER","ADMIN"].includes(ready.membership.role)?<MenuRow icon="currency" label="Payment & SMS integrations" accessibilityLabel="Open payment and SMS settings" onPress={onGoToProviders}/>:null}
       </Card>
       <Card padding="default" style={styles.section}>
         <Text style={styles.kicker}>Sync engine</Text>
@@ -199,6 +204,17 @@ export function MoreScreen({
   );
 }
 
+function MenuRow({icon, label, accessibilityLabel, onPress, first}: {
+  icon: Parameters<typeof IconTile>[0]["name"]; label: string; accessibilityLabel: string; onPress: () => void; first?: boolean;
+}) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress}
+    style={({pressed})=>[styles.menuRow,!first && styles.menuDivider,pressed && styles.menuPressed]}>
+    <IconTile name={icon} size={36} tint={colors.midnight} background={colors.goldSoft}/>
+    <Text style={styles.menuLabel}>{label}</Text>
+    <Icon name="arrowRight" color={colors.textMuted} size={18}/>
+  </Pressable>;
+}
+
 function FoundationRow({ title, copy }: { title: string; copy: string }) {
   return (
     <View style={styles.foundationRow}>
@@ -271,6 +287,11 @@ const styles = StyleSheet.create({
     fontSize: typography.meta,
     fontWeight: typography.weightBlack,
   },
+  groupTitle: {color: colors.textStrong, fontSize: typography.body, fontWeight: typography.weightHeavy},
+  menuRow: {flexDirection: "row", alignItems: "center", minHeight: touch.minTarget, gap: spacing.s3, padding: spacing.s3},
+  menuDivider: {borderTopWidth: 1, borderTopColor: colors.border},
+  menuPressed: {backgroundColor: colors.surfaceSoft},
+  menuLabel: {flex: 1, minWidth: 0, fontSize: typography.body, fontWeight: typography.weightMedium, color: colors.textStrong},
   section: {
     gap: spacing.s3,
   },
@@ -294,6 +315,7 @@ const styles = StyleSheet.create({
   },
   statGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.s2,
   },
   foundationRow: {
