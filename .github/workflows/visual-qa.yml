@@ -1234,6 +1234,14 @@ jobs:
                       failures.push(`${route.name}-${w}: invalid monetary NaN visible`);
                     }
                   }
+                  if (route.name === "dashboard" && (w === 390 || w === 1280)) {
+                    const activity=p.getByRole("region",{name:"Recorded business activity"});
+                    await activity.waitFor({state:"visible"});
+                    await activity.getByText("Event delivery",{exact:true}).click();
+                    await activity.getByText(/\d+ awaiting delivery · \d+ retrying · \d+ need review/).waitFor({state:"visible",timeout:20000});
+                    await activity.getByText("Event delivery",{exact:true}).click();
+                    console.log("On-demand activity feed and delivery status verified at "+w);
+                  }
                   if (w <= 768) {
                     const scrollWidth = await p.evaluate(() => document.documentElement.scrollWidth);
                     const clientWidth = await p.evaluate(() => document.documentElement.clientWidth);

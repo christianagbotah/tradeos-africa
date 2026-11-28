@@ -3,6 +3,7 @@ import { buildApp } from "../src/app.js";
 import { createPool } from "../src/db.js";
 import {
   deliverInternalEventFeedBatch,
+  deliverDueInternalEventFeedBatch,
   listBusinessEventFeed,
   startInternalEventFeedWorker,
 } from "../src/commerce/internal-event-feed.js";
@@ -134,6 +135,47 @@ describe("durable internal outbox delivery with real PostgreSQL transaction", ()
     expect((await pool.query(
       "SELECT COUNT(*)::int AS n FROM business_event_feed",
     )).rows[0].n).toBe(0);
+  });
+
+  it("isolates a failed event, retries durably, and exposes scoped review counts",async()=>{
+    const a=await merchant("retry-a"),b=await merchant("retry-b");
+    const bad=await insertEvent(a),good=await insertEvent(a),foreign=await insertEvent(b);
+    await pool.query(`CREATE FUNCTION qa_feed_ack_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.published_at IS NOT NULL AND NEW.event_type='QA_FAIL_DELIVERY' THEN
+      RAISE EXCEPTION 'Synthetic feed acknowledgement failure'; END IF; RETURN NEW; END $$`);
+    try{
+      await pool.query("UPDATE outbox_events SET event_type='QA_FAIL_DELIVERY' WHERE id=$1",[bad]);
+      await pool.query("CREATE TRIGGER qa_feed_ack_failure BEFORE UPDATE ON outbox_events FOR EACH ROW EXECUTE FUNCTION qa_feed_ack_failure()");
+      const first=await deliverDueInternalEventFeedBatch(pool);
+      expect(first).toMatchObject({selected:3,acknowledged:2,retrying:1,reviewRequired:0});
+      expect((await pool.query("SELECT published_at FROM outbox_events WHERE id=$1",[bad])).rows[0].published_at).toBeNull();
+      expect((await pool.query("SELECT count(*)::int AS n FROM business_event_feed WHERE outbox_event_id=$1",[bad])).rows[0].n).toBe(0);
+      expect((await pool.query("SELECT count(*)::int AS n FROM business_event_feed WHERE outbox_event_id=ANY($1::uuid[])",[[good,foreign]])).rows[0].n).toBe(2);
+      const deferred=await deliverDueInternalEventFeedBatch(pool);
+      expect(deferred.selected).toBe(0);
+      const statusUrl=(merchant:Merchant)=>url(merchant).replace("activity-feed?","activity-feed/status?");
+      const status=await app.inject({method:"GET",url:statusUrl(a),headers:a.headers});
+      expect(status.json()).toMatchObject({pending:1,retrying:1,reviewRequired:0});
+      expect((await app.inject({method:"GET",url:statusUrl(b),headers:b.headers})).json()).toMatchObject({pending:0,retrying:0,reviewRequired:0});
+      expect((await app.inject({method:"GET",url:statusUrl(a),headers:b.headers})).statusCode).toBe(403);
+      // Accelerate only the synthetic CI retry clock.
+      await pool.query("UPDATE internal_event_feed_attempts SET attempt_count=7,next_retry_at=now()-interval '1 second' WHERE outbox_event_id=$1",[bad]);
+      expect(await deliverDueInternalEventFeedBatch(pool)).toMatchObject({selected:1,acknowledged:0,retrying:0,reviewRequired:1});
+      expect((await app.inject({method:"GET",url:statusUrl(a),headers:a.headers})).json()).toMatchObject({pending:1,retrying:0,reviewRequired:1});
+      expect((await deliverDueInternalEventFeedBatch(pool)).selected).toBe(0);
+      expect((await pool.query("SELECT published_at FROM outbox_events WHERE id=$1",[bad])).rows[0].published_at).toBeNull();
+    }finally{
+      await pool.query("DROP TRIGGER IF EXISTS qa_feed_ack_failure ON outbox_events");
+      await pool.query("DROP FUNCTION IF EXISTS qa_feed_ack_failure()");
+    }
+  });
+
+  it("delivers concurrently without duplicate receipts",async()=>{
+    const a=await merchant("retry-concurrent");
+    await insertEvent(a);
+    const results=await Promise.all([deliverDueInternalEventFeedBatch(pool),deliverDueInternalEventFeedBatch(pool)]);
+    expect(results.reduce((n,x)=>n+x.acknowledged,0)).toBe(1);
+    expect((await pool.query("SELECT count(*)::int AS n FROM business_event_feed WHERE business_id=$1",[a.businessId])).rows[0].n).toBe(1);
   });
 
   it("is append-only and rejects fabricated/mismatched delivery receipts",async()=>{
