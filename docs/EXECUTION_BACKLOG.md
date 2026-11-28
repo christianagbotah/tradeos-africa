@@ -13,8 +13,10 @@ Updated 2026-11-28. This is a public, source-level tracker; keep credentials, cu
 - [x] Bind web refresh/retry to original workspace, device and staff (#304).
 - [x] Expose pending/rejected queue state and safe review guidance across merchant interfaces (#303).
 - [x] Run combined-main CI and signed runtime candidate build for #301/#303/#304 (60815bdf; CI 46138381658, signed candidate 46138381650, runtime pilot 46138411594 all successful). Deployment/UAT remain separate gates.
-- [ ] Extend atomic acknowledgement/reconciliation to returns, exchanges, credit, cashbook and other financial mutations; prove historical RECEIVED recovery without reposting.
-- [ ] Define outbox consumer contracts; durable delivery/acknowledgement; tenant-scoped leasing, retries, dead-letter review, replay/idempotency and crash tests (#218).
+- [x] Merge atomic new return/refund posting and acknowledgement with malformed-input and replay regression coverage (#306).
+- [ ] Integrate atomic exchange (#308) and purchase/credit payment (#310) posting and acknowledgement; finish cashbook and other financial mutations, historical RECEIVED recovery and cross-client verification.
+- [x] Merge transactional local consumer primitive (#307); existing internal business activity feed is a real durable destination, not a new external notification provider.
+- [ ] Integrate retry-aware internal feed worker, bounded backoff, poison isolation and scoped merchant status (#309); complete authorized review/requeue workflow, activation and reconciliation (#218).
 - [ ] Verify provider reservation expiry and reconciliation, webhook signature/replay checks, settlement consistency and payment exceptions (#134).
 - [ ] Test offline restart, account/branch changes, duplicate IDs, disconnected cashiers, multi-device races and no cross-tenant exposure on web, Android, iOS and desktop.
 
@@ -32,13 +34,14 @@ Updated 2026-11-28. This is a public, source-level tracker; keep credentials, cu
 - [ ] Produce and verify signed Android/iOS and Windows/macOS distribution packages, installation/update/rollback, and physical-device tests.
 
 ## P1 — empowerment programmes (stacked #293–298)
-- [ ] Review/integrate programme tenancy, beneficiary self-consent/withdrawal, roles, cohorts, enrolment/capacity and audit (#293).
-- [ ] Apprenticeship pathways, mentor placement, progress and completion (#294).
-- [ ] Startup equipment register, approval, allocation, handover and lifecycle reconciliation (#295).
-- [ ] Financial literacy content, private assessments and progress (#296).
-- [ ] Participant-owned business onboarding/linking and privacy-limited activation reporting (#297).
-- [ ] Aggregate outcomes with small-cell suppression, role controls and withdrawal handling (#298).
-- [ ] Reconcile stacked branches against main; review migration/provisioning and consent notices; fresh combined CI, upgrade rehearsal and synthetic role/isolation UAT.
+- [x] Review/integrate programme tenancy, beneficiary self-consent/withdrawal, roles, cohorts, enrolment/capacity and audit (#293; integrated through #305).
+- [x] Apprenticeship pathways, mentor placement, progress and completion (#294; integrated through #305).
+- [x] Startup equipment register, approval, allocation, handover and lifecycle reconciliation (#295; integrated through #305).
+- [x] Financial literacy content, private assessments and progress (#296; integrated through #305).
+- [x] Participant-owned business onboarding/linking and privacy-limited activation reporting (#297; integrated through #305).
+- [x] Aggregate outcomes with small-cell suppression, role controls and withdrawal handling (#298; integrated through #305).
+- [x] Consolidate stacked programme branches, consent and synthetic isolation checks through #305; combined-main CI and signed runtime build passed.
+- [ ] Obtain separate migration admission and real provisioning/activation approval; complete authenticated staging UAT.
 - [ ] Verify native/desktop parity, accessibility, data retention/export, consent revocation, provisioning controls and no unauthorized merchant data access before real activation.
 
 ## P1 — SaaS, integrations, AI and administration
@@ -67,3 +70,15 @@ Next: verify combined-main workflows; review stacked programme integration again
 - Rechecked staging availability and financial outbox readiness using a read-only aggregate query: gate remains blocked. No production data changed; detailed operational counts are not stored in this public tracker.
 
 Next: finish fresh CI and review of #305–307/#285; define actual registered outbox consumers and implement durable backoff, poison review, operator metrics and acknowledgement-loss coverage; continue atomic exchange/purchase/credit posting. Keep the financial gate enforced and verify exact-main runtime candidate after integration.
+
+### Checkpoint — 2026-11-28, third development pass
+- Merged #306 (efdc4289), #307 (e86d6274), #305 (5a63983e) after passing PR CI. Closed superseded #293–298 without deleting source branches.
+- Combined main 5a63983e: domain/native CI 46158783311, signed runtime candidate 46158783316, artifact pilot 46158783300 all succeeded.
+- #308: exchange posting, linked components and sync acknowledgement transaction; cross-device/replay regression tests. #310: stacked purchase receipts and customer/supplier credit payment atomic acknowledgement and historical recovery guard. Both have signed artifact smoke checks passing; finish all CI before merging.
+- #309: extend the existing internal activity-feed consumer with persisted retries, bounded backoff, poison isolation, migration 0070 and scoped status on the merchant dashboard. Artifact and upgrade rehearsal checks passed; remaining CI and operator review/requeue acceptance outstanding. Worker remains disabled until controlled activation.
+- #285: automated checks including Android passed, physical-device acceptance still outstanding. Keep draft per its acceptance gate.
+- Read-only signed intake verified provenance and checksums, but rejected the candidate under the installed exact migration-admission policy. Schema expansion beyond the approved migration set requires separate reviewed release-control changes; never bypass. Fresh local backup and independent restore checks succeeded; offsite recovery remains unverified. No production migration, event delivery or runtime promotion performed.
+- Hubtel cancellation preflight and scheduler exist; provider-guaranteed irreversible cancellation/expiry evidence and audited stock reversal remain required before enabling automated cancellation. Do not infer finality from elapsed time or UNPAID responses.
+- Independent third-party automated review was unavailable; its skipped check is not a substantive review.
+
+Next: finish CI for #308–310, integrate in dependency order, preserve exact-main artifact identity, continue remaining cashbook/inventory/financial mutation safety, provider finality, operator review/requeue, native UAT and reviewed migration admission. Keep deployment gates enforced. No acceptance box is closed solely on the basis of a source commit.
