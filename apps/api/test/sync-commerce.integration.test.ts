@@ -106,6 +106,47 @@ describe("offline commerce mutations", () => {
     expect(await availableStock()).toBe(250);
   });
 
+  it("rolls back a new sale when writing its sync acknowledgement fails, then retries exactly once",async()=>{
+    // Test-only fault injection against the disposable CI PostgreSQL database.
+    const mutation={clientId:"atomic-sale-device",clientMutationId:"atomic-sale-fault",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:2,saleUnitCode:"glass"}]}};
+    await pool.query(`CREATE FUNCTION qa_fail_sale_ack() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.client_mutation_id='atomic-sale-fault' AND NEW.status='APPLIED' THEN
+      RAISE EXCEPTION 'Synthetic acknowledgement failure'; END IF; RETURN NEW; END $$`);
+    try{
+      await pool.query("CREATE TRIGGER qa_fail_sale_ack BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION qa_fail_sale_ack()");
+      await expect(ingestSyncBatch(pool,{mutations:[mutation]})).rejects.toThrow("Synthetic acknowledgement failure");
+      const counts=(await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries) AS cashbook,(SELECT count(*)::int FROM sync_mutations) AS sync")).rows[0];
+      expect(counts).toEqual({sales:0,payments:0,cashbook:0,sync:0});
+      expect(await availableStock()).toBe(750);
+    }finally{
+      await pool.query("DROP TRIGGER IF EXISTS qa_fail_sale_ack ON sync_mutations");
+      await pool.query("DROP FUNCTION IF EXISTS qa_fail_sale_ack()");
+    }
+    const first=(await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]!;
+    expect(first.status).toBe("APPLIED");
+    expect((await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]?.result).toEqual(first.result);
+    expect(await availableStock()).toBe(650);
+    expect((await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries) AS cashbook,(SELECT count(*)::int FROM sync_mutations WHERE status='APPLIED') AS sync")).rows[0]).toEqual({sales:1,payments:1,cashbook:1,sync:1});
+  });
+
+  it("rejects reuse of a sale identifier on another device and leaves historical RECEIVED records alone",async()=>{
+    const mutation={clientId:"original-device",clientMutationId:"shared-sale-id",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:1,saleUnitCode:"glass"}]}};
+    const first=(await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]!;
+    expect(first.status).toBe("APPLIED");
+    const other=(await ingestSyncBatch(pool,{mutations:[{...mutation,clientId:"other-device"}]})).mutationResults[0]!;
+    expect(other).toMatchObject({status:"REJECTED",errorCode:"SALE_DEVICE_REPLAY_CONFLICT"});
+    const historical={...mutation,clientMutationId:"historical-received"};
+    await pool.query("INSERT INTO sync_mutations(business_id,branch_id,client_id,client_mutation_id,mutation_type,request_payload,status) VALUES($1,$2,$3,$4,'SALE_CREATE',$5::jsonb,'RECEIVED')",
+      [businessId,branchId,historical.clientId,historical.clientMutationId,JSON.stringify(historical)]);
+    expect((await ingestSyncBatch(pool,{mutations:[historical]})).mutationResults[0]?.status).toBe("RECEIVED");
+    expect(await availableStock()).toBe(700);
+    expect((await pool.query("SELECT count(*)::int AS count FROM sales")).rows[0]?.count).toBe(1);
+  });
+
   it("associates named customers with immediate CASH and MOMO sales without creating credit debt", async () => {
     const cash = await ingestSyncBatch(pool, { mutations: [{
       clientId: "pos-device",
