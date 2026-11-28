@@ -44,7 +44,7 @@ export interface CashbookMutationPayload {
   description?: string; payee?: string; provider?: string; providerReference?: string; actorStaffId?: string;
   reason?: "OPENING_BALANCE" | "CORRECTION" | "OWNER_INJECTION" | "OWNER_WITHDRAWAL"; note?: string;
 }
-export async function applyCashbookMutation(pool: DatabasePool, context: SaleMutationContext, payload: CashbookMutationPayload, adjustment: boolean) {
+export async function applyCashbookMutation(pool: DatabasePool, context: SaleMutationContext, payload: CashbookMutationPayload, adjustment: boolean, transaction?: DatabaseClient) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new CashbookError("Payload must be an object");
   for (const value of [payload.description,payload.payee,payload.provider,payload.providerReference,payload.note,payload.currencyCode]) if (value !== undefined && (typeof value !== "string" || value.length > 1000)) throw new CashbookError("Text value is invalid or too long");
   if (!context.branchId || !context.clientMutationId || Number.isNaN(Date.parse(context.occurredAt))) throw new CashbookError("Branch, mutation identity and valid occurredAt are required");
@@ -54,7 +54,7 @@ export async function applyCashbookMutation(pool: DatabasePool, context: SaleMut
   const reasons = ["OPENING_BALANCE","CORRECTION","OWNER_INJECTION","OWNER_WITHDRAWAL"];
   if (adjustment && (!reasons.includes(payload.reason ?? "") || !payload.note?.trim() || (["OPENING_BALANCE","OWNER_INJECTION"].includes(payload.reason!) && delta < 0) || (payload.reason === "OWNER_WITHDRAWAL" && delta > 0))) throw new CashbookError("Adjustment reason, sign and note are invalid");
   if (!adjustment && !payload.description?.trim() && !payload.payee?.trim()) throw new CashbookError("Expense needs a description or payee");
-  return withTransaction(pool, async client => {
+  const apply=async (client:DatabaseClient)=>{
     await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [`${context.businessId}:${context.clientMutationId}`]);
     const currency = (await client.query<{currency_code:string}>(`SELECT b.currency_code FROM branches br JOIN businesses b ON b.id=br.business_id WHERE br.id=$1 AND br.business_id=$2 AND br.is_active=true FOR SHARE OF br,b`, [context.branchId,context.businessId])).rows[0]?.currency_code;
     if (!currency) throw new CashbookError("Branch not found for business", "BRANCH_NOT_FOUND");
@@ -78,7 +78,8 @@ export async function applyCashbookMutation(pool: DatabasePool, context: SaleMut
     await client.query(`INSERT INTO audit_events(business_id,branch_id,actor_staff_id,event_type,entity_type,entity_id,correlation_id,payload,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`,[context.businessId,context.branchId,payload.actorStaffId,`${entryType}_CREATED`,table.toUpperCase(),id,context.clientMutationId,event,context.occurredAt]);
     await client.query(`INSERT INTO outbox_events(business_id,branch_id,aggregate_type,aggregate_id,event_type,payload,occurred_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`,[context.businessId,context.branchId,table.toUpperCase(),id,`${entryType}_CREATED`,event,context.occurredAt]);
     return {id,amountDeltaMinor:delta,idempotentReplay:false};
-  });
+  };
+  return transaction?apply(transaction):withTransaction(pool,apply);
 }
 
 export async function resolveMoneyAccount(client: DatabaseClient, input: {businessId:string;branchId:string;currencyCode:string;method:CashMethod;moneyAccountId?:string|undefined}): Promise<string> {
