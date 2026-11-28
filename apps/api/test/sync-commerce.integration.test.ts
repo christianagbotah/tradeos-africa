@@ -64,6 +64,48 @@ describe("offline commerce mutations", () => {
     expect(Number(counts.rows[0]?.movements)).toBe(1);
   });
 
+  it("rejects a changed offline sale cart, tender or branch on reuse of the original mutation ID",async()=>{
+    const mutation={clientId:"sale-replay-device",clientMutationId:"immutable-sale",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:1,saleUnitCode:"glass"}]}};
+    const first=(await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]!;
+    expect(first.status).toBe("APPLIED");
+    const exact=(await ingestSyncBatch(pool,{mutations:[{...mutation,payload:{lines:mutation.payload.lines,paymentMethod:"CASH",currencyCode:"GHS"}}]})).mutationResults[0]!;
+    expect(exact.result).toEqual(first.result);
+    const otherBranch=randomUUID();
+    await pool.query("INSERT INTO branches(id,business_id,name,code) VALUES($1,$2,'Second','SECOND')",[otherBranch,businessId]);
+    for(const altered of [
+      {...mutation,payload:{...mutation.payload,lines:[{...mutation.payload.lines[0]!,quantity:2}]}},
+      {...mutation,payload:{...mutation.payload,paymentMethod:"MOMO"}},
+      {...mutation,payload:{...mutation.payload,customerId}},
+      {...mutation,branchId:otherBranch},
+      {...mutation,mutationType:"RETURN_CREATE"},
+    ]){
+      expect((await ingestSyncBatch(pool,{mutations:[altered]})).mutationResults[0]).toMatchObject({status:"REJECTED",errorCode:"FINANCIAL_REPLAY_CONFLICT"});
+    }
+    expect(await availableStock()).toBe(700);
+    const counts=(await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries WHERE entry_type='SALE_RECEIPT') AS receipts")).rows[0];
+    expect(counts).toEqual({sales:1,payments:1,receipts:1});
+    expect((await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]?.result).toEqual(first.result);
+  });
+
+  it("serializes competing offline checkouts so only one can consume the remaining stock",async()=>{
+    const mutation=(clientId:string)=>({clientId,clientMutationId:"stock-race-"+clientId,businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:10,saleUnitCode:"glass"}]}});
+    const requests=[mutation("device-a"),mutation("device-b")];
+    const results=await Promise.all(requests.map(async m=>(await ingestSyncBatch(pool,{mutations:[m]})).mutationResults[0]!));
+    expect(results.map(r=>r.status).sort()).toEqual(["APPLIED","REJECTED"]);
+    expect(await availableStock()).toBe(250);
+    const counts=(await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries WHERE entry_type='SALE_RECEIPT') AS receipts")).rows[0];
+    expect(counts).toEqual({sales:1,payments:1,receipts:1});
+    for(let i=0;i<requests.length;i++){
+      const replay=(await ingestSyncBatch(pool,{mutations:[requests[i]!]})).mutationResults[0]!;
+      expect(replay.status).toBe(results[i]!.status);
+    }
+    expect(await availableStock()).toBe(250);
+  });
+
   it("associates named customers with immediate CASH and MOMO sales without creating credit debt", async () => {
     const cash = await ingestSyncBatch(pool, { mutations: [{
       clientId: "pos-device",
