@@ -471,7 +471,7 @@ jobs:
               await p.getByRole("dialog",{name:"Remove business link",exact:true}).getByRole("button",{name:"Confirm",exact:true}).click();
               await p.getByRole("status").filter({hasText:"Business link removed."}).waitFor();
               await p.getByText("Not linked",{exact:true}).waitFor();
-              await p.getByText("Fictional workshop "+width,{exact:true}).waitFor();
+              await p.locator("strong").filter({hasText:new RegExp("^Fictional workshop "+width+"$")}).waitFor();
               await assertFit();
               console.log("Participant-owned merchant onboarding, consent linking and independent unlink verified at "+width);
               await assertFit();
