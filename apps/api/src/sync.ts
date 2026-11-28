@@ -52,10 +52,10 @@ const CATALOG_WRITE_ROLES: readonly BusinessRole[] = ["OWNER", "ADMIN", "MANAGER
 const CATALOG_MUTATIONS = new Set(["CATALOG_ITEM_CREATE", "CATALOG_ITEM_UPDATE", "CATALOG_ITEM_ARCHIVE", "CATALOG_ITEM_REACTIVATE"]);
 const CUSTOMER_MUTATIONS = new Set(["CUSTOMER_CREATE", "CUSTOMER_UPDATE"]);
 const SUPPLIER_MUTATIONS = new Set(["SUPPLIER_CREATE", "SUPPLIER_UPDATE"]);
-// Once accepted, a refund, exchange or stock adjustment must never be
+// Once accepted, a sale, refund, exchange or stock adjustment must never be
 // silently reinterpreted as a *different* financial request with the same ID.
 const STRICT_FINANCIAL_REPLAY_TYPES = new Set([
-  "RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE", "INVENTORY_ADJUSTMENT_CREATE",
+  "SALE_CREATE", "RETURN_CREATE", "REFUND_CREATE", "EXCHANGE_CREATE", "INVENTORY_ADJUSTMENT_CREATE",
 ]);
 type StoredStatus = "RECEIVED" | "APPLIED" | "REJECTED";
 
@@ -118,9 +118,11 @@ function poLinkedReplaySignature(payload:unknown):string|null {
  */
 function financialReplaySignature(mutationType: string, payload: unknown): string | null {
   if (!STRICT_FINANCIAL_REPLAY_TYPES.has(mutationType)) return null;
-  const excluded = mutationType === "INVENTORY_ADJUSTMENT_CREATE"
-    ? new Set(["actorStaffId"])
-    : new Set(["initiatedByStaffId", "approvedByStaffId", "actorStaffId"]);
+  const excluded = mutationType === "SALE_CREATE"
+    ? new Set(["cashierStaffId", "cashierMembershipId"])
+    : mutationType === "INVENTORY_ADJUSTMENT_CREATE"
+      ? new Set(["actorStaffId"])
+      : new Set(["initiatedByStaffId", "approvedByStaffId", "actorStaffId"]);
   const sorted = (value: unknown, depth = 0): unknown => {
     if (depth > 32) throw new SyncRequestError("Financial mutation payload nesting exceeds limit");
     if (Array.isArray(value)) return value.map((part) => sorted(part, depth + 1));
@@ -271,7 +273,7 @@ async function ingestMutation(pool: DatabasePool, mutation: ClientMutation): Pro
         new Error("A supplier-order receipt with this mutation ID was already submitted with different content"));
       if(changedFinancial)return rejection(mutation.clientMutationId,serverReceivedAt,
         "FINANCIAL_REPLAY_CONFLICT",
-        new Error("This refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
+        new Error("This sale, refund, exchange or stock adjustment ID already belongs to another set of transaction details. Review the original posting before attempting a new operation."));
       return {
         clientMutationId: mutation.clientMutationId,
         status: prior.status,
