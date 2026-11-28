@@ -240,3 +240,38 @@ describe("participant owned business consent and aggregate disclosure",()=>{
     expect((await pool.query("SELECT id FROM business_memberships WHERE business_id=$1",[own])).rowCount).toBe(1);
   });
 });
+
+describe("privacy-limited recorded programme outcomes",()=>{
+  it("counts distinct consenting participants, suppresses both small cells and rejects slicing or unauthorized viewers",async()=>{
+    const f=await fixture(),viewer=await user("outcome-viewer");
+    await pool.query("INSERT INTO programme_memberships(organisation_id,user_id,role) VALUES($1,$2,'REPORT_VIEWER')",[f.org,viewer.id]);
+    const actors=[f.person,f.second];
+    for(let i=0;i<8;i++){
+      const actor=await user("outcome-person-"+i);
+      await pool.query("INSERT INTO programme_memberships(organisation_id,user_id,role) VALUES($1,$2,'PARTICIPANT')",[f.org,actor.id]);
+      actors.push(actor);
+    }
+    const ids:string[]=[];
+    for(const actor of actors)ids.push(await f.consent(actor));
+    const programme=await f.createProgramme(),cohort=await f.createCohort(programme,10),secondCohort=await f.createCohort(programme,10);
+    for(const participantId of ids.slice(0,5)){
+      expect((await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId:cohort,participantId})).statusCode).toBe(201);
+    }
+    expect((await f.post(f.admin,f.org,"enrolments",{clientRequestId:randomUUID(),cohortId:secondCohort,participantId:ids[0]})).statusCode).toBe(201);
+    const response=await f.get(viewer,f.org,"outcomes");
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.json()).toEqual({minimumCellSize:5,participants:10,metrics:[
+      {key:"enrolled",count:5,suppressed:false},{key:"trained",count:null,suppressed:true},
+      {key:"equipped",count:null,suppressed:true},{key:"learned",count:null,suppressed:true}
+    ]});
+    expect((await f.get(f.admin,f.org,"outcomes")).json()).toEqual(response.json());
+    for(const actor of [f.person,f.mentor,f.foreign,f.merchant])expect((await f.get(actor,f.org,"outcomes")).statusCode).toBe(403);
+    expect((await f.get(viewer,f.org,"outcomes?cohortId="+cohort)).statusCode).toBe(400);
+    expect((await f.get(viewer,f.org,"participants")).statusCode).toBe(403);
+    expect((await f.post(f.person,f.org,"participants/self/withdraw",{clientRequestId:randomUUID()})).statusCode).toBe(200);
+    const after=(await f.get(viewer,f.org,"outcomes")).json();
+    expect(after.participants).toBeNull();
+    expect(after.metrics.every((m:{count:number|null;suppressed:boolean})=>m.count===null&&m.suppressed)).toBe(true);
+  });
+});

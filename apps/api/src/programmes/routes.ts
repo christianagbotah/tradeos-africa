@@ -477,4 +477,42 @@ export function registerProgrammeRoutes(app:FastifyInstance,pool:DatabasePool){
     return {suppressed,minimumCellSize:5,participants:suppressed?null:participants,linked:suppressed?null:linked};
   }));
 
+
+  // Fixed organisation-wide, participant-deduplicated recorded milestones.
+  // No arbitrary slices, per-person outcomes, financial figures or causal claims.
+  app.get("/v1/programmes/:orgId/outcomes",(req,reply)=>handle(req,reply,async(c,u)=>{
+    const org=orgOf(req);await access(c,org,u,[...managers,"REPORT_VIEWER"]);
+    if(Object.keys((req.query??{}) as object).length)throw invalid("Outcome filters are not supported");
+    const result=await c.query<{participants:number;enrolled:number;trained:number;equipped:number;learned:number}>(`WITH eligible AS (
+      SELECT p.id,p.organisation_id FROM programme_participants p
+      JOIN programme_memberships m ON m.organisation_id=p.organisation_id AND m.user_id=p.user_id
+      JOIN app_users au ON au.id=p.user_id AND au.status='ACTIVE'
+      WHERE p.organisation_id=$1 AND p.withdrawn_at IS NULL AND m.role='PARTICIPANT' AND m.status='ACTIVE'
+    ), milestones AS (
+      SELECT p.id,
+        EXISTS(SELECT 1 FROM programme_enrolments e WHERE e.organisation_id=p.organisation_id AND e.participant_id=p.id) AS enrolled,
+        EXISTS(SELECT 1 FROM programme_enrolments e JOIN programme_training_placements t
+          ON t.organisation_id=e.organisation_id AND t.cohort_id=e.cohort_id AND t.enrolment_id=e.id
+          WHERE e.organisation_id=p.organisation_id AND e.participant_id=p.id AND t.status='COMPLETED') AS trained,
+        EXISTS(SELECT 1 FROM programme_enrolments e JOIN programme_equipment_allocations a
+          ON a.organisation_id=e.organisation_id AND a.cohort_id=e.cohort_id AND a.enrolment_id=e.id
+          WHERE e.organisation_id=p.organisation_id AND e.participant_id=p.id AND a.status='HANDED_OVER') AS equipped,
+        EXISTS(SELECT 1 FROM programme_enrolments e JOIN programme_literacy_attempts a
+          ON a.organisation_id=e.organisation_id AND a.cohort_id=e.cohort_id AND a.enrolment_id=e.id
+          WHERE e.organisation_id=p.organisation_id AND e.participant_id=p.id AND a.passed) AS learned
+      FROM eligible p
+    ) SELECT count(*)::integer AS participants,
+      count(*) FILTER(WHERE enrolled)::integer AS enrolled,
+      count(*) FILTER(WHERE trained)::integer AS trained,
+      count(*) FILTER(WHERE equipped)::integer AS equipped,
+      count(*) FILTER(WHERE learned)::integer AS learned FROM milestones`,[org]);
+    const r=result.rows[0]!,minimumCellSize=5;
+    const metric=(key:"enrolled"|"trained"|"equipped"|"learned")=>{
+      const n=r[key],suppressed=n<minimumCellSize||r.participants-n<minimumCellSize;
+      return {key,count:suppressed?null:n,suppressed};
+    };
+    return {minimumCellSize,participants:r.participants<2*minimumCellSize?null:r.participants,
+      metrics:[metric("enrolled"),metric("trained"),metric("equipped"),metric("learned")]};
+  }));
+
 }
