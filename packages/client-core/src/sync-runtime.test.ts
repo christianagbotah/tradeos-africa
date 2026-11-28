@@ -146,6 +146,17 @@ describe("OfflineMutationQueue lifecycle", () => {
     }]);
   });
 
+  it("retains replay conflicts and ambiguous historical failures instead of generating a new economic ID",async()=>{
+    for(const errorCode of ["FINANCIAL_REPLAY_CONFLICT","PURCHASE_REPLAY_CONFLICT","SALE_DEVICE_REPLAY_CONFLICT","SALE_REPLAY_INCOMPLETE","SYNC_INGEST_FAILED","MUTATION_APPLY_FAILED"]){
+      const initial:QueueSnapshot={pending:[],failed:[{mutation:mutation(),result:{clientMutationId:"mutation-1",status:"REJECTED",serverReceivedAt:"2026-10-10T08:05:00.000Z",errorCode},failedAt:"2026-10-10T08:06:00.000Z"}]};
+      let allocated=0;
+      const queue=new OfflineMutationQueue(new TestSnapshotStorage(initial),{now:()=>"2026-10-10T09:00:00.000Z",createMutationId:()=>{allocated++;return "unsafe-new-id";}});
+      expect(await queue.retryFailed("mutation-1")).toBe(false);
+      expect(allocated).toBe(0);
+      expect(await queue.getSnapshot()).toEqual(initial);
+    }
+  });
+
   it("dismisses only the requested failed mutation", async () => {
     const toFailed = (id: string) => ({
       mutation: mutation({ clientMutationId: id }),

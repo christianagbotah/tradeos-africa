@@ -64,6 +64,104 @@ describe("offline commerce mutations", () => {
     expect(Number(counts.rows[0]?.movements)).toBe(1);
   });
 
+  it("rejects a changed offline sale cart, tender or branch on reuse of the original mutation ID",async()=>{
+    const mutation={clientId:"sale-replay-device",clientMutationId:"immutable-sale",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:1,saleUnitCode:"glass"}]}};
+    const first=(await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]!;
+    expect(first.status).toBe("APPLIED");
+    const exact=(await ingestSyncBatch(pool,{mutations:[{...mutation,payload:{lines:mutation.payload.lines,paymentMethod:"CASH",currencyCode:"GHS"}}]})).mutationResults[0]!;
+    expect(exact.result).toEqual(first.result);
+    const otherBranch=randomUUID();
+    await pool.query("INSERT INTO branches(id,business_id,name,code) VALUES($1,$2,'Second','SECOND')",[otherBranch,businessId]);
+    for(const altered of [
+      {...mutation,payload:{...mutation.payload,lines:[{...mutation.payload.lines[0]!,quantity:2}]}},
+      {...mutation,payload:{...mutation.payload,paymentMethod:"MOMO"}},
+      {...mutation,payload:{...mutation.payload,customerId}},
+      {...mutation,branchId:otherBranch},
+      {...mutation,mutationType:"RETURN_CREATE"},
+    ]){
+      expect((await ingestSyncBatch(pool,{mutations:[altered]})).mutationResults[0]).toMatchObject({status:"REJECTED",errorCode:"FINANCIAL_REPLAY_CONFLICT"});
+    }
+    expect(await availableStock()).toBe(700);
+    const counts=(await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries WHERE entry_type='SALE_RECEIPT') AS receipts")).rows[0];
+    expect(counts).toEqual({sales:1,payments:1,receipts:1});
+    expect((await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]?.result).toEqual(first.result);
+  });
+
+  it("serializes competing offline checkouts so only one can consume the remaining stock",async()=>{
+    const mutation=(clientId:string)=>({clientId,clientMutationId:"stock-race-"+clientId,businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:10,saleUnitCode:"glass"}]}});
+    const requests=[mutation("device-a"),mutation("device-b")];
+    const results=await Promise.all(requests.map(async m=>(await ingestSyncBatch(pool,{mutations:[m]})).mutationResults[0]!));
+    expect(results.map(r=>r.status).sort()).toEqual(["APPLIED","REJECTED"]);
+    expect(results.find(r=>r.status==="REJECTED")?.errorCode).toBe("INSUFFICIENT_STOCK");
+    expect(await availableStock()).toBe(250);
+    const counts=(await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries WHERE entry_type='SALE_RECEIPT') AS receipts")).rows[0];
+    expect(counts).toEqual({sales:1,payments:1,receipts:1});
+    for(let i=0;i<requests.length;i++){
+      const replay=(await ingestSyncBatch(pool,{mutations:[requests[i]!]})).mutationResults[0]!;
+      expect(replay.status).toBe(results[i]!.status);
+    }
+    expect(await availableStock()).toBe(250);
+  });
+
+  it("rolls back a new sale when writing its sync acknowledgement fails, then retries exactly once",async()=>{
+    // Test-only fault injection against the disposable CI PostgreSQL database.
+    const mutation={clientId:"atomic-sale-device",clientMutationId:"atomic-sale-fault",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:2,saleUnitCode:"glass"}]}};
+    await pool.query(`CREATE FUNCTION qa_fail_sale_ack() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.client_mutation_id='atomic-sale-fault' AND NEW.status='APPLIED' THEN
+      RAISE EXCEPTION 'Synthetic acknowledgement failure'; END IF; RETURN NEW; END $$`);
+    try{
+      await pool.query("CREATE TRIGGER qa_fail_sale_ack BEFORE UPDATE ON sync_mutations FOR EACH ROW EXECUTE FUNCTION qa_fail_sale_ack()");
+      await expect(ingestSyncBatch(pool,{mutations:[mutation]})).rejects.toThrow("Synthetic acknowledgement failure");
+      const counts=(await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries) AS cashbook,(SELECT count(*)::int FROM sync_mutations) AS sync")).rows[0];
+      expect(counts).toEqual({sales:0,payments:0,cashbook:0,sync:0});
+      expect(await availableStock()).toBe(750);
+    }finally{
+      await pool.query("DROP TRIGGER IF EXISTS qa_fail_sale_ack ON sync_mutations");
+      await pool.query("DROP FUNCTION IF EXISTS qa_fail_sale_ack()");
+    }
+    const first=(await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]!;
+    expect(first.status).toBe("APPLIED");
+    expect((await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]?.result).toEqual(first.result);
+    expect(await availableStock()).toBe(650);
+    expect((await pool.query("SELECT (SELECT count(*)::int FROM sales) AS sales,(SELECT count(*)::int FROM payments) AS payments,(SELECT count(*)::int FROM cashbook_entries) AS cashbook,(SELECT count(*)::int FROM sync_mutations WHERE status='APPLIED') AS sync")).rows[0]).toEqual({sales:1,payments:1,cashbook:1,sync:1});
+  });
+
+  it("does not terminally reject an otherwise available sale when valuation data is inconsistent",async()=>{
+    await pool.query("INSERT INTO inventory_valuations(business_id,branch_id,item_id,location_type,quantity,value_minor) VALUES($1,$2,$3,'AVAILABLE',10,100)",[businessId,branchId,whiskyId]);
+    const mutation={clientId:"valuation-device",clientMutationId:"valuation-fault",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:1,saleUnitCode:"glass"}]}};
+    await expect(ingestSyncBatch(pool,{mutations:[mutation]})).rejects.toThrow("Inventory valuation is below the requested stock quantity");
+    expect(await availableStock()).toBe(750);
+    expect((await pool.query("SELECT count(*)::int AS count FROM sync_mutations")).rows[0]?.count).toBe(0);
+    // Repair synthetic fixture only, then replay the exact request.
+    await pool.query("UPDATE inventory_valuations SET quantity=750,value_minor=7500 WHERE business_id=$1 AND branch_id=$2 AND item_id=$3",[businessId,branchId,whiskyId]);
+    expect((await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]?.status).toBe("APPLIED");
+    expect(await availableStock()).toBe(700);
+  });
+
+  it("rejects reuse of a sale identifier on another device and leaves historical RECEIVED records alone",async()=>{
+    const mutation={clientId:"original-device",clientMutationId:"shared-sale-id",businessId,branchId,
+      occurredAt:new Date().toISOString(),mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:1,saleUnitCode:"glass"}]}};
+    const first=(await ingestSyncBatch(pool,{mutations:[mutation]})).mutationResults[0]!;
+    expect(first.status).toBe("APPLIED");
+    const other=(await ingestSyncBatch(pool,{mutations:[{...mutation,clientId:"other-device"}]})).mutationResults[0]!;
+    expect(other).toMatchObject({status:"REJECTED",errorCode:"SALE_DEVICE_REPLAY_CONFLICT"});
+    const historical={...mutation,clientMutationId:"historical-received"};
+    await pool.query("INSERT INTO sync_mutations(business_id,branch_id,client_id,client_mutation_id,mutation_type,request_payload,status) VALUES($1,$2,$3,$4,'SALE_CREATE',$5::jsonb,'RECEIVED')",
+      [businessId,branchId,historical.clientId,historical.clientMutationId,JSON.stringify(historical)]);
+    expect((await ingestSyncBatch(pool,{mutations:[historical]})).mutationResults[0]?.status).toBe("RECEIVED");
+    expect(await availableStock()).toBe(700);
+    expect((await pool.query("SELECT count(*)::int AS count FROM sales")).rows[0]?.count).toBe(1);
+  });
+
   it("associates named customers with immediate CASH and MOMO sales without creating credit debt", async () => {
     const cash = await ingestSyncBatch(pool, { mutations: [{
       clientId: "pos-device",
@@ -332,6 +430,38 @@ describe("offline commerce mutations", () => {
     );
     expect(audited.rows).toHaveLength(2);
     expect(audited.rows.every((row) => row.event_type === "RETURN_ACCEPTED")).toBe(true);
+  });
+
+  it("separates quarantined, discarded and retained goods while reconciling cash and historical cost", async () => {
+    await pool.query("INSERT INTO inventory_valuations(business_id,branch_id,item_id,location_type,quantity,value_minor) VALUES($1,$2,$3,'AVAILABLE',750,7500)",[businessId,branchId,whiskyId]);
+    const context={clientId:"disposition-device",businessId,branchId,occurredAt:new Date().toISOString()};
+    const sold=await ingestSyncBatch(pool,{mutations:[{...context,clientMutationId:"disposition-sale",mutationType:"SALE_CREATE",
+      payload:{currencyCode:"GHS",paymentMethod:"CASH",lines:[{itemId:whiskyId,quantity:3,saleUnitCode:"glass"}]}}]});
+    expect(sold.mutationResults[0]?.status).toBe("APPLIED");
+    const saleId=(sold.mutationResults[0]?.result as {saleId:string}).saleId;
+    const line=(await pool.query<{id:string;line_cost_minor:string}>("SELECT id,line_cost_minor FROM sale_lines WHERE sale_id=$1",[saleId])).rows[0]!;
+    expect(Number(line.line_cost_minor)).toBe(1500);
+    expect(await availableStock()).toBe(600);
+    for(const disposition of ["QUARANTINE","DISCARD","NOT_RETURNED"] as const){
+      const mutation={...context,clientMutationId:"disposition-"+disposition,mutationType:"RETURN_CREATE",
+        payload:{originalSaleId:saleId,reason:"Synthetic return disposition",refundMethod:"ORIGINAL_METHOD",lines:[{saleLineId:line.id,quantity:1,disposition}]}};
+      const first=await ingestSyncBatch(pool,{mutations:[mutation]});
+      expect(first.mutationResults[0]?.status).toBe("APPLIED");
+      const replay=await ingestSyncBatch(pool,{mutations:[mutation]});
+      expect(replay.mutationResults[0]?.result).toMatchObject({returnCaseId:(first.mutationResults[0]?.result as {returnCaseId:string}).returnCaseId});
+      expect(await availableStock()).toBe(600);
+    }
+    const rows=(await pool.query<{disposition:string;cogs_reversal_minor:string;discarded_cost_minor:string}>(
+      "SELECT l.disposition,l.cogs_reversal_minor,l.discarded_cost_minor FROM return_lines l JOIN return_cases c ON c.id=l.return_case_id WHERE c.original_sale_id=$1 ORDER BY l.disposition",[saleId])).rows;
+    expect(rows.map(r=>[r.disposition,Number(r.cogs_reversal_minor),Number(r.discarded_cost_minor)])).toEqual([["DISCARD",0,500],["NOT_RETURNED",0,0],["QUARANTINE",500,0]]);
+    const stock=(await pool.query<{location_type:string;quantity:string;value_minor:string}>("SELECT location_type,quantity,value_minor FROM inventory_valuations WHERE business_id=$1 AND branch_id=$2 AND item_id=$3 ORDER BY location_type",[businessId,branchId,whiskyId])).rows;
+    expect(stock.map(r=>[r.location_type,Number(r.quantity),Number(r.value_minor)])).toEqual([["AVAILABLE",600,6000],["QUARANTINE",50,500]]);
+    const movements=(await pool.query<{location_type:string;quantity_delta:string}>("SELECT location_type,quantity_delta FROM inventory_movements WHERE business_id=$1 AND reason='SALE_RETURN'",[businessId])).rows;
+    expect(movements.map(r=>[r.location_type,Number(r.quantity_delta)])).toEqual([["QUARANTINE",50]]);
+    const cash=(await pool.query<{entry_type:string;amount_delta_minor:string}>("SELECT entry_type,amount_delta_minor FROM cashbook_entries WHERE business_id=$1 AND source_type IN ('PAYMENT','REFUND_TRANSACTION')",[businessId])).rows;
+    expect(cash.map(r=>[r.entry_type,Number(r.amount_delta_minor)]).sort()).toEqual([["SALE_RECEIPT",5400],["SALE_REFUND",-1800],["SALE_REFUND",-1800],["SALE_REFUND",-1800]].sort());
+    expect((await pool.query("SELECT status FROM sales WHERE id=$1",[saleId])).rows[0]?.status).toBe("REFUNDED");
+    expect((await pool.query("SELECT status FROM payments WHERE sale_id=$1",[saleId])).rows[0]?.status).toBe("REVERSED");
   });
 
   it("keeps MoMo refunds pending instead of pretending the provider already reversed money", async () => {

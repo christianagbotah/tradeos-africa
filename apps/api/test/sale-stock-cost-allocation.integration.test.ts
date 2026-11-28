@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { applySaleMutation } from "../src/commerce/sales.js";
+import { applyReturnMutation } from "../src/commerce/returns.js";
 import { buildApp } from "../src/app.js";
 import { createPool } from "../src/db.js";
 
@@ -109,6 +110,24 @@ describe("immutable original sale stock valuation evidence",()=>{
     expect((await pool.query<{count:string}>(
       "SELECT COUNT(*)::text AS count FROM sale_stock_cost_allocations WHERE business_id=$1",
       [businessId])).rows[0]!.count).toBe("2");
+    // A refunded service has no returnable physical output; the actual
+    // ingredient consumption and historical cost evidence must remain intact.
+    const saleLineId=(await pool.query<{id:string}>("SELECT id FROM sale_lines WHERE sale_id=$1",[sold.saleId])).rows[0]!.id;
+    const refundContext={...context,clientMutationId:randomUUID()};
+    const refundPayload={originalSaleId:sold.saleId,reason:"Synthetic service refund",refundMethod:"ORIGINAL_METHOD" as const,
+      lines:[{saleLineId,quantity:1,disposition:"NOT_APPLICABLE" as const}]};
+    const refund=await applyReturnMutation(pool,refundContext,refundPayload);
+    expect(refund).toMatchObject({status:"COMPLETED",refundTotalMinor:7000,pendingRefundMinor:0,idempotentReplay:false});
+    expect(await applyReturnMutation(pool,refundContext,refundPayload)).toMatchObject({returnCaseId:refund.returnCaseId,idempotentReplay:true});
+    const outcome=(await pool.query<{cogs_reversal_minor:string;discarded_cost_minor:string}>("SELECT cogs_reversal_minor,discarded_cost_minor FROM return_cases WHERE id=$1",[refund.returnCaseId])).rows[0]!;
+    expect([Number(outcome.cogs_reversal_minor),Number(outcome.discarded_cost_minor)]).toEqual([0,0]);
+    expect((await pool.query("SELECT id FROM inventory_movements WHERE business_id=$1 AND reason='SALE_RETURN'",[businessId])).rowCount).toBe(0);
+    const valuations=(await pool.query<{item_id:string;quantity:string;value_minor:string}>("SELECT item_id,quantity,value_minor FROM inventory_valuations WHERE business_id=$1 AND branch_id=$2 AND location_type='AVAILABLE'",[businessId,branchId])).rows;
+    const values=new Map(valuations.map(v=>[v.item_id,[Number(v.quantity),Number(v.value_minor)]]));
+    expect(values.get(shampoo)).toEqual([150,3000]);expect(values.get(conditioner)).toEqual([75,3750]);
+    const cash=(await pool.query<{entry_type:string;amount_delta_minor:string}>("SELECT entry_type,amount_delta_minor FROM cashbook_entries WHERE business_id=$1 AND source_type IN ('PAYMENT','REFUND_TRANSACTION')",[businessId])).rows;
+    expect(cash.map(r=>[r.entry_type,Number(r.amount_delta_minor)]).sort()).toEqual([["SALE_RECEIPT",7000],["SALE_REFUND",-7000]].sort());
+    expect((await pool.query("SELECT id FROM sale_stock_cost_allocations WHERE business_id=$1",[businessId])).rowCount).toBe(2);
     await expect(pool.query(
       "UPDATE sale_stock_cost_allocations SET consumed_cost_minor=0 WHERE business_id=$1",
       [businessId],

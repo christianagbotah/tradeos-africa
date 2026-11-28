@@ -158,7 +158,7 @@ export function MoreScreen({
         />
         <FoundationRow
           title="Needs review"
-          copy="Server rejected the mutation; evidence is preserved for correction or retry."
+          copy="Server rejected the change. Check the original transaction with your manager before entering it again; the queue keeps the original evidence."
         />
       </Card>
 
